@@ -26,20 +26,24 @@ const DEFAULT_CENTER = { lon: -82, lat: 46 }
 const DEFAULT_ZOOM   = 400
 const BACKEND        = import.meta.env.VITE_ANALYSIS_URL || 'http://localhost:8001'
 
-// ── Build globe URL for any layer ─────────────────────────────────────────────
-function buildGlobeUrl(center, zoom, layer = 'wind') {
+// ── Build globe URL for any layer + height + animate ──────────────────────────
+function buildGlobeUrl(center, zoom, layer = 'wind', height = 'surface', animate = 'wind') {
   const c = `${center.lon.toFixed(2)},${center.lat.toFixed(2)},${zoom}`
+  const hSeg = height === 'surface' ? 'surface/level' : `${height}/level`
   switch (layer) {
-    case 'temp':       return `https://earth.nullschool.net/#current/wind/surface/level/overlay=temp/orthographic=${c}`
-    case 'precip':     return `https://earth.nullschool.net/#current/wind/surface/level/overlay=precip_3h/orthographic=${c}`
-    case 'humid':      return `https://earth.nullschool.net/#current/wind/surface/level/overlay=rh/orthographic=${c}`
+    case 'temp':       return `https://earth.nullschool.net/#current/wind/${hSeg}/overlay=temp/orthographic=${c}`
+    case 'precip':     return `https://earth.nullschool.net/#current/wind/${hSeg}/overlay=precip_3h/orthographic=${c}`
+    case 'humid':      return `https://earth.nullschool.net/#current/wind/${hSeg}/overlay=rh/orthographic=${c}`
     case 'ocean':      return `https://earth.nullschool.net/#current/ocean/surface/currents/orthographic=${c}`
-    case 'pm25':       return `https://earth.nullschool.net/#current/part/surface/level/overlay=pm2p5/orthographic=${c}`
+    case 'pm25':       return `https://earth.nullschool.net/#current/part/${hSeg}/overlay=pm2p5/orthographic=${c}`
     case 'ocean_temp': return `https://earth.nullschool.net/#current/ocean/surface/temp/orthographic=${c}`
-    case 'chem':       return `https://earth.nullschool.net/#current/chem/surface/level/overlay=so2smass/orthographic=${c}`
+    case 'chem':       return `https://earth.nullschool.net/#current/chem/${hSeg}/overlay=so2smass/orthographic=${c}`
     case 'bio':        return `https://earth.nullschool.net/#current/bio/surface/level/overlay=chl/orthographic=${c}`
     case 'wave':       return `https://earth.nullschool.net/#current/ocean/surface/waves/orthographic=${c}`
-    default:           return `https://earth.nullschool.net/#current/wind/surface/level/orthographic=${c}`
+    case 'currents':   return `https://earth.nullschool.net/#current/ocean/surface/currents/orthographic=${c}`
+    case 'part':       return `https://earth.nullschool.net/#current/part/${hSeg}/overlay=pm10/orthographic=${c}`
+    case 'space':      return `https://earth.nullschool.net/#current/space/magnetopause/field/orthographic=${c}`
+    default:           return `https://earth.nullschool.net/#current/wind/${hSeg}/overlay=${animate === 'wind' ? 'wind' : animate}/orthographic=${c}`
   }
 }
 
@@ -87,10 +91,24 @@ const DATA_LAYERS_ROW1 = [
 ]
 
 const DATA_LAYERS_ROW2 = [
-  { id: 'ocean_temp', icon: '🌊', label: 'Ocean Temp' },
+  { id: 'ocean_temp', icon: '🌡️', label: 'Sea Temp'   },
   { id: 'chem',       icon: '⚗️', label: 'Chemistry'  },
   { id: 'bio',        icon: '🦠', label: 'Biology'    },
-  { id: 'wave',       icon: '🌊', label: 'Waves'      },
+  { id: 'wave',       icon: '〰️', label: 'Waves'      },
+  { id: 'currents',   icon: '🔄', label: 'Currents'   },
+  { id: 'part',       icon: '🏭', label: 'Particulates'},
+  { id: 'space',      icon: '🌌', label: 'Space'      },
+]
+
+const HEIGHTS = [
+  { id: 'surface', label: 'Sfc' },
+  { id: '1000hPa', label: '1000' },
+  { id: '850hPa',  label: '850'  },
+  { id: '700hPa',  label: '700'  },
+  { id: '500hPa',  label: '500'  },
+  { id: '250hPa',  label: '250'  },
+  { id: '70hPa',   label: '70'   },
+  { id: '10hPa',   label: '10'   },
 ]
 
 const ALL_DATA_LAYERS = [...DATA_LAYERS_ROW1, ...DATA_LAYERS_ROW2]
@@ -618,7 +636,7 @@ function MarkerDetail({ loc, data, onClose }) {
           <div style={{ fontSize: 13, fontWeight: 800, color: '#f1f5f9' }}>📍 {loc.name}</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 16, padding: 2 }}>×</button>
         </div>
-        <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{loc.region ?? 'Research Site'}</div>
+        <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{loc.region ?? (loc.id ? '⭐ Custom Site' : 'Research Site')}</div>
       </div>
 
       <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -634,7 +652,9 @@ function MarkerDetail({ loc, data, onClose }) {
             </div>
           </div>
         ) : (
-          <div style={{ fontSize: 12, color: '#475569' }}>WQI data loading… (backend offline?)</div>
+          <div style={{ fontSize: 12, color: '#475569', fontStyle: 'italic' }}>
+            {loc.id ? '⭐ Custom site — search to load weather data' : 'WQI loading…'}
+          </div>
         )}
 
         {wx.temperature_2m != null && (
@@ -1351,6 +1371,7 @@ export default function Weather3D() {
   const [error, setError]               = useState(null)
   const [activeView, setActiveView]     = useState('globe')
   const [dataLayer, setDataLayer]       = useState('wind')
+  const [globeHeight, setGlobeHeight]   = useState('surface')
   const [layersExpanded, setLayersExpanded] = useState(false)
   const [rightTab, setRightTab]         = useState('weather')
   const [globeCenter, setGlobeCenter]   = useState(DEFAULT_CENTER)
@@ -1430,8 +1451,10 @@ export default function Weather3D() {
 
   const obsCount = loadLS('sw_observations', []).length
 
-  const currentSrc  = getViewSrc(activeView, weatherData, globeCenter, globeZoom, dataLayer)
-  const iframeKey   = `${activeView}-${dataLayer}-${globeCenter.lon}-${globeCenter.lat}`
+  const currentSrc  = activeView === 'globe'
+    ? buildGlobeUrl(globeCenter, globeZoom, dataLayer, globeHeight)
+    : getViewSrc(activeView, weatherData, globeCenter, globeZoom, dataLayer)
+  const iframeKey   = `${activeView}-${dataLayer}-${globeHeight}-${globeCenter.lon}-${globeCenter.lat}`
   const showMarkers = activeView === 'globe'
 
   // Right panel tab definitions with badge counts
@@ -1513,27 +1536,47 @@ export default function Weather3D() {
             )}
           </div>
 
-          {/* Row 2: data layer buttons (shown when expanded, globe view only) */}
+          {/* Row 2: data layers + height controls (expanded, globe only) */}
           {layersExpanded && activeView === 'globe' && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px 8px',
-              flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.05)',
-            }}>
-              {ALL_DATA_LAYERS.map(l => (
-                <button key={l.id} onClick={() => setDataLayer(l.id)}
-                  title={`Globe: ${l.label}`}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 4,
-                    padding: '4px 9px', borderRadius: 7, fontSize: 11,
-                    border: dataLayer === l.id ? '1px solid rgba(56,189,248,0.5)' : '1px solid rgba(255,255,255,0.06)',
-                    background: dataLayer === l.id ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.03)',
-                    color: dataLayer === l.id ? '#38bdf8' : '#475569',
-                    cursor: 'pointer', fontFamily: 'inherit', fontWeight: dataLayer === l.id ? 700 : 400,
-                  }}
-                >
-                  <span>{l.icon}</span><span>{l.label}</span>
-                </button>
-              ))}
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', padding: '6px 10px 8px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {/* Layer buttons */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 9, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', marginRight: 4 }}>Layer</span>
+                {ALL_DATA_LAYERS.map(l => (
+                  <button key={l.id} onClick={() => setDataLayer(l.id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 3,
+                      padding: '3px 8px', borderRadius: 6, fontSize: 10,
+                      border: dataLayer === l.id ? '1px solid rgba(56,189,248,0.5)' : '1px solid rgba(255,255,255,0.06)',
+                      background: dataLayer === l.id ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.03)',
+                      color: dataLayer === l.id ? '#38bdf8' : '#475569',
+                      cursor: 'pointer', fontFamily: 'inherit', fontWeight: dataLayer === l.id ? 700 : 400,
+                    }}
+                  >
+                    <span>{l.icon}</span><span>{l.label}</span>
+                  </button>
+                ))}
+              </div>
+              {/* Height buttons (only for wind/temp/precip/humid/pm25/chem/part layers) */}
+              {['wind','temp','precip','humid','pm25','chem','part'].includes(dataLayer) && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 9, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', marginRight: 4 }}>Height</span>
+                  {HEIGHTS.map(h => (
+                    <button key={h.id} onClick={() => setGlobeHeight(h.id)}
+                      style={{
+                        padding: '3px 7px', borderRadius: 5, fontSize: 10,
+                        border: globeHeight === h.id ? '1px solid rgba(251,191,36,0.5)' : '1px solid rgba(255,255,255,0.06)',
+                        background: globeHeight === h.id ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.03)',
+                        color: globeHeight === h.id ? '#fbbf24' : '#475569',
+                        cursor: 'pointer', fontFamily: 'inherit', fontWeight: globeHeight === h.id ? 700 : 400,
+                      }}
+                    >
+                      {h.label}
+                    </button>
+                  ))}
+                  <span style={{ fontSize: 9, color: '#334155', marginLeft: 2 }}>hPa</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -1577,10 +1620,10 @@ export default function Weather3D() {
             </div>
           )}
 
-          {/* SOURCE Water branding badge — top-left corner over iframe */}
+          {/* SOURCE Water branding badge — top-left */}
           <div style={{
             position: 'absolute', top: 10, left: 10, zIndex: 25,
-            background: 'rgba(6,10,24,0.75)', backdropFilter: 'blur(8px)',
+            background: 'rgba(6,10,24,0.82)', backdropFilter: 'blur(8px)',
             border: '1px solid rgba(56,189,248,0.25)',
             borderRadius: 20, padding: '4px 11px',
             display: 'flex', alignItems: 'center', gap: 5,
@@ -1589,6 +1632,23 @@ export default function Weather3D() {
             <span style={{ fontSize: 13 }}>🌊</span>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#38bdf8', letterSpacing: '0.03em' }}>SOURCE Water</span>
           </div>
+
+          {/* Cover nullschool/windy attribution branding */}
+          <div style={{
+            position: 'absolute', bottom: 0, left: 0, right: 0, height: 36,
+            background: 'linear-gradient(to top, rgba(0,0,0,0.98) 70%, transparent)',
+            zIndex: 20, pointerEvents: 'none',
+          }} />
+          {/* Cover bottom-left "earth" badge and "Windy.com" logo */}
+          <div style={{
+            position: 'absolute', bottom: 0, left: 0, width: 200, height: 44,
+            background: '#000', zIndex: 21, pointerEvents: 'none',
+          }} />
+          {/* Bottom-right attribution cover */}
+          <div style={{
+            position: 'absolute', bottom: 0, right: 0, width: 240, height: 30,
+            background: '#000', zIndex: 21, pointerEvents: 'none',
+          }} />
 
           {/* Research site markers — globe view only */}
           {showMarkers && (
