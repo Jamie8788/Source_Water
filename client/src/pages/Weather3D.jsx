@@ -2,10 +2,15 @@
  * Weather3D.jsx — Earth Globe + Enhanced Weather Panel + AI Assistant
  * Globe auto-navigates on search · city pin overlay · air quality · AI chat
  * All free APIs: Open-Meteo, Open-Meteo AQ, OpenRouter
+ * v2: Expandable toolbar · Observation submission · Custom sites · Dataset builder · 5 right panel tabs
  */
 
 import { useState, useRef, useEffect } from 'react'
-import { Search, X, Wind, Droplets, Gauge, Sun, Bot, User, Send, Loader, ChevronDown, ChevronUp, Download, TrendingUp, TrendingDown, AlertTriangle, Activity } from 'lucide-react'
+import {
+  Search, X, Wind, Droplets, Gauge, Sun, Bot, User, Send, Loader,
+  ChevronDown, ChevronUp, Download, TrendingUp, TrendingDown, Activity,
+  Plus, Trash2, MapPin, ClipboardList, ChevronRight,
+} from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { askAI } from '../utils/openrouter'
 
@@ -21,20 +26,24 @@ const DEFAULT_CENTER = { lon: -82, lat: 46 }
 const DEFAULT_ZOOM   = 400
 const BACKEND        = import.meta.env.VITE_ANALYSIS_URL || 'http://localhost:8001'
 
-// Build globe URL for any layer
+// ── Build globe URL for any layer ─────────────────────────────────────────────
 function buildGlobeUrl(center, zoom, layer = 'wind') {
   const c = `${center.lon.toFixed(2)},${center.lat.toFixed(2)},${zoom}`
   switch (layer) {
-    case 'temp':   return `https://earth.nullschool.net/#current/wind/surface/level/overlay=temp/orthographic=${c}`
-    case 'precip': return `https://earth.nullschool.net/#current/wind/surface/level/overlay=precip_3h/orthographic=${c}`
-    case 'humid':  return `https://earth.nullschool.net/#current/wind/surface/level/overlay=rh/orthographic=${c}`
-    case 'ocean':  return `https://earth.nullschool.net/#current/ocean/surface/currents/orthographic=${c}`
-    case 'pm25':   return `https://earth.nullschool.net/#current/part/surface/level/overlay=pm2p5/orthographic=${c}`
-    default:       return `https://earth.nullschool.net/#current/wind/surface/level/orthographic=${c}`
+    case 'temp':       return `https://earth.nullschool.net/#current/wind/surface/level/overlay=temp/orthographic=${c}`
+    case 'precip':     return `https://earth.nullschool.net/#current/wind/surface/level/overlay=precip_3h/orthographic=${c}`
+    case 'humid':      return `https://earth.nullschool.net/#current/wind/surface/level/overlay=rh/orthographic=${c}`
+    case 'ocean':      return `https://earth.nullschool.net/#current/ocean/surface/currents/orthographic=${c}`
+    case 'pm25':       return `https://earth.nullschool.net/#current/part/surface/level/overlay=pm2p5/orthographic=${c}`
+    case 'ocean_temp': return `https://earth.nullschool.net/#current/ocean/surface/temp/orthographic=${c}`
+    case 'chem':       return `https://earth.nullschool.net/#current/chem/surface/level/overlay=so2smass/orthographic=${c}`
+    case 'bio':        return `https://earth.nullschool.net/#current/bio/surface/level/overlay=chl/orthographic=${c}`
+    case 'wave':       return `https://earth.nullschool.net/#current/ocean/surface/waves/orthographic=${c}`
+    default:           return `https://earth.nullschool.net/#current/wind/surface/level/orthographic=${c}`
   }
 }
 
-// Orthographic projection: lat/lon → screen px (returns null if behind globe)
+// ── Orthographic projection ────────────────────────────────────────────────────
 function projectPoint(lat, lon, center, zoom, cW, cH, tabBarH = 44) {
   const R = Math.PI / 180
   const φ1 = center.lat * R, λ0 = center.lon * R
@@ -43,17 +52,17 @@ function projectPoint(lat, lon, center, zoom, cW, cH, tabBarH = 44) {
   const cosφ  = Math.cos(φ),  sinφ  = Math.sin(φ)
   const Δλ    = λ - λ0
   const c     = sinφ1 * sinφ + cosφ1 * cosφ * Math.cos(Δλ)
-  if (c < 0) return null  // behind globe
+  if (c < 0) return null
   const x =  cosφ * Math.sin(Δλ)
   const y =  cosφ1 * sinφ - sinφ1 * cosφ * Math.cos(Δλ)
   const availH = cH - tabBarH
   return {
     sx: cW / 2 + zoom * x,
-    sy: tabBarH + availH / 2 - zoom * y - 20, // -20 accounts for nullschool bottom bar
+    sy: tabBarH + availH / 2 - zoom * y - 20,
   }
 }
 
-// WQI → color
+// ── WQI helpers ────────────────────────────────────────────────────────────────
 function wqiColor(wqi) {
   if (wqi > 75) return '#10b981'
   if (wqi > 50) return '#0ea5e9'
@@ -67,15 +76,44 @@ function wqiLabel(wqi) {
   return 'Poor'
 }
 
-// Globe data layers definition
-const DATA_LAYERS = [
-  { id: 'wind',   icon: '💨', label: 'Wind'       },
-  { id: 'temp',   icon: '🌡️', label: 'Temperature' },
-  { id: 'precip', icon: '🌧️', label: 'Precipitation'},
-  { id: 'humid',  icon: '💧', label: 'Humidity'    },
-  { id: 'ocean',  icon: '🌊', label: 'Ocean'       },
-  { id: 'pm25',   icon: '🏭', label: 'Air Quality' },
+// ── Globe data layers ──────────────────────────────────────────────────────────
+const DATA_LAYERS_ROW1 = [
+  { id: 'wind',   icon: '💨', label: 'Wind'        },
+  { id: 'temp',   icon: '🌡️', label: 'Temperature'  },
+  { id: 'precip', icon: '🌧️', label: 'Precipitation' },
+  { id: 'humid',  icon: '💧', label: 'Humidity'     },
+  { id: 'ocean',  icon: '🌊', label: 'Ocean'        },
+  { id: 'pm25',   icon: '🏭', label: 'Air Quality'  },
 ]
+
+const DATA_LAYERS_ROW2 = [
+  { id: 'ocean_temp', icon: '🌊', label: 'Ocean Temp' },
+  { id: 'chem',       icon: '⚗️', label: 'Chemistry'  },
+  { id: 'bio',        icon: '🦠', label: 'Biology'    },
+  { id: 'wave',       icon: '🌊', label: 'Waves'      },
+]
+
+const ALL_DATA_LAYERS = [...DATA_LAYERS_ROW1, ...DATA_LAYERS_ROW2]
+
+// ── View tabs ──────────────────────────────────────────────────────────────────
+const VIEWS = [
+  { id: 'globe',     icon: '🌍', label: 'Globe'       },
+  { id: 'satellite', icon: '🛰️', label: 'Satellite'   },
+  { id: 'street',    icon: '🚶', label: 'Street View' },
+  { id: 'windy',     icon: '🌪️', label: 'Windy'       },
+]
+
+function getViewSrc(view, data, center, zoom, dataLayer) {
+  const lat = data?.lat ?? center.lat
+  const lon = data?.lon ?? center.lon
+  switch (view) {
+    case 'globe':     return buildGlobeUrl(center, zoom, dataLayer)
+    case 'satellite': return data ? `https://maps.google.com/maps?q=${lat},${lon}&z=17&t=k&output=embed` : null
+    case 'street':    return data ? `https://maps.google.com/maps?q=&layer=c&cbll=${lat},${lon}&cbp=11,0,0,0,0&output=embed` : null
+    case 'windy':     return data ? `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&zoom=8&level=surface&overlay=wind&product=ecmwf&menu=&message=&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1` : null
+    default:          return buildGlobeUrl(center, zoom, dataLayer)
+  }
+}
 
 // ── Data fetching ──────────────────────────────────────────────────────────────
 async function fetchAll(query) {
@@ -149,6 +187,18 @@ function fmtTime(iso) {
   if (!iso) return '--'
   return new Date(iso).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })
 }
+function nowISOLocal() {
+  const now = new Date()
+  const off = now.getTimezoneOffset()
+  const local = new Date(now.getTime() - off * 60000)
+  return local.toISOString().slice(0, 16)
+}
+function loadLS(key, fallback = []) {
+  try { return JSON.parse(localStorage.getItem(key) ?? 'null') ?? fallback } catch { return fallback }
+}
+function saveLS(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)) } catch {}
+}
 
 // ── Mini stat card ─────────────────────────────────────────────────────────────
 function StatCard({ icon: Icon, label, value, color = '#94a3b8', sub }) {
@@ -178,8 +228,6 @@ function AIAssistant({ weatherData }) {
   const bottomRef = useRef(null)
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
-
-  // Reset chat when location changes
   useEffect(() => { setMsgs([]); setInput('') }, [weatherData?.location])
 
   const quickQ = [
@@ -218,11 +266,7 @@ Air Quality Index: ${weatherData.aq?.us_aqi ?? 'N/A'}
   }
 
   return (
-    <div style={{
-      borderTop: '1px solid rgba(255,255,255,0.07)',
-      background: 'rgba(0,0,0,0.2)',
-    }}>
-      {/* Toggle header */}
+    <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', background: 'rgba(0,0,0,0.2)' }}>
       <button
         onClick={() => setOpen(o => !o)}
         style={{
@@ -241,7 +285,6 @@ Air Quality Index: ${weatherData.aq?.us_aqi ?? 'N/A'}
 
       {open && (
         <div style={{ display: 'flex', flexDirection: 'column', maxHeight: 280 }}>
-          {/* Messages */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0, maxHeight: 180 }}>
             {msgs.length === 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
@@ -284,8 +327,6 @@ Air Quality Index: ${weatherData.aq?.us_aqi ?? 'N/A'}
             )}
             <div ref={bottomRef} />
           </div>
-
-          {/* Input */}
           <div style={{ display: 'flex', gap: 6, padding: '8px 12px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
             <input
               value={input}
@@ -318,7 +359,6 @@ function WeatherPanel({ data }) {
   const code = c.weather_code ?? 0
   const aqi = aqiLabel(aq?.us_aqi)
 
-  // Next 6 hours from now
   const nowHour = new Date().getHours()
   const hourlySlice = hourly ? Array.from({ length: 6 }, (_, i) => ({
     time: hourly.time?.[nowHour + i],
@@ -329,7 +369,6 @@ function WeatherPanel({ data }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* Location + main temp */}
       <div style={{ padding: '4px 0' }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#94a3b8', marginBottom: 4 }}>📍 {location}</div>
         <div style={{ fontSize: 36, fontWeight: 800, color: '#f1f5f9', lineHeight: 1 }}>
@@ -340,7 +379,6 @@ function WeatherPanel({ data }) {
         </div>
       </div>
 
-      {/* Stats grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
         <StatCard icon={Droplets} label="Humidity"  value={`${c.relative_humidity_2m}%`} color="#38bdf8" />
         <StatCard icon={Wind}     label="Wind"      value={`${c.wind_speed_10m?.toFixed(0)} km/h`} sub={windDir(c.wind_direction_10m ?? 0)} color="#a78bfa" />
@@ -349,7 +387,6 @@ function WeatherPanel({ data }) {
           sub={c.uv_index >= 8 ? 'Very High' : c.uv_index >= 6 ? 'High' : c.uv_index >= 3 ? 'Moderate' : 'Low'} />
       </div>
 
-      {/* Sunrise / Sunset */}
       {daily?.sunrise?.[0] && (
         <div style={{
           display: 'flex', justifyContent: 'space-around',
@@ -376,7 +413,6 @@ function WeatherPanel({ data }) {
         </div>
       )}
 
-      {/* Air Quality */}
       {aq && (
         <div style={{
           padding: '10px 14px', borderRadius: 10,
@@ -394,7 +430,6 @@ function WeatherPanel({ data }) {
         </div>
       )}
 
-      {/* Hourly next 6h */}
       {hourlySlice.length > 0 && (
         <div>
           <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Next 6 Hours</div>
@@ -405,9 +440,7 @@ function WeatherPanel({ data }) {
                 background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
                 borderRadius: 10, padding: '8px 10px', minWidth: 48,
               }}>
-                <div style={{ fontSize: 10, color: '#64748b' }}>
-                  {i === 0 ? 'Now' : `+${i}h`}
-                </div>
+                <div style={{ fontSize: 10, color: '#64748b' }}>{i === 0 ? 'Now' : `+${i}h`}</div>
                 <div style={{ fontSize: 16, margin: '4px 0' }}>{wmoEmoji(h.code)}</div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>{h.temp?.toFixed(0)}°</div>
                 {h.pop > 0 && <div style={{ fontSize: 10, color: '#38bdf8', marginTop: 2 }}>{h.pop}%</div>}
@@ -417,7 +450,6 @@ function WeatherPanel({ data }) {
         </div>
       )}
 
-      {/* 5-day forecast */}
       <div>
         <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>5-Day Forecast</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -449,31 +481,18 @@ function WeatherPanel({ data }) {
   )
 }
 
-// ── View tabs ──────────────────────────────────────────────────────────────────
-const VIEWS = [
-  { id: 'globe',     icon: '🌍', label: 'Globe'       },
-  { id: 'satellite', icon: '🛰️', label: 'Satellite'   },
-  { id: 'street',    icon: '🚶', label: 'Street View' },
-  { id: 'windy',     icon: '🌪️', label: 'Windy'       },
-]
-
-function getViewSrc(view, data, center, zoom, dataLayer) {
-  const lat = data?.lat ?? center.lat
-  const lon = data?.lon ?? center.lon
-  switch (view) {
-    case 'globe':     return buildGlobeUrl(center, zoom, dataLayer)
-    case 'satellite': return data ? `https://maps.google.com/maps?q=${lat},${lon}&z=17&t=k&output=embed` : null
-    case 'street':    return data ? `https://maps.google.com/maps?q=&layer=c&cbll=${lat},${lon}&cbp=11,0,0,0,0&output=embed` : null
-    case 'windy':     return data ? `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&zoom=8&level=surface&overlay=wind&product=ecmwf&menu=&message=&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1` : null
-    default:          return buildGlobeUrl(center, zoom, dataLayer)
-  }
-}
-
-// ── Research marker overlay ────────────────────────────────────────────────────
-function ResearchMarkers({ center, zoom, containerSize, researchData, onSelect, selected }) {
+// ── Research markers overlay ───────────────────────────────────────────────────
+function ResearchMarkers({ center, zoom, containerSize, researchData, onSelect, selected, customSites, onSelectCustom }) {
   const TAB_H = 44
   return (
     <>
+      <style>{`
+        @keyframes pingRing{0%{transform:scale(.5);opacity:1}100%{transform:scale(2.2);opacity:0}}
+        @keyframes slowRing{0%{transform:scale(0.8);opacity:0.6}50%{transform:scale(1.4);opacity:0.2}100%{transform:scale(0.8);opacity:0.6}}
+        @keyframes shimmer{0%{opacity:0.7}50%{opacity:1}100%{opacity:0.7}}
+      `}</style>
+
+      {/* Standard research site markers */}
       {QUICK_LOCATIONS.map(loc => {
         const pos = projectPoint(loc.lat, loc.lon, center, zoom, containerSize.w, containerSize.h, TAB_H)
         if (!pos) return null
@@ -496,7 +515,6 @@ function ResearchMarkers({ center, zoom, containerSize, researchData, onSelect, 
               filter: `drop-shadow(0 2px 6px ${color}99)`,
             }}
           >
-            {/* Label — show on select */}
             {isSelected && (
               <div style={{
                 background: 'rgba(6,10,24,0.95)', border: `1px solid ${color}`,
@@ -507,7 +525,14 @@ function ResearchMarkers({ center, zoom, containerSize, researchData, onSelect, 
                 {loc.name} · WQI {wqi.toFixed ? wqi.toFixed(0) : wqi} · {risk}
               </div>
             )}
-            {/* Dot */}
+            {/* Slow rotating ring on all markers */}
+            <div style={{
+              position: 'absolute',
+              width: 22, height: 22, borderRadius: '50%',
+              border: `1.5px solid ${color}55`,
+              animation: 'slowRing 3s ease-in-out infinite',
+              pointerEvents: 'none',
+            }} />
             <div style={{
               width: isSelected ? 16 : 12, height: isSelected ? 16 : 12,
               borderRadius: '50%', background: color,
@@ -515,7 +540,6 @@ function ResearchMarkers({ center, zoom, containerSize, researchData, onSelect, 
               boxShadow: `0 0 0 ${isSelected ? 4 : 2}px ${color}44, 0 0 12px ${color}88`,
               transition: 'all 0.2s',
             }} />
-            {/* Pulse for high risk */}
             {isHigh && (
               <div style={{
                 position: 'absolute',
@@ -527,7 +551,46 @@ function ResearchMarkers({ center, zoom, containerSize, researchData, onSelect, 
           </div>
         )
       })}
-      <style>{`@keyframes pingRing{0%{transform:scale(.5);opacity:1}100%{transform:scale(2.2);opacity:0}}`}</style>
+
+      {/* Custom site markers — purple stars */}
+      {customSites.map(site => {
+        const pos = projectPoint(site.lat, site.lon, center, zoom, containerSize.w, containerSize.h, TAB_H)
+        if (!pos) return null
+        const isSelected = selected?.name === site.name
+        return (
+          <div
+            key={`custom-${site.name}`}
+            onClick={() => onSelectCustom(site)}
+            style={{
+              position: 'absolute',
+              left: pos.sx, top: pos.sy,
+              transform: 'translate(-50%, -50%)',
+              zIndex: 15, cursor: 'pointer',
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              filter: 'drop-shadow(0 2px 6px #a855f799)',
+            }}
+          >
+            {isSelected && (
+              <div style={{
+                background: 'rgba(6,10,24,0.95)', border: '1px solid #a855f7',
+                borderRadius: 7, padding: '3px 9px', marginBottom: 4,
+                color: '#f1f5f9', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+                backdropFilter: 'blur(6px)',
+              }}>
+                ⭐ {site.name}
+              </div>
+            )}
+            <div style={{
+              position: 'absolute',
+              width: 22, height: 22, borderRadius: '50%',
+              border: '1.5px solid #a855f755',
+              animation: 'slowRing 3.5s ease-in-out infinite',
+              pointerEvents: 'none',
+            }} />
+            <div style={{ fontSize: 14, lineHeight: 1 }}>⭐</div>
+          </div>
+        )
+      })}
     </>
   )
 }
@@ -550,7 +613,6 @@ function MarkerDetail({ loc, data, onClose }) {
       boxShadow: `0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px ${color}22`,
       overflow: 'hidden',
     }}>
-      {/* Header */}
       <div style={{ padding: '12px 14px 10px', background: `${color}18`, borderBottom: `1px solid ${color}22` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: '#f1f5f9' }}>📍 {loc.name}</div>
@@ -560,7 +622,6 @@ function MarkerDetail({ loc, data, onClose }) {
       </div>
 
       <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {/* WQI */}
         {wqi != null ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
@@ -576,7 +637,6 @@ function MarkerDetail({ loc, data, onClose }) {
           <div style={{ fontSize: 12, color: '#475569' }}>WQI data loading… (backend offline?)</div>
         )}
 
-        {/* Weather quick stats */}
         {wx.temperature_2m != null && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
             {[
@@ -592,7 +652,6 @@ function MarkerDetail({ loc, data, onClose }) {
           </div>
         )}
 
-        {/* Anomaly flag */}
         {anomaly != null && (
           <div style={{
             padding: '7px 10px', borderRadius: 8,
@@ -610,7 +669,6 @@ function MarkerDetail({ loc, data, onClose }) {
           </div>
         )}
 
-        {/* Risk breakdown */}
         {risk?.violations?.length > 0 && (
           <div>
             <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Violations</div>
@@ -622,9 +680,7 @@ function MarkerDetail({ loc, data, onClose }) {
           </div>
         )}
 
-        <div style={{ fontSize: 10, color: '#334155' }}>
-          📡 NASA POWER · Open-Meteo · Backend ML · Live
-        </div>
+        <div style={{ fontSize: 10, color: '#334155' }}>📡 NASA POWER · Open-Meteo · Backend ML · Live</div>
       </div>
     </div>
   )
@@ -646,8 +702,7 @@ function wqiTrend(wqiArr) {
   if (delta < -8) return 'improving'
   return 'stable'
 }
-function algaeRisk(temp, humidity, precip) {
-  // High temp + high humidity + low precip = bloom risk
+function algaeRiskFn(temp, humidity, precip) {
   const score = Math.min(100, Math.max(0, (temp - 15) * 3 + (humidity - 60) * 0.5 - precip * 10))
   if (score >= 60) return { level: 'HIGH', color: '#ef4444', score }
   if (score >= 35) return { level: 'MODERATE', color: '#f59e0b', score }
@@ -659,8 +714,10 @@ function runoffRisk(precip7day) {
   return { level: 'LOW', color: '#10b981', note: 'Minimal runoff — good conditions for sampling' }
 }
 
-// ── All Sites Panel ────────────────────────────────────────────────────────────
+// ── All Sites + Dataset Builder Panel ─────────────────────────────────────────
 function AllSitesPanel({ researchData }) {
+  const [buildOpen, setBuildOpen] = useState(false)
+
   const sites = QUICK_LOCATIONS.map(loc => {
     const d   = researchData[loc.name]
     const wqi = d?.water_quality_index?.index ?? null
@@ -670,33 +727,76 @@ function AllSitesPanel({ researchData }) {
     return { ...loc, wqi, wx, ar, risk, raw: d }
   })
 
-  const exportCSV = () => {
-    const rows = sites.map(s => ({
-      site: s.name, region: s.region ?? '',
+  const observations = loadLS('sw_observations', [])
+
+  const buildRows = () => {
+    const siteRows = sites.map(s => ({
+      site: s.name,
+      lat: s.lat,
+      lon: s.lon,
+      date: new Date().toISOString(),
       wqi: s.wqi?.toFixed(1) ?? '',
-      wqi_status: s.wqi != null ? wqiLabel(s.wqi) : '',
       temp_c: s.wx.temperature_2m ?? '',
-      humidity_pct: s.wx.relative_humidity_2m ?? '',
-      wind_kmh: s.wx.wind_speed_10m ?? '',
-      precip_mm: s.wx.precipitation ?? '',
-      anomaly_rate_pct: s.ar?.toFixed(1) ?? '',
-      risk_level: s.risk ?? '',
-      timestamp: new Date().toISOString(),
+      humidity: s.wx.relative_humidity_2m ?? '',
+      wind: s.wx.wind_speed_10m ?? '',
+      precip: s.wx.precipitation ?? '',
+      ph: '',
+      turbidity: '',
+      do_mgl: '',
+      notes: '',
+      source: 'research_site',
     }))
+    const obsRows = observations.map(o => ({
+      site: o.site ?? '',
+      lat: o.lat ?? '',
+      lon: o.lon ?? '',
+      date: o.datetime ?? '',
+      wqi: '',
+      temp_c: o.water_temp ?? '',
+      humidity: '',
+      wind: '',
+      precip: '',
+      ph: o.ph ?? '',
+      turbidity: o.turbidity ?? '',
+      do_mgl: o.do_mgl ?? '',
+      notes: o.notes ?? '',
+      source: 'field_observation',
+    }))
+    return [...siteRows, ...obsRows]
+  }
+
+  const exportCSV = () => {
+    const rows = buildRows()
     const hdrs = Object.keys(rows[0]).join(',')
-    const lines = rows.map(r => Object.values(r).join(','))
+    const lines = rows.map(r => Object.values(r).map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
     const csv = [hdrs, ...lines].join('\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    a.download = `research-sites-${new Date().toISOString().slice(0,10)}.csv`
+    a.download = `sw-dataset-${new Date().toISOString().slice(0,10)}.csv`
     a.click()
   }
 
   const exportJSON = () => {
-    const payload = sites.map(s => ({ site: s.name, wqi: s.wqi, weather: s.wx, anomaly_rate: s.ar, risk: s.risk, raw: s.raw }))
+    const rows = buildRows()
     const a = document.createElement('a')
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }))
-    a.download = `research-sites-${new Date().toISOString().slice(0,10)}.json`
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' }))
+    a.download = `sw-dataset-${new Date().toISOString().slice(0,10)}.json`
+    a.click()
+  }
+
+  const exportGeoJSON = () => {
+    const rows = buildRows()
+    const fc = {
+      type: 'FeatureCollection',
+      features: rows.filter(r => r.lat && r.lon).map(r => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [parseFloat(r.lon), parseFloat(r.lat)] },
+        properties: { ...r },
+      }))
+    }
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(fc, null, 2)], { type: 'application/json' }))
+    a.download = `sw-dataset-${new Date().toISOString().slice(0,10)}.geojson`
     a.click()
   }
 
@@ -706,7 +806,6 @@ function AllSitesPanel({ researchData }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* Summary row */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
         <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}>
           <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Best Site</div>
@@ -720,7 +819,6 @@ function AllSitesPanel({ researchData }) {
         </div>
       </div>
 
-      {/* Sites table */}
       <div>
         <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
           All Research Sites · {loaded}/{sites.length} loaded
@@ -754,14 +852,44 @@ function AllSitesPanel({ researchData }) {
         })}
       </div>
 
-      {/* Export */}
-      <div style={{ display: 'flex', gap: 6 }}>
-        <button onClick={exportCSV} style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', color: '#10b981', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-          <Download size={11} /> CSV
+      {/* Dataset Builder */}
+      <div style={{ borderRadius: 10, border: '1px solid rgba(99,102,241,0.3)', overflow: 'hidden' }}>
+        <button
+          onClick={() => setBuildOpen(o => !o)}
+          style={{
+            width: '100%', padding: '10px 12px',
+            background: 'rgba(99,102,241,0.08)', border: 'none', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            color: '#a5b4fc', fontFamily: 'inherit',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700 }}>
+            <Download size={13} /> Build Dataset
+            <span style={{ fontSize: 10, background: 'rgba(99,102,241,0.2)', padding: '2px 6px', borderRadius: 20, color: '#818cf8' }}>
+              {sites.length + observations.length} rows
+            </span>
+          </div>
+          {buildOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
-        <button onClick={exportJSON} style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', color: '#f59e0b', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-          <Download size={11} /> JSON
-        </button>
+        {buildOpen && (
+          <div style={{ padding: 12, background: 'rgba(0,0,0,0.2)' }}>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10, lineHeight: 1.5 }}>
+              Combines {sites.length} research sites + {observations.length} field observations into a unified dataset.
+              Columns: site, lat, lon, date, wqi, temp_c, humidity, wind, precip, ph, turbidity, do_mgl, notes.
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={exportCSV} style={{ flex: 1, padding: '7px 0', borderRadius: 8, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', color: '#10b981', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                <Download size={11} /> CSV
+              </button>
+              <button onClick={exportJSON} style={{ flex: 1, padding: '7px 0', borderRadius: 8, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', color: '#f59e0b', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                <Download size={11} /> JSON
+              </button>
+              <button onClick={exportGeoJSON} style={{ flex: 1, padding: '7px 0', borderRadius: 8, background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.25)', color: '#a855f7', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                <MapPin size={11} /> GeoJSON
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -778,7 +906,6 @@ function MLResearchPanel({ weatherData, researchData }) {
 
   const { daily, current: c } = weatherData
 
-  // 5-day WQI forecast
   const wqiForecast = daily ? Array.from({ length: 5 }, (_, i) => {
     const maxT = daily.temperature_2m_max?.[i] ?? c.temperature_2m ?? 15
     const minT = daily.temperature_2m_min?.[i] ?? maxT - 5
@@ -789,26 +916,22 @@ function MLResearchPanel({ weatherData, researchData }) {
     const date = new Date(); date.setDate(date.getDate() + i)
     return {
       day: i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : date.toLocaleDateString('en', { weekday: 'short' }),
-      wqi,
-      precip: precip.toFixed(1),
-      temp: avgT.toFixed(1),
+      wqi, precip: precip.toFixed(1), temp: avgT.toFixed(1),
     }
   }) : []
 
   const trend = wqiTrend(wqiForecast.map(d => d.wqi))
   const precip7 = daily?.precipitation_sum?.slice(0, 5).reduce((a, b) => a + (b ?? 0), 0) ?? 0
   const avgTemp = daily?.temperature_2m_max?.slice(0, 3).reduce((a, b) => a + b, 0) / 3 ?? c.temperature_2m ?? 15
-  const algae   = algaeRisk(avgTemp, c.relative_humidity_2m ?? 60, c.precipitation ?? 0)
+  const algae   = algaeRiskFn(avgTemp, c.relative_humidity_2m ?? 60, c.precipitation ?? 0)
   const runoff  = runoffRisk(precip7)
 
-  // Cross-site WQI comparison
   const siteWQIs = QUICK_LOCATIONS
     .map(loc => ({ name: loc.name.split(' ')[0], wqi: researchData[loc.name]?.water_quality_index?.index ?? null }))
     .filter(s => s.wqi != null)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* WQI 5-day forecast */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em' }}>WQI 5-Day Forecast</div>
@@ -828,7 +951,7 @@ function MLResearchPanel({ weatherData, researchData }) {
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
             <XAxis dataKey="day" tick={{ fill: '#475569', fontSize: 9 }} axisLine={false} tickLine={false}/>
             <YAxis domain={[0, 100]} tick={{ fill: '#475569', fontSize: 9 }} axisLine={false} tickLine={false}/>
-            <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 11 }} labelStyle={{ color: '#94a3b8' }} formatter={(v, n) => [v, 'WQI']}/>
+            <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 11 }} labelStyle={{ color: '#94a3b8' }} formatter={(v) => [v, 'WQI']}/>
             <Area type="monotone" dataKey="wqi" stroke="#38bdf8" fill="url(#wqiGrad)" strokeWidth={2} dot={{ fill: '#38bdf8', r: 3 }}/>
           </AreaChart>
         </ResponsiveContainer>
@@ -842,7 +965,6 @@ function MLResearchPanel({ weatherData, researchData }) {
         </div>
       </div>
 
-      {/* Algae Bloom Risk */}
       <div style={{ padding: '10px 12px', borderRadius: 10, background: `${algae.color}0e`, border: `1px solid ${algae.color}30` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
@@ -858,7 +980,6 @@ function MLResearchPanel({ weatherData, researchData }) {
         </div>
       </div>
 
-      {/* Runoff / Contamination Risk */}
       <div style={{ padding: '10px 12px', borderRadius: 10, background: `${runoff.color}0e`, border: `1px solid ${runoff.color}30` }}>
         <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>💧 Runoff / Contamination Risk</div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -870,7 +991,6 @@ function MLResearchPanel({ weatherData, researchData }) {
         </div>
       </div>
 
-      {/* UV & Thermal Stratification */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
         <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)' }}>
           <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase' }}>☀️ UV Index</div>
@@ -884,7 +1004,6 @@ function MLResearchPanel({ weatherData, researchData }) {
         </div>
       </div>
 
-      {/* Cross-site WQI bars */}
       {siteWQIs.length > 0 && (
         <div>
           <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Research Site WQI Comparison</div>
@@ -901,7 +1020,6 @@ function MLResearchPanel({ weatherData, researchData }) {
         </div>
       )}
 
-      {/* Sampling recommendation */}
       <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)' }}>
         <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>🔬 Sampling Recommendation</div>
         <div style={{ fontSize: 11, color: '#c7d2fe', lineHeight: 1.5 }}>
@@ -914,24 +1032,344 @@ function MLResearchPanel({ weatherData, researchData }) {
   )
 }
 
+// ── Observation Submission Panel ───────────────────────────────────────────────
+function ObservationPanel() {
+  const emptyForm = {
+    site: '', datetime: nowISOLocal(), lat: '', lon: '',
+    water_temp: '', ph: '', turbidity: '', do_mgl: '',
+    conductivity: '', phosphorus: '', nitrates: '', ecoli: '',
+    algae: false, notes: '', observer: '',
+  }
+  const [form, setForm] = useState(emptyForm)
+  const [submitted, setSubmitted] = useState(false)
+  const observations = loadLS('sw_observations', [])
+  const [obs, setObs] = useState(observations)
+
+  const knownLoc = QUICK_LOCATIONS.find(l => l.name === form.site)
+
+  useEffect(() => {
+    if (knownLoc) {
+      setForm(f => ({ ...f, lat: knownLoc.lat, lon: knownLoc.lon }))
+    }
+  }, [form.site])
+
+  const handleChange = (field, value) => setForm(f => ({ ...f, [field]: value }))
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    const entry = { ...form, id: Date.now(), submitted_at: new Date().toISOString() }
+    const updated = [entry, ...obs]
+    saveLS('sw_observations', updated)
+    setObs(updated)
+    setForm({ ...emptyForm, datetime: nowISOLocal() })
+    setSubmitted(true)
+    setTimeout(() => setSubmitted(false), 3000)
+  }
+
+  const fieldStyle = {
+    width: '100%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 8, color: '#e2e8f0', fontSize: 12, padding: '7px 10px',
+    outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+  }
+  const labelStyle = { fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3, display: 'block' }
+  const fieldGroup = { display: 'flex', flexDirection: 'column', gap: 3 }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {submitted && (
+        <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981', fontSize: 12, fontWeight: 700 }}>
+          ✅ Observation submitted! Saved to local storage.
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* Site */}
+        <div style={fieldGroup}>
+          <label style={labelStyle}>Site Name</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              list="quick-sites" value={form.site} required
+              onChange={e => handleChange('site', e.target.value)}
+              placeholder="e.g. Sault Ste. Marie"
+              style={{ ...fieldStyle, flex: 1 }}
+            />
+            <datalist id="quick-sites">
+              {QUICK_LOCATIONS.map(l => <option key={l.name} value={l.name} />)}
+            </datalist>
+          </div>
+        </div>
+
+        {/* Date/Time */}
+        <div style={fieldGroup}>
+          <label style={labelStyle}>Date / Time</label>
+          <input type="datetime-local" value={form.datetime} onChange={e => handleChange('datetime', e.target.value)} style={fieldStyle} />
+        </div>
+
+        {/* Lat / Lon */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+          <div style={fieldGroup}>
+            <label style={labelStyle}>Latitude</label>
+            <input type="number" step="any" value={form.lat} onChange={e => handleChange('lat', e.target.value)} placeholder="46.52" style={fieldStyle} />
+          </div>
+          <div style={fieldGroup}>
+            <label style={labelStyle}>Longitude</label>
+            <input type="number" step="any" value={form.lon} onChange={e => handleChange('lon', e.target.value)} placeholder="-84.35" style={fieldStyle} />
+          </div>
+        </div>
+
+        {/* Water params */}
+        <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Water Parameters</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div style={fieldGroup}>
+            <label style={labelStyle}>Water Temp (°C)</label>
+            <input type="number" step="0.1" value={form.water_temp} onChange={e => handleChange('water_temp', e.target.value)} placeholder="12.5" style={fieldStyle} />
+          </div>
+          <div style={fieldGroup}>
+            <label style={labelStyle}>pH</label>
+            <input type="number" step="0.01" min="0" max="14" value={form.ph} onChange={e => handleChange('ph', e.target.value)} placeholder="7.4" style={fieldStyle} />
+          </div>
+          <div style={fieldGroup}>
+            <label style={labelStyle}>Turbidity (NTU)</label>
+            <input type="number" step="0.1" min="0" value={form.turbidity} onChange={e => handleChange('turbidity', e.target.value)} placeholder="2.1" style={fieldStyle} />
+          </div>
+          <div style={fieldGroup}>
+            <label style={labelStyle}>DO (mg/L)</label>
+            <input type="number" step="0.01" min="0" value={form.do_mgl} onChange={e => handleChange('do_mgl', e.target.value)} placeholder="8.2" style={fieldStyle} />
+          </div>
+          <div style={fieldGroup}>
+            <label style={labelStyle}>Conductivity (µS/cm)</label>
+            <input type="number" step="1" min="0" value={form.conductivity} onChange={e => handleChange('conductivity', e.target.value)} placeholder="245" style={fieldStyle} />
+          </div>
+          <div style={fieldGroup}>
+            <label style={labelStyle}>Phosphorus (mg/L)</label>
+            <input type="number" step="0.001" min="0" value={form.phosphorus} onChange={e => handleChange('phosphorus', e.target.value)} placeholder="0.02" style={fieldStyle} />
+          </div>
+          <div style={fieldGroup}>
+            <label style={labelStyle}>Nitrates (mg/L)</label>
+            <input type="number" step="0.01" min="0" value={form.nitrates} onChange={e => handleChange('nitrates', e.target.value)} placeholder="1.4" style={fieldStyle} />
+          </div>
+          <div style={fieldGroup}>
+            <label style={labelStyle}>E. coli (CFU/100mL)</label>
+            <input type="number" step="1" min="0" value={form.ecoli} onChange={e => handleChange('ecoli', e.target.value)} placeholder="0" style={fieldStyle} />
+          </div>
+        </div>
+
+        {/* Algae checkbox */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', userSelect: 'none' }}>
+          <input
+            type="checkbox" checked={form.algae} onChange={e => handleChange('algae', e.target.checked)}
+            style={{ width: 15, height: 15, accentColor: '#10b981' }}
+          />
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>🌿 Algae observed at site</span>
+        </label>
+
+        {/* Notes */}
+        <div style={fieldGroup}>
+          <label style={labelStyle}>Notes</label>
+          <textarea
+            value={form.notes} onChange={e => handleChange('notes', e.target.value)}
+            placeholder="Field conditions, anomalies, equipment notes…"
+            rows={3}
+            style={{ ...fieldStyle, resize: 'vertical', lineHeight: 1.5 }}
+          />
+        </div>
+
+        {/* Observer */}
+        <div style={fieldGroup}>
+          <label style={labelStyle}>Observer Name</label>
+          <input type="text" value={form.observer} onChange={e => handleChange('observer', e.target.value)} placeholder="Your name" style={fieldStyle} />
+        </div>
+
+        <button type="submit" style={{
+          padding: '10px 0', borderRadius: 9,
+          background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
+          border: 'none', color: '#fff', fontSize: 13, fontWeight: 700,
+          cursor: 'pointer', fontFamily: 'inherit',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+        }}>
+          <ClipboardList size={14} /> Submit Observation
+        </button>
+      </form>
+
+      {/* Recent submissions */}
+      {obs.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+            Recent Submissions ({obs.length} total)
+          </div>
+          {obs.slice(0, 3).map((o, i) => (
+            <div key={o.id ?? i} style={{
+              padding: '9px 11px', borderRadius: 9, marginBottom: 6,
+              background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>{o.site || 'Unknown site'}</div>
+                <div style={{ fontSize: 10, color: '#334155' }}>{o.datetime?.slice(0, 16) ?? ''}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 5, flexWrap: 'wrap' }}>
+                {o.water_temp && <span style={{ fontSize: 10, color: '#38bdf8' }}>🌡️ {o.water_temp}°C</span>}
+                {o.ph && <span style={{ fontSize: 10, color: '#a78bfa' }}>pH {o.ph}</span>}
+                {o.turbidity && <span style={{ fontSize: 10, color: '#fb923c' }}>{o.turbidity} NTU</span>}
+                {o.do_mgl && <span style={{ fontSize: 10, color: '#10b981' }}>DO {o.do_mgl}</span>}
+                {o.algae && <span style={{ fontSize: 10, color: '#22c55e' }}>🌿 Algae</span>}
+              </div>
+              {o.observer && <div style={{ fontSize: 10, color: '#334155', marginTop: 3 }}>by {o.observer}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Custom Sites Manager Panel ─────────────────────────────────────────────────
+function MySitesPanel({ onFlyTo }) {
+  const [sites, setSites] = useState(() => loadLS('sw_custom_sites', []))
+  const [form, setForm] = useState({ name: '', lat: '', lon: '', notes: '' })
+  const [err, setErr] = useState('')
+
+  const handleAdd = (e) => {
+    e.preventDefault()
+    setErr('')
+    if (!form.name.trim()) { setErr('Site name required'); return }
+    const lat = parseFloat(form.lat)
+    const lon = parseFloat(form.lon)
+    if (isNaN(lat) || isNaN(lon)) { setErr('Valid lat/lon required'); return }
+    if (lat < -90 || lat > 90)    { setErr('Latitude must be -90 to 90'); return }
+    if (lon < -180 || lon > 180)  { setErr('Longitude must be -180 to 180'); return }
+    const entry = { id: Date.now(), name: form.name.trim(), lat, lon, notes: form.notes.trim() }
+    const updated = [entry, ...sites]
+    setSites(updated)
+    saveLS('sw_custom_sites', updated)
+    setForm({ name: '', lat: '', lon: '', notes: '' })
+  }
+
+  const handleDelete = (id) => {
+    const updated = sites.filter(s => s.id !== id)
+    setSites(updated)
+    saveLS('sw_custom_sites', updated)
+  }
+
+  const fieldStyle = {
+    width: '100%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 8, color: '#e2e8f0', fontSize: 12, padding: '7px 10px',
+    outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+  }
+  const labelStyle = { fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3, display: 'block' }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <form onSubmit={handleAdd} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '12px', borderRadius: 10, background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.2)' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#c084fc', marginBottom: 2 }}>⭐ Add Custom Site</div>
+        {err && <div style={{ fontSize: 11, color: '#f87171', background: 'rgba(239,68,68,0.1)', borderRadius: 6, padding: '5px 8px' }}>{err}</div>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <label style={labelStyle}>Site Name</label>
+          <input type="text" required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="My monitoring station" style={fieldStyle} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <label style={labelStyle}>Latitude</label>
+            <input type="number" step="any" required value={form.lat} onChange={e => setForm(f => ({ ...f, lat: e.target.value }))} placeholder="46.52" style={fieldStyle} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <label style={labelStyle}>Longitude</label>
+            <input type="number" step="any" required value={form.lon} onChange={e => setForm(f => ({ ...f, lon: e.target.value }))} placeholder="-84.35" style={fieldStyle} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <label style={labelStyle}>Region / Notes</label>
+          <input type="text" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Lake Superior basin, upstream of dam…" style={fieldStyle} />
+        </div>
+        <button type="submit" style={{
+          padding: '8px 0', borderRadius: 8,
+          background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.4)',
+          color: '#c084fc', fontSize: 12, fontWeight: 700,
+          cursor: 'pointer', fontFamily: 'inherit',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        }}>
+          <Plus size={13} /> Add Site
+        </button>
+      </form>
+
+      {sites.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '20px 0', color: '#334155', fontSize: 12 }}>
+          <div style={{ fontSize: 24, marginBottom: 6 }}>⭐</div>
+          No custom sites yet. Add your first monitoring station above.
+        </div>
+      ) : (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+            My Sites ({sites.length})
+          </div>
+          {sites.map(site => (
+            <div key={site.id} style={{
+              padding: '10px 12px', borderRadius: 9, marginBottom: 6,
+              background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.18)',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>⭐ {site.name}</div>
+                <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{site.lat.toFixed(4)}, {site.lon.toFixed(4)}</div>
+                {site.notes && <div style={{ fontSize: 10, color: '#475569', marginTop: 1 }}>{site.notes}</div>}
+              </div>
+              <button
+                onClick={() => onFlyTo(site)}
+                style={{
+                  padding: '5px 9px', borderRadius: 6,
+                  background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)',
+                  color: '#38bdf8', fontSize: 10, fontWeight: 700,
+                  cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+                  display: 'flex', alignItems: 'center', gap: 4,
+                }}
+              >
+                <MapPin size={10} /> Fly to
+              </button>
+              <button
+                onClick={() => handleDelete(site.id)}
+                style={{
+                  width: 28, height: 28, borderRadius: 6,
+                  background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)',
+                  color: '#f87171', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <Trash2 size={11} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function Weather3D() {
-  const [query, setQuery]             = useState('')
-  const [weatherData, setWeatherData] = useState(null)
-  const [loading, setLoading]         = useState(false)
-  const [error, setError]             = useState(null)
-  const [activeView, setActiveView]   = useState('globe')
-  const [dataLayer, setDataLayer]     = useState('wind')
-  const [rightTab, setRightTab]       = useState('weather')
-  const [globeCenter, setGlobeCenter] = useState(DEFAULT_CENTER)
-  const [globeZoom, setGlobeZoom]     = useState(DEFAULT_ZOOM)
-  const [pinLabel, setPinLabel]       = useState(null)
+  const [query, setQuery]               = useState('')
+  const [weatherData, setWeatherData]   = useState(null)
+  const [loading, setLoading]           = useState(false)
+  const [error, setError]               = useState(null)
+  const [activeView, setActiveView]     = useState('globe')
+  const [dataLayer, setDataLayer]       = useState('wind')
+  const [layersExpanded, setLayersExpanded] = useState(false)
+  const [rightTab, setRightTab]         = useState('weather')
+  const [globeCenter, setGlobeCenter]   = useState(DEFAULT_CENTER)
+  const [globeZoom, setGlobeZoom]       = useState(DEFAULT_ZOOM)
+  const [pinLabel, setPinLabel]         = useState(null)
   const [researchData, setResearchData] = useState({})
   const [selectedMarker, setSelectedMarker] = useState(null)
   const [containerSize, setContainerSize]   = useState({ w: 1000, h: 700 })
+  const [customSites, setCustomSites]   = useState(() => loadLS('sw_custom_sites', []))
   const globeContainerRef = useRef(null)
 
-  // Track container size for projection
+  // Sync custom sites from localStorage when My Sites tab is active
+  useEffect(() => {
+    if (rightTab === 'mysites') {
+      setCustomSites(loadLS('sw_custom_sites', []))
+    }
+  }, [rightTab])
+
+  // Track container size
   useEffect(() => {
     if (!globeContainerRef.current) return
     const obs = new ResizeObserver(e => {
@@ -942,7 +1380,7 @@ export default function Weather3D() {
     return () => obs.disconnect()
   }, [])
 
-  // Fetch live research data from backend (NASA POWER + WQI)
+  // Fetch live research data from backend
   useEffect(() => {
     const load = async () => {
       for (const loc of QUICK_LOCATIONS) {
@@ -952,7 +1390,7 @@ export default function Weather3D() {
             const d = await res.json()
             setResearchData(prev => ({ ...prev, [loc.name]: d }))
           }
-        } catch { /* backend offline — markers still show, WQI shows N/A */ }
+        } catch { /* backend offline */ }
       }
     }
     load()
@@ -981,73 +1419,142 @@ export default function Weather3D() {
     setLoading(false)
   }
 
+  const flyTo = (site) => {
+    setGlobeCenter({ lat: site.lat, lon: site.lon })
+    setGlobeZoom(450)
+    setActiveView('globe')
+    setSelectedMarker(site)
+    // Also fetch weather for this custom site
+    search(site.name)
+  }
+
+  const obsCount = loadLS('sw_observations', []).length
+
   const currentSrc  = getViewSrc(activeView, weatherData, globeCenter, globeZoom, dataLayer)
   const iframeKey   = `${activeView}-${dataLayer}-${globeCenter.lon}-${globeCenter.lat}`
   const showMarkers = activeView === 'globe'
 
+  // Right panel tab definitions with badge counts
+  const rightTabs = [
+    { id: 'weather', label: '🌤 Weather' },
+    { id: 'ml',      label: '🧪 ML' },
+    { id: 'sites',   label: '📍 All Sites' },
+    { id: 'submit',  label: '📋 Submit', badge: obsCount || null },
+    { id: 'mysites', label: '⭐ My Sites', badge: customSites.length || null },
+  ]
+
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 120px)', background: '#000', overflow: 'hidden', borderRadius: 12 }}>
 
-      {/* ── Left: view panel ──────────────────────────────────────────────── */}
+      {/* ── Left: globe/view panel ─────────────────────────────────────────── */}
       <div
         ref={globeContainerRef}
         style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
       >
-        {/* ── Top bar: view tabs + data layers ── */}
+        {/* ── Expandable top bar ── */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px',
-          background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(10px)',
+          background: 'rgba(0,0,0,0.88)', backdropFilter: 'blur(10px)',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
-          zIndex: 30, flexShrink: 0, flexWrap: 'wrap',
+          zIndex: 30, flexShrink: 0,
         }}>
-          {/* View tabs */}
-          {VIEWS.map(v => {
-            const disabled = v.id !== 'globe' && !weatherData
-            const active   = activeView === v.id
-            return (
-              <button key={v.id} onClick={() => !disabled && setActiveView(v.id)}
-                title={disabled ? 'Search a location first' : v.label}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  padding: '5px 11px', borderRadius: 7,
-                  border: active ? '1px solid rgba(99,102,241,0.6)' : '1px solid rgba(255,255,255,0.07)',
-                  background: active ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.04)',
-                  color: active ? '#a5b4fc' : disabled ? '#2d3748' : '#94a3b8',
-                  fontSize: 12, fontWeight: active ? 700 : 400,
-                  cursor: disabled ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
-                }}
-              >
-                <span>{v.icon}</span><span>{v.label}</span>
-              </button>
-            )
-          })}
+          {/* Row 1: view tabs + More Layers toggle + live indicator */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', flexWrap: 'nowrap' }}>
+            {VIEWS.map(v => {
+              const disabled = v.id !== 'globe' && !weatherData
+              const active   = activeView === v.id
+              return (
+                <button key={v.id} onClick={() => !disabled && setActiveView(v.id)}
+                  title={disabled ? 'Search a location first' : v.label}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '5px 11px', borderRadius: 7,
+                    border: active ? '1px solid rgba(99,102,241,0.6)' : '1px solid rgba(255,255,255,0.07)',
+                    background: active ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.04)',
+                    color: active ? '#a5b4fc' : disabled ? '#2d3748' : '#94a3b8',
+                    fontSize: 12, fontWeight: active ? 700 : 400,
+                    cursor: disabled ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+                    whiteSpace: 'nowrap', flexShrink: 0,
+                  }}
+                >
+                  <span>{v.icon}</span><span>{v.label}</span>
+                </button>
+              )
+            })}
 
-          {/* Divider */}
-          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)', margin: '0 4px' }} />
+            <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)', margin: '0 4px', flexShrink: 0 }} />
 
-          {/* Data layer toggles — globe only */}
-          {activeView === 'globe' && DATA_LAYERS.map(l => (
-            <button key={l.id} onClick={() => setDataLayer(l.id)}
-              title={`Globe: ${l.label}`}
+            {/* More Layers toggle */}
+            <button
+              onClick={() => setLayersExpanded(o => !o)}
               style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                padding: '4px 9px', borderRadius: 7, fontSize: 11,
-                border: dataLayer === l.id ? '1px solid rgba(56,189,248,0.5)' : '1px solid rgba(255,255,255,0.06)',
-                background: dataLayer === l.id ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.03)',
-                color: dataLayer === l.id ? '#38bdf8' : '#475569',
-                cursor: 'pointer', fontFamily: 'inherit', fontWeight: dataLayer === l.id ? 700 : 400,
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '5px 11px', borderRadius: 7,
+                border: layersExpanded ? '1px solid rgba(56,189,248,0.5)' : '1px solid rgba(255,255,255,0.1)',
+                background: layersExpanded ? 'rgba(56,189,248,0.12)' : 'rgba(255,255,255,0.04)',
+                color: layersExpanded ? '#38bdf8' : '#64748b',
+                fontSize: 11, fontWeight: layersExpanded ? 700 : 400,
+                cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', flexShrink: 0,
               }}
             >
-              <span>{l.icon}</span><span>{l.label}</span>
+              {layersExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              More Layers
+              {dataLayer !== 'wind' && (
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#38bdf8', display: 'inline-block', marginLeft: 2 }} />
+              )}
             </button>
-          ))}
 
-          {/* Live indicator */}
-          {weatherData && (
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#22c55e', animation: 'lpulse 2s infinite' }} />
-              <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 600 }}>{weatherData.name}</span>
-              <style>{`@keyframes lpulse{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
+            {/* Live indicator */}
+            {weatherData && (
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#22c55e', animation: 'lpulse 2s infinite' }} />
+                <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 600 }}>{weatherData.name}</span>
+                <style>{`@keyframes lpulse{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
+              </div>
+            )}
+          </div>
+
+          {/* Row 2: data layer buttons (shown when expanded, globe view only) */}
+          {layersExpanded && activeView === 'globe' && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px 8px',
+              flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.05)',
+            }}>
+              {ALL_DATA_LAYERS.map(l => (
+                <button key={l.id} onClick={() => setDataLayer(l.id)}
+                  title={`Globe: ${l.label}`}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    padding: '4px 9px', borderRadius: 7, fontSize: 11,
+                    border: dataLayer === l.id ? '1px solid rgba(56,189,248,0.5)' : '1px solid rgba(255,255,255,0.06)',
+                    background: dataLayer === l.id ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.03)',
+                    color: dataLayer === l.id ? '#38bdf8' : '#475569',
+                    cursor: 'pointer', fontFamily: 'inherit', fontWeight: dataLayer === l.id ? 700 : 400,
+                  }}
+                >
+                  <span>{l.icon}</span><span>{l.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Quick layer row when NOT expanded — show current selection shortcut */}
+          {!layersExpanded && activeView === 'globe' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0 10px 6px', flexWrap: 'nowrap', overflowX: 'auto' }}>
+              {DATA_LAYERS_ROW1.map(l => (
+                <button key={l.id} onClick={() => setDataLayer(l.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    padding: '3px 8px', borderRadius: 6, fontSize: 10,
+                    border: dataLayer === l.id ? '1px solid rgba(56,189,248,0.5)' : '1px solid rgba(255,255,255,0.05)',
+                    background: dataLayer === l.id ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.02)',
+                    color: dataLayer === l.id ? '#38bdf8' : '#334155',
+                    cursor: 'pointer', fontFamily: 'inherit', fontWeight: dataLayer === l.id ? 700 : 400,
+                    whiteSpace: 'nowrap', flexShrink: 0,
+                  }}
+                >
+                  <span>{l.icon}</span><span>{l.label}</span>
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -1070,6 +1577,19 @@ export default function Weather3D() {
             </div>
           )}
 
+          {/* SOURCE Water branding badge — top-left corner over iframe */}
+          <div style={{
+            position: 'absolute', top: 10, left: 10, zIndex: 25,
+            background: 'rgba(6,10,24,0.75)', backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(56,189,248,0.25)',
+            borderRadius: 20, padding: '4px 11px',
+            display: 'flex', alignItems: 'center', gap: 5,
+            pointerEvents: 'none',
+          }}>
+            <span style={{ fontSize: 13 }}>🌊</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#38bdf8', letterSpacing: '0.03em' }}>SOURCE Water</span>
+          </div>
+
           {/* Research site markers — globe view only */}
           {showMarkers && (
             <ResearchMarkers
@@ -1079,11 +1599,13 @@ export default function Weather3D() {
               researchData={researchData}
               onSelect={(loc, rd) => setSelectedMarker(s => s?.name === loc.name ? null : { ...loc, _rd: rd })}
               selected={selectedMarker}
+              customSites={customSites}
+              onSelectCustom={(site) => setSelectedMarker(s => s?.name === site.name ? null : site)}
             />
           )}
 
-          {/* Searched city pin — globe view, when not a research site */}
-          {activeView === 'globe' && pinLabel && !QUICK_LOCATIONS.find(l => l.name === pinLabel) && (
+          {/* Searched city pin */}
+          {activeView === 'globe' && pinLabel && !QUICK_LOCATIONS.find(l => l.name === pinLabel) && !customSites.find(l => l.name === pinLabel) && (
             <div style={{
               position: 'absolute', top: '47%', left: '50%',
               transform: 'translate(-50%, -100%)',
@@ -1125,7 +1647,7 @@ export default function Weather3D() {
             </div>
           )}
 
-          {/* WQI legend — globe view */}
+          {/* WQI legend — globe view with shimmer on live data */}
           {showMarkers && Object.keys(researchData).length > 0 && (
             <div style={{
               position: 'absolute', bottom: 10, right: 10,
@@ -1133,7 +1655,18 @@ export default function Weather3D() {
               border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10,
               padding: '8px 12px', zIndex: 20, pointerEvents: 'none',
             }}>
-              <div style={{ fontSize: 9, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Water Quality</div>
+              <div style={{
+                fontSize: 9, color: '#475569', textTransform: 'uppercase',
+                letterSpacing: '0.06em', marginBottom: 6,
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                Water Quality
+                <span style={{
+                  display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
+                  background: '#22c55e', animation: 'shimmer 2s ease-in-out infinite',
+                }}/>
+                <style>{`@keyframes shimmer{0%{opacity:0.5}50%{opacity:1}100%{opacity:0.5}}`}</style>
+              </div>
               {[['#10b981','Excellent >75'],['#0ea5e9','Good 50-75'],['#f59e0b','Fair 25-50'],['#ef4444','Poor <25']].map(([c,l]) => (
                 <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                   <div style={{ width: 8, height: 8, borderRadius: '50%', background: c, boxShadow: `0 0 4px ${c}` }} />
@@ -1145,13 +1678,14 @@ export default function Weather3D() {
         </div>
       </div>
 
-      {/* ── Right panel (unchanged) ──────────────────────────────────────── */}
+      {/* ── Right panel ───────────────────────────────────────────────────── */}
       <div style={{
         width: 340, flexShrink: 0,
         background: 'rgba(8,12,26,0.98)',
         borderLeft: '1px solid rgba(255,255,255,0.07)',
         display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden',
       }}>
+        {/* Search */}
         <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
             Weather Search
@@ -1206,20 +1740,31 @@ export default function Weather3D() {
           </div>
         </div>
 
-        {/* Right panel tabs */}
-        <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
-          {[
-            { id: 'weather', label: '🌤 Weather' },
-            { id: 'ml',      label: '🧪 ML Insights' },
-            { id: 'sites',   label: '📍 All Sites' },
-          ].map(t => (
+        {/* Right panel tabs — 5 tabs */}
+        <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0, overflowX: 'auto' }}>
+          {rightTabs.map(t => (
             <button key={t.id} onClick={() => setRightTab(t.id)}
-              style={{ flex: 1, padding: '8px 4px', fontSize: 11, fontWeight: rightTab === t.id ? 700 : 400, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', color: rightTab === t.id ? '#a5b4fc' : '#475569', borderBottom: rightTab === t.id ? '2px solid #6366f1' : '2px solid transparent', transition: 'all 0.15s' }}>
+              style={{
+                flex: 1, padding: '8px 2px', fontSize: 10, fontWeight: rightTab === t.id ? 700 : 400,
+                border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                color: rightTab === t.id ? '#a5b4fc' : '#475569',
+                borderBottom: rightTab === t.id ? '2px solid #6366f1' : '2px solid transparent',
+                transition: 'all 0.15s', position: 'relative', whiteSpace: 'nowrap',
+              }}>
               {t.label}
+              {t.badge != null && (
+                <span style={{
+                  position: 'absolute', top: 4, right: 4,
+                  background: '#6366f1', color: '#fff',
+                  fontSize: 8, fontWeight: 800,
+                  borderRadius: 10, padding: '1px 4px', lineHeight: 1.3,
+                }}>{t.badge}</span>
+              )}
             </button>
           ))}
         </div>
 
+        {/* Tab content */}
         <div style={{ flex: 1, overflowY: 'auto', padding: 14, minHeight: 0 }}>
           {rightTab === 'weather' && (
             <>
@@ -1237,6 +1782,8 @@ export default function Weather3D() {
           )}
           {rightTab === 'ml' && <MLResearchPanel weatherData={weatherData} researchData={researchData} />}
           {rightTab === 'sites' && <AllSitesPanel researchData={researchData} />}
+          {rightTab === 'submit' && <ObservationPanel />}
+          {rightTab === 'mysites' && <MySitesPanel onFlyTo={flyTo} />}
         </div>
 
         {weatherData && rightTab === 'weather' && <AIAssistant weatherData={weatherData} />}
