@@ -1,0 +1,909 @@
+{
+  "295c0537-4985-44f9-a10c-6800a16eb69f": {
+    "id": "295c0537-4985-44f9-a10c-6800a16eb69f",
+    "filename": "sample_water_data.csv",
+    "file_type": ".csv",
+    "size": 778,
+    "uploaded_at": "2026-04-04T23:56:06.720111",
+    "status": "processed",
+    "parse_metadata": {
+      "col_stats": {
+        "Location": {
+          "type": "object",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "unique": 4,
+          "top_values": {
+            "Well_1": 3,
+            "Well_2": 3,
+            "Spring_1": 3,
+            "River_1": 3
+          }
+        },
+        "Timestamp": {
+          "type": "object",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "unique": 3,
+          "top_values": {
+            "2026-04-01T08:00": 4,
+            "2026-04-01T14:00": 4,
+            "2026-04-01T20:00": 4
+          }
+        },
+        "pH": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 7.2749999999999995,
+          "median": 7.3,
+          "std": 0.283244192751189,
+          "min": 6.8,
+          "max": 7.7,
+          "q25": 7.074999999999999,
+          "q75": 7.5,
+          "outliers": 0
+        },
+        "Turbidity": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 1.3583333333333334,
+          "median": 0.8500000000000001,
+          "std": 1.3041600106326419,
+          "min": 0.2,
+          "max": 4.1,
+          "q25": 0.4,
+          "q75": 1.825,
+          "outliers": 1
+        },
+        "DissolvedOxygen": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 7.716666666666668,
+          "median": 7.65,
+          "std": 1.0503967504392486,
+          "min": 6.2,
+          "max": 9.3,
+          "q25": 6.875,
+          "q75": 8.399999999999999,
+          "outliers": 0
+        },
+        "Conductivity": {
+          "type": "int64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 502.0833333333333,
+          "median": 485.0,
+          "std": 108.19717550786059,
+          "min": 370.0,
+          "max": 680.0,
+          "q25": 426.25,
+          "q75": 565.0,
+          "outliers": 0
+        },
+        "Temperature": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 21.566666666666666,
+          "median": 21.25,
+          "std": 2.0807923898594427,
+          "min": 18.9,
+          "max": 25.5,
+          "q25": 19.950000000000003,
+          "q75": 22.875,
+          "outliers": 0
+        },
+        "Phosphorus": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 0.055,
+          "median": 0.04,
+          "std": 0.04776838056516237,
+          "min": 0.01,
+          "max": 0.15,
+          "q25": 0.0175,
+          "q75": 0.085,
+          "outliers": 0
+        },
+        "Nitrates": {
+          "type": "int64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 11.5,
+          "median": 9.0,
+          "std": 9.77473552304381,
+          "min": 1.0,
+          "max": 30.0,
+          "q25": 3.75,
+          "q75": 16.75,
+          "outliers": 0
+        },
+        "EColi": {
+          "type": "int64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 13.666666666666666,
+          "median": 1.5,
+          "std": 22.463438307749342,
+          "min": 0.0,
+          "max": 65.0,
+          "q25": 0.0,
+          "q75": 15.5,
+          "outliers": 2
+        }
+      },
+      "summary": {
+        "total_rows": 12,
+        "total_cols": 10,
+        "memory_usage_mb": 0.0022401809692382812
+      },
+      "file_type": "csv",
+      "shape": {
+        "rows": 12,
+        "cols": 10
+      }
+    },
+    "stats": {
+      "col_stats": {
+        "Location": {
+          "type": "object",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "unique": 4,
+          "top_values": {
+            "Well_1": 3,
+            "Well_2": 3,
+            "Spring_1": 3,
+            "River_1": 3
+          }
+        },
+        "Timestamp": {
+          "type": "object",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "unique": 3,
+          "top_values": {
+            "2026-04-01T08:00": 4,
+            "2026-04-01T14:00": 4,
+            "2026-04-01T20:00": 4
+          }
+        },
+        "pH": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 7.2749999999999995,
+          "median": 7.3,
+          "std": 0.283244192751189,
+          "min": 6.8,
+          "max": 7.7,
+          "q25": 7.074999999999999,
+          "q75": 7.5,
+          "outliers": 0
+        },
+        "Turbidity": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 1.3583333333333334,
+          "median": 0.8500000000000001,
+          "std": 1.3041600106326419,
+          "min": 0.2,
+          "max": 4.1,
+          "q25": 0.4,
+          "q75": 1.825,
+          "outliers": 1
+        },
+        "DissolvedOxygen": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 7.716666666666668,
+          "median": 7.65,
+          "std": 1.0503967504392486,
+          "min": 6.2,
+          "max": 9.3,
+          "q25": 6.875,
+          "q75": 8.399999999999999,
+          "outliers": 0
+        },
+        "Conductivity": {
+          "type": "int64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 502.0833333333333,
+          "median": 485.0,
+          "std": 108.19717550786059,
+          "min": 370.0,
+          "max": 680.0,
+          "q25": 426.25,
+          "q75": 565.0,
+          "outliers": 0
+        },
+        "Temperature": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 21.566666666666666,
+          "median": 21.25,
+          "std": 2.0807923898594427,
+          "min": 18.9,
+          "max": 25.5,
+          "q25": 19.950000000000003,
+          "q75": 22.875,
+          "outliers": 0
+        },
+        "Phosphorus": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 0.055,
+          "median": 0.04,
+          "std": 0.04776838056516237,
+          "min": 0.01,
+          "max": 0.15,
+          "q25": 0.0175,
+          "q75": 0.085,
+          "outliers": 0
+        },
+        "Nitrates": {
+          "type": "int64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 11.5,
+          "median": 9.0,
+          "std": 9.77473552304381,
+          "min": 1.0,
+          "max": 30.0,
+          "q25": 3.75,
+          "q75": 16.75,
+          "outliers": 0
+        },
+        "EColi": {
+          "type": "int64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 13.666666666666666,
+          "median": 1.5,
+          "std": 22.463438307749342,
+          "min": 0.0,
+          "max": 65.0,
+          "q25": 0.0,
+          "q75": 15.5,
+          "outliers": 2
+        }
+      },
+      "summary": {
+        "total_rows": 12,
+        "total_cols": 10,
+        "memory_usage_mb": 0.0022401809692382812
+      },
+      "is_numeric": true
+    },
+    "risk": {
+      "score": 91.91538461538461,
+      "level": "critical",
+      "components": {
+        "violations": 44.41538461538461,
+        "anomalies": 25,
+        "trends": 20,
+        "data_quality": 2.5
+      },
+      "violations": [
+        {
+          "column": "Phosphorus",
+          "issue": "Below safe range (6.5)",
+          "value": 0.055,
+          "severity": "elevated"
+        },
+        {
+          "column": "Nitrates",
+          "issue": "Exceeds limit (10)",
+          "value": 11.5,
+          "severity": "elevated"
+        },
+        {
+          "column": "EColi",
+          "issue": "Exceeds limit (0)",
+          "value": 13.666666666666666,
+          "severity": "critical"
+        }
+      ],
+      "recommendations": [
+        "Urgent investigation required. Sample immediately.",
+        "Review and remediate identified violations."
+      ]
+    },
+    "anomalies": {
+      "method": "IsolationForest",
+      "per_column": {
+        "pH": {
+          "outlier_count": 0,
+          "outlier_pct": 0.0,
+          "lower_bound": 6.437499999999998,
+          "upper_bound": 8.137500000000001,
+          "outlier_indices": []
+        },
+        "Turbidity": {
+          "outlier_count": 1,
+          "outlier_pct": 8.333333333333332,
+          "lower_bound": -1.7374999999999998,
+          "upper_bound": 3.9624999999999995,
+          "outlier_indices": [
+            10
+          ]
+        },
+        "DissolvedOxygen": {
+          "outlier_count": 0,
+          "outlier_pct": 0.0,
+          "lower_bound": 4.587500000000002,
+          "upper_bound": 10.687499999999996,
+          "outlier_indices": []
+        },
+        "Conductivity": {
+          "outlier_count": 0,
+          "outlier_pct": 0.0,
+          "lower_bound": 218.125,
+          "upper_bound": 773.125,
+          "outlier_indices": []
+        },
+        "Temperature": {
+          "outlier_count": 0,
+          "outlier_pct": 0.0,
+          "lower_bound": 15.562500000000007,
+          "upper_bound": 27.262499999999996,
+          "outlier_indices": []
+        },
+        "Phosphorus": {
+          "outlier_count": 0,
+          "outlier_pct": 0.0,
+          "lower_bound": -0.08375,
+          "upper_bound": 0.18625000000000003,
+          "outlier_indices": []
+        },
+        "Nitrates": {
+          "outlier_count": 0,
+          "outlier_pct": 0.0,
+          "lower_bound": -15.75,
+          "upper_bound": 36.25,
+          "outlier_indices": []
+        },
+        "EColi": {
+          "outlier_count": 2,
+          "outlier_pct": 16.666666666666664,
+          "lower_bound": -23.25,
+          "upper_bound": 38.75,
+          "outlier_indices": [
+            9,
+            10
+          ]
+        }
+      },
+      "global_anomalies": [
+        10,
+        11
+      ],
+      "anomaly_rate": 16.666666666666664,
+      "global_count": 2
+    },
+    "trends": {
+      "per_column": {
+        "pH": {
+          "slope": 0.05559440559440561,
+          "r_squared": 0.5008221240515861,
+          "p_value": 0.010030476380165645,
+          "trend": "increasing",
+          "significance": "significant",
+          "pct_change": 9.170211232066906
+        },
+        "Turbidity": {
+          "slope": 0.23671328671328667,
+          "r_squared": 0.4282790836173758,
+          "p_value": 0.020941068003226194,
+          "trend": "increasing",
+          "significance": "significant",
+          "pct_change": 209.12094040928392
+        },
+        "DissolvedOxygen": {
+          "slope": 0.0013986013986014496,
+          "r_squared": 2.304753746665478e-05,
+          "p_value": 0.988185930996649,
+          "trend": "increasing",
+          "significance": "not_significant",
+          "pct_change": 0.21749309006329232
+        },
+        "Conductivity": {
+          "slope": 14.772727272727273,
+          "r_squared": 0.24234433117965173,
+          "p_value": 0.10398632013162763,
+          "trend": "increasing",
+          "significance": "not_significant",
+          "pct_change": 35.30743115805357
+        },
+        "Temperature": {
+          "slope": -0.28601398601398603,
+          "r_squared": 0.2456181136892223,
+          "p_value": 0.10132201929062033,
+          "trend": "decreasing",
+          "significance": "not_significant",
+          "pct_change": -15.914224878676192
+        },
+        "Phosphorus": {
+          "slope": 0.007692307692307694,
+          "r_squared": 0.33711308611707036,
+          "p_value": 0.04776333732912626,
+          "trend": "increasing",
+          "significance": "significant",
+          "pct_change": 167.83216783216787
+        },
+        "Nitrates": {
+          "slope": 1.5804195804195804,
+          "r_squared": 0.33984284031857775,
+          "p_value": 0.04665769874655986,
+          "trend": "increasing",
+          "significance": "significant",
+          "pct_change": 164.91334752204318
+        },
+        "EColi": {
+          "slope": 4.426573426573427,
+          "r_squared": 0.504808007270174,
+          "p_value": 0.009607825023434415,
+          "trend": "increasing",
+          "significance": "significant",
+          "pct_change": 388.67473989425207
+        }
+      },
+      "increasing_trend_count": 7,
+      "decreasing_trend_count": 1
+    },
+    "quality": {
+      "overall_score": 95.0,
+      "issues": [],
+      "warnings": [
+        "Small sample size: 12 rows"
+      ],
+      "missing_data_severity": "low",
+      "outlier_severity": "low"
+    }
+  },
+  "fbd3ef67-9f3d-4b3f-a49a-283ba7ea648a": {
+    "id": "fbd3ef67-9f3d-4b3f-a49a-283ba7ea648a",
+    "filename": "analysis_test.csv",
+    "file_type": ".csv",
+    "size": 382,
+    "uploaded_at": "2026-04-05T00:05:44.173183",
+    "status": "processed",
+    "parse_metadata": {
+      "col_stats": {
+        "Location": {
+          "type": "object",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "unique": 4,
+          "top_values": {
+            "Well_1": 2,
+            "Well_2": 2,
+            "Spring_1": 2,
+            "River_1": 2
+          }
+        },
+        "pH": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 7.25,
+          "median": 7.300000000000001,
+          "std": 0.29760952365713794,
+          "min": 6.8,
+          "max": 7.6,
+          "q25": 7.05,
+          "q75": 7.5,
+          "outliers": 0
+        },
+        "Turbidity": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 1.45,
+          "median": 0.8999999999999999,
+          "std": 1.447164715671894,
+          "min": 0.2,
+          "max": 4.1,
+          "q25": 0.45,
+          "q75": 1.925,
+          "outliers": 0
+        },
+        "DissolvedOxygen": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 7.65,
+          "median": 7.550000000000001,
+          "std": 1.1513966674062792,
+          "min": 6.2,
+          "max": 9.3,
+          "q25": 6.800000000000001,
+          "q75": 8.35,
+          "outliers": 0
+        },
+        "Conductivity": {
+          "type": "int64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 506.25,
+          "median": 490.0,
+          "std": 114.63451237987375,
+          "min": 370.0,
+          "max": 680.0,
+          "q25": 432.5,
+          "q75": 567.5,
+          "outliers": 0
+        },
+        "Temperature": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 22.4125,
+          "median": 22.65,
+          "std": 1.962824131558549,
+          "min": 19.5,
+          "max": 25.5,
+          "q25": 21.025,
+          "q75": 23.375,
+          "outliers": 0
+        },
+        "Phosphorus": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 0.058750000000000004,
+          "median": 0.04,
+          "std": 0.053033008588991064,
+          "min": 0.01,
+          "max": 0.15,
+          "q25": 0.0175,
+          "q75": 0.09,
+          "outliers": 0
+        },
+        "Nitrates": {
+          "type": "int64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 12.0,
+          "median": 9.0,
+          "std": 10.743768958264667,
+          "min": 1.0,
+          "max": 30.0,
+          "q25": 4.25,
+          "q75": 17.5,
+          "outliers": 0
+        }
+      },
+      "summary": {
+        "total_rows": 8,
+        "total_cols": 8,
+        "memory_usage_mb": 0.0009784698486328125
+      },
+      "file_type": "csv",
+      "shape": {
+        "rows": 8,
+        "cols": 8
+      }
+    },
+    "stats": {
+      "col_stats": {
+        "Location": {
+          "type": "object",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "unique": 4,
+          "top_values": {
+            "Well_1": 2,
+            "Well_2": 2,
+            "Spring_1": 2,
+            "River_1": 2
+          }
+        },
+        "pH": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 7.25,
+          "median": 7.300000000000001,
+          "std": 0.29760952365713794,
+          "min": 6.8,
+          "max": 7.6,
+          "q25": 7.05,
+          "q75": 7.5,
+          "outliers": 0
+        },
+        "Turbidity": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 1.45,
+          "median": 0.8999999999999999,
+          "std": 1.447164715671894,
+          "min": 0.2,
+          "max": 4.1,
+          "q25": 0.45,
+          "q75": 1.925,
+          "outliers": 0
+        },
+        "DissolvedOxygen": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 7.65,
+          "median": 7.550000000000001,
+          "std": 1.1513966674062792,
+          "min": 6.2,
+          "max": 9.3,
+          "q25": 6.800000000000001,
+          "q75": 8.35,
+          "outliers": 0
+        },
+        "Conductivity": {
+          "type": "int64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 506.25,
+          "median": 490.0,
+          "std": 114.63451237987375,
+          "min": 370.0,
+          "max": 680.0,
+          "q25": 432.5,
+          "q75": 567.5,
+          "outliers": 0
+        },
+        "Temperature": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 22.4125,
+          "median": 22.65,
+          "std": 1.962824131558549,
+          "min": 19.5,
+          "max": 25.5,
+          "q25": 21.025,
+          "q75": 23.375,
+          "outliers": 0
+        },
+        "Phosphorus": {
+          "type": "float64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 0.058750000000000004,
+          "median": 0.04,
+          "std": 0.053033008588991064,
+          "min": 0.01,
+          "max": 0.15,
+          "q25": 0.0175,
+          "q75": 0.09,
+          "outliers": 0
+        },
+        "Nitrates": {
+          "type": "int64",
+          "missing": 0,
+          "missing_pct": 0.0,
+          "mean": 12.0,
+          "median": 9.0,
+          "std": 10.743768958264667,
+          "min": 1.0,
+          "max": 30.0,
+          "q25": 4.25,
+          "q75": 17.5,
+          "outliers": 0
+        }
+      },
+      "summary": {
+        "total_rows": 8,
+        "total_cols": 8,
+        "memory_usage_mb": 0.0009784698486328125
+      },
+      "is_numeric": true
+    },
+    "risk": {
+      "score": 58.40961538461538,
+      "level": "elevated",
+      "components": {
+        "violations": 15.909615384615382,
+        "anomalies": 25,
+        "trends": 10,
+        "data_quality": 7.5
+      },
+      "violations": [
+        {
+          "column": "Phosphorus",
+          "issue": "Below safe range (6.5)",
+          "value": 0.058750000000000004,
+          "severity": "elevated"
+        },
+        {
+          "column": "Nitrates",
+          "issue": "Exceeds limit (10)",
+          "value": 12.0,
+          "severity": "elevated"
+        }
+      ],
+      "recommendations": [
+        "Monitor closely. Sample again soon.",
+        "Investigate trend direction and potential causes."
+      ]
+    },
+    "anomalies": {
+      "method": "IsolationForest",
+      "per_column": {
+        "pH": {
+          "outlier_count": 0,
+          "outlier_pct": 0.0,
+          "lower_bound": 6.375,
+          "upper_bound": 8.175,
+          "outlier_indices": []
+        },
+        "Turbidity": {
+          "outlier_count": 0,
+          "outlier_pct": 0.0,
+          "lower_bound": -1.7625000000000004,
+          "upper_bound": 4.1375,
+          "outlier_indices": []
+        },
+        "DissolvedOxygen": {
+          "outlier_count": 0,
+          "outlier_pct": 0.0,
+          "lower_bound": 4.475000000000002,
+          "upper_bound": 10.674999999999997,
+          "outlier_indices": []
+        },
+        "Conductivity": {
+          "outlier_count": 0,
+          "outlier_pct": 0.0,
+          "lower_bound": 230.0,
+          "upper_bound": 770.0,
+          "outlier_indices": []
+        },
+        "Temperature": {
+          "outlier_count": 0,
+          "outlier_pct": 0.0,
+          "lower_bound": 17.499999999999996,
+          "upper_bound": 26.900000000000002,
+          "outlier_indices": []
+        },
+        "Phosphorus": {
+          "outlier_count": 0,
+          "outlier_pct": 0.0,
+          "lower_bound": -0.09124999999999998,
+          "upper_bound": 0.19874999999999998,
+          "outlier_indices": []
+        },
+        "Nitrates": {
+          "outlier_count": 0,
+          "outlier_pct": 0.0,
+          "lower_bound": -15.625,
+          "upper_bound": 37.375,
+          "outlier_indices": []
+        }
+      },
+      "global_anomalies": [
+        7
+      ],
+      "anomaly_rate": 12.5,
+      "global_count": 1
+    },
+    "trends": {
+      "per_column": {
+        "pH": {
+          "slope": 0.0857142857142857,
+          "r_squared": 0.49769585253456217,
+          "p_value": 0.05059339918468689,
+          "trend": "increasing",
+          "significance": "not_significant",
+          "pct_change": 9.458128078817731
+        },
+        "Turbidity": {
+          "slope": 0.40476190476190466,
+          "r_squared": 0.46936919378938474,
+          "p_value": 0.060786620680409506,
+          "trend": "increasing",
+          "significance": "not_significant",
+          "pct_change": 223.31691297208533
+        },
+        "DissolvedOxygen": {
+          "slope": -0.007142857142857075,
+          "r_squared": 0.00023091133004925668,
+          "p_value": 0.9715123229526325,
+          "trend": "decreasing",
+          "significance": "not_significant",
+          "pct_change": -0.7469654528477986
+        },
+        "Conductivity": {
+          "slope": 23.214285714285715,
+          "r_squared": 0.24605439403645682,
+          "p_value": 0.21123122837156713,
+          "trend": "increasing",
+          "significance": "not_significant",
+          "pct_change": 36.68430335097002
+        },
+        "Temperature": {
+          "slope": -0.3345238095238095,
+          "r_squared": 0.1742779892953705,
+          "p_value": 0.30344005577843197,
+          "trend": "decreasing",
+          "significance": "not_significant",
+          "pct_change": -11.940615621597216
+        },
+        "Phosphorus": {
+          "slope": 0.013928571428571427,
+          "r_squared": 0.413877551020408,
+          "p_value": 0.08525195237932784,
+          "trend": "increasing",
+          "significance": "not_significant",
+          "pct_change": 189.66565349544072
+        },
+        "Nitrates": {
+          "slope": 2.6666666666666665,
+          "r_squared": 0.3696369636963696,
+          "p_value": 0.10980466896472874,
+          "trend": "increasing",
+          "significance": "not_significant",
+          "pct_change": 177.77777777777777
+        }
+      },
+      "increasing_trend_count": 5,
+      "decreasing_trend_count": 2
+    },
+    "quality": {
+      "overall_score": 85.0,
+      "issues": [
+        "Very small sample size: 8 rows"
+      ],
+      "warnings": [],
+      "missing_data_severity": "low",
+      "outlier_severity": "low"
+    }
+  },
+  "2dcbf555-0fdb-49d8-8f31-2c252c05a816": {
+    "id": "2dcbf555-0fdb-49d8-8f31-2c252c05a816",
+    "filename": "ConsentForm_FINAL (1) (1).pdf",
+    "file_type": ".pdf",
+    "size": 4114270,
+    "uploaded_at": "2026-04-05T00:17:31.602075",
+    "status": "processed",
+    "parse_metadata": {
+      "pages": 11,
+      "title": null,
+      "author": "Un-named"
+    },
+    "stats": {
+      "is_numeric": false
+    },
+    "risk": {},
+    "anomalies": {},
+    "trends": {},
+    "quality": {}
+  },
+  "c3622332-7d9e-49ea-afd1-a62d40d171b8": {
+    "id": "c3622332-7d9e-49ea-afd1-a62d40d171b8",
+    "filename": "ConsentForm_FINAL (1) (1).pdf",
+    "file_type": ".pdf",
+    "size": 4114270,
+    "uploaded_at": "2026-04-05T00:21:21.629179",
+    "status": "processed",
+    "parse_metadata": {
+      "pages": 11,
+      "title": null,
+      "author": "Un-named"
+    },
+    "stats": {
+      "is_numeric": false
+    },
+    "risk": {},
+    "anomalies": {},
+    "trends": {},
+    "quality": {}
+  }
+}

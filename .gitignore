@@ -1,0 +1,49 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.Python
+
+# Env files — NEVER commit secrets
+.env
+.env.local
+.env.*.local
+analysis-service/.env
+
+# Databases (auto-regenerated on first run)
+server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
+
+# Uploads & indexes (user data, too large for git)
+uploads/
+analysis-service/data/uploads/
+analysis-service/data/indexes/
+analysis-service/data/files.json
+
+# Build output
+client/dist/
+client/.vite/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+uvicorn.log
