@@ -747,7 +747,8 @@ function AllSitesPanel({ researchData }) {
     return { ...loc, wqi, wx, ar, risk, raw: d }
   })
 
-  const observations = loadLS('sw_observations', [])
+  const observations  = loadLS('sw_observations', [])
+  const customSites   = loadLS('sw_custom_sites', [])
 
   const buildRows = () => {
     const siteRows = sites.map(s => ({
@@ -766,6 +767,22 @@ function AllSitesPanel({ researchData }) {
       notes: '',
       source: 'research_site',
     }))
+    const customRows = customSites.map(cs => ({
+      site: cs.name,
+      lat: cs.lat,
+      lon: cs.lon,
+      date: new Date().toISOString(),
+      wqi: '',
+      temp_c: '',
+      humidity: '',
+      wind: '',
+      precip: '',
+      ph: '',
+      turbidity: '',
+      do_mgl: '',
+      notes: cs.notes ?? '',
+      source: 'custom_site',
+    }))
     const obsRows = observations.map(o => ({
       site: o.site ?? '',
       lat: o.lat ?? '',
@@ -782,7 +799,7 @@ function AllSitesPanel({ researchData }) {
       notes: o.notes ?? '',
       source: 'field_observation',
     }))
-    return [...siteRows, ...obsRows]
+    return [...siteRows, ...customRows, ...obsRows]
   }
 
   const exportCSV = () => {
@@ -886,7 +903,7 @@ function AllSitesPanel({ researchData }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700 }}>
             <Download size={13} /> Build Dataset
             <span style={{ fontSize: 10, background: 'rgba(99,102,241,0.2)', padding: '2px 6px', borderRadius: 20, color: '#818cf8' }}>
-              {sites.length + observations.length} rows
+              {sites.length + customSites.length + observations.length} rows
             </span>
           </div>
           {buildOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -894,8 +911,8 @@ function AllSitesPanel({ researchData }) {
         {buildOpen && (
           <div style={{ padding: 12, background: 'rgba(0,0,0,0.2)' }}>
             <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10, lineHeight: 1.5 }}>
-              Combines {sites.length} research sites + {observations.length} field observations into a unified dataset.
-              Columns: site, lat, lon, date, wqi, temp_c, humidity, wind, precip, ph, turbidity, do_mgl, notes.
+              Combines {sites.length} research sites + {customSites.length} custom sites + {observations.length} field observations.
+              Columns: site, lat, lon, date, wqi, temp_c, humidity, wind, precip, ph, turbidity, do_mgl, notes, source.
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={exportCSV} style={{ flex: 1, padding: '7px 0', borderRadius: 8, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', color: '#10b981', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
@@ -1048,6 +1065,153 @@ function MLResearchPanel({ weatherData, researchData }) {
            '✅ Good conditions for field sampling. Collect baseline grab samples and deploy sensors.'}
         </div>
       </div>
+
+      {/* DO Saturation Model */}
+      <DOSaturationPanel temp={c.temperature_2m ?? 10} />
+
+      {/* Multi-site WQI bar chart */}
+      {siteWQIs.length > 1 && (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Site vs Site WQI Chart</div>
+          <ResponsiveContainer width="100%" height={100}>
+            <AreaChart data={siteWQIs} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+              <defs>
+                <linearGradient id="siteGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#a78bfa" stopOpacity={0.4}/>
+                  <stop offset="95%" stopColor="#a78bfa" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
+              <XAxis dataKey="name" tick={{ fill: '#475569', fontSize: 8 }} axisLine={false} tickLine={false}/>
+              <YAxis domain={[0, 100]} tick={{ fill: '#475569', fontSize: 8 }} axisLine={false} tickLine={false}/>
+              <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 11 }} formatter={(v) => [v.toFixed(0), 'WQI']}/>
+              <Area type="monotone" dataKey="wqi" stroke="#a78bfa" fill="url(#siteGrad)" strokeWidth={2} dot={{ fill: '#a78bfa', r: 3 }}/>
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Parameter correlation matrix */}
+      <CorrelationPanel data={weatherData} />
+
+      {/* AI Research Insights button */}
+      <AIInsightButton weatherData={weatherData} algae={algae} runoff={runoff} wqiForecast={wqiForecast} siteWQIs={siteWQIs} />
+    </div>
+  )
+}
+
+// ── DO Saturation model (Henry's law approximation) ───────────────────────────
+function DOSaturationPanel({ temp }) {
+  // DO saturation at 1 atm: empirical formula
+  const doSat = (t) => 14.62 - 0.3898 * t + 0.006969 * t * t - 0.00005696 * t * t * t
+  const pts = [-2, 2, 5, 8, 10, 12, 15, 18, 20, 22, 25, 28, 30].map(t => ({
+    t: `${t}°`, do: Math.max(0, doSat(t).toFixed(1) * 1)
+  }))
+  const current = Math.max(0, doSat(temp).toFixed(1) * 1)
+  const status = current >= 9 ? { label: 'Excellent', color: '#10b981' }
+               : current >= 7 ? { label: 'Good', color: '#0ea5e9' }
+               : current >= 5 ? { label: 'Marginal', color: '#f59e0b' }
+               : { label: 'Hypoxic', color: '#ef4444' }
+  return (
+    <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(6,182,212,0.07)', border: '1px solid rgba(6,182,212,0.2)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+        <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>💧 DO Saturation Model</div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: status.color }}>{current} mg/L</div>
+          <div style={{ fontSize: 9, color: status.color }}>{status.label} @ {temp.toFixed ? temp.toFixed(1) : temp}°C</div>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={60}>
+        <AreaChart data={pts} margin={{ top: 2, right: 2, left: -30, bottom: 0 }}>
+          <defs>
+            <linearGradient id="doGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.35}/>
+              <stop offset="95%" stopColor="#06b6d4" stopOpacity={0}/>
+            </linearGradient>
+          </defs>
+          <XAxis dataKey="t" tick={{ fill: '#334155', fontSize: 7 }} axisLine={false} tickLine={false}/>
+          <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 10 }} formatter={(v) => [`${v} mg/L`, 'DO']}/>
+          <Area type="monotone" dataKey="do" stroke="#06b6d4" fill="url(#doGrad)" strokeWidth={1.5} dot={false}/>
+        </AreaChart>
+      </ResponsiveContainer>
+      <div style={{ fontSize: 10, color: '#334155', marginTop: 4 }}>Fish require &gt;5 mg/L · Salmonids need &gt;8 mg/L · WHO drinking: &gt;6 mg/L</div>
+    </div>
+  )
+}
+
+// ── Parameter correlation display ────────────────────────────────────────────
+function CorrelationPanel({ data }) {
+  const c = data?.current
+  if (!c) return null
+  const temp = c.temperature_2m ?? 15
+  const humid = c.relative_humidity_2m ?? 60
+  const wind = c.wind_speed_10m ?? 5
+  const precip = c.precipitation ?? 0
+  // simplified correlation scores: how each parameter relates to WQI degradation
+  const params = [
+    { label: 'Temp → Algae risk',   val: Math.min(100, Math.max(0, (temp - 5) * 4)),   note: `${temp.toFixed(1)}°C`,   color: '#f59e0b' },
+    { label: 'Precip → Runoff',     val: Math.min(100, precip * 20),                   note: `${precip.toFixed(1)} mm`, color: '#0ea5e9' },
+    { label: 'Wind → Mixing',       val: Math.min(100, wind * 3),                      note: `${wind.toFixed(0)} km/h`, color: '#10b981' },
+    { label: 'Humidity → Evap',     val: Math.min(100, humid),                         note: `${humid}%`,               color: '#a78bfa' },
+  ]
+  return (
+    <div>
+      <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Parameter Influence on WQI</div>
+      {params.map(p => (
+        <div key={p.label} style={{ marginBottom: 7 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>
+            <span>{p.label}</span><span style={{ color: p.color }}>{p.note}</span>
+          </div>
+          <div style={{ height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${p.val}%`, background: `linear-gradient(90deg, ${p.color}aa, ${p.color})`, borderRadius: 3, transition: 'width 0.7s ease' }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── AI Research Insight Button ────────────────────────────────────────────────
+function AIInsightButton({ weatherData, algae, runoff, wqiForecast, siteWQIs }) {
+  const [insight, setInsight] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const generate = async () => {
+    setLoading(true)
+    setInsight('')
+    const summary = `Location: ${weatherData.location}. Temp: ${weatherData.current?.temperature_2m}°C, Humidity: ${weatherData.current?.relative_humidity_2m}%, Precipitation: ${weatherData.current?.precipitation}mm. Algae risk: ${algae.level} (score ${algae.score.toFixed(0)}). Runoff risk: ${runoff.level}. WQI forecast: ${wqiForecast.map(d => `${d.day}:${d.wqi}`).join(', ')}. Regional WQIs: ${siteWQIs.map(s => `${s.name}:${s.wqi?.toFixed(0)}`).join(', ')}.`
+    const { askAI: ai } = await import('../utils/openrouter')
+    const resp = await ai(
+      [{ role: 'user', content: `As a water quality ML researcher, analyze this data and give 3 concise research insights with recommended actions:\n${summary}` }],
+      'You are a water quality ML researcher for Northern Ontario. Be concise, scientific, and actionable. Use bullet points. Max 150 words.',
+      400,
+    )
+    setInsight(resp)
+    setLoading(false)
+  }
+
+  return (
+    <div style={{ borderRadius: 10, border: '1px solid rgba(16,185,129,0.25)', overflow: 'hidden' }}>
+      <button
+        onClick={generate}
+        disabled={loading}
+        style={{
+          width: '100%', padding: '10px 14px',
+          background: loading ? 'rgba(16,185,129,0.05)' : 'rgba(16,185,129,0.1)',
+          border: 'none', cursor: loading ? 'not-allowed' : 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+          color: '#10b981', fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
+        }}
+      >
+        {loading ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Bot size={13} />}
+        {loading ? 'Generating AI Research Insights…' : '🧠 Generate AI Research Insights'}
+        <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+      </button>
+      {insight && (
+        <div style={{ padding: '12px 14px', background: 'rgba(0,0,0,0.3)', fontSize: 11, color: '#a7f3d0', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+          {insight}
+        </div>
+      )}
     </div>
   )
 }
