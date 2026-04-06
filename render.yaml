@@ -19,17 +19,19 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.9"
 
-  # ── Node.js app (Docker — builds client + serves everything) ─────────────────
+  # ── Node.js app (builds client + serves everything) ──────────────────────────
   - type: web
     name: source-water-app
-    runtime: docker
-    dockerfilePath: ./Dockerfile
+    runtime: node
+    rootDir: .
+    buildCommand: "cd client && npm install --legacy-peer-deps && VITE_API_URL=/api VITE_ANALYSIS_URL=/ml npm run build && cd ../server && npm install"
+    startCommand: node server/index.js
     plan: free
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: "8080"
+        value: "10000"
       - key: JWT_SECRET
         generateValue: true
       - key: OPENROUTER_API_KEY
