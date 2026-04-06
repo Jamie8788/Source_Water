@@ -223,6 +223,10 @@ async def upload_file(file: UploadFile = File(...), x_user_id: Optional[str] = H
         return {
             "id": file_id,
             "filename": filename,
+            "name": filename,
+            "size": len(content),
+            "file_type": file_path.suffix.lower(),
+            "uploaded_at": files_metadata[file_id]["uploaded_at"],
             "status": "processed",
             "stats": stats,
             "risk": risk,
