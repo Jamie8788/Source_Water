@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Cloud, Droplets, Wind, MapPin, Zap, AlertTriangle, TrendingUp, Eye, Download } from 'lucide-react'
+import PageAmbience from '../components/layout/PageAmbience'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Area, AreaChart } from 'recharts'
@@ -415,6 +416,7 @@ export default function Weather() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
+      <PageAmbience/>
       {/* Header */}
       <div className="mb-4">
         <h1 className="font-bold text-2xl flex items-center gap-2 mb-1">

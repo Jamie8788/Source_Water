@@ -99,4 +99,25 @@ router.put('/:id/admin', requireAuth, requireAdmin, (req, res) => {
   res.json({ success: true })
 })
 
+// Admin: generic PUT /:id — shorthand used by admin panel
+router.put('/:id', requireAuth, requireAdmin, (req, res) => {
+  const { role, is_active, is_admin } = req.body
+  const updates = []; const vals = []
+  if (role !== undefined) { updates.push('role=?'); vals.push(role) }
+  if (is_active !== undefined) { updates.push('is_active=?'); vals.push(is_active ? 1 : 0) }
+  if (is_admin !== undefined) { updates.push('is_admin=?'); vals.push(is_admin ? 1 : 0) }
+  if (!updates.length) return res.json({ success: true })
+  vals.push(req.params.id)
+  db.prepare(`UPDATE users SET ${updates.join(',')} WHERE id=?`).run(...vals)
+  res.json({ success: true })
+})
+
+// Admin: DELETE /:id
+router.delete('/:id', requireAuth, requireAdmin, (req, res) => {
+  const uid = parseInt(req.params.id)
+  if (uid === req.user.id) return res.status(400).json({ error: 'Cannot delete yourself' })
+  db.prepare('DELETE FROM users WHERE id=?').run(uid)
+  res.json({ success: true })
+})
+
 module.exports = router

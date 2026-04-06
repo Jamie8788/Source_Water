@@ -19,7 +19,11 @@ initSchema()
 seed().catch(console.error)
 
 // Security
-app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }))
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginEmbedderPolicy: false,   // allow iframes without CORP headers (nullschool, windy, maps)
+  contentSecurityPolicy: false,        // disable CSP — app relies on frame-src from embedded sites
+}))
 app.use(cors({ origin: true, credentials: true }))
 app.use(morgan('dev'))
 
@@ -39,10 +43,16 @@ app.use('/ml', createProxyMiddleware({
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
-// Serve uploads
-const uploadsDir = path.join(__dirname, '..', 'uploads')
+// Serve uploads — respect UPLOAD_DIR env var (set in production/Docker)
+const uploadsDir = (process.env.UPLOAD_DIR && path.isAbsolute(process.env.UPLOAD_DIR))
+  ? process.env.UPLOAD_DIR
+  : path.join(__dirname, '..', 'uploads')
+const uploadsDir2 = path.join(__dirname, 'uploads') // legacy fallback
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
 app.use('/uploads', express.static(uploadsDir))
+if (uploadsDir2 !== uploadsDir && fs.existsSync(uploadsDir2)) {
+  app.use('/uploads', express.static(uploadsDir2))
+}
 
 // API Routes
 app.use('/api/auth',        require('./routes/auth'))
@@ -57,6 +67,21 @@ app.use('/api/projects',    require('./routes/projects'))
 app.use('/api/leaderboard', require('./routes/leaderboard'))
 app.use('/api/admin',       require('./routes/admin'))
 app.use('/api/cms',         require('./routes/cms'))
+
+// Health check
+app.get('/api/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }))
+
+// Street view proxy — bypasses CORS for KartaView
+app.get('/api/streetview', async (req, res) => {
+  try {
+    const { lat, lon } = req.query
+    const r = await fetch(`https://api.kartaview.org/2.0/photo/nearby-photos/?lat=${lat}&lng=${lon}&count=40&page=1`)
+    const data = await r.json()
+    res.json(data)
+  } catch (e) {
+    res.status(502).json({ error: 'Street view proxy failed' })
+  }
+})
 
 // Communities
 const db = require('./db/connection')

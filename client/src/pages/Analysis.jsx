@@ -17,9 +17,11 @@ import {
   Zap, Send, RefreshCw, FileSpreadsheet, FileCode, TrendingUp,
   Table, Activity, Shield, Eye, GitCompare, FlaskConical,
   Target, Layers, ChevronRight, ArrowUp, ArrowDown, Minus,
-  Star, Info, Cpu, GitBranch, AlertCircle, Plus,
+  Star, Info, Cpu, GitBranch, AlertCircle, Plus, Droplets,
+  MapPin, Calendar, Users, Award,
 } from 'lucide-react'
 import axios from 'axios'
+import api from '../utils/api'
 
 const SVC = import.meta.env.VITE_ANALYSIS_URL || 'http://localhost:8001'
 
@@ -747,6 +749,262 @@ function ComparePanel({ files, selectedIds, onToggle }) {
   )
 }
 
+// ── Water Quality Dashboard (no service needed) ───────────────────────────────
+function WaterQualityDashboard({ serviceUp, onRetryService }) {
+  const [sites, setSites] = useState([])
+  const [allObs, setAllObs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [aiSummary, setAiSummary] = useState('')
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [expandedSite, setExpandedSite] = useState(null)
+
+  useEffect(() => {
+    Promise.all([
+      api.get('/sites').catch(() => ({ data: { sites: [] } })),
+    ]).then(([sitesRes]) => {
+      const siteList = sitesRes.data.sites || []
+      setSites(siteList)
+      // Fetch observations for up to 6 sites in parallel
+      const topSites = siteList.slice(0, 6)
+      return Promise.all(topSites.map(s =>
+        api.get(`/sites/${s.id}/observations?limit=20`).then(r => ({
+          siteId: s.id, obs: r.data.observations || []
+        })).catch(() => ({ siteId: s.id, obs: [] }))
+      ))
+    }).then(results => {
+      setAllObs(results)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [])
+
+  // Compute quality signals
+  const signals = useMemo(() => {
+    const totalObs = allObs.reduce((sum, r) => sum + r.obs.length, 0)
+    const sitesWithData = allObs.filter(r => r.obs.length > 0).length
+    let compliant = 0, total = 0, violations = [], topProblems = {}
+
+    allObs.forEach(({ siteId, obs }) => {
+      obs.forEach(ob => {
+        const params = ['ph','turbidity','dissolved_oxygen','temperature','nitrates','conductivity']
+        params.forEach(param => {
+          if (!ob[param]) return
+          const val = parseFloat(ob[param])
+          total++
+          const status = whoStatus(param, val)
+          if (status?.level === 0) compliant++
+          else if (status?.level === 3) {
+            topProblems[param] = (topProblems[param] || 0) + 1
+            violations.push({ siteId, param, val })
+          } else if (status?.level !== null) compliant += 0.5
+        })
+      })
+    })
+
+    const complianceRate = total > 0 ? Math.round((compliant / total) * 100) : null
+    const sortedProblems = Object.entries(topProblems).sort((a,b) => b[1]-a[1]).slice(0,3)
+    const criticalSites = new Set(violations.map(v => v.siteId)).size
+    const paramCoverage = allObs.reduce((max, { obs }) => {
+      if (!obs.length) return max
+      const params = ['ph','turbidity','dissolved_oxygen','temperature','nitrates','conductivity']
+      const measured = params.filter(p => obs.some(ob => ob[p])).length
+      return Math.max(max, Math.round((measured / params.length) * 100))
+    }, 0)
+
+    return { totalObs, sitesWithData, complianceRate, criticalSites, sortedProblems, paramCoverage, totalSites: sites.length }
+  }, [allObs, sites])
+
+  const generateSummary = async () => {
+    setSummaryLoading(true)
+    const summaryCtx = `Water quality monitoring network: ${signals.totalSites} sites, ${signals.totalObs} observations. WHO compliance rate: ${signals.complianceRate ?? 'N/A'}%. Critical sites: ${signals.criticalSites}. Top violations: ${signals.sortedProblems.map(([p,c]) => `${p} (${c})`).join(', ') || 'none'}. Parameter coverage: ${signals.paramCoverage}%.`
+    try {
+      const r = await askAI([
+        { role: 'user', content: `You are a water quality expert. Write a concise executive summary (3-4 sentences) of this water quality data for a field report:\n\n${summaryCtx}\n\nInclude risk assessment and key recommendations.` }
+      ])
+      setAiSummary(r)
+    } catch { setAiSummary('AI summary unavailable. Check your API key configuration.') }
+    setSummaryLoading(false)
+  }
+
+  const signalCards = [
+    {
+      label: 'WHO Compliance Rate',
+      value: signals.complianceRate !== null ? `${signals.complianceRate}%` : '—',
+      sub: signals.complianceRate >= 90 ? 'Excellent' : signals.complianceRate >= 70 ? 'Acceptable' : signals.complianceRate !== null ? 'Needs attention' : 'No data yet',
+      color: signals.complianceRate >= 90 ? '#10b981' : signals.complianceRate >= 70 ? '#f59e0b' : signals.complianceRate !== null ? '#ef4444' : '#94a3b8',
+      icon: Shield,
+    },
+    {
+      label: 'Observations Logged',
+      value: signals.totalObs,
+      sub: `${signals.sitesWithData} of ${signals.totalSites} sites active`,
+      color: '#6366f1',
+      icon: Droplets,
+    },
+    {
+      label: 'Critical Sites',
+      value: signals.criticalSites,
+      sub: signals.criticalSites === 0 ? 'All sites within limits' : 'Exceeding WHO limits',
+      color: signals.criticalSites === 0 ? '#10b981' : '#ef4444',
+      icon: AlertTriangle,
+    },
+    {
+      label: 'Parameter Coverage',
+      value: signals.paramCoverage > 0 ? `${signals.paramCoverage}%` : '—',
+      sub: 'WHO parameters measured',
+      color: signals.paramCoverage >= 80 ? '#10b981' : signals.paramCoverage >= 50 ? '#f59e0b' : '#94a3b8',
+      icon: Target,
+    },
+  ]
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Quality signals header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 4 }}>WATER QUALITY INTELLIGENCE</div>
+          <h2 style={{ fontSize: 22, fontWeight: 900, color: 'var(--text)', margin: 0 }}>Quality Assessment</h2>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+            AI summary and field intelligence from monitoring network · {new Date().toLocaleDateString('en-CA', { year:'numeric', month:'long', day:'numeric' })}
+          </div>
+        </div>
+        <button onClick={generateSummary} disabled={summaryLoading || signals.totalObs === 0}
+          style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 20px', borderRadius:10, background:'linear-gradient(135deg,#6366f1,#8b5cf6)', color:'#fff', border:'none', cursor:'pointer', fontSize:13, fontWeight:700, opacity: summaryLoading || signals.totalObs === 0 ? 0.6 : 1 }}>
+          <Brain style={{ width:14, height:14 }}/>
+          {summaryLoading ? 'Generating…' : 'Run Quality Assessment'}
+        </button>
+      </div>
+
+      {/* AI Summary */}
+      {aiSummary && (
+        <div style={{ background: 'linear-gradient(135deg,rgba(99,102,241,0.08),rgba(20,184,166,0.06))', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 14, padding: 18 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: '#818cf8', marginBottom: 8 }}>AI ASSESSMENT SUMMARY</div>
+          <p style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.7, margin: 0 }}>{aiSummary}</p>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>Assessed by AI · SOURCE Water Platform</div>
+        </div>
+      )}
+
+      {/* Signal cards — Foreman Report style */}
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 10 }}>
+          SITEDOCS QUALITY SIGNALS · {loading ? 'Loading…' : `${signals.totalSites} sites monitored`}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+          {signalCards.map(s => {
+            const Icon = s.icon
+            return (
+              <div key={s.label} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: `${s.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Icon style={{ width: 15, height: 15, color: s.color }}/>
+                  </div>
+                </div>
+                <div style={{ fontSize: 28, fontWeight: 900, color: s.color, lineHeight: 1 }}>{loading ? '—' : s.value}</div>
+                <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 600, marginTop: 4 }}>{s.label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{loading ? '…' : s.sub}</div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Top problems + Site breakdown */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        {/* Top problem findings */}
+        <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 12 }}>TOP PROBLEM FINDINGS (CURRENT WINDOW)</div>
+          {loading ? <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>
+          : signals.sortedProblems.length === 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#10b981', fontSize: 13, fontWeight: 600 }}>
+              <CheckCircle style={{ width: 16, height: 16 }}/> None — all parameters within WHO limits
+            </div>
+          ) : signals.sortedProblems.map(([param, count]) => (
+            <div key={param} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', flexShrink: 0 }}/>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', textTransform: 'capitalize' }}>{param.replace(/_/g,' ')}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{count} violation{count > 1 ? 's' : ''} detected</div>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#ef4444' }}>{count}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Recent observations */}
+        <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 12 }}>MONITORING SITES STATUS</div>
+          {loading ? <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>
+          : sites.slice(0, 5).map(site => {
+            const siteObs = allObs.find(r => r.siteId === site.id)?.obs || []
+            const latest = siteObs[0]
+            return (
+              <div key={site.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, cursor: 'pointer', padding: '4px 6px', borderRadius: 8, transition: 'background 0.1s' }}
+                onClick={() => setExpandedSite(expandedSite === site.id ? null : site.id)}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.06)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: site.status === 'critical' ? '#ef4444' : site.status === 'warning' ? '#f59e0b' : siteObs.length > 0 ? '#10b981' : '#94a3b8' }}/>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{site.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{siteObs.length} obs · {latest ? `pH ${latest.ph || '—'}, DO ${latest.dissolved_oxygen || '—'}` : 'No data'}</div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* WHO Parameter chart if we have data */}
+      {!loading && allObs.some(r => r.obs.length > 0) && (() => {
+        const params = ['ph','turbidity','dissolved_oxygen','temperature','nitrates','conductivity']
+        const chartData = params.map(param => {
+          const vals = allObs.flatMap(r => r.obs).map(ob => parseFloat(ob[param])).filter(v => !isNaN(v))
+          if (!vals.length) return null
+          const mean = vals.reduce((s,v) => s+v, 0) / vals.length
+          const who = WHO[param]
+          const pct = who ? Math.min(100, Math.round((mean / (who.max || mean)) * 100)) : 50
+          return { name: WHO[param]?.label || param, mean: Math.round(mean*100)/100, pct, color: whoStatus(param, mean)?.color || '#6366f1' }
+        }).filter(Boolean)
+        return (
+          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 14 }}>WHO PARAMETER COMPLIANCE — MEAN VALUES</div>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={chartData} barSize={28}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false}/>
+                <XAxis dataKey="name" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false}/>
+                <YAxis hide/>
+                <Tooltip contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}/>
+                <Bar dataKey="mean" radius={[6,6,0,0]}>
+                  {chartData.map((entry, i) => <Cell key={i} fill={entry.color}/>)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )
+      })()}
+
+      {/* Python service notice */}
+      <div style={{ background: serviceUp === true ? 'rgba(16,185,129,0.06)' : 'rgba(249,115,22,0.06)', border: `1px solid ${serviceUp === true ? 'rgba(16,185,129,0.2)' : 'rgba(249,115,22,0.2)'}`, borderRadius: 12, padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 36, height: 36, borderRadius: 9, background: serviceUp === true ? 'rgba(16,185,129,0.15)' : 'rgba(249,115,22,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          {serviceUp === true ? <CheckCircle style={{ width: 17, height: 17, color: '#10b981' }}/> : <Zap style={{ width: 17, height: 17, color: '#f97316' }}/>}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+            {serviceUp === true ? '✅ ML File Analysis Service Online' : serviceUp === null ? 'Connecting to ML Analysis Service…' : '⚠️ ML File Analysis Service Offline'}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+            {serviceUp === true ? 'Upload CSV/Excel datasets in the File Analysis tab for advanced ML insights.' : 'Start the Python service to enable file upload, ML clustering, and advanced analysis. Water quality dashboard above works without it.'}
+          </div>
+        </div>
+        {serviceUp === false && (
+          <button onClick={onRetryService}
+            style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:8, background:'rgba(249,115,22,0.12)', color:'#f97316', border:'none', cursor:'pointer', fontSize:12, fontWeight:700, flexShrink: 0 }}>
+            <RefreshCw style={{ width:12, height:12 }}/> Retry
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Analysis Component ───────────────────────────────────────────────────
 export default function Analysis() {
   const [serviceUp, setServiceUp] = useState(null)
@@ -760,7 +1018,13 @@ export default function Analysis() {
   const [chatLoading, setChatLoading] = useState(false)
   const [tab, setTab] = useState('overview')
   const [compareIds, setCompareIds] = useState([])
+  const [mainTab, setMainTab] = useState('dashboard')
   const chatEndRef = useRef(null)
+
+  const retryService = () => {
+    setServiceUp(null)
+    axios.get(`${SVC}/health`,{timeout:3000}).then(()=>setServiceUp(true)).catch(()=>setServiceUp(false))
+  }
 
   useEffect(() => {
     axios.get(`${SVC}/health`, { timeout: 3000 })
@@ -845,20 +1109,184 @@ export default function Analysis() {
     setChatLoading(false)
   }
 
+  const [reportGenerating, setReportGenerating] = useState(false)
+
   const downloadReport = async () => {
     if (!selected) return
+    setReportGenerating(true)
     const insights = generateInsights(selected)
     const risk = selected.stats ? computeRiskScore(selected.stats) : null
+    const s = selected.stats || {}
+    const colStats = s.col_stats || {}
+    const date = new Date().toISOString().replace('T', ' ').slice(0, 19)
+
+    // Build rich stats context for the AI
+    const paramDetails = Object.entries(colStats).map(([col, cs]) => {
+      const who = whoMatch(col)
+      const st = who ? whoStatus(col, parseFloat(cs.mean)) : null
+      return `  - ${col}: mean=${cs.mean}, std=${cs.std}, min=${cs.min}, max=${cs.max}, outliers=${cs.outliers||0}${st ? `, WHO status=${st.label}` : ''}`
+    }).join('\n')
+
+    const violationDetails = risk?.violations?.map(v =>
+      `  - ${v.col}: mean ${v.mean?.toFixed(3)} exceeds limit (${v.threshold}) [${v.severity}]`
+    ).join('\n') || '  None'
+
+    const correlations = s.correlation
+      ? Object.entries(s.correlation).flatMap(([c1, row]) =>
+          Object.entries(row).filter(([c2, r]) => c1 < c2 && Math.abs(r) > 0.5).map(([c2, r]) => `  ${c1}↔${c2}: r=${r.toFixed(3)}`)
+        ).join('\n') || '  No strong correlations'
+      : '  Not computed'
+
+    const prompt = `You are a senior water quality scientist and data analyst working for NORDIK Institute at Algoma University. Generate a comprehensive, professional water quality research report in the following exact format. Be specific, data-driven, and use the actual numbers provided. Write at least 3-4 sentences per section.
+
+DATA FOR REPORT:
+File: ${selected.name || selected.filename}
+Total Rows: ${s.row_count || 'N/A'}
+Columns: ${s.num_cols?.join(', ') || 'N/A'}
+Risk Score: ${risk?.score ?? 'N/A'}/100 (${risk?.level || 'N/A'})
+Quality Score: ~${Math.round((s.row_count > 30 ? 20 : 0) + (Object.values(colStats).every(c => (c.outliers||0) <= 5) ? 25 : 0) + (s.num_cols?.length > 3 ? 20 : 0) + 35)}%
+
+Parameter Statistics:
+${paramDetails || '  No numeric parameters found'}
+
+WHO Violations:
+${violationDetails}
+
+Strong Correlations:
+${correlations}
+
+Anomaly Rate: ${s.anomaly_rate ? (s.anomaly_rate * 100).toFixed(1) + '%' : 'N/A'}
+Missing Data: ${s.missing_pct ? (s.missing_pct * 100).toFixed(1) + '%' : 'N/A'}
+Trend Data: ${JSON.stringify(s.trends || {})}
+
+Auto-generated Insights:
+${insights.map(i => `  - ${i.title}: ${i.text}`).join('\n') || '  None'}
+
+OUTPUT FORMAT (use exactly this structure):
+============================================================
+EXECUTIVE SUMMARY
+============================================================
+[3-4 sentences summarizing the dataset, key findings, and overall water quality status]
+
+============================================================
+KEY INSIGHTS
+============================================================
+[4-6 bullet points using "• " prefix, each with a specific data-backed finding]
+
+============================================================
+RISK ASSESSMENT
+============================================================
+Risk Level: ${risk?.level?.toUpperCase() || 'LOW'}
+Risk Score: ${risk?.score ?? 0}/100
+
+Violations:
+${risk?.violations?.map(v => `• ${v.col}: ${v.severity}`).join('\n') || '• None detected'}
+
+Recommendations:
+[3-5 specific actionable recommendations as bullet points with "• " prefix]
+
+============================================================
+DATA QUALITY ASSESSMENT
+============================================================
+[2-3 sentences on data completeness, outlier patterns, and collection quality]
+
+============================================================
+PARAMETER ANALYSIS
+============================================================
+[Analyze each measured parameter with WHO standard comparison, 2-3 sentences each for key parameters]
+
+============================================================
+CORRELATIONS & PATTERNS
+============================================================
+[2-3 sentences on correlation findings and what they mean for water quality]
+
+============================================================
+TREND ANALYSIS
+============================================================
+[2-3 sentences on temporal trends if applicable, or sampling pattern analysis]
+
+============================================================
+FIELD RECOMMENDATIONS
+============================================================
+[4-5 specific field action items as bullet points with "• " prefix for water quality managers]
+
+============================================================
+END REPORT
+============================================================`
+
     try {
-      const r = await axios.post(`${SVC}/report/${selected.id}`, {
-        insights: insights.map(i=>i.title+': '+i.text),
-        risk_score: risk?.score, risk_level: risk?.level,
-      })
-      const blob = new Blob([r.data.report], { type:'text/plain' })
+      let reportText
+      try {
+        reportText = await askAI([{ role: 'user', content: prompt }])
+      } catch {
+        // Fallback: generate report from stats without AI
+        reportText = generateFallbackReport(selected, insights, risk, s, colStats, date)
+      }
+
+      const fullReport = `SOURCE WATER QUALITY ANALYSIS REPORT
+Generated: ${date}
+File: ${selected.name || selected.filename}
+Platform: SOURCE Water — NORDIK Institute, Algoma University
+${'='.repeat(60)}
+${reportText}
+${'='.repeat(60)}
+Generated by SOURCE Water Intelligence Platform
+`
+      const blob = new Blob([fullReport], { type: 'text/plain' })
       const url = URL.createObjectURL(blob)
-      const a = document.createElement('a'); a.href=url; a.download=`analysis-${selected.name}.txt`; a.click()
+      const a = document.createElement('a')
+      a.href = url; a.download = `WaterQualityReport_${(selected.name||'dataset').replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.txt`; a.click()
       URL.revokeObjectURL(url)
-    } catch { alert('Report generation failed — service may not support this endpoint yet.') }
+    } catch (e) {
+      alert('Report generation failed: ' + e.message)
+    }
+    setReportGenerating(false)
+  }
+
+  const generateFallbackReport = (file, insights, risk, s, colStats, date) => {
+    const violations = risk?.violations || []
+    const params = Object.entries(colStats)
+    return `
+============================================================
+EXECUTIVE SUMMARY
+============================================================
+This water quality dataset (${file.name || file.filename}) contains ${s.row_count || 'N/A'} observations across ${s.num_cols?.length || 0} numeric parameters. ${violations.length > 0 ? `${violations.length} parameter(s) exceed WHO guidelines, indicating elevated risk.` : 'All measured parameters appear within acceptable ranges.'} The dataset has a risk score of ${risk?.score ?? 0}/100 (${risk?.level || 'low'} risk level) and a data quality score of approximately ${s.row_count >= 30 ? '85' : '60'}/100.
+
+============================================================
+KEY INSIGHTS
+============================================================
+${insights.map(i => `• ${i.title}: ${i.text}`).join('\n') || '• No critical issues detected in this dataset.\n• All measured parameters are within WHO recommended limits.\n• Continue routine monitoring as per protocol.'}
+
+============================================================
+RISK ASSESSMENT
+============================================================
+Risk Level: ${risk?.level?.toUpperCase() || 'LOW'}
+Risk Score: ${risk?.score ?? 0}/100
+
+Violations:
+${violations.map(v => `• ${v.col}: ${v.severity} (measured: ${v.mean?.toFixed(3)}, limit: ${v.threshold})`).join('\n') || '• None detected'}
+
+Recommendations:
+• Continue regular sampling at all monitoring sites
+• Cross-reference findings with upstream and downstream measurements
+${violations.length > 0 ? '• Investigate sources of elevated parameters immediately\n• Notify relevant stakeholders of WHO exceedances' : '• Maintain current monitoring frequency'}
+
+============================================================
+DATA QUALITY ASSESSMENT
+============================================================
+Dataset contains ${s.row_count || 'N/A'} rows with ${s.missing_pct ? ((s.missing_pct)*100).toFixed(1)+'% missing values' : 'minimal missing data'}. Outlier analysis detected ${Object.values(colStats).reduce((sum, c) => sum + (c.outliers||0), 0)} total outliers across all parameters.
+
+============================================================
+PARAMETER ANALYSIS
+============================================================
+${params.map(([col, cs]) => {
+  const who = whoStatus(col, parseFloat(cs.mean))
+  return `${col.toUpperCase()}: Mean=${cs.mean}, Std=${cs.std}, Range=[${cs.min}–${cs.max}]${who ? `, WHO Status: ${who.label}` : ''}`
+}).join('\n') || 'No numeric parameters available.'}
+
+============================================================
+END REPORT
+============================================================`
   }
 
   const downloadDataset = (format) => {
@@ -872,36 +1300,26 @@ export default function Analysis() {
     const a = document.createElement('a'); a.href = `${SVC}/download/${selected.id}`; a.download = ''; a.click()
   }
 
-  // ── Offline / Loading screens ──────────────────────────────────────────────
-  if (serviceUp === false) return (
-    <div style={{ maxWidth:520, margin:'80px auto', textAlign:'center' }}>
-      <div style={{ width:60, height:60, borderRadius:16, background:'rgba(249,115,22,0.1)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px' }}>
-        <Zap style={{ width:28, height:28, color:'#f97316' }}/>
-      </div>
-      <h2 style={{ fontSize:20, fontWeight:900, color:'var(--text)', marginBottom:8 }}>Analysis Service Offline</h2>
-      <p style={{ fontSize:13, color:'var(--text-muted)', marginBottom:16 }}>Start the Python service to enable file analysis and ML features.</p>
-      <pre style={{ textAlign:'left', fontSize:12, padding:16, borderRadius:12, background:'var(--card-bg)', border:'1px solid var(--border)', color:'var(--text)', marginBottom:16, overflowX:'auto' }}>
-{`cd analysis-service
-uvicorn main:app --host 0.0.0.0 --port 8001 --reload`}
-      </pre>
-      <button onClick={() => { setServiceUp(null); axios.get(`${SVC}/health`,{timeout:3000}).then(()=>setServiceUp(true)).catch(()=>setServiceUp(false)) }}
-        style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'10px 24px', borderRadius:10, background:'#6366f1', color:'#fff', border:'none', cursor:'pointer', fontSize:14, fontWeight:700 }}>
-        <RefreshCw style={{ width:14, height:14 }}/> Retry Connection
-      </button>
-    </div>
-  )
+  // ── Derived state (must be before early returns — hooks rule) ───────────────
+  const qualityScore = useMemo(() => {
+    if (!selected?.stats) return null
+    const s = selected.stats
+    const colStats = s.col_stats || {}
+    const checks = [
+      (s.row_count||0) >= 30,
+      (s.num_cols||[]).length > 0,
+      Object.values(colStats).every(c=>(c.outliers||0)<=5),
+      (s.num_cols||[]).some(c=>whoMatch(c)),
+      !!s.correlation,
+    ]
+    return Math.round((checks.filter(Boolean).length / checks.length) * 100)
+  }, [selected?.id])
 
-  if (serviceUp === null) return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:200, gap:10, color:'var(--text-muted)' }}>
-      <RefreshCw style={{ width:18, height:18, animation:'spin 1s linear infinite' }}/> Connecting to analysis service…
-    </div>
-  )
-
-  // ── Derived state ──────────────────────────────────────────────────────────
+  // ── Derived state (all hooks must be before any early returns) ───────────────
   const insights = selected ? generateInsights(selected) : []
   const risk = selected?.stats ? computeRiskScore(selected.stats) : null
 
-  const TABS = [
+  const FILE_TABS = [
     { key:'overview',  label:'Overview',      icon: BarChart2 },
     { key:'explore',   label:'Explore',       icon: Eye },
     { key:'ml',        label:'ML Lab',        icon: Cpu },
@@ -909,23 +1327,73 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --reload`}
     { key:'compare',   label:'Compare',       icon: GitCompare },
   ]
 
+  const qualityGrade = qualityScore >= 90 ? 'A' : qualityScore >= 80 ? 'B' : qualityScore >= 70 ? 'C' : qualityScore >= 55 ? 'D' : 'F'
+  const qualityColor = qualityScore >= 80 ? '#10b981' : qualityScore >= 60 ? '#f59e0b' : '#ef4444'
+
+  const MAIN_TABS = [
+    { key: 'dashboard', label: '🌊 Water Quality Dashboard', badge: null },
+    { key: 'fileanalysis', label: '🧪 File Analysis', badge: serviceUp === true ? null : serviceUp === null ? '…' : 'offline' },
+  ]
+
   // ── MAIN LAYOUT ────────────────────────────────────────────────────────────
   return (
-    <div style={{ position:'relative', width:'100%', height:'calc(100vh - 120px)', display:'flex', gap:12, minHeight:0, backgroundColor:'transparent' }}>
+    <div style={{ position:'relative', width:'100%', backgroundColor:'transparent' }}>
       <PageAmbience variant="analysis"/>
 
+      {/* Main tab selector */}
+      <div style={{ display:'flex', gap:4, marginBottom:16, padding:'4px', background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:12, width:'fit-content' }}>
+        {MAIN_TABS.map(t => (
+          <button key={t.key} onClick={() => setMainTab(t.key)}
+            style={{
+              display:'flex', alignItems:'center', gap:8, padding:'8px 20px', borderRadius:9, border:'none', cursor:'pointer', fontSize:13, fontWeight:700, transition:'all 0.2s',
+              background: mainTab === t.key ? 'linear-gradient(135deg,#6366f1,#8b5cf6)' : 'transparent',
+              color: mainTab === t.key ? 'white' : 'var(--text-muted)',
+            }}>
+            {t.label}
+            {t.badge && (
+              <span style={{ fontSize:10, padding:'2px 6px', borderRadius:20, background: t.badge === 'offline' ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.2)', color: t.badge === 'offline' ? '#f97316' : 'inherit' }}>{t.badge}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Dashboard tab — always available */}
+      {mainTab === 'dashboard' && (
+        <WaterQualityDashboard serviceUp={serviceUp} onRetryService={retryService}/>
+      )}
+
+      {/* File Analysis tab — requires Python service */}
+      {mainTab === 'fileanalysis' && (
+      <div style={{ position:'relative', width:'100%', height:'calc(100vh - 180px)', display:'flex', gap:0, minHeight:0 }}>
+
+      {/* ── Unified panel border ── */}
+      <div style={{ position:'absolute', inset:0, border:'1px solid var(--border)', borderRadius:16, pointerEvents:'none', zIndex:5 }}/>
+
       {/* ── LEFT: File Manager ── */}
-      <div style={{ width:230, flexShrink:0, display:'flex', flexDirection:'column', gap:10, minHeight:0, position:'relative', zIndex:1 }}>
+      <div style={{ width:220, flexShrink:0, display:'flex', flexDirection:'column', gap:0, minHeight:0, position:'relative', zIndex:1, background:'var(--card-bg)', borderRight:'1px solid var(--border)', borderRadius:'14px 0 0 14px', overflow:'hidden' }}>
+
+        {/* Panel header */}
+        <div style={{ padding:'14px 16px', background:'linear-gradient(135deg,rgba(99,102,241,0.1),rgba(20,184,166,0.06))', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <div style={{ width:28, height:28, borderRadius:8, background:'linear-gradient(135deg,#6366f1,#4f46e5)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <FlaskConical style={{ width:14, height:14, color:'#fff' }}/>
+            </div>
+            <div>
+              <div style={{ fontSize:12, fontWeight:800, color:'var(--text)', letterSpacing:'0.02em' }}>Research Files</div>
+              <div style={{ fontSize:10, color:'var(--text-muted)' }}>{files.length} file{files.length !== 1 ? 's' : ''} loaded</div>
+            </div>
+          </div>
+        </div>
 
         {/* Upload zone */}
         <div {...getRootProps()} style={{
-          borderRadius:12, border:`2px dashed ${isDragActive?'#6366f1':'var(--border)'}`,
-          background: isDragActive?'rgba(99,102,241,0.06)':'transparent',
-          padding:14, textAlign:'center', cursor: serviceUp?'pointer':'not-allowed',
+          margin:10, borderRadius:10, border:`2px dashed ${isDragActive?'#6366f1':'var(--border)'}`,
+          background: isDragActive?'rgba(99,102,241,0.08)':'rgba(99,102,241,0.02)',
+          padding:12, textAlign:'center', cursor: serviceUp?'pointer':'not-allowed',
           transition:'all 0.15s', flexShrink:0,
         }}
-        onMouseEnter={e => { if (!isDragActive) e.currentTarget.style.borderColor='rgba(99,102,241,0.5)' }}
-        onMouseLeave={e => { if (!isDragActive) e.currentTarget.style.borderColor='var(--border)' }}>
+        onMouseEnter={e => { if (!isDragActive) { e.currentTarget.style.borderColor='rgba(99,102,241,0.5)'; e.currentTarget.style.background='rgba(99,102,241,0.05)' } }}
+        onMouseLeave={e => { if (!isDragActive) { e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.background='rgba(99,102,241,0.02)' } }}>
           <input {...getInputProps()}/>
           {uploading ? (
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
@@ -945,54 +1413,54 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --reload`}
         </div>
 
         {/* File list */}
-        <div style={{ background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:12, flex:1, display:'flex', flexDirection:'column', minHeight:0, overflow:'hidden' }}>
-          <div style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
-            <Database style={{ width:12, height:12, color:'#6366f1' }}/>
-            <span style={{ fontSize:10, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)' }}>Files ({files.length})</span>
-          </div>
-          <div style={{ flex:1, overflowY:'auto', scrollbarWidth:'none' }}>
-            {files.length === 0 ? (
-              <div style={{ padding:16, textAlign:'center', fontSize:11, color:'var(--text-muted)' }}>No files yet.<br/>Upload to begin.</div>
-            ) : files.map(f => {
-              const fRisk = f.stats ? computeRiskScore(f.stats) : null
-              return (
-                <div key={f.id} onClick={() => { setSelected(f) }}
-                  style={{ padding:'9px 12px', cursor:'pointer', display:'flex', alignItems:'flex-start', gap:8, transition:'background 0.12s, opacity 0.12s', borderTop:'1px solid var(--border)', background: selected?.id===f.id?'rgba(99,102,241,0.06)':'transparent', group: 'file-item' }}
-                  onMouseEnter={e => selected?.id!==f.id && (e.currentTarget.style.background='rgba(99,102,241,0.03)')}
-                  onMouseLeave={e => selected?.id!==f.id && (e.currentTarget.style.background='transparent')}>
-                  <FileIcon ext={f.ext||f.file_type} size={14}/>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:11, fontWeight:600, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.name||f.filename||'Unknown'}</div>
-                    <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:2 }}>
-                      <StatusDot status={f.status}/>
-                      <span style={{ fontSize:10, color:'var(--text-muted)' }}>{fmtBytes(f.size)}</span>
-                      {fRisk && <span style={{ padding:'1px 6px', borderRadius:20, fontSize:9, fontWeight:700, background:`${fRisk.level==='critical'?'rgba(239,68,68,0.12)':fRisk.level==='elevated'?'rgba(249,115,22,0.12)':'rgba(16,185,129,0.1)'}`, color:fRisk.level==='critical'?'#ef4444':fRisk.level==='elevated'?'#f97316':'#10b981' }}>{fRisk.score}</span>}
-                    </div>
+        <div style={{ flex:1, display:'flex', flexDirection:'column', minHeight:0, overflowY:'auto', scrollbarWidth:'thin', scrollbarColor:'rgba(99,102,241,0.3) transparent' }}>
+          {files.length === 0 ? (
+            <div style={{ padding:'20px 16px', textAlign:'center', fontSize:11, color:'var(--text-muted)' }}>
+              <Database style={{ width:24, height:24, margin:'0 auto 8px', opacity:0.3 }}/>
+              No files yet.<br/>Upload one above.
+            </div>
+          ) : files.map(f => {
+            const fRisk = f.stats ? computeRiskScore(f.stats) : null
+            const isSelected = selected?.id === f.id
+            return (
+              <div key={f.id} onClick={() => setSelected(f)}
+                style={{ padding:'10px 14px', cursor:'pointer', display:'flex', alignItems:'flex-start', gap:10, transition:'all 0.12s', borderBottom:'1px solid var(--border)', background: isSelected?'rgba(99,102,241,0.1)':'transparent', borderLeft: isSelected?'3px solid #6366f1':'3px solid transparent' }}
+                onMouseEnter={e => !isSelected && (e.currentTarget.style.background='rgba(99,102,241,0.04)')}
+                onMouseLeave={e => !isSelected && (e.currentTarget.style.background='transparent')}>
+                <FileIcon ext={f.ext||f.file_type} size={15}/>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:12, fontWeight:600, color: isSelected?'#818cf8':'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.name||f.filename||'Unknown'}</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:3 }}>
+                    <StatusDot status={f.status}/>
+                    <span style={{ fontSize:10, color:'var(--text-muted)' }}>{fmtBytes(f.size)}</span>
+                    {f.stats?.row_count && <span style={{ fontSize:10, color:'var(--text-muted)' }}>{f.stats.row_count.toLocaleString()}r</span>}
+                    {fRisk && <span style={{ padding:'1px 5px', borderRadius:20, fontSize:9, fontWeight:800, background:fRisk.level==='critical'?'rgba(239,68,68,0.12)':fRisk.level==='elevated'?'rgba(249,115,22,0.12)':'rgba(16,185,129,0.1)', color:fRisk.level==='critical'?'#ef4444':fRisk.level==='elevated'?'#f97316':'#10b981' }}>{fRisk.score}</span>}
                   </div>
-                  <button onClick={e=>deleteFile(f.id,e)}
-                    title="Delete file"
-                    style={{ padding:'4px 6px', background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.2)', cursor:'pointer', color:'#ef4444', borderRadius:4, flexShrink:0, transition:'all 0.12s', fontSize:10, fontWeight:600, display:'flex', alignItems:'center', gap:2 }}>
-                    <Trash2 style={{ width:12, height:12 }}/>
-                  </button>
                 </div>
-              )
-            })}
-          </div>
+                <button onClick={e=>deleteFile(f.id,e)} title="Delete"
+                  style={{ padding:4, background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', borderRadius:4, flexShrink:0 }}
+                  onMouseEnter={e => { e.currentTarget.style.color='#ef4444' }}
+                  onMouseLeave={e => { e.currentTarget.style.color='var(--text-muted)' }}>
+                  <Trash2 style={{ width:12, height:12 }}/>
+                </button>
+              </div>
+            )
+          })}
         </div>
 
         {/* Column selector */}
         {selected?.stats?.num_cols?.length > 0 && (
-          <div style={{ background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:12, padding:10, flexShrink:0 }}>
-            <div style={{ fontSize:10, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:6 }}>Parameter</div>
+          <div style={{ padding:'10px 14px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
+            <div style={{ fontSize:9, fontWeight:800, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:7 }}>Parameters</div>
             <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
               {selected.stats.num_cols.map(c => {
                 const who = whoStatus(c, parseFloat(selected.stats.col_stats?.[c]?.mean||0))
+                const active = selectedCol === c
                 return (
                   <button key={c} onClick={() => setSelectedCol(c)}
-                    style={{ padding:'3px 9px', borderRadius:20, border:'none', cursor:'pointer', fontSize:10, fontWeight:600, transition:'all 0.12s',
-                      background: selectedCol===c?`${who?.color||'#6366f1'}20`:'rgba(0,0,0,0.03)',
-                      color: selectedCol===c?(who?.color||'#818cf8'):'var(--text-muted)',
-                      boxShadow: selectedCol===c?`0 0 0 1px ${who?.color||'#6366f1'}40`:'none',
+                    style={{ padding:'4px 10px', borderRadius:20, border:'none', cursor:'pointer', fontSize:10, fontWeight:600, transition:'all 0.12s',
+                      background: active ? (who?.color||'#6366f1') : 'rgba(0,0,0,0.04)',
+                      color: active ? '#fff' : 'var(--text-muted)',
                     }}>
                     {c}
                   </button>
@@ -1004,80 +1472,115 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --reload`}
       </div>
 
       {/* ── CENTER: Analysis Workspace ── */}
-      <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', gap:0, position:'relative', zIndex:1 }}>
+      <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', gap:0, position:'relative', zIndex:1, borderRight:'1px solid var(--border)' }}>
         {!selected ? (
-          /* Empty state */
-          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100%', gap:20, textAlign:'center' }}>
-            <div style={{ width:72, height:72, borderRadius:20, background:'linear-gradient(135deg,rgba(99,102,241,0.2),rgba(20,184,166,0.2))', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 8px 32px rgba(99,102,241,0.2)' }}>
-              <FlaskConical style={{ width:32, height:32, color:'#818cf8' }}/>
+          /* ── EMPTY STATE ── */
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100%', gap:0, padding:'0 40px', background:'var(--card-bg)' }}>
+            <div style={{ width:80, height:80, borderRadius:24, background:'linear-gradient(135deg,#6366f1,#14b8a6)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 16px 48px rgba(99,102,241,0.35)', marginBottom:24 }}>
+              <FlaskConical style={{ width:36, height:36, color:'#fff' }}/>
             </div>
-            <div>
-              <h2 style={{ fontSize:20, fontWeight:900, color:'var(--text)', margin:0 }}>Research Intelligence Workspace</h2>
-              <p style={{ fontSize:13, color:'var(--text-muted)', marginTop:6, maxWidth:440, lineHeight:1.6 }}>
-                Upload any dataset or document. Get automatic ML analysis, statistical profiling, risk assessment, anomaly detection, and AI-powered research insights.
-              </p>
-            </div>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, maxWidth:440 }}>
+            <h2 style={{ fontSize:22, fontWeight:900, color:'var(--text)', margin:'0 0 8px', letterSpacing:'-0.02em' }}>Research Intelligence</h2>
+            <p style={{ fontSize:13, color:'var(--text-muted)', marginBottom:32, maxWidth:400, textAlign:'center', lineHeight:1.7 }}>
+              Upload any dataset or document to run automatic ML analysis, WHO threshold checks, anomaly detection, and AI-powered research insights.
+            </p>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:12, width:'100%', maxWidth:480, marginBottom:32 }}>
               {[
-                { icon:'📊', label:'Statistical Analysis', sub:'WHO thresholds, correlations, outliers' },
-                { icon:'🤖', label:'ML Anomaly Detection', sub:'IsolationForest + σ-rule analysis' },
-                { icon:'📄', label:'AI Research Chat', sub:'RAG + ML hybrid intelligence' },
-                { icon:'⚡', label:'Auto Insights Engine', sub:'Risk flags, findings, actions' },
-                { icon:'🔬', label:'Data Quality Report', sub:'Completeness, reliability scoring' },
-                { icon:'⚖️', label:'Multi-File Compare', sub:'Side-by-side dataset analysis' },
+                { icon: BarChart2,   color:'#6366f1', label:'Statistical Analysis',   sub:'Mean, std, correlations, WHO thresholds' },
+                { icon: Target,      color:'#f97316', label:'ML Anomaly Detection',    sub:'IsolationForest + 2.5σ outlier analysis' },
+                { icon: Brain,       color:'#14b8a6', label:'AI Research Chat',        sub:'Ask anything about your dataset' },
+                { icon: Shield,      color:'#10b981', label:'Data Quality Score',      sub:'Completeness, coverage, consistency' },
+                { icon: GitCompare,  color:'#8b5cf6', label:'Multi-File Compare',      sub:'Side-by-side dataset comparison' },
+                { icon: TrendingUp,  color:'#0ea5e9', label:'Trend Analysis',          sub:'Time series, trends, distributions' },
               ].map(c => (
-                <div key={c.label} style={{ padding:'12px 10px', borderRadius:12, background:'var(--card-bg)', border:'1px solid var(--border)', textAlign:'center' }}>
-                  <div style={{ fontSize:22, marginBottom:4 }}>{c.icon}</div>
-                  <div style={{ fontSize:11, fontWeight:700, color:'var(--text)' }}>{c.label}</div>
-                  <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:2 }}>{c.sub}</div>
+                <div key={c.label} style={{ display:'flex', alignItems:'flex-start', gap:12, padding:'14px 16px', borderRadius:12, background:'var(--page-bg)', border:'1px solid var(--border)', cursor:'default' }}>
+                  <div style={{ width:36, height:36, borderRadius:10, background:`${c.color}15`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    <c.icon style={{ width:16, height:16, color:c.color }}/>
+                  </div>
+                  <div>
+                    <div style={{ fontSize:12, fontWeight:700, color:'var(--text)', marginBottom:2 }}>{c.label}</div>
+                    <div style={{ fontSize:11, color:'var(--text-muted)', lineHeight:1.5 }}>{c.sub}</div>
+                  </div>
                 </div>
               ))}
+            </div>
+            <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, color:'var(--text-muted)', background:'rgba(99,102,241,0.06)', border:'1px dashed rgba(99,102,241,0.2)', borderRadius:12, padding:'10px 18px' }}>
+              <Upload style={{ width:14, height:14, color:'#818cf8' }}/>
+              Drag & drop a file onto the left panel, or click Upload
             </div>
           </div>
         ) : (
           <>
-            {/* File header */}
-            <div style={{ background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:12, padding:'12px 16px', marginBottom:10, display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
-              <FileIcon ext={selected.ext} size={16}/>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontWeight:800, fontSize:14, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{selected.name}</div>
-                <div style={{ display:'flex', gap:10, marginTop:2, fontSize:11, color:'var(--text-muted)', flexWrap:'wrap' }}>
-                  <span style={{ display:'flex', alignItems:'center', gap:4 }}><StatusDot status={selected.status}/>{selected.status}</span>
-                  <span>{fmtBytes(selected.size)}</span>
-                  {selected.stats?.row_count && <span>{selected.stats.row_count.toLocaleString()} rows</span>}
-                  {selected.stats?.col_count && <span>{selected.stats.col_count} cols</span>}
-                  {selected.chunks > 0 && <span>{selected.chunks} text chunks</span>}
+            {/* ── FILE HEADER — Foreman-style metrics ── */}
+            <div style={{ background:'var(--card-bg)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+              {/* Name + actions row */}
+              <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 20px', borderBottom:'1px solid var(--border)' }}>
+                <div style={{ width:38, height:38, borderRadius:10, background:'linear-gradient(135deg,rgba(99,102,241,0.15),rgba(20,184,166,0.1))', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <FileIcon ext={selected.ext} size={18}/>
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:800, fontSize:14, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{selected.name}</div>
+                  <div style={{ display:'flex', gap:8, marginTop:2, fontSize:11, color:'var(--text-muted)', alignItems:'center' }}>
+                    <span style={{ display:'flex', alignItems:'center', gap:4 }}><StatusDot status={selected.status}/>{selected.status}</span>
+                    <span>·</span><span>{fmtBytes(selected.size)}</span>
+                    {selected.chunks > 0 && <><span>·</span><span>{selected.chunks} chunks indexed</span></>}
+                  </div>
+                </div>
+                <div style={{ display:'flex', gap:5, flexShrink:0 }}>
+                  <button onClick={downloadReport} disabled={reportGenerating} title="Download AI report"
+                    style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 12px', borderRadius:8, background: reportGenerating ? 'rgba(99,102,241,0.04)' : 'rgba(99,102,241,0.08)', color:'#818cf8', border:'1px solid rgba(99,102,241,0.15)', cursor: reportGenerating ? 'not-allowed' : 'pointer', fontSize:11, fontWeight:600, opacity: reportGenerating ? 0.7 : 1 }}>
+                    {reportGenerating ? (
+                      <><span style={{ display:'inline-block', width:11, height:11, border:'2px solid #818cf8', borderTopColor:'transparent', borderRadius:'50%', animation:'spin 0.7s linear infinite' }}/> Generating...</>
+                    ) : (
+                      <><Download style={{ width:11, height:11 }}/> AI Report</>
+                    )}
+                  </button>
+                  <button onClick={() => downloadDataset('csv')}
+                    style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 12px', borderRadius:8, background:'rgba(16,185,129,0.08)', color:'#10b981', border:'1px solid rgba(16,185,129,0.15)', cursor:'pointer', fontSize:11, fontWeight:600 }}>
+                    <Download style={{ width:11, height:11 }}/> CSV
+                  </button>
+                  <button onClick={() => downloadDataset('json')}
+                    style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 12px', borderRadius:8, background:'rgba(245,158,11,0.08)', color:'#f59e0b', border:'1px solid rgba(245,158,11,0.15)', cursor:'pointer', fontSize:11, fontWeight:600 }}>
+                    <Download style={{ width:11, height:11 }}/> JSON
+                  </button>
+                  <button onClick={downloadOriginal}
+                    style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 12px', borderRadius:8, background:'rgba(148,163,184,0.08)', color:'#94a3b8', border:'1px solid rgba(148,163,184,0.15)', cursor:'pointer', fontSize:11, fontWeight:600 }}>
+                    <Download style={{ width:11, height:11 }}/> Original
+                  </button>
                 </div>
               </div>
-              {risk && <RiskBadge score={risk.score} level={risk.level}/>}
-              <div style={{ display:'flex', gap:6, flexShrink:0 }}>
-                <button onClick={downloadReport}
-                  style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:9, background:'rgba(99,102,241,0.08)', color:'#818cf8', border:'1px solid rgba(99,102,241,0.15)', cursor:'pointer', fontSize:12, fontWeight:600 }}>
-                  <Download style={{ width:13, height:13 }}/> Report
-                </button>
-                <button onClick={() => downloadDataset('csv')} title="Export as CSV"
-                  style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:9, background:'rgba(16,185,129,0.08)', color:'#10b981', border:'1px solid rgba(16,185,129,0.15)', cursor:'pointer', fontSize:12, fontWeight:600 }}>
-                  <Download style={{ width:13, height:13 }}/> CSV
-                </button>
-                <button onClick={() => downloadDataset('json')} title="Export analysis as JSON"
-                  style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:9, background:'rgba(245,158,11,0.08)', color:'#f59e0b', border:'1px solid rgba(245,158,11,0.15)', cursor:'pointer', fontSize:12, fontWeight:600 }}>
-                  <Download style={{ width:13, height:13 }}/> JSON
-                </button>
-                <button onClick={downloadOriginal} title="Download original file"
-                  style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:9, background:'rgba(148,163,184,0.08)', color:'#94a3b8', border:'1px solid rgba(148,163,184,0.15)', cursor:'pointer', fontSize:12, fontWeight:600 }}>
-                  <Download style={{ width:13, height:13 }}/> Original
-                </button>
+
+              {/* Metric cards row — Foreman style */}
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', background:'var(--card-bg)' }}>
+                {[
+                  { label:'TOTAL ROWS',    value: selected.stats?.row_count?.toLocaleString() ?? '—',                      color:'#818cf8', icon: Database   },
+                  { label:'COLUMNS',       value: selected.stats?.col_count ?? '—',                                         color:'#2dd4bf', icon: Table      },
+                  { label:'WHO PARAMS',    value: (selected.stats?.num_cols||[]).filter(c=>whoMatch(c)).length || '—',       color:'#0ea5e9', icon: FlaskConical},
+                  { label:'DATA QUALITY',  value: qualityScore !== null ? `${qualityScore}% ${qualityGrade}` : '—',         color: qualityColor, icon: Shield   },
+                  { label:'RISK LEVEL',    value: risk ? `${risk.score} · ${risk.level.toUpperCase()}` : '—',               color: risk?.level==='critical'?'#ef4444':risk?.level==='elevated'?'#f97316':risk?.level==='moderate'?'#f59e0b':'#10b981', icon: AlertTriangle },
+                ].map((m, i) => (
+                  <div key={m.label} style={{ padding:'14px 20px', borderRight: i < 4 ? '1px solid var(--border)' : 'none', position:'relative' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+                      <div style={{ width:24, height:24, borderRadius:6, background:`${m.color}15`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        <m.icon style={{ width:12, height:12, color:m.color }}/>
+                      </div>
+                      <span style={{ fontSize:9, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)' }}>{m.label}</span>
+                    </div>
+                    <div style={{ fontSize:20, fontWeight:900, color:m.color, lineHeight:1, letterSpacing:'-0.02em' }}>{m.value}</div>
+                  </div>
+                ))}
               </div>
             </div>
 
             {/* Tabs */}
-            <div style={{ display:'flex', gap:2, marginBottom:12, flexShrink:0, borderBottom:'1px solid var(--border)' }}>
-              {TABS.map(t => (
+            <div style={{ display:'flex', gap:0, flexShrink:0, borderBottom:'1px solid var(--border)', background:'var(--card-bg)', padding:'0 16px' }}>
+              {FILE_TABS.map(t => (
                 <button key={t.key} onClick={() => setTab(t.key)}
-                  style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 14px', borderRadius:'7px 7px 0 0', border:'none', cursor:'pointer', fontSize:12, fontWeight: tab===t.key?700:500, transition:'all 0.15s',
-                    background: tab===t.key?'rgba(99,102,241,0.1)':'transparent',
+                  style={{ display:'flex', alignItems:'center', gap:6, padding:'11px 16px', border:'none', cursor:'pointer', fontSize:12, fontWeight: tab===t.key?700:500, transition:'all 0.15s',
+                    background:'transparent',
                     color: tab===t.key?'#818cf8':'var(--text-muted)',
                     borderBottom: tab===t.key?'2px solid #6366f1':'2px solid transparent',
+                    borderTop:'2px solid transparent',
+                    marginBottom:-1,
                   }}>
                   <t.icon style={{ width:12, height:12 }}/>{t.label}
                 </button>
@@ -1085,48 +1588,59 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --reload`}
             </div>
 
             {/* Tab content */}
-            <div style={{ flex:1, overflowY:'auto', scrollbarWidth:'none' }}>
+            <div style={{ flex:1, overflowY:'auto', scrollbarWidth:'none', background:'var(--page-bg)' }}>
 
               {/* ── OVERVIEW ── */}
               {tab==='overview' && (
-                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-                  {/* Auto-insights */}
-                  <div style={{ background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:12, padding:14 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
-                      <Zap style={{ width:14, height:14, color:'#f59e0b' }}/>
-                      <span style={{ fontSize:13, fontWeight:700, color:'var(--text)' }}>Auto-Generated Insights</span>
-                      <span style={{ marginLeft:'auto', fontSize:11, color:'var(--text-muted)' }}>{insights.length} findings</span>
+                <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
+
+                  {/* Parameter metrics — large Foreman-style stat cards */}
+                  {selected.stats?.col_stats && (
+                    <div style={{ padding:'20px 20px 0' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
+                        <BarChart2 style={{ width:15, height:15, color:'#6366f1' }}/>
+                        <span style={{ fontSize:13, fontWeight:800, color:'var(--text)', letterSpacing:'-0.01em' }}>Parameter Overview</span>
+                        <span style={{ marginLeft:'auto', fontSize:11, color:'var(--text-muted)' }}>Click to explore →</span>
+                      </div>
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))', gap:10 }}>
+                        {Object.entries(selected.stats.col_stats).slice(0,9).map(([col, s]) => {
+                          const who = whoStatus(col, parseFloat(s.mean))
+                          const hasIssue = who?.level === 3
+                          return (
+                            <div key={col} onClick={() => { setSelectedCol(col); setTab('explore') }}
+                              style={{ padding:'16px', borderRadius:12, background:'var(--card-bg)', border:`1px solid ${hasIssue ? who.border : 'var(--border)'}`, cursor:'pointer', transition:'all 0.15s', position:'relative', overflow:'hidden' }}
+                              onMouseEnter={e => { e.currentTarget.style.transform='translateY(-2px)'; e.currentTarget.style.boxShadow='0 6px 20px rgba(0,0,0,0.1)'; e.currentTarget.style.borderColor='rgba(99,102,241,0.4)' }}
+                              onMouseLeave={e => { e.currentTarget.style.transform='none'; e.currentTarget.style.boxShadow='none'; e.currentTarget.style.borderColor=hasIssue?who.border:'var(--border)' }}>
+                              {hasIssue && <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:who.color, borderRadius:'12px 12px 0 0' }}/>}
+                              <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:'var(--text-muted)', marginBottom:8 }}>{col}</div>
+                              <div style={{ fontSize:26, fontWeight:900, color: who?.color || '#6366f1', lineHeight:1, letterSpacing:'-0.02em', marginBottom:6 }}>{s.mean}</div>
+                              <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                                {who && <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:who.bg, color:who.color, border:`1px solid ${who.border}` }}>{who.label}</span>}
+                                {(s.outliers||0)>0 && <span style={{ fontSize:10, fontWeight:700, color:'#f97316' }}>⚠ {s.outliers} outliers</span>}
+                                <span style={{ fontSize:10, color:'var(--text-muted)', marginLeft:'auto' }}>σ {s.std}</span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
-                    <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
+                  )}
+
+                  {/* Insights */}
+                  <div style={{ padding:20 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
+                      <Zap style={{ width:15, height:15, color:'#f59e0b' }}/>
+                      <span style={{ fontSize:13, fontWeight:800, color:'var(--text)', letterSpacing:'-0.01em' }}>Auto-Generated Findings</span>
+                      <span style={{ padding:'2px 8px', borderRadius:20, fontSize:11, fontWeight:700, background:'rgba(245,158,11,0.1)', color:'#f59e0b', marginLeft:'auto' }}>{insights.length} finding{insights.length!==1?'s':''}</span>
+                    </div>
+                    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                       {insights.map((ins, i) => <InsightCard key={i} insight={ins} index={i}/>)}
                     </div>
                   </div>
 
-                  {/* Quick stats grid */}
-                  {selected.stats?.col_stats && (
-                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))', gap:8 }}>
-                      {Object.entries(selected.stats.col_stats).slice(0,8).map(([col, s]) => {
-                        const who = whoStatus(col, parseFloat(s.mean))
-                        return (
-                          <div key={col} onClick={() => { setSelectedCol(col); setTab('explore') }}
-                            style={{ padding:'10px 12px', borderRadius:10, background: who?.level===3?who.bg:'var(--card-bg)', border:`1px solid ${who?.level===3?who.border:'var(--border)'}`, cursor:'pointer', transition:'all 0.15s' }}
-                            onMouseEnter={e => { e.currentTarget.style.transform='translateY(-1px)'; e.currentTarget.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)' }}
-                            onMouseLeave={e => { e.currentTarget.style.transform='none'; e.currentTarget.style.boxShadow='none' }}>
-                            <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--text-muted)', marginBottom:4 }}>{col}</div>
-                            <div style={{ fontSize:18, fontWeight:900, color: who?.color||'var(--text)' }}>{s.mean}</div>
-                            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:4 }}>
-                              {who && <span style={{ fontSize:9, fontWeight:700, color:who.color }}>{who.label}</span>}
-                              {(s.outliers||0)>0 && <span style={{ fontSize:9, color:'#f97316', fontWeight:700 }}>⚠ {s.outliers}</span>}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-
                   {/* Top findings cards */}
                   {risk?.violations?.length > 0 && (
-                    <div style={{ background:'rgba(239,68,68,0.05)', border:'1px solid rgba(239,68,68,0.15)', borderRadius:12, padding:14 }}>
+                    <div style={{ margin:'0 20px 20px', background:'rgba(239,68,68,0.05)', border:'1px solid rgba(239,68,68,0.15)', borderRadius:12, padding:14 }}>
                       <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:8 }}>
                         <AlertTriangle style={{ width:14, height:14, color:'#ef4444' }}/>
                         <span style={{ fontSize:12, fontWeight:700, color:'var(--text)' }}>Threshold Violations</span>
@@ -1147,7 +1661,7 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --reload`}
 
               {/* ── EXPLORE ── */}
               {tab==='explore' && (
-                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                <div style={{ display:'flex', flexDirection:'column', gap:12, padding:20 }}>
                   <TrendPanel selected={selected} selectedCol={selectedCol}/>
                   {selected.stats?.col_stats && <StatsTable stats={selected.stats.col_stats} selectedCol={selectedCol} onSelectCol={setSelectedCol}/>}
                   {selected.stats?.correlation && (
@@ -1193,38 +1707,38 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --reload`}
               )}
 
               {/* ── ML LAB ── */}
-              {tab==='ml' && <AnomalyPanel selected={selected}/>}
+              {tab==='ml' && <div style={{ padding:20 }}><AnomalyPanel selected={selected}/></div>}
 
               {/* ── QUALITY ── */}
-              {tab==='quality' && <DataQualityPanel selected={selected}/>}
+              {tab==='quality' && <div style={{ padding:20 }}><DataQualityPanel selected={selected}/></div>}
 
               {/* ── COMPARE ── */}
-              {tab==='compare' && <ComparePanel files={files} selectedIds={compareIds} onToggle={id => setCompareIds(prev => prev.includes(id)?prev.filter(i=>i!==id):[...prev,id])}/>}
+              {tab==='compare' && <div style={{ padding:20 }}><ComparePanel files={files} selectedIds={compareIds} onToggle={id => setCompareIds(prev => prev.includes(id)?prev.filter(i=>i!==id):[...prev,id])}/></div>}
             </div>
           </>
         )}
       </div>
 
       {/* ── RIGHT: AI Research Chat ── */}
-      <div style={{ width:260, flexShrink:0, display:'flex', flexDirection:'column', minHeight:0, position:'relative', zIndex:1 }}>
-        <div style={{ background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:12, display:'flex', flexDirection:'column', flex:1, minHeight:0, overflow:'hidden' }}>
+      <div style={{ width:280, flexShrink:0, display:'flex', flexDirection:'column', minHeight:0, position:'relative', zIndex:1 }}>
+        <div style={{ background:'var(--card-bg)', borderRadius:'0 14px 14px 0', display:'flex', flexDirection:'column', flex:1, minHeight:0, overflow:'hidden' }}>
           {/* Chat header */}
-          <div style={{ padding:'10px 14px', borderBottom:'1px solid var(--border)', background:'linear-gradient(135deg,rgba(99,102,241,0.06),rgba(20,184,166,0.04))', flexShrink:0 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <div style={{ width:28, height:28, borderRadius:'50%', background:'linear-gradient(135deg,#6366f1,#14b8a6)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                <Brain style={{ width:13, height:13, color:'#fff' }}/>
+          <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)', background:'linear-gradient(135deg,rgba(99,102,241,0.08),rgba(20,184,166,0.05))', flexShrink:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <div style={{ width:32, height:32, borderRadius:10, background:'linear-gradient(135deg,#6366f1,#14b8a6)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 4px 12px rgba(99,102,241,0.3)' }}>
+                <Brain style={{ width:15, height:15, color:'#fff' }}/>
               </div>
               <div>
-                <div style={{ fontSize:12, fontWeight:800, color:'var(--text)' }}>AI Research Assistant</div>
-                <div style={{ fontSize:10, color:'var(--text-muted)', display:'flex', alignItems:'center', gap:4 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:'var(--text)', letterSpacing:'-0.01em' }}>AI Research Chat</div>
+                <div style={{ fontSize:10, color:'var(--text-muted)', display:'flex', alignItems:'center', gap:4, marginTop:1 }}>
                   <span style={{ width:5, height:5, borderRadius:'50%', background:'#10b981', display:'inline-block' }}/>
-                  RAG + ML Hybrid · FAISS
+                  Pollinations · RAG · FAISS
                 </div>
               </div>
             </div>
             {selected && risk && (
-              <div style={{ marginTop:8, padding:'6px 10px', borderRadius:8, background:`rgba(${risk.level==='critical'?'239,68,68':risk.level==='elevated'?'249,115,22':'16,185,129'},0.08)`, fontSize:10, fontWeight:700, color:risk.level==='critical'?'#ef4444':risk.level==='elevated'?'#f97316':'#10b981', display:'flex', gap:5, alignItems:'center' }}>
-                <Shield style={{ width:10, height:10 }}/> Risk: {risk.level.toUpperCase()} (score: {risk.score}/100)
+              <div style={{ marginTop:10, padding:'8px 12px', borderRadius:9, background:`rgba(${risk.level==='critical'?'239,68,68':risk.level==='elevated'?'249,115,22':risk.level==='moderate'?'245,158,11':'16,185,129'},0.08)`, border:`1px solid rgba(${risk.level==='critical'?'239,68,68':risk.level==='elevated'?'249,115,22':risk.level==='moderate'?'245,158,11':'16,185,129'},0.15)`, fontSize:11, fontWeight:700, color:risk.level==='critical'?'#ef4444':risk.level==='elevated'?'#f97316':risk.level==='moderate'?'#f59e0b':'#10b981', display:'flex', gap:6, alignItems:'center' }}>
+                <Shield style={{ width:11, height:11 }}/> Risk: {risk.level.toUpperCase()} — {risk.score}/100
               </div>
             )}
           </div>
@@ -1286,6 +1800,8 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --reload`}
         @keyframes slideInUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
         @keyframes fadeInStep { from{opacity:0;transform:scale(0.9)} to{opacity:1;transform:none} }
       `}</style>
+    </div>
+    )}
     </div>
   )
 }

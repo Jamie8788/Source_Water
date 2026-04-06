@@ -250,6 +250,20 @@ function initSchema() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_posts_user ON posts(user_id);
+  `)
+
+  // Migrations: add columns that didn't exist in original schema
+  const migrations = [
+    "ALTER TABLE quizzes ADD COLUMN negative_marking REAL DEFAULT 0",
+    "ALTER TABLE quizzes ADD COLUMN time_limit INTEGER DEFAULT 0",
+    "ALTER TABLE quiz_questions ADD COLUMN negative_points REAL DEFAULT 0",
+    "ALTER TABLE observations ADD COLUMN flagged INTEGER DEFAULT 0",
+  ]
+  for (const sql of migrations) {
+    try { db.prepare(sql).run() } catch (_) { /* column already exists */ }
+  }
+
+  db.exec(`
     CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id);
     CREATE INDEX IF NOT EXISTS idx_dm_sender ON direct_messages(sender_id);

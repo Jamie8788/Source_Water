@@ -1,6 +1,7 @@
 const router = require('express').Router()
 const db = require('../db/connection')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
+const upload = require('../middleware/upload')
 
 // GET /api/quizzes
 router.get('/', requireAuth, (req, res) => {
@@ -32,16 +33,16 @@ router.get('/:id', requireAuth, (req, res) => {
 
 // POST /api/quizzes (admin)
 router.post('/', requireAuth, requireAdmin, (req, res) => {
-  const { title, description, category, difficulty, time_per_question, pass_score, status, shuffle_questions, shuffle_answers, show_answers_after, certificate_enabled } = req.body
-  const result = db.prepare(`INSERT INTO quizzes (title,description,category,difficulty,time_per_question,pass_score,status,shuffle_questions,shuffle_answers,show_answers_after,certificate_enabled,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(title,description,category,difficulty,time_per_question||60,pass_score||70,status||'draft',shuffle_questions?1:0,shuffle_answers?1:0,show_answers_after!==false?1:0,certificate_enabled?1:0,req.user.id)
+  const { title, description, category, difficulty, time_per_question, time_limit, pass_score, status, shuffle_questions, shuffle_answers, show_answers_after, certificate_enabled, negative_marking } = req.body
+  const result = db.prepare(`INSERT INTO quizzes (title,description,category,difficulty,time_per_question,time_limit,pass_score,status,shuffle_questions,shuffle_answers,show_answers_after,certificate_enabled,negative_marking,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(title,description,category,difficulty,time_per_question||60,time_limit||0,pass_score||70,status||'draft',shuffle_questions?1:0,shuffle_answers?1:0,show_answers_after!==false?1:0,certificate_enabled?1:0,negative_marking||0,req.user.id)
   db.prepare('INSERT INTO activity_log (user_id,action,target_type,target_id) VALUES (?,?,?,?)').run(req.user.id,'created_quiz','quiz',result.lastInsertRowid)
   res.json(db.prepare('SELECT * FROM quizzes WHERE id=?').get(result.lastInsertRowid))
 })
 
 // PUT /api/quizzes/:id (admin)
 router.put('/:id', requireAuth, requireAdmin, (req, res) => {
-  const { title, description, category, difficulty, time_per_question, pass_score, status, shuffle_questions, shuffle_answers, show_answers_after, certificate_enabled } = req.body
-  db.prepare(`UPDATE quizzes SET title=?,description=?,category=?,difficulty=?,time_per_question=?,pass_score=?,status=?,shuffle_questions=?,shuffle_answers=?,show_answers_after=?,certificate_enabled=? WHERE id=?`).run(title,description,category,difficulty,time_per_question,pass_score,status,shuffle_questions?1:0,shuffle_answers?1:0,show_answers_after?1:0,certificate_enabled?1:0,req.params.id)
+  const { title, description, category, difficulty, time_per_question, time_limit, pass_score, status, shuffle_questions, shuffle_answers, show_answers_after, certificate_enabled, negative_marking } = req.body
+  db.prepare(`UPDATE quizzes SET title=?,description=?,category=?,difficulty=?,time_per_question=?,time_limit=?,pass_score=?,status=?,shuffle_questions=?,shuffle_answers=?,show_answers_after=?,certificate_enabled=?,negative_marking=? WHERE id=?`).run(title,description,category,difficulty,time_per_question,time_limit||0,pass_score,status,shuffle_questions?1:0,shuffle_answers?1:0,show_answers_after?1:0,certificate_enabled?1:0,negative_marking||0,req.params.id)
   res.json(db.prepare('SELECT * FROM quizzes WHERE id=?').get(req.params.id))
 })
 
@@ -51,17 +52,28 @@ router.delete('/:id', requireAuth, requireAdmin, (req, res) => {
   res.json({ success: true })
 })
 
-// POST /api/quizzes/:id/questions (admin)
-router.post('/:id/questions', requireAuth, requireAdmin, (req, res) => {
-  const { question_type, question_text, options, correct_answers, explanation, points, sort_order } = req.body
-  const result = db.prepare(`INSERT INTO quiz_questions (quiz_id,question_type,question_text,options,correct_answers,explanation,points,sort_order) VALUES (?,?,?,?,?,?,?,?)`).run(req.params.id,question_type,question_text,JSON.stringify(options),JSON.stringify(correct_answers),explanation,points||1,sort_order||0)
+// POST /api/quizzes/:id/questions (admin) — accepts image upload
+router.post('/:id/questions', requireAuth, requireAdmin, upload.single('question_image'), (req, res) => {
+  const { question_type, question_text, options, correct_answers, explanation, points, sort_order, negative_points } = req.body
+  let imagePath = null
+  if (req.file) {
+    const rel = req.file.path.replace(/\\/g, '/').split('/uploads/').pop()
+    imagePath = `/uploads/${rel}`
+  }
+  const result = db.prepare(`INSERT INTO quiz_questions (quiz_id,question_type,question_text,question_image,options,correct_answers,explanation,points,negative_points,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(req.params.id,question_type,question_text,imagePath,JSON.stringify(options||[]),JSON.stringify(correct_answers||[]),explanation||'',points||1,negative_points||0,sort_order||0)
   res.json(db.prepare('SELECT * FROM quiz_questions WHERE id=?').get(result.lastInsertRowid))
 })
 
 // PUT /api/quizzes/questions/:qid (admin)
-router.put('/questions/:qid', requireAuth, requireAdmin, (req, res) => {
-  const { question_type, question_text, options, correct_answers, explanation, points, sort_order } = req.body
-  db.prepare(`UPDATE quiz_questions SET question_type=?,question_text=?,options=?,correct_answers=?,explanation=?,points=?,sort_order=? WHERE id=?`).run(question_type,question_text,JSON.stringify(options),JSON.stringify(correct_answers),explanation,points,sort_order,req.params.qid)
+router.put('/questions/:qid', requireAuth, requireAdmin, upload.single('question_image'), (req, res) => {
+  const { question_type, question_text, options, correct_answers, explanation, points, sort_order, negative_points } = req.body
+  const existing = db.prepare('SELECT question_image FROM quiz_questions WHERE id=?').get(req.params.qid)
+  let imagePath = existing?.question_image || null
+  if (req.file) {
+    const rel = req.file.path.replace(/\\/g, '/').split('/uploads/').pop()
+    imagePath = `/uploads/${rel}`
+  }
+  db.prepare(`UPDATE quiz_questions SET question_type=?,question_text=?,question_image=?,options=?,correct_answers=?,explanation=?,points=?,negative_points=?,sort_order=? WHERE id=?`).run(question_type,question_text,imagePath,JSON.stringify(options||[]),JSON.stringify(correct_answers||[]),explanation||'',points,negative_points||0,sort_order,req.params.qid)
   res.json(db.prepare('SELECT * FROM quiz_questions WHERE id=?').get(req.params.qid))
 })
 
@@ -116,8 +128,13 @@ router.post('/:id/submit', requireAuth, (req, res) => {
       isCorrect = false // essay graded manually
     }
     if (isCorrect) earned += q.points
+    else if (userAnswer !== undefined && userAnswer !== null && userAnswer !== '') {
+      // Apply negative marking: per-question penalty or global quiz negative_marking
+      const penalty = q.negative_points > 0 ? q.negative_points : (quiz.negative_marking || 0)
+      earned -= penalty
+    }
     total += q.points
-    return { question_id: q.id, user_answer: userAnswer, is_correct: isCorrect, points_earned: isCorrect ? q.points : 0 }
+    return { question_id: q.id, user_answer: userAnswer, is_correct: isCorrect, points_earned: isCorrect ? q.points : (-(q.negative_points || 0)) }
   })
 
   const score = total > 0 ? Math.round((earned / total) * 100) : 0

@@ -1,13 +1,14 @@
 import PageAmbience from '../components/layout/PageAmbience'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useSound } from '../context/SoundContext'
+import { useSearchParams } from 'react-router-dom'
 import api from '../utils/api'
 import {
-  Send, Plus, X, Image, Video, Mic, MicOff, Search, UserPlus,
-  ArrowLeft, Heart, MessageCircle, Share2, MoreHorizontal,
-  Smile, Award, TrendingUp, Users, Bookmark, Bell, Play,
-  ChevronRight, Hash, Trash2, Pin
+  Send, X, Image, Video, Mic, MicOff, Search, UserPlus,
+  ArrowLeft, MessageCircle, Share2, MoreHorizontal,
+  Award, TrendingUp, Bookmark, Bell,
+  Hash, Trash2, Pin
 } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api', '')
@@ -50,6 +51,7 @@ function Avatar({ user, size = 40, className = '' }) {
 
 /* ── Media Grid ── */
 function MediaGrid({ media, type }) {
+  const [errors, setErrors] = useState({})
   if (!media?.length) return null
   const isVideo = type === 'video' || media[0]?.match(/\.(mp4|webm|mov)$/i)
   if (isVideo) {
@@ -59,27 +61,33 @@ function MediaGrid({ media, type }) {
       </div>
     )
   }
-  const cols = media.length === 1 ? 1 : media.length === 2 ? 2 : media.length === 3 ? 3 : 2
+  const goodMedia = media.slice(0, 4).filter((_, i) => !errors[i])
+  if (!goodMedia.length && Object.keys(errors).length === Math.min(media.length, 4)) return null
+  const cols = goodMedia.length === 1 ? 1 : goodMedia.length === 2 ? 2 : goodMedia.length === 3 ? 3 : 2
   return (
-    <div className={`grid gap-1 mb-3 rounded-2xl overflow-hidden`}
+    <div className="grid gap-1 mb-3 rounded-2xl overflow-hidden"
       style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
-      {media.slice(0, 4).map((src, i) => (
-        <div key={i} className="relative" style={{ paddingBottom: media.length === 1 ? '56%' : '100%' }}>
-          <img src={mediaUrl(src)} alt="" className="absolute inset-0 w-full h-full object-cover"
-            style={{ borderRadius: media.length === 1 ? 0 : 4 }}/>
-          {i === 3 && media.length > 4 && (
-            <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-black text-2xl">
-              +{media.length - 4}
-            </div>
-          )}
-        </div>
-      ))}
+      {media.slice(0, 4).map((src, i) =>
+        errors[i] ? null : (
+          <div key={i} className="relative" style={{ paddingBottom: goodMedia.length === 1 ? '56%' : '100%' }}>
+            <img src={mediaUrl(src)} alt=""
+              className="absolute inset-0 w-full h-full object-cover"
+              style={{ borderRadius: goodMedia.length === 1 ? 0 : 4 }}
+              onError={() => setErrors(prev => ({ ...prev, [i]: true }))}/>
+            {i === 3 && media.length > 4 && (
+              <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-black text-2xl">
+                +{media.length - 4}
+              </div>
+            )}
+          </div>
+        )
+      )}
     </div>
   )
 }
 
 /* ── Post Card ── */
-function PostCard({ post, currentUser, onReact, onDelete, onPin }) {
+function PostCard({ post, currentUser, onDelete, onPin }) {
   const [showComments, setShowComments] = useState(false)
   const [comment, setComment] = useState('')
   const [comments, setComments] = useState([])
@@ -305,26 +313,45 @@ function PostComposer({ user, onPost }) {
   const [media, setMedia] = useState([])
   const [postType, setPostType] = useState('text')
   const [submitting, setSubmitting] = useState(false)
+  const [uploadErr, setUploadErr] = useState('')
   const imageRef = useRef(null)
   const videoRef = useRef(null)
 
   const submit = async () => {
     if (!content.trim() && !media.length) return
     setSubmitting(true)
+    setUploadErr('')
     try {
-      let r
+      let posted
+      const token = localStorage.getItem('sw_token')
+      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
       if (media.length) {
+        // Use native fetch — Axios can break multipart boundaries in v1.x
         const fd = new FormData()
-        fd.append('content', content)
+        fd.append('content', content || ' ')
         fd.append('post_type', postType)
         media.forEach(f => fd.append('media', f))
-        r = await api.post('/posts', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+        const res = await fetch(`${apiBase}/posts`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: fd,
+        })
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.error || `Server error ${res.status}`)
+        posted = json.post || json
       } else {
-        r = await api.post('/posts', { content, post_type: postType })
+        const r = await api.post('/posts', { content, post_type: postType })
+        posted = r.data.post || r.data
       }
-      onPost(r.data.post || r.data)
-      setContent(''); setMedia([]); setExpanded(false); setPostType('text')
-    } catch {}
+      if (posted?.id) {
+        onPost(posted)
+        setContent(''); setMedia([]); setExpanded(false); setPostType('text')
+      } else {
+        setUploadErr('Unexpected response — please refresh')
+      }
+    } catch (e) {
+      setUploadErr(e.message || 'Upload failed — please try again')
+    }
     setSubmitting(false)
   }
 
@@ -389,10 +416,13 @@ function PostComposer({ user, onPost }) {
                     style={{ color: 'var(--text-muted)', border: '1px solid var(--border)' }}>
                     Cancel
                   </button>
+                  {uploadErr && (
+                    <span className="text-xs self-center text-red-500">{uploadErr}</span>
+                  )}
                   <button onClick={submit} disabled={submitting || (!content.trim() && !media.length)}
                     className="px-4 py-1.5 rounded-xl text-xs font-bold text-white transition-all disabled:opacity-50"
                     style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)' }}>
-                    {submitting ? 'Posting...' : '✦ Post (+5 pts)'}
+                    {submitting ? 'Uploading...' : '✦ Post (+5 pts)'}
                   </button>
                 </div>
               </div>
@@ -419,22 +449,49 @@ function DMPanel({ onClose }) {
   const chunksRef = useRef([])
   const bottomRef = useRef(null)
 
+  const fetchConvos = () => {
+    api.get('/messages/conversations').then(r => {
+      const data = Array.isArray(r.data) ? r.data : []
+      setConvos(data.map(c => ({
+        other_user_id: c.other_id,
+        display_name: c.user?.display_name || c.user?.username,
+        username: c.user?.username,
+        last_message: c.last_message,
+        unread_count: c.unread_count,
+      })))
+    }).catch(() => {})
+  }
+
+  // Fetch immediately and poll every 5s so new conversations appear automatically
   useEffect(() => {
-    api.get('/messages/conversations').then(r => setConvos(r.data.conversations || [])).catch(() => {})
+    fetchConvos()
+    const iv = setInterval(fetchConvos, 5000)
+    return () => clearInterval(iv)
   }, [])
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
+  // Poll for new messages every 4s while in a chat
+  useEffect(() => {
+    if (view !== 'chat' || !selected?.other_user_id) return
+    const iv = setInterval(() => {
+      api.get(`/messages/${selected.other_user_id}`).then(r => {
+        if (Array.isArray(r.data)) setMessages(r.data)
+      }).catch(() => {})
+    }, 4000)
+    return () => clearInterval(iv)
+  }, [view, selected?.other_user_id])
+
   const openConvo = (convo) => {
     setSelected(convo)
     setView('chat')
-    api.get(`/messages/conversation/${convo.other_user_id}`).then(r => setMessages(r.data.messages || [])).catch(() => {})
+    api.get(`/messages/${convo.other_user_id}`).then(r => setMessages(Array.isArray(r.data) ? r.data : [])).catch(() => {})
   }
 
   const startWith = (member) => {
     setSelected({ other_user_id: member.id, display_name: member.display_name, username: member.username, avatar_url: member.avatar_url })
     setView('chat')
-    api.get(`/messages/conversation/${member.id}`).then(r => setMessages(r.data.messages || [])).catch(() => {})
+    api.get(`/messages/${member.id}`).then(r => setMessages(Array.isArray(r.data) ? r.data : [])).catch(() => {})
   }
 
   const searchMembers = async (q) => {
@@ -451,7 +508,7 @@ function DMPanel({ onClose }) {
     const content = input
     setInput('')
     setMessages(prev => [...prev, { content, sender_id: user.id, created_at: new Date().toISOString() }])
-    await api.post('/messages', { recipient_id: selected.other_user_id, content }).catch(() => {})
+    await api.post(`/messages/${selected.other_user_id}`, { content }).catch(() => {})
   }
 
   const startRecording = async () => {
@@ -464,9 +521,13 @@ function DMPanel({ onClose }) {
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
         const fd = new FormData()
         fd.append('voice_note', blob, 'voice.webm')
-        fd.append('recipient_id', selected.other_user_id)
-        const r = await api.post('/messages/voice', fd).catch(() => null)
-        if (r) setMessages(prev => [...prev, r.data.message])
+        const token = localStorage.getItem('sw_token')
+        const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+        const res = await fetch(`${apiBase}/messages/${selected.other_user_id}`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+        }).catch(() => null)
+        const r = res ? { data: await res.json().catch(() => null) } : null
+        if (r?.data) setMessages(prev => [...prev, r.data])
         stream.getTracks().forEach(t => t.stop())
       }
       mediaRef.current = mr; mr.start(); setRecording(true)
@@ -607,8 +668,8 @@ function DMPanel({ onClose }) {
             )}
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.sender_id === user.id ? 'justify-end' : 'justify-start'}`}>
-                {m.voice_note_url ? (
-                  <audio controls src={mediaUrl(`/uploads/${m.voice_note_url}`)}
+                {m.voice_note ? (
+                  <audio controls src={mediaUrl(m.voice_note)}
                     className="max-w-[80%] rounded-2xl" style={{ height: 40 }}/>
                 ) : (
                   <div className={`max-w-[78%] px-3.5 py-2 rounded-2xl text-sm shadow-sm ${
@@ -630,24 +691,43 @@ function DMPanel({ onClose }) {
           </div>
 
           {/* Input bar */}
-          <div className="flex items-center gap-2 p-2 flex-shrink-0"
-            style={{ background: '#f0f2f5', borderTop: '1px solid var(--border)' }}>
-            <button onClick={recording ? stopRecording : startRecording}
-              className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
-                recording ? 'bg-red-500 animate-pulse' : 'bg-white'
-              }`}>
-              {recording ? <MicOff className="w-4 h-4 text-white"/> : <Mic className="w-4 h-4 text-gray-500"/>}
-            </button>
-            <input value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && send()}
-              placeholder="Type a message"
-              className="flex-1 text-sm py-2 px-4 rounded-full"
-              style={{ background: 'white', border: '1px solid #ddd' }}/>
-            <button onClick={send} disabled={!input.trim()}
-              className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40"
-              style={{ background: '#128c7e' }}>
-              <Send className="w-4 h-4 text-white"/>
-            </button>
+          <div className="flex-shrink-0" style={{ background: '#f0f2f5', borderTop: '1px solid var(--border)' }}>
+            <div className="flex items-center gap-2 p-2">
+              {/* Voice record */}
+              <button onClick={recording ? stopRecording : startRecording}
+                className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${recording ? 'bg-red-500 animate-pulse' : 'bg-white'}`}>
+                {recording ? <MicOff className="w-4 h-4 text-white"/> : <Mic className="w-4 h-4 text-gray-500"/>}
+              </button>
+              {/* Image/video upload */}
+              <label className="w-9 h-9 rounded-full bg-white flex items-center justify-center flex-shrink-0 cursor-pointer" title="Send image or video">
+                <Image className="w-4 h-4 text-gray-500"/>
+                <input type="file" accept="image/*,video/*" className="hidden" onChange={async e => {
+                  const file = e.target.files?.[0]
+                  if (!file || !selected) return
+                  const fd = new FormData(); fd.append('media', file)
+                  try {
+                    const token = localStorage.getItem('sw_token')
+                    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+                    const res = await fetch(`${apiBase}/messages/${selected.other_user_id}`, {
+                      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+                    })
+                    const data = await res.json()
+                    if (data?.id) setMessages(prev => [...prev, data])
+                  } catch { /* silent */ }
+                  e.target.value = ''
+                }}/>
+              </label>
+              <input value={input} onChange={e => setInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
+                placeholder="Type a message"
+                className="flex-1 text-sm py-2 px-4 rounded-full"
+                style={{ background: 'white', border: '1px solid #ddd' }}/>
+              <button onClick={send} disabled={!input.trim()}
+                className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40"
+                style={{ background: '#128c7e' }}>
+                <Send className="w-4 h-4 text-white"/>
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -656,33 +736,171 @@ function DMPanel({ onClose }) {
 }
 
 /* ── Leaderboard Sidebar Card ── */
-function LeaderboardCard() {
+function LeaderboardCard({ currentUserId, onShowFull }) {
   const [data, setData] = useState([])
-  useEffect(() => { api.get('/leaderboard?limit=5').then(r => setData(r.data.leaderboard || [])).catch(() => {}) }, [])
+  const [animDone, setAnimDone] = useState(false)
+  useEffect(() => {
+    api.get('/leaderboard').then(r => {
+      setData((r.data.leaderboard || []).slice(0, 5))
+      setTimeout(() => setAnimDone(true), 600)
+    }).catch(() => {})
+  }, [])
   const medals = ['🥇', '🥈', '🥉']
   return (
     <div className="card p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Award className="w-4 h-4 text-yellow-500"/>
-        <h3 className="font-bold text-sm" style={{ color: 'var(--text)' }}>Top Contributors</h3>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Award className="w-4 h-4 text-yellow-500"/>
+          <h3 className="font-bold text-sm" style={{ color: 'var(--text)' }}>Top Contributors</h3>
+        </div>
+        <button onClick={onShowFull} className="text-xs font-semibold px-2 py-0.5 rounded-lg transition-colors hover:bg-indigo-50"
+          style={{ color: '#6366f1' }}>See all →</button>
       </div>
       <div className="space-y-2">
         {data.map((u, i) => (
-          <div key={u.id || i} className="flex items-center gap-2.5">
+          <div key={u.id || i}
+            className="flex items-center gap-2.5 rounded-xl px-1 py-0.5 transition-all"
+            style={{
+              background: u.id === currentUserId ? 'rgba(99,102,241,0.08)' : 'transparent',
+              transform: animDone ? 'translateX(0)' : `translateX(${i * 4}px)`,
+              opacity: animDone ? 1 : 0.7,
+              transition: `all 0.4s ease ${i * 0.07}s`,
+            }}>
             <span className="text-base w-5 text-center flex-shrink-0">{medals[i] || `${i+1}`}</span>
             <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg,#6366f1,#14b8a6)' }}>
+              style={{ background: u.id === currentUserId ? 'linear-gradient(135deg,#f59e0b,#ef4444)' : 'linear-gradient(135deg,#6366f1,#14b8a6)' }}>
               {(u.display_name || u.username)?.[0]?.toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-xs font-semibold truncate" style={{ color: 'var(--text)' }}>
                 {u.display_name || u.username}
+                {u.id === currentUserId && <span className="ml-1 text-indigo-500">(you)</span>}
               </div>
             </div>
-            <div className="text-xs font-black" style={{ color: '#6366f1' }}>{u.total_points || 0}</div>
+            <div className="text-xs font-black" style={{ color: '#6366f1' }}>{u.points || 0}</div>
+          </div>
+        ))}
+        {data.length === 0 && (
+          <p className="text-xs text-center py-2" style={{ color: 'var(--text-muted)' }}>No data yet</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ── Full Leaderboard View ── */
+function FullLeaderboard({ currentUserId, onClose, inline = false }) {
+  const [data, setData] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [visible, setVisible] = useState(false)
+  const medals = ['🥇', '🥈', '🥉']
+
+  useEffect(() => {
+    api.get('/leaderboard').then(r => {
+      setData(r.data.leaderboard || [])
+      setLoading(false)
+      setTimeout(() => setVisible(true), 50)
+    }).catch(() => setLoading(false))
+  }, [])
+
+  const myRank = data.findIndex(u => u.id === currentUserId) + 1
+  const myData = data.find(u => u.id === currentUserId)
+
+  const inner = (
+    <div style={inline ? {} : {
+      background: 'var(--card-bg)', border: '1px solid var(--border)',
+      borderRadius: 16, overflow: 'hidden',
+      transform: visible ? 'scale(1) translateY(0)' : 'scale(0.95) translateY(20px)',
+      opacity: visible ? 1 : 0,
+      transition: 'all 0.3s cubic-bezier(0.34,1.56,0.64,1)',
+    }}>
+      {/* Header */}
+      <div className="relative px-5 py-4 text-center"
+        style={{ background: 'linear-gradient(135deg,rgba(99,102,241,0.15),rgba(20,184,166,0.1))' }}>
+        <h2 className="font-black text-xl" style={{ color: 'var(--text)' }}>🏆 Leaderboard</h2>
+        <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>Monthly rankings · {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
+        {!inline && (
+          <button onClick={onClose} className="absolute right-4 top-4 w-7 h-7 rounded-full flex items-center justify-center"
+            style={{ background: 'var(--page-bg)', color: 'var(--text-muted)' }}>
+            <X className="w-4 h-4"/>
+          </button>
+        )}
+      </div>
+
+      {/* My rank banner */}
+      {myData && (
+        <div className="mx-4 mt-3 rounded-xl px-4 py-2.5 flex items-center gap-3"
+          style={{ background: 'linear-gradient(135deg,rgba(99,102,241,0.15),rgba(20,184,166,0.1))', border: '1.5px solid rgba(99,102,241,0.3)' }}>
+          <span className="text-2xl">{medals[myRank-1] || `#${myRank}`}</span>
+          <div className="flex-1">
+            <div className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>Your ranking</div>
+            <div className="font-black text-sm" style={{ color: '#6366f1' }}>Rank #{myRank} · {myData.points || 0} pts this month</div>
+          </div>
+          {myData.badges?.length > 0 && (
+            <div className="text-sm">{myData.badges.slice(0,2).map(b => b.split(' ')[0]).join(' ')}</div>
+          )}
+        </div>
+      )}
+
+      {/* List */}
+      <div className={`px-4 py-3 space-y-1.5 ${inline ? '' : 'overflow-y-auto max-h-[55vh]'}`}>
+        {loading ? (
+          <div className="text-center py-8 text-sm" style={{ color: 'var(--text-muted)' }}>Loading…</div>
+        ) : data.map((u, i) => (
+          <div key={u.id || i}
+            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all"
+            style={{
+              background: u.id === currentUserId
+                ? 'linear-gradient(135deg,rgba(99,102,241,0.12),rgba(20,184,166,0.08))'
+                : 'var(--card-bg)',
+              border: u.id === currentUserId ? '1.5px solid rgba(99,102,241,0.3)' : '1px solid var(--border)',
+              transform: visible ? 'translateX(0)' : 'translateX(-20px)',
+              opacity: visible ? 1 : 0,
+              transition: `all 0.35s ease ${Math.min(i * 0.04, 0.6)}s`,
+            }}>
+            <span className="w-8 text-center font-black text-sm flex-shrink-0"
+              style={{ color: i < 3 ? ['#f59e0b','#9ca3af','#b45309'][i] : 'var(--text-muted)' }}>
+              {medals[i] || `#${i+1}`}
+            </span>
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-black text-white flex-shrink-0"
+              style={{ background: u.id === currentUserId ? 'linear-gradient(135deg,#f59e0b,#ef4444)' : 'linear-gradient(135deg,#6366f1,#14b8a6)' }}>
+              {(u.display_name || u.username)?.[0]?.toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-sm flex items-center gap-1.5" style={{ color: 'var(--text)' }}>
+                {u.display_name || u.username}
+                {u.id === currentUserId && <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold" style={{ background: '#6366f1', color: 'white' }}>You</span>}
+              </div>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {u.posts} posts · {u.quizzes_passed} quizzes · {u.observations} obs
+                </span>
+              </div>
+              {u.badges?.length > 0 && (
+                <div className="flex gap-1 mt-0.5 flex-wrap">
+                  {u.badges.map((b, bi) => (
+                    <span key={bi} className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(99,102,241,0.1)', color: '#6366f1', fontSize: 10 }}>{b}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="text-right flex-shrink-0">
+              <div className="font-black text-base" style={{ color: i === 0 ? '#f59e0b' : i === 1 ? '#9ca3af' : i === 2 ? '#b45309' : '#6366f1' }}>
+                {u.points || 0}
+              </div>
+              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>pts</div>
+            </div>
           </div>
         ))}
       </div>
+    </div>
+  )
+
+  if (inline) return <div className="max-w-2xl mx-auto">{inner}</div>
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="w-full max-w-lg">{inner}</div>
     </div>
   )
 }
@@ -697,7 +915,7 @@ function TrendingCard() {
         <h3 className="font-bold text-sm" style={{ color: 'var(--text)' }}>Trending</h3>
       </div>
       <div className="space-y-2">
-        {tags.map((tag, i) => (
+        {tags.map((tag) => (
           <div key={tag} className="flex items-center gap-2 cursor-pointer hover:opacity-75 transition-opacity">
             <Hash className="w-3 h-3 flex-shrink-0" style={{ color: '#6366f1' }}/>
             <span className="text-sm font-semibold" style={{ color: '#6366f1' }}>{tag.slice(1)}</span>
@@ -712,16 +930,31 @@ function TrendingCard() {
 export default function Social() {
   const { user } = useAuth()
   const { play } = useSound()
+  const [searchParams] = useSearchParams()
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
-  const [showDM, setShowDM] = useState(false)
+  const [showDM, setShowDM] = useState(searchParams.get('dm') === '1')
+  const [activeTab, setActiveTab] = useState('feed')
+  const [showLeaderboard, setShowLeaderboard] = useState(false)
+  const [myMonthPoints, setMyMonthPoints] = useState(null)
+  const [pointFlash, setPointFlash] = useState(false)
 
   useEffect(() => {
     api.get('/posts').then(r => { setPosts(r.data.posts || []); setLoading(false) }).catch(() => setLoading(false))
-  }, [])
+    // Fetch current user's points from leaderboard
+    api.get('/leaderboard').then(r => {
+      const me = (r.data.leaderboard || []).find(u => u.id === user?.id)
+      if (me) setMyMonthPoints(me.points || 0)
+    }).catch(() => {})
+  }, [user?.id])
 
   const handlePost = (newPost) => {
-    if (newPost) setPosts(prev => [newPost, ...prev])
+    if (newPost) {
+      setPosts(prev => [newPost, ...prev])
+      setMyMonthPoints(prev => (prev || 0) + 5)
+      setPointFlash(true)
+      setTimeout(() => setPointFlash(false), 1200)
+    }
     play('success')
   }
 
@@ -737,8 +970,9 @@ export default function Social() {
 
   return (
     <div>
+      <PageAmbience/>
       {/* Page header */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-black" style={{ color: 'var(--text)' }}>Social Space</h1>
           <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Connect with the water community</p>
@@ -750,7 +984,27 @@ export default function Social() {
         </button>
       </div>
 
-      {/* 3-col layout */}
+      {/* Tabs */}
+      <div className="flex gap-1 mb-4 p-1 rounded-xl w-fit" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)' }}>
+        {[
+          { id: 'feed', label: '🌊 Feed' },
+          { id: 'leaderboard', label: '🏆 Leaderboard' },
+        ].map(tab => (
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+            className="px-4 py-1.5 rounded-lg text-sm font-bold transition-all"
+            style={{
+              background: activeTab === tab.id ? 'linear-gradient(135deg,#6366f1,#8b5cf6)' : 'transparent',
+              color: activeTab === tab.id ? 'white' : 'var(--text-muted)',
+            }}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'leaderboard' ? (
+        <FullLeaderboard currentUserId={user?.id} onClose={() => setActiveTab('feed')} inline />
+      ) : (
+      /* 3-col layout */
       <div className="flex gap-5">
 
         {/* Left: user card */}
@@ -765,17 +1019,26 @@ export default function Social() {
               </div>
               <div className="flex gap-4 mt-3 pt-3 border-t w-full justify-center" style={{ borderColor: 'var(--border)' }}>
                 <div className="text-center">
-                  <div className="font-black text-sm" style={{ color: 'var(--text)' }}>{user?.total_points || user?.xp || 0}</div>
-                  <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Points</div>
+                  <div className="font-black text-sm relative" style={{
+                    color: pointFlash ? '#10b981' : 'var(--text)',
+                    transition: 'color 0.4s',
+                    transform: pointFlash ? 'scale(1.2)' : 'scale(1)',
+                  }}>
+                    {myMonthPoints !== null ? myMonthPoints : (user?.xp || 0)}
+                    {pointFlash && (
+                      <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-xs font-black text-green-500 animate-bounce">+5</span>
+                    )}
+                  </div>
+                  <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Pts (month)</div>
                 </div>
                 <div className="text-center">
-                  <div className="font-black text-sm" style={{ color: 'var(--text)' }}>{user?.level || 1}</div>
-                  <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Level</div>
+                  <div className="font-black text-sm" style={{ color: 'var(--text)' }}>{user?.xp || 0}</div>
+                  <div className="text-xs" style={{ color: 'var(--text-muted)' }}>XP total</div>
                 </div>
               </div>
             </div>
           </div>
-          <LeaderboardCard/>
+          <LeaderboardCard currentUserId={user?.id} onShowFull={() => setActiveTab('leaderboard')}/>
         </div>
 
         {/* Center: feed */}
@@ -816,7 +1079,7 @@ export default function Social() {
         {/* Right: widgets */}
         <div className="hidden lg:flex flex-col gap-4 w-[260px] flex-shrink-0">
           <TrendingCard/>
-          <LeaderboardCard/>
+          <LeaderboardCard currentUserId={user?.id} onShowFull={() => setActiveTab('leaderboard')}/>
           <div className="card p-4">
             <div className="flex items-center gap-2 mb-3">
               <Bell className="w-4 h-4 text-indigo-500"/>
@@ -831,13 +1094,21 @@ export default function Social() {
                 <span>Total posts</span>
                 <span className="font-bold" style={{ color: 'var(--text)' }}>{posts.length}</span>
               </div>
+              <div className="flex justify-between">
+                <span>My pts (month)</span>
+                <span className="font-bold" style={{ color: '#6366f1' }}>{myMonthPoints !== null ? myMonthPoints : '—'}</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
+      )}
 
       {/* WhatsApp DM */}
       {showDM && <DMPanel onClose={() => setShowDM(false)}/>}
+
+      {/* Full leaderboard modal */}
+      {showLeaderboard && <FullLeaderboard currentUserId={user?.id} onClose={() => setShowLeaderboard(false)}/>}
     </div>
   )
 }

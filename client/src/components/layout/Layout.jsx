@@ -6,6 +6,7 @@ import AccessibilityPanel from '../ui/AccessibilityPanel'
 import CMSToolbar from '../cms/CMSToolbar'
 import CMSField from '../cms/CMSField'
 import { useCMS } from '../../context/CMSContext'
+import GlobalDMPanel from '../chat/GlobalDMPanel'
 
 // Legacy shim so any page still importing useCms doesn't break
 export { useCMS as useCms }
@@ -50,7 +51,12 @@ export default function Layout({ children }) {
     () => localStorage.getItem('sw-sidebar-collapsed') === '1'
   )
   const [a11yOpen, setA11yOpen] = useState(false)
+  const [dmOpen, setDmOpen] = useState(false)
+  const [dmUserId, setDmUserId] = useState(null)
   const { cmsMode } = useCMS()
+
+  const openDM = (userId = null) => { setDmUserId(userId); setDmOpen(true) }
+  const closeDM = () => { setDmOpen(false); setDmUserId(null) }
 
   // Persist sidebar state across navigation
   const handleToggleSidebar = () => {
@@ -74,7 +80,7 @@ export default function Layout({ children }) {
 
       <Sidebar collapsed={sidebarCollapsed} onToggle={handleToggleSidebar} />
 
-      <TopBar sidebarWidth={sidebarW} onA11yClick={() => setA11yOpen(o => !o)} />
+      <TopBar sidebarWidth={sidebarW} onA11yClick={() => setA11yOpen(o => !o)} onOpenDM={openDM} />
 
       <main
         className="transition-all duration-300 relative z-10"
@@ -106,6 +112,7 @@ export default function Layout({ children }) {
 
       <WaterMascot />
       {a11yOpen && <AccessibilityPanel onClose={() => setA11yOpen(false)} />}
+      {dmOpen && <GlobalDMPanel onClose={closeDM} initialUserId={dmUserId} />}
     </div>
   )
 }

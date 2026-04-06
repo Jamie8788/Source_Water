@@ -1,0 +1,48 @@
+# Fly.io config — SOURCE Water app
+# Deploy: flyctl deploy  (from repo root)
+# First time: flyctl launch --no-deploy  then  flyctl volumes create sw_data --size 1  &&  flyctl volumes create sw_uploads --size 3
+
+app = "source-water-app"
+primary_region = "ord"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV         = "production"
+  PORT             = "8080"
+  DATABASE_PATH    = "/data/source-water.db"
+  UPLOAD_DIR       = "/uploads"
+  MAX_FILE_SIZE    = "104857600"
+  OPENROUTER_MODEL = "google/gemma-2-9b-it:free"
+
+# Secrets set via: flyctl secrets set JWT_SECRET=xxx OPENROUTER_API_KEY=xxx ANALYSIS_SERVICE_URL=xxx
+
+[http_service]
+  internal_port        = 8080
+  force_https          = true
+  auto_stop_machines   = false
+  auto_start_machines  = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type       = "requests"
+    hard_limit = 500
+    soft_limit = 300
+
+[[vm]]
+  memory   = "512mb"
+  cpu_kind = "shared"
+  cpus     = 1
+
+# Persistent volume for SQLite database
+[[mounts]]
+  source      = "sw_data"
+  destination = "/data"
+  initial_size = "1gb"
+
+# Persistent volume for uploaded files (images, audio, docs)
+[[mounts]]
+  source      = "sw_uploads"
+  destination = "/uploads"
+  initial_size = "3gb"

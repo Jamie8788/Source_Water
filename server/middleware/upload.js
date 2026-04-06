@@ -2,7 +2,11 @@ const multer = require('multer')
 const path = require('path')
 const fs = require('fs')
 
-const uploadDir = process.env.UPLOAD_DIR || './uploads'
+// Use absolute path so files always land in source-water/uploads/
+// regardless of which directory the server process is started from
+const uploadDir = (process.env.UPLOAD_DIR && !process.env.UPLOAD_DIR.startsWith('.'))
+  ? process.env.UPLOAD_DIR
+  : path.join(__dirname, '..', '..', 'uploads')
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true })
 
 const subDirs = ['images','documents','audio','datasets','logos','videos']
@@ -32,8 +36,9 @@ const fileFilter = (req, file, cb) => {
     'image/jpeg','image/png','image/gif','image/webp',
     'application/pdf','text/plain','text/csv',
     'application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/json','audio/mpeg','audio/wav','audio/ogg','audio/webm',
-    'video/mp4','video/webm',
+    'application/json','audio/mpeg','audio/wav','audio/ogg','audio/webm','audio/mp4',
+    'video/mp4','video/webm','video/quicktime','video/x-msvideo','video/avi','video/mov',
+    'video/x-matroska','video/3gpp',
   ]
   if (allowed.includes(file.mimetype)) cb(null, true)
   else cb(new Error('File type not allowed'), false)

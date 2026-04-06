@@ -1,0 +1,15 @@
+node_modules
+client/node_modules
+server/node_modules
+client/dist
+uploads
+server/data
+server/uploads
+**/.env
+**/.env.*
+*.log
+.git
+.gitignore
+analysis-service/.venv
+__pycache__
+*.pyc

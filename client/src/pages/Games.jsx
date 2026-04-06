@@ -415,6 +415,250 @@ function WaterTrivia({ onComplete }) {
   )
 }
 
+/* ─── GAME 5: Water Snake ─── */
+const SNAKE_FACTS = [
+  '💧 Lake Superior holds 10% of the world\'s surface freshwater!',
+  '🔬 Dissolved oxygen below 3 mg/L is deadly for most fish.',
+  '🌿 Phosphorus from farms fuels toxic algae blooms.',
+  '💙 Northern Ontario has over 250,000 lakes — protect them!',
+  '🧪 pH 6.5–8.5 is the safe zone for most aquatic life.',
+  '🐟 Mayfly larvae only survive in very clean water.',
+  '🌧️ Heavy rain increases turbidity — measure it!',
+  '🧂 Road salt raises chloride levels, harming insects.',
+  '♻️ The Water Rangers program has 30,000+ water tests.',
+  '🌊 Batchawana Bay is a critical Great Lakes spawning ground.',
+]
+
+function WaterSnake({ onComplete }) {
+  const canvasRef = useRef(null)
+  const stateRef = useRef(null)
+  const [score, setScore] = useState(0)
+  const [dead, setDead] = useState(false)
+  const [fact, setFact] = useState('')
+  const [started, setStarted] = useState(false)
+  const { play } = useSound()
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    const W = canvas.width = 400, H = canvas.height = 400
+    const CELL = 20, COLS = W / CELL, ROWS = H / CELL
+
+    const rand = (max) => Math.floor(Math.random() * max)
+    const spawnFood = () => ({ x: rand(COLS), y: rand(ROWS), type: 'clean' })
+    const spawnPoison = () => ({ x: rand(COLS), y: rand(ROWS), type: 'poison' })
+
+    const s = {
+      snake: [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }],
+      dir: { x: 1, y: 0 },
+      nextDir: { x: 1, y: 0 },
+      food: [spawnFood()],
+      poison: [spawnPoison(), spawnPoison()],
+      score: 0,
+      alive: true,
+      started: false,
+      frame: 0,
+      tickRate: 8, // frames per move (lower = faster)
+    }
+    stateRef.current = s
+
+    const onKey = (e) => {
+      if (!s.started) { s.started = true; setStarted(true) }
+      if (e.key === 'ArrowUp'    && s.dir.y !== 1)  s.nextDir = { x: 0, y: -1 }
+      if (e.key === 'ArrowDown'  && s.dir.y !== -1) s.nextDir = { x: 0, y: 1 }
+      if (e.key === 'ArrowLeft'  && s.dir.x !== 1)  s.nextDir = { x: -1, y: 0 }
+      if (e.key === 'ArrowRight' && s.dir.x !== -1) s.nextDir = { x: 1, y: 0 }
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+
+    // Touch swipe
+    let touchStart = null
+    const onTouchStart = (e) => { touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY } }
+    const onTouchEnd = (e) => {
+      if (!touchStart) return
+      const dx = e.changedTouches[0].clientX - touchStart.x
+      const dy = e.changedTouches[0].clientY - touchStart.y
+      if (!s.started) { s.started = true; setStarted(true) }
+      if (Math.abs(dx) > Math.abs(dy)) {
+        if (dx > 20 && s.dir.x !== -1) s.nextDir = { x: 1, y: 0 }
+        if (dx < -20 && s.dir.x !== 1) s.nextDir = { x: -1, y: 0 }
+      } else {
+        if (dy > 20 && s.dir.y !== -1) s.nextDir = { x: 0, y: 1 }
+        if (dy < -20 && s.dir.y !== 1) s.nextDir = { x: 0, y: -1 }
+      }
+    }
+    canvas.addEventListener('touchstart', onTouchStart)
+    canvas.addEventListener('touchend', onTouchEnd)
+
+    const drawCell = (x, y, color, radius = 3) => {
+      const px = x * CELL + 1, py = y * CELL + 1, sz = CELL - 2
+      ctx.fillStyle = color
+      ctx.beginPath()
+      ctx.roundRect(px, py, sz, sz, radius)
+      ctx.fill()
+    }
+
+    let raf
+    const loop = () => {
+      if (!s.alive) return
+      s.frame++
+
+      // Draw background grid
+      ctx.fillStyle = '#0f172a'
+      ctx.fillRect(0, 0, W, H)
+      for (let x = 0; x < COLS; x++) {
+        for (let y = 0; y < ROWS; y++) {
+          ctx.fillStyle = (x + y) % 2 === 0 ? 'rgba(30,58,138,0.25)' : 'rgba(23,37,84,0.25)'
+          ctx.fillRect(x * CELL, y * CELL, CELL, CELL)
+        }
+      }
+
+      if (!s.started) {
+        // Start screen
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'
+        ctx.fillRect(0, 0, W, H)
+        ctx.fillStyle = '#38bdf8'; ctx.font = 'bold 20px system-ui'
+        ctx.textAlign = 'center'
+        ctx.fillText('🐍 Water Snake', W / 2, H / 2 - 30)
+        ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '14px system-ui'
+        ctx.fillText('Arrow keys / swipe to start', W / 2, H / 2 + 10)
+        ctx.fillText('Eat 💧 avoid ☠️', W / 2, H / 2 + 35)
+        ctx.textAlign = 'left'
+        raf = requestAnimationFrame(loop); return
+      }
+
+      // Move snake on tick
+      if (s.frame % s.tickRate === 0) {
+        s.dir = { ...s.nextDir }
+        const head = s.snake[0]
+        const next = {
+          x: (head.x + s.dir.x + COLS) % COLS,
+          y: (head.y + s.dir.y + ROWS) % ROWS,
+        }
+        // Self collision
+        if (s.snake.some(seg => seg.x === next.x && seg.y === next.y)) {
+          s.alive = false; setDead(true); play('wrong')
+          onComplete(s.score * 10)
+          return
+        }
+        // Poison collision
+        const hitPoison = s.poison.findIndex(p => p.x === next.x && p.y === next.y)
+        if (hitPoison !== -1) {
+          s.alive = false; setDead(true); play('wrong')
+          onComplete(s.score * 10)
+          return
+        }
+        s.snake.unshift(next)
+        // Food collision
+        const hitFood = s.food.findIndex(f => f.x === next.x && f.y === next.y)
+        if (hitFood !== -1) {
+          s.score++
+          setScore(s.score)
+          play('correct')
+          setFact(SNAKE_FACTS[(s.score - 1) % SNAKE_FACTS.length])
+          s.food.splice(hitFood, 1)
+          s.food.push(spawnFood())
+          // Every 3 foods, add a poison
+          if (s.score % 3 === 0) s.poison.push(spawnPoison())
+          // Speed up slightly every 5 foods
+          if (s.score % 5 === 0 && s.tickRate > 4) s.tickRate--
+        } else {
+          s.snake.pop()
+        }
+      }
+
+      // Draw food (clean water drops)
+      s.food.forEach(f => {
+        ctx.font = `${CELL - 2}px serif`
+        ctx.textAlign = 'center'
+        ctx.fillText('💧', f.x * CELL + CELL / 2, f.y * CELL + CELL - 2)
+      })
+
+      // Draw poison
+      s.poison.forEach(p => {
+        ctx.font = `${CELL - 4}px serif`
+        ctx.textAlign = 'center'
+        ctx.fillText('☠️', p.x * CELL + CELL / 2, p.y * CELL + CELL - 2)
+      })
+      ctx.textAlign = 'left'
+
+      // Draw snake
+      s.snake.forEach((seg, i) => {
+        const ratio = i / s.snake.length
+        const r = Math.round(56 + (14 - 56) * ratio)
+        const g = Math.round(189 + (165 - 189) * ratio)
+        const b = Math.round(248 + (233 - 248) * ratio)
+        drawCell(seg.x, seg.y, `rgb(${r},${g},${b})`, i === 0 ? 5 : 3)
+        // Eye on head
+        if (i === 0) {
+          ctx.fillStyle = '#0c4a6e'
+          ctx.beginPath()
+          ctx.arc(seg.x * CELL + CELL * 0.65, seg.y * CELL + CELL * 0.35, 2.5, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.fillStyle = 'white'
+          ctx.beginPath()
+          ctx.arc(seg.x * CELL + CELL * 0.65, seg.y * CELL + CELL * 0.35, 1, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      })
+
+      // HUD
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'
+      ctx.fillRect(4, 4, 100, 26)
+      ctx.fillStyle = '#38bdf8'; ctx.font = 'bold 13px system-ui'
+      ctx.fillText(`💧 ${s.score}`, 12, 22)
+
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('keydown', onKey)
+      canvas.removeEventListener('touchstart', onTouchStart)
+      canvas.removeEventListener('touchend', onTouchEnd)
+    }
+  }, [])
+
+  const restart = () => {
+    const s = stateRef.current
+    if (!s) return
+    const COLS = 20, ROWS = 20
+    const rand = (max) => Math.floor(Math.random() * max)
+    s.snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }]
+    s.dir = { x: 1, y: 0 }; s.nextDir = { x: 1, y: 0 }
+    s.food = [{ x: rand(COLS), y: rand(ROWS), type: 'clean' }]
+    s.poison = [{ x: rand(COLS), y: rand(ROWS) }, { x: rand(COLS), y: rand(ROWS) }]
+    s.score = 0; s.alive = true; s.started = true; s.frame = 0; s.tickRate = 8
+    setScore(0); setDead(false); setFact('')
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <div className="flex items-center gap-4 text-sm font-bold">
+        <span style={{ color: 'var(--text-muted)' }}>Score: <span style={{ color: '#38bdf8' }}>{score}</span></span>
+        {started && <span style={{ color: 'var(--text-light)', fontSize: 11 }}>Arrow keys / swipe</span>}
+      </div>
+      <canvas ref={canvasRef} style={{ borderRadius: 12, border: '2px solid rgba(56,189,248,0.3)', touchAction: 'none' }}/>
+      {fact && !dead && (
+        <div className="max-w-xs text-center px-3 py-2 rounded-xl text-sm"
+          style={{ background: 'rgba(56,189,248,0.1)', color: '#38bdf8', border: '1px solid rgba(56,189,248,0.2)' }}>
+          {fact}
+        </div>
+      )}
+      {dead && (
+        <div className="text-center">
+          <p className="font-bold mb-1" style={{ color: 'var(--text)' }}>Game Over! Score: {score}</p>
+          {fact && <p className="text-sm mb-2" style={{ color: '#38bdf8' }}>{fact}</p>}
+          <button onClick={restart} className="btn-primary px-6 py-2">🔄 Play Again</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ─── GAME 4: Watershed Defender ─── */
 function WatershedGame({ onComplete }) {
   const { play } = useSound()
@@ -491,7 +735,7 @@ function FlappyFish({ onComplete }) {
     const ctx = canvas.getContext('2d')
     const W = canvas.width = 400
     const H = canvas.height = 500
-    const PIPE_W = 52, GAP = 190, SPEED = 1.7, GRAVITY = 0.30, JUMP = -6
+    const PIPE_W = 48, GAP = 240, SPEED = 1.3, GRAVITY = 0.20, JUMP = -5
 
     const s = {
       fish: { x: 80, y: H / 2, vy: 0, alive: true },
@@ -504,7 +748,7 @@ function FlappyFish({ onComplete }) {
     stateRef.current = s
 
     const spawnPipe = () => {
-      const top = 60 + Math.random() * (H - GAP - 120)
+      const top = 80 + Math.random() * (H - GAP - 160)
       s.pipes.push({ x: W, top, scored: false })
     }
 
@@ -689,7 +933,8 @@ function FlappyFish({ onComplete }) {
 
 /* ─── Main Games Hub ─── */
 const GAMES = [
-  { id: 'flappy', title: 'Flappy Fish', desc: 'Dodge the seaweed pipes and swim as far as you can through Northern Ontario waters!', emoji: '🐟', points: 'Unlimited pts', component: FlappyFish, badge: '🔥 HOT' },
+  { id: 'snake', title: 'Water Snake', desc: 'Classic snake — eat clean water drops 💧, dodge poison ☠️. Learn water facts as you play!', emoji: '🐍', points: 'Unlimited pts', component: WaterSnake, badge: '⭐ NEW' },
+  { id: 'flappy', title: 'Flappy Fish', desc: 'Dodge the seaweed pipes! Tap/space to flap. Easy mode — big gap, gentle gravity.', emoji: '🐟', points: 'Unlimited pts', component: FlappyFish, badge: '🔥 HOT' },
   { id: 'boat', title: 'Boat Cleanup', desc: 'Steer your boat to collect pollution and protect the lake!', emoji: '🚢', points: 'Up to 200 pts', component: BoatGame },
   { id: 'ph', title: 'pH Balance', desc: 'Quick — is this water sample safe or unsafe for aquatic life?', emoji: '⚗️', points: 'Up to 120 pts', component: PHGame },
   { id: 'trivia', title: 'Water Ranger Trivia', desc: 'Test your water science knowledge with a timed challenge!', emoji: '🎓', points: 'Up to 120 pts', component: WaterTrivia },
@@ -699,15 +944,30 @@ const GAMES = [
 export default function Games() {
   const { play } = useSound()
   const [activeGame, setActiveGame] = useState(null)
-  const [bestScores, setBestScores] = useState({})
+  const [bestScores, setBestScores] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('sw_game_bests') || '{}') } catch { return {} }
+  })
+  const [gameHistory, setGameHistory] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('sw_game_history') || '[]') } catch { return [] }
+  })
+  const [showStats, setShowStats] = useState(false)
 
   const finish = async (gameId, score) => {
     play('levelUp')
-    setBestScores(prev => ({ ...prev, [gameId]: Math.max(prev[gameId] || 0, score) }))
+    const newBests = { ...bestScores, [gameId]: Math.max(bestScores[gameId] || 0, score) }
+    setBestScores(newBests)
+    localStorage.setItem('sw_game_bests', JSON.stringify(newBests))
+    const entry = { gameId, score, date: new Date().toISOString() }
+    const newHistory = [entry, ...gameHistory].slice(0, 50)
+    setGameHistory(newHistory)
+    localStorage.setItem('sw_game_history', JSON.stringify(newHistory))
     await api.post('/leaderboard/game-score', { game_type: gameId, score }).catch(() => {})
     setActiveGame(null)
-    alert(`🏆 Game Complete! You earned ${score} points!\nGreat job protecting Northern Ontario's water!`)
   }
+
+  const totalPlays = gameHistory.length
+  const totalPoints = gameHistory.reduce((s, h) => s + h.score, 0)
+  const topGame = Object.entries(bestScores).sort((a, b) => b[1] - a[1])[0]
 
   if (activeGame) {
     const game = GAMES.find(g => g.id === activeGame)
@@ -715,11 +975,18 @@ export default function Games() {
     return (
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center gap-3 mb-5">
-          <button onClick={() => setActiveGame(null)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
-            <ArrowLeft className="w-5 h-5 text-gray-500" />
+          <button onClick={() => setActiveGame(null)}
+            className="p-2 rounded-xl transition-colors"
+            style={{ background: 'var(--card-bg)', border: '1px solid var(--border)' }}>
+            <ArrowLeft className="w-5 h-5" style={{ color: 'var(--text-muted)' }} />
           </button>
           <span className="text-2xl">{game.emoji}</span>
-          <h2 className="font-bold text-xl text-gray-800">{game.title}</h2>
+          <h2 className="font-bold text-xl" style={{ color: 'var(--text)' }}>{game.title}</h2>
+          {bestScores[activeGame] !== undefined && (
+            <span className="ml-auto text-sm font-semibold" style={{ color: '#10b981' }}>
+              🏅 Best: {bestScores[activeGame]}
+            </span>
+          )}
         </div>
         <GameComp onComplete={(s) => finish(activeGame, s)} />
       </div>
@@ -728,17 +995,76 @@ export default function Games() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between mb-2">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-bold text-gray-900" style={{ fontSize: 20 }}>Water Learning Games</h1>
+          <h1 className="font-bold" style={{ fontSize: 20, color: 'var(--text)' }}>Water Learning Games</h1>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>Play, earn points, and protect Northern Ontario's water!</p>
         </div>
-        <div className="flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+        <button onClick={() => setShowStats(s => !s)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all"
+          style={{ background: showStats ? '#6366f1' : 'var(--card-bg)', color: showStats ? 'white' : 'var(--text-muted)', border: '1px solid var(--border)' }}>
           <Trophy className="w-4 h-4" />
-          Scores track to leaderboard
-        </div>
+          My Stats
+        </button>
       </div>
 
+      {/* My Stats Panel */}
+      {showStats && (
+        <div className="card p-5">
+          <h3 className="font-bold mb-4" style={{ color: 'var(--text)' }}>My Game Stats</h3>
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            {[
+              { label: 'Games Played', value: totalPlays, icon: '🎮' },
+              { label: 'Total Points', value: totalPoints, icon: '⭐' },
+              { label: 'Best Game', value: topGame ? `${GAMES.find(g => g.id === topGame[0])?.emoji} ${topGame[1]}` : '—', icon: '🏆' },
+            ].map(s => (
+              <div key={s.label} className="rounded-xl p-3 text-center"
+                style={{ background: 'var(--page-bg)', border: '1px solid var(--border)' }}>
+                <div className="text-2xl mb-1">{s.icon}</div>
+                <div className="font-black text-lg" style={{ color: 'var(--text)' }}>{s.value}</div>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+          {/* Per-game bests */}
+          <div className="space-y-2">
+            {GAMES.map(g => (
+              <div key={g.id} className="flex items-center justify-between py-2 px-3 rounded-xl"
+                style={{ background: 'var(--page-bg)' }}>
+                <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{g.emoji} {g.title}</span>
+                <span className="text-sm font-bold" style={{ color: bestScores[g.id] ? '#10b981' : 'var(--text-muted)' }}>
+                  {bestScores[g.id] !== undefined ? `Best: ${bestScores[g.id]}` : 'Not played'}
+                </span>
+              </div>
+            ))}
+          </div>
+          {gameHistory.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>RECENT GAMES</p>
+              <div className="space-y-1 max-h-40 overflow-y-auto">
+                {gameHistory.slice(0, 10).map((h, i) => {
+                  const g = GAMES.find(g => g.id === h.gameId)
+                  return (
+                    <div key={i} className="flex items-center justify-between text-sm px-2 py-1 rounded-lg"
+                      style={{ background: 'var(--card-bg)' }}>
+                      <span style={{ color: 'var(--text)' }}>{g?.emoji} {g?.title}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold" style={{ color: '#6366f1' }}>{h.score} pts</span>
+                        <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                          {new Date(h.date).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Game Grid */}
       <div className="grid md:grid-cols-2 gap-5">
         {GAMES.map(game => (
           <div key={game.id} className="game-card p-6 cursor-pointer group" onClick={() => { play('click'); setActiveGame(game.id) }}>
@@ -746,12 +1072,14 @@ export default function Games() {
               <div className="text-5xl group-hover:scale-110 transition-transform">{game.emoji}</div>
               {game.badge && <span className="badge bg-ocean-100 text-ocean-700 animate-pulse">{game.badge}</span>}
             </div>
-            <h3 className="font-bold text-gray-800 text-lg mb-2">{game.title}</h3>
-            <p className="text-gray-600 text-sm mb-4">{game.desc}</p>
+            <h3 className="font-bold text-lg mb-2" style={{ color: 'var(--text)' }}>{game.title}</h3>
+            <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>{game.desc}</p>
             <div className="flex items-center justify-between">
               <span className="badge bg-teal-100 text-teal-700">{game.points}</span>
-              {bestScores[game.id] !== undefined && (
-                <span className="text-green-600 font-semibold text-sm">🏅 Best: {bestScores[game.id]}</span>
+              {bestScores[game.id] !== undefined ? (
+                <span className="text-sm font-bold" style={{ color: '#10b981' }}>🏅 Best: {bestScores[game.id]}</span>
+              ) : (
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Not played yet</span>
               )}
             </div>
           </div>

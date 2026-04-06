@@ -61,13 +61,30 @@ function QuizList({ onStart }) {
   const [quizzes, setQuizzes] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('All')
+  const [myProgress, setMyProgress] = useState([])
+  const [showMyStats, setShowMyStats] = useState(false)
 
   useEffect(() => {
     api.get('/quizzes').then(r => {
       setQuizzes(r.data.quizzes || r.data || [])
       setLoading(false)
     }).catch(() => setLoading(false))
+    api.get('/quizzes/my-progress').then(r => {
+      setMyProgress(Array.isArray(r.data) ? r.data : [])
+    }).catch(() => {})
   }, [])
+
+  // Build per-quiz stats from my progress
+  const myQuizStats = {}
+  myProgress.forEach(a => {
+    if (!myQuizStats[a.quiz_id]) myQuizStats[a.quiz_id] = { attempts: 0, best: 0, passed: 0 }
+    myQuizStats[a.quiz_id].attempts++
+    if ((a.score || 0) > myQuizStats[a.quiz_id].best) myQuizStats[a.quiz_id].best = a.score
+    if (a.passed) myQuizStats[a.quiz_id].passed++
+  })
+  const totalAttempts = myProgress.length
+  const totalPassed = myProgress.filter(a => a.passed).length
+  const avgScore = totalAttempts ? Math.round(myProgress.reduce((s, a) => s + (a.score || 0), 0) / totalAttempts) : 0
 
   const categories = ['All', ...new Set(quizzes.map(q => q.category).filter(Boolean))]
   const visible = filter === 'All' ? quizzes : quizzes.filter(q => q.category === filter)
@@ -94,11 +111,12 @@ function QuizList({ onStart }) {
           </div>
           <h1 className="text-3xl font-black mb-1">Quiz Me 🧠</h1>
           <p className="text-white/70">Master water quality science. Earn XP. Climb the leaderboard.</p>
-          <div className="flex gap-4 mt-4">
+          <div className="flex gap-4 mt-4 flex-wrap">
             {[
               { label: 'Quizzes', val: quizzes.length },
-              { label: 'Questions', val: quizzes.reduce((s, q) => s + (q.question_count || 0), 0) },
-              { label: 'Topics', val: new Set(quizzes.map(q => q.category)).size },
+              { label: 'My Attempts', val: totalAttempts },
+              { label: 'My Avg Score', val: totalAttempts ? `${avgScore}%` : '—' },
+              { label: 'Passed', val: totalPassed },
             ].map(s => (
               <div key={s.label} className="text-center">
                 <div className="text-2xl font-black">{s.val}</div>
@@ -108,6 +126,62 @@ function QuizList({ onStart }) {
           </div>
         </div>
       </div>
+
+      {/* My Progress Panel */}
+      {totalAttempts > 0 && (
+        <div className="card overflow-hidden">
+          <button className="w-full flex items-center justify-between px-5 py-4"
+            onClick={() => setShowMyStats(s => !s)}>
+            <div className="flex items-center gap-3">
+              <Trophy className="w-5 h-5 text-amber-500" />
+              <span className="font-bold" style={{ color: 'var(--text)' }}>My Progress</span>
+              <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                style={{ background: 'rgba(99,102,241,0.1)', color: '#6366f1' }}>
+                {totalAttempts} attempts
+              </span>
+            </div>
+            <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{showMyStats ? '▲ Hide' : '▼ Show'}</span>
+          </button>
+          {showMyStats && (
+            <div className="px-5 pb-4 border-t" style={{ borderColor: 'var(--border)' }}>
+              <div className="grid grid-cols-3 gap-3 my-3">
+                {[
+                  { label: 'Total Attempts', val: totalAttempts, color: '#6366f1' },
+                  { label: 'Avg Score', val: `${avgScore}%`, color: avgScore >= 70 ? '#10b981' : '#f59e0b' },
+                  { label: 'Quizzes Passed', val: totalPassed, color: '#10b981' },
+                ].map(s => (
+                  <div key={s.label} className="rounded-xl p-3 text-center"
+                    style={{ background: 'var(--page-bg)', border: '1px solid var(--border)' }}>
+                    <div className="text-xl font-black" style={{ color: s.color }}>{s.val}</div>
+                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>RECENT ATTEMPTS</p>
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {myProgress.slice(0, 8).map((a, i) => (
+                  <div key={i} className="flex items-center justify-between px-3 py-2 rounded-xl text-sm"
+                    style={{ background: 'var(--page-bg)' }}>
+                    <span className="font-medium" style={{ color: 'var(--text)' }}>{a.quiz_title}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="font-black" style={{ color: a.passed ? '#10b981' : '#f59e0b' }}>
+                        {a.score ?? '—'}%
+                      </span>
+                      <span className="text-xs px-1.5 py-0.5 rounded-full"
+                        style={{ background: a.passed ? '#f0fdf4' : '#fef3c7', color: a.passed ? '#10b981' : '#d97706' }}>
+                        {a.passed ? '✓ Passed' : 'Not passed'}
+                      </span>
+                      <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
+                        {a.completed_at ? new Date(a.completed_at).toLocaleDateString() : '—'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Category filter */}
       <div className="flex gap-2 flex-wrap">
@@ -152,11 +226,13 @@ function QuizList({ onStart }) {
                     <span>❓ {q.question_count || 0} questions</span>
                     <span>⏱ {q.time_per_question || 60}s each</span>
                   </div>
-                  {q.attempt_count > 0 && (
-                    <span className="text-xs font-semibold" style={{ color: '#6366f1' }}>
-                      {q.attempt_count} plays
+                  {myQuizStats[q.id] ? (
+                    <span className="text-xs font-bold" style={{ color: myQuizStats[q.id].passed > 0 ? '#10b981' : '#f59e0b' }}>
+                      {myQuizStats[q.id].passed > 0 ? '✓' : ''} Best: {myQuizStats[q.id].best}%
                     </span>
-                  )}
+                  ) : q.attempt_count > 0 ? (
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{q.attempt_count} plays</span>
+                  ) : null}
                 </div>
                 <div className="mt-4 w-full py-2.5 rounded-xl text-sm font-bold text-white text-center group-hover:opacity-90 transition-opacity"
                   style={{ background: grad }}>

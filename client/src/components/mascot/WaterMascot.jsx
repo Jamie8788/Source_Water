@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
-import { X, Volume2, VolumeX, MessageCircle } from 'lucide-react'
+import { X, Volume2, VolumeX, MessageCircle, Gamepad2 } from 'lucide-react'
 
 const PAGE_MESSAGES = {
   '/dashboard':  ['Welcome back! Your water data is looking fresh today! 💧', 'Check out the latest observations from your community!', 'Did you know? Lake Superior holds 10% of the world\'s fresh surface water!'],
@@ -15,6 +15,183 @@ const PAGE_MESSAGES = {
   '/weather':    ['Weather affects water quality! Rainfall increases turbidity. 🌤️', 'Check conditions before planning a field sampling trip!', 'Heavy rain events can cause runoff — great time to monitor!'],
 }
 
+// ── Mini Game: Catch the Drops ────────────────────────────────────────────────
+function DropGame({ onClose }) {
+  const canvasRef = useRef(null)
+  const stateRef = useRef({ drops: [], score: 0, bucketX: 180, lives: 3, t: 0, over: false })
+  const keysRef = useRef({})
+  const [score, setScore] = useState(0)
+  const [lives, setLives] = useState(3)
+  const [over, setOver] = useState(false)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    const W = 360, H = 320
+    let raf
+    const st = stateRef.current
+
+    const spawnDrop = () => {
+      st.drops.push({
+        x: 20 + Math.random() * (W - 40),
+        y: -10,
+        vy: 1.2 + Math.random() * 1.5 + st.score * 0.015,
+        r: 6 + Math.random() * 8,
+        hue: 190 + Math.random() * 40,
+        caught: false,
+      })
+    }
+
+    let spawnT = 0
+    const loop = () => {
+      if (st.over) return
+      st.t++
+      spawnT++
+      if (spawnT > Math.max(28, 55 - st.score * 0.4)) { spawnDrop(); spawnT = 0 }
+      if (keysRef.current['ArrowLeft'] || keysRef.current['a']) st.bucketX = Math.max(30, st.bucketX - 4)
+      if (keysRef.current['ArrowRight'] || keysRef.current['d']) st.bucketX = Math.min(W - 30, st.bucketX + 4)
+
+      ctx.clearRect(0, 0, W, H)
+      // bg
+      const bg = ctx.createLinearGradient(0, 0, 0, H)
+      bg.addColorStop(0, '#0f172a'); bg.addColorStop(1, '#0c4a6e')
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H)
+      // stars
+      for (let i = 0; i < 30; i++) {
+        ctx.fillStyle = `rgba(255,255,255,${0.2 + ((i * 137 + st.t * 0.1) % 1) * 0.3})`
+        ctx.beginPath(); ctx.arc(((i * 73) % W), ((i * 53) % (H * 0.7)), 1, 0, Math.PI * 2); ctx.fill()
+      }
+      // drops
+      for (let i = st.drops.length - 1; i >= 0; i--) {
+        const d = st.drops[i]
+        d.y += d.vy
+        const grad = ctx.createRadialGradient(d.x - d.r * 0.3, d.y - d.r * 0.4, d.r * 0.1, d.x, d.y, d.r)
+        grad.addColorStop(0, `hsla(${d.hue},90%,85%,0.9)`)
+        grad.addColorStop(1, `hsla(${d.hue},80%,55%,0.7)`)
+        ctx.fillStyle = grad
+        ctx.beginPath()
+        ctx.moveTo(d.x, d.y - d.r * 1.5)
+        ctx.bezierCurveTo(d.x + d.r * 0.8, d.y - d.r * 0.4, d.x + d.r, d.y + d.r * 0.6, d.x, d.y + d.r)
+        ctx.bezierCurveTo(d.x - d.r, d.y + d.r * 0.6, d.x - d.r * 0.8, d.y - d.r * 0.4, d.x, d.y - d.r * 1.5)
+        ctx.fill()
+        // caught?
+        if (d.y + d.r > H - 40 && Math.abs(d.x - st.bucketX) < 38) {
+          st.score++; setScore(st.score)
+          st.drops.splice(i, 1); continue
+        }
+        if (d.y > H + 10) {
+          st.lives--; setLives(st.lives)
+          st.drops.splice(i, 1)
+          if (st.lives <= 0) { st.over = true; setOver(true) }
+        }
+      }
+      // bucket
+      const bx = st.bucketX
+      ctx.fillStyle = '#38bdf8'
+      ctx.beginPath()
+      ctx.moveTo(bx - 35, H - 30)
+      ctx.lineTo(bx + 35, H - 30)
+      ctx.lineTo(bx + 28, H - 8)
+      ctx.lineTo(bx - 28, H - 8)
+      ctx.closePath(); ctx.fill()
+      ctx.fillStyle = 'rgba(255,255,255,0.15)'
+      ctx.beginPath(); ctx.ellipse(bx, H - 30, 35, 5, 0, 0, Math.PI * 2); ctx.fill()
+      // HUD
+      ctx.fillStyle = 'rgba(255,255,255,0.9)'
+      ctx.font = 'bold 14px system-ui'; ctx.textAlign = 'left'
+      ctx.fillText(`Score: ${st.score}`, 12, 22)
+      ctx.textAlign = 'right'
+      ctx.fillText(`❤️ ${st.lives}`, W - 12, 22)
+
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+
+    const onKey = (e) => { keysRef.current[e.key] = e.type === 'keydown' }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('keyup', onKey)
+    // Touch / click
+    const onTouch = (e) => {
+      const rect = canvas.getBoundingClientRect()
+      const cx = (e.touches?.[0] || e).clientX - rect.left
+      st.bucketX = Math.max(30, Math.min(W - 30, cx))
+    }
+    canvas.addEventListener('touchmove', onTouch)
+    canvas.addEventListener('mousemove', onTouch)
+
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKey)
+    }
+  }, [])
+
+  const restart = () => {
+    const st = stateRef.current
+    st.drops = []; st.score = 0; st.bucketX = 180; st.lives = 3; st.t = 0; st.over = false
+    setScore(0); setLives(3); setOver(false)
+  }
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-[200] bg-black/60 backdrop-blur-sm"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="relative rounded-3xl overflow-hidden shadow-2xl border"
+        style={{ background: '#0f172a', borderColor: '#38bdf8' }}>
+        <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
+          <span className="text-white font-bold text-sm">💧 Catch the Drops!</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-sky-300">← → or A/D to move</span>
+            <button onClick={onClose} className="text-white/60 hover:text-white transition"><X className="w-4 h-4"/></button>
+          </div>
+        </div>
+        <canvas ref={canvasRef} width={360} height={320} style={{ display: 'block' }}/>
+        {over && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 rounded-3xl">
+            <p className="text-4xl mb-2">💧</p>
+            <p className="text-white font-black text-2xl mb-1">Game Over!</p>
+            <p className="text-sky-300 text-lg mb-4">Score: {score}</p>
+            <button onClick={restart} className="px-6 py-2 rounded-full text-white font-bold text-sm hover:scale-105 transition"
+              style={{ background: 'linear-gradient(135deg,#38bdf8,#14b8a6)' }}>Play Again</button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Sparkle burst on click ───────────────────────────────────────────────────
+function Sparkle({ x, y, onDone }) {
+  useEffect(() => { const t = setTimeout(onDone, 800); return () => clearTimeout(t) }, [])
+  return (
+    <div className="fixed pointer-events-none" style={{ left: x - 30, top: y - 30, width: 60, height: 60, zIndex: 9999 }}>
+      {Array.from({ length: 8 }).map((_, i) => {
+        const angle = (i / 8) * Math.PI * 2
+        const dist = 22 + Math.random() * 12
+        return (
+          <div key={i} className="absolute rounded-full"
+            style={{
+              width: 5 + Math.random() * 5, height: 5 + Math.random() * 5,
+              left: 30, top: 30,
+              background: ['#38bdf8','#14b8a6','#818cf8','#2dd4bf','white'][i % 5],
+              animation: `sparkleOut 0.7s ease-out forwards`,
+              '--tx': `${Math.cos(angle) * dist}px`,
+              '--ty': `${Math.sin(angle) * dist}px`,
+              animationDelay: `${i * 0.02}s`,
+            }}/>
+        )
+      })}
+      <style>{`
+        @keyframes sparkleOut {
+          0%   { transform: translate(0,0) scale(1); opacity: 1 }
+          100% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0 }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+// ── Main WaterMascot ─────────────────────────────────────────────────────────
 export default function WaterMascot() {
   const location = useLocation()
   const [minimized, setMinimized] = useState(false)
@@ -25,8 +202,15 @@ export default function WaterMascot() {
   const [breath, setBreath] = useState(1)
   const [wave, setWave] = useState(0)
   const [showBubbles, setShowBubbles] = useState(false)
+  const [showGame, setShowGame] = useState(false)
+  const [sparkles, setSparkles] = useState([])
+  const [bounce, setBounce] = useState(false)
+  const [clickCount, setClickCount] = useState(0)
+  const [pos, setPos] = useState({ x: null, y: null }) // null = default bottom-right
   const synthRef = useRef(null)
   const tRef = useRef(0)
+  const dragRef = useRef({ dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 })
+  const containerRef = useRef(null)
 
   // Breathing + wave animation loop
   useEffect(() => {
@@ -59,30 +243,23 @@ export default function WaterMascot() {
     setTimeout(() => setShowBubbles(false), 2000)
   }, [location.pathname])
 
-  const speak = (text) => {
+  const speak = useCallback((text) => {
     if (!ttsEnabled || !window.speechSynthesis) return
     window.speechSynthesis.cancel()
     const utt = new SpeechSynthesisUtterance(text)
-    utt.rate = 0.88
-    utt.pitch = 1.25
-    utt.volume = 0.85
-
-    // Pick female voice
+    utt.rate = 0.88; utt.pitch = 1.25; utt.volume = 0.85
     const voices = window.speechSynthesis.getVoices()
     const femaleVoice = voices.find(v =>
       v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Victoria') ||
       v.name.includes('Zira') || v.name.includes('Hazel') || v.name.includes('female') ||
-      (v.name.includes('Google') && v.name.includes('US') && v.gender !== 'male') ||
-      v.name.includes('Susan') || v.name.includes('Monica') || v.name.includes('Microsoft Zira')
-    ) || voices.find(v => v.lang.startsWith('en') && v.name.toLowerCase().includes('female'))
-      || voices.find(v => v.lang === 'en-US' || v.lang === 'en-CA')
-
+      (v.name.includes('Google') && v.name.includes('US'))
+    ) || voices.find(v => v.lang === 'en-US' || v.lang === 'en-CA')
     if (femaleVoice) utt.voice = femaleVoice
     utt.onstart = () => setSpeaking(true)
     utt.onend = () => setSpeaking(false)
     synthRef.current = utt
     window.speechSynthesis.speak(utt)
-  }
+  }, [ttsEnabled])
 
   useEffect(() => {
     if (msg && ttsEnabled && !minimized) {
@@ -91,7 +268,62 @@ export default function WaterMascot() {
     }
   }, [msg, ttsEnabled, minimized])
 
-  // Body scale (breathing)
+  // Drag logic
+  const onMouseDown = (e) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    const rect = containerRef.current?.getBoundingClientRect()
+    dragRef.current = {
+      dragging: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: pos.x ?? (window.innerWidth - (rect?.width || 200) - 24),
+      origY: pos.y ?? (window.innerHeight - (rect?.height || 200) - 24),
+    }
+    const onMove = (ev) => {
+      if (!dragRef.current.dragging) return
+      const dx = ev.clientX - dragRef.current.startX
+      const dy = ev.clientY - dragRef.current.startY
+      const W = window.innerWidth, H = window.innerHeight
+      const rw = rect?.width || 180, rh = rect?.height || 200
+      setPos({
+        x: Math.max(0, Math.min(W - rw, dragRef.current.origX + dx)),
+        y: Math.max(0, Math.min(H - rh, dragRef.current.origY + dy)),
+      })
+    }
+    const onUp = (ev) => {
+      const moved = Math.abs(ev.clientX - dragRef.current.startX) + Math.abs(ev.clientY - dragRef.current.startY)
+      dragRef.current.dragging = false
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      // If barely moved, treat as click
+      if (moved < 5) handleClick(ev)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  const handleClick = (e) => {
+    const msgs = PAGE_MESSAGES[location.pathname] || ['💧']
+    const m = msgs[Math.floor(Math.random() * msgs.length)]
+    setMsg(m)
+    speak(m)
+    setBounce(true)
+    setTimeout(() => setBounce(false), 500)
+    const newCount = clickCount + 1
+    setClickCount(newCount)
+    // Add sparkles at click position
+    setSparkles(prev => [...prev, { id: Date.now(), x: e.clientX, y: e.clientY }])
+    // Every 5 clicks, trigger game
+    if (newCount % 5 === 0) {
+      setTimeout(() => setShowGame(true), 200)
+    }
+  }
+
+  const posStyle = pos.x !== null
+    ? { position: 'fixed', left: pos.x, top: pos.y, bottom: 'auto', right: 'auto' }
+    : { position: 'fixed', bottom: 24, right: 24 }
+
   const bs = breath
 
   if (minimized) {
@@ -105,112 +337,133 @@ export default function WaterMascot() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3 select-none">
-      {/* Speech bubble */}
-      {msg && (
-        <div className="bg-white rounded-2xl rounded-br-sm shadow-xl border border-ocean-100 p-4 max-w-xs relative"
-          style={{ animation: 'fadeInUp 0.4s ease' }}>
-          <p className="text-gray-700 text-sm leading-relaxed">{msg}</p>
-          <div className="absolute -bottom-2 right-5 w-4 h-4 bg-white border-r border-b border-ocean-100 transform rotate-45" />
+    <>
+      {sparkles.map(s => (
+        <Sparkle key={s.id} x={s.x} y={s.y} onDone={() => setSparkles(prev => prev.filter(p => p.id !== s.id))}/>
+      ))}
+      {showGame && <DropGame onClose={() => setShowGame(false)}/>}
 
-          {/* Mini bubbles */}
-          {showBubbles && [0,1,2].map(i => (
-            <div key={i} className="absolute rounded-full border border-ocean-300"
-              style={{ width: 6+i*4, height: 6+i*4, bottom: -20-i*12, right: 20+i*8,
-                animation: `bubbleFloat ${0.8+i*0.3}s ease-out forwards`, opacity: 0.6 }} />
-          ))}
+      <div ref={containerRef}
+        className="z-50 flex flex-col items-end gap-3 select-none"
+        style={{ ...posStyle, cursor: dragRef.current.dragging ? 'grabbing' : 'grab' }}>
+
+        {/* Hint: click count to game */}
+        {clickCount > 0 && clickCount % 5 !== 0 && (
+          <div className="text-xs text-center px-2 py-0.5 rounded-full"
+            style={{ background: 'rgba(56,189,248,0.15)', color: '#38bdf8', border: '1px solid rgba(56,189,248,0.3)' }}>
+            {5 - (clickCount % 5)} clicks to game 🎮
+          </div>
+        )}
+
+        {/* Speech bubble */}
+        {msg && (
+          <div className="bg-white rounded-2xl rounded-br-sm shadow-xl border border-ocean-100 p-4 max-w-xs relative"
+            style={{ animation: 'fadeInUp 0.4s ease' }}>
+            <p className="text-gray-700 text-sm leading-relaxed">{msg}</p>
+            <div className="absolute -bottom-2 right-5 w-4 h-4 bg-white border-r border-b border-ocean-100 transform rotate-45"/>
+            {showBubbles && [0,1,2].map(i => (
+              <div key={i} className="absolute rounded-full border border-ocean-300"
+                style={{ width: 6+i*4, height: 6+i*4, bottom: -20-i*12, right: 20+i*8,
+                  animation: `bubbleFloat ${0.8+i*0.3}s ease-out forwards`, opacity: 0.6 }}/>
+            ))}
+          </div>
+        )}
+
+        {/* Mascot */}
+        <div className="flex items-end gap-2">
+          {/* Controls */}
+          <div className="flex flex-col gap-1">
+            <button onClick={() => { setTtsEnabled(t => !t); if (ttsEnabled) window.speechSynthesis?.cancel() }}
+              className="p-2 rounded-full bg-white shadow-md hover:bg-gray-50 transition-all hover:scale-110"
+              title={ttsEnabled ? 'Mute Water' : 'Enable voice'}>
+              {ttsEnabled ? <Volume2 className="w-3.5 h-3.5 text-ocean-500"/> : <VolumeX className="w-3.5 h-3.5 text-gray-400"/>}
+            </button>
+            <button onClick={() => { const msgs = PAGE_MESSAGES[location.pathname] || ['💧']; const m = msgs[Math.floor(Math.random()*msgs.length)]; setMsg(m); speak(m) }}
+              className="p-2 rounded-full bg-white shadow-md hover:bg-gray-50 transition-all hover:scale-110" title="Get a tip">
+              <MessageCircle className="w-3.5 h-3.5 text-teal-500"/>
+            </button>
+            <button onClick={() => setShowGame(true)}
+              className="p-2 rounded-full bg-white shadow-md hover:bg-sky-50 transition-all hover:scale-110" title="Play Catch the Drops!">
+              <Gamepad2 className="w-3.5 h-3.5 text-sky-500"/>
+            </button>
+            <button onClick={() => setMinimized(true)}
+              className="p-2 rounded-full bg-white shadow-md hover:bg-gray-50 transition-all hover:scale-110" title="Minimize">
+              <X className="w-3.5 h-3.5 text-gray-400"/>
+            </button>
+          </div>
+
+          {/* SVG mascot — drag handle */}
+          <svg width="80" height="92" viewBox="0 0 80 92"
+            className="drop-shadow-2xl"
+            style={{
+              transform: bounce
+                ? `scale(${bs * 1.2}) translateY(-12px)`
+                : `scale(${bs}) translateY(${wave}px)`,
+              transition: bounce ? 'transform 0.15s cubic-bezier(0.34,1.8,0.64,1)' : 'transform 0.05s linear',
+              cursor: 'grab',
+              filter: bounce ? 'drop-shadow(0 0 12px rgba(56,189,248,0.8))' : undefined,
+            }}
+            onMouseDown={onMouseDown}
+            onTouchStart={(e) => {
+              const t = e.touches[0]
+              handleClick({ clientX: t.clientX, clientY: t.clientY })
+            }}>
+            <defs>
+              <radialGradient id="wbody" cx="38%" cy="30%" r="65%">
+                <stop offset="0%" stopColor="#7dd3fc"/>
+                <stop offset="60%" stopColor="#0ea5e9"/>
+                <stop offset="100%" stopColor="#0369a1"/>
+              </radialGradient>
+              <radialGradient id="wshine" cx="30%" cy="25%" r="50%">
+                <stop offset="0%" stopColor="rgba(255,255,255,0.75)"/>
+                <stop offset="100%" stopColor="rgba(255,255,255,0)"/>
+              </radialGradient>
+              <radialGradient id="wcheek" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="rgba(251,113,133,0.5)"/>
+                <stop offset="100%" stopColor="rgba(251,113,133,0)"/>
+              </radialGradient>
+              <filter id="wglow">
+                <feGaussianBlur stdDeviation="2" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+            <ellipse cx="40" cy="82" rx="22" ry="6" fill="rgba(14,165,233,0.2)"/>
+            <path d="M40 5 C40 5 12 35 12 56 C12 72 25 84 40 84 C55 84 68 72 68 56 C68 35 40 5 40 5Z"
+              fill="url(#wbody)" filter="url(#wglow)"/>
+            <ellipse cx="30" cy="34" rx="11" ry="15" fill="url(#wshine)" transform="rotate(-18 30 34)"/>
+            <ellipse cx="40" cy="65" rx="16" ry="5" fill="rgba(255,255,255,0.12)"/>
+            <ellipse cx="40" cy="72" rx="10" ry="3" fill="rgba(255,255,255,0.08)"/>
+            <ellipse cx="31" cy="52" rx="7.5" ry={blink ? 1 : 8} fill="white"/>
+            <ellipse cx="49" cy="52" rx="7.5" ry={blink ? 1 : 8} fill="white"/>
+            {!blink && <>
+              <circle cx="32.5" cy="53" r="4.5" fill="#0c4a6e"/>
+              <circle cx="50.5" cy="53" r="4.5" fill="#0c4a6e"/>
+              <circle cx="34" cy="51" r="1.8" fill="white"/>
+              <circle cx="52" cy="51" r="1.8" fill="white"/>
+              <circle cx="33" cy="54" r="1" fill="#1e40af"/>
+              <circle cx="51" cy="54" r="1" fill="#1e40af"/>
+            </>}
+            <ellipse cx="22" cy="60" rx="7" ry="4" fill="url(#wcheek)"/>
+            <ellipse cx="58" cy="60" rx="7" ry="4" fill="url(#wcheek)"/>
+            <path d={speaking ? 'M30 66 Q40 73 50 66' : 'M30 66 Q40 71 50 66'}
+              stroke="#0c4a6e" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+            {speaking && [1,2,3].map(i => (
+              <circle key={i} cx="40" cy="40" r={10+i*8} fill="none"
+                stroke="rgba(56,189,248,0.3)" strokeWidth="1.5"
+                style={{ animation: `ping ${0.8+i*0.2}s ease-out infinite`, animationDelay: i*0.15+'s'}}/>
+            ))}
+            <path d="M26 20 L32 10 L40 18 L48 10 L54 20"
+              stroke="rgba(255,255,255,0.5)" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+            {/* Drag hint dots */}
+            <circle cx="38" cy="78" r="1.2" fill="rgba(255,255,255,0.4)"/>
+            <circle cx="42" cy="78" r="1.2" fill="rgba(255,255,255,0.4)"/>
+          </svg>
         </div>
-      )}
 
-      {/* Mascot */}
-      <div className="flex items-end gap-2">
-        {/* Controls */}
-        <div className="flex flex-col gap-1">
-          <button onClick={() => { setTtsEnabled(t => !t); if (ttsEnabled) window.speechSynthesis?.cancel() }}
-            className="p-2 rounded-full bg-white shadow-md hover:bg-gray-50 transition-all hover:scale-110"
-            title={ttsEnabled ? 'Mute Water' : 'Enable Water\'s voice'}>
-            {ttsEnabled ? <Volume2 className="w-3.5 h-3.5 text-ocean-500" /> : <VolumeX className="w-3.5 h-3.5 text-gray-400" />}
-          </button>
-          <button onClick={() => { const msgs = PAGE_MESSAGES[location.pathname] || ['💧']; const m = msgs[Math.floor(Math.random()*msgs.length)]; setMsg(m); speak(m) }}
-            className="p-2 rounded-full bg-white shadow-md hover:bg-gray-50 transition-all hover:scale-110" title="Get a tip">
-            <MessageCircle className="w-3.5 h-3.5 text-teal-500" />
-          </button>
-          <button onClick={() => setMinimized(true)}
-            className="p-2 rounded-full bg-white shadow-md hover:bg-gray-50 transition-all hover:scale-110" title="Minimize">
-            <X className="w-3.5 h-3.5 text-gray-400" />
-          </button>
+        {/* Drag hint */}
+        <div className="text-center text-xs" style={{ color: 'rgba(100,116,139,0.7)', fontSize: 9 }}>
+          drag me · click for tips · 🎮
         </div>
-
-        {/* SVG mascot */}
-        <svg width="80" height="92" viewBox="0 0 80 92"
-          className="cursor-pointer drop-shadow-2xl"
-          style={{ transform: `scale(${bs}) translateY(${wave}px)`, transition: 'transform 0.05s linear' }}
-          onClick={() => { const msgs = PAGE_MESSAGES[location.pathname] || ['💧']; const m = msgs[Math.floor(Math.random()*msgs.length)]; setMsg(m); speak(m) }}>
-          <defs>
-            <radialGradient id="wbody" cx="38%" cy="30%" r="65%">
-              <stop offset="0%" stopColor="#7dd3fc" />
-              <stop offset="60%" stopColor="#0ea5e9" />
-              <stop offset="100%" stopColor="#0369a1" />
-            </radialGradient>
-            <radialGradient id="wshine" cx="30%" cy="25%" r="50%">
-              <stop offset="0%" stopColor="rgba(255,255,255,0.75)" />
-              <stop offset="100%" stopColor="rgba(255,255,255,0)" />
-            </radialGradient>
-            <radialGradient id="wcheek" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(251,113,133,0.5)" />
-              <stop offset="100%" stopColor="rgba(251,113,133,0)" />
-            </radialGradient>
-            <filter id="wglow">
-              <feGaussianBlur stdDeviation="2" result="blur" />
-              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
-          </defs>
-
-          {/* Glow ring */}
-          <ellipse cx="40" cy="82" rx="22" ry="6" fill="rgba(14,165,233,0.2)" />
-
-          {/* Drop body */}
-          <path d="M40 5 C40 5 12 35 12 56 C12 72 25 84 40 84 C55 84 68 72 68 56 C68 35 40 5 40 5Z"
-            fill="url(#wbody)" filter="url(#wglow)" />
-
-          {/* Shine */}
-          <ellipse cx="30" cy="34" rx="11" ry="15" fill="url(#wshine)" transform="rotate(-18 30 34)" />
-
-          {/* Inner water ripple */}
-          <ellipse cx="40" cy="65" rx="16" ry="5" fill="rgba(255,255,255,0.12)" />
-          <ellipse cx="40" cy="72" rx="10" ry="3" fill="rgba(255,255,255,0.08)" />
-
-          {/* Eyes */}
-          <ellipse cx="31" cy="52" rx="7.5" ry={blink ? 1 : 8} fill="white" />
-          <ellipse cx="49" cy="52" rx="7.5" ry={blink ? 1 : 8} fill="white" />
-          {!blink && <>
-            <circle cx="32.5" cy="53" r="4.5" fill="#0c4a6e" />
-            <circle cx="50.5" cy="53" r="4.5" fill="#0c4a6e" />
-            <circle cx="34" cy="51" r="1.8" fill="white" />
-            <circle cx="52" cy="51" r="1.8" fill="white" />
-            {/* Pupils animate */}
-            <circle cx="33" cy="54" r="1" fill="#1e40af" />
-            <circle cx="51" cy="54" r="1" fill="#1e40af" />
-          </>}
-
-          {/* Cheeks */}
-          <ellipse cx="22" cy="60" rx="7" ry="4" fill="url(#wcheek)" />
-          <ellipse cx="58" cy="60" rx="7" ry="4" fill="url(#wcheek)" />
-
-          {/* Mouth */}
-          <path d={speaking ? 'M30 66 Q40 73 50 66' : 'M30 66 Q40 71 50 66'}
-            stroke="#0c4a6e" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-
-          {/* Speaking rings */}
-          {speaking && [1,2,3].map(i => (
-            <circle key={i} cx="40" cy="40" r={10+i*8} fill="none"
-              stroke="rgba(56,189,248,0.3)" strokeWidth="1.5"
-              style={{ animation: `ping ${0.8+i*0.2}s ease-out infinite`, animationDelay: i*0.15+'s' }} />
-          ))}
-
-          {/* Crown/hat decoration */}
-          <path d="M26 20 L32 10 L40 18 L48 10 L54 20" stroke="rgba(255,255,255,0.5)" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
       </div>
 
       <style>{`
@@ -218,6 +471,6 @@ export default function WaterMascot() {
         @keyframes bubbleFloat { 0% { transform:translateY(0); opacity:0.6 } 100% { transform:translateY(-40px); opacity:0 } }
         @keyframes ping { 0% { transform:scale(0.8); opacity:0.6 } 100% { transform:scale(1.4); opacity:0 } }
       `}</style>
-    </div>
+    </>
   )
 }

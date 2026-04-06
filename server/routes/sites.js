@@ -1,6 +1,6 @@
 const router = require('express').Router()
 const db = require('../db/connection')
-const { requireAuth, requireAdmin } = require('../middleware/auth')
+const { requireAuth, requireAdmin, requireResearcher } = require('../middleware/auth')
 const upload = require('../middleware/upload')
 
 // GET /api/sites
@@ -25,8 +25,8 @@ router.get('/:id', requireAuth, (req, res) => {
   res.json({ ...site, parameters_tested: site.parameters_tested ? JSON.parse(site.parameters_tested) : [] })
 })
 
-// POST /api/sites (admin)
-router.post('/', requireAuth, requireAdmin, upload.single('reference_photo'), (req, res) => {
+// POST /api/sites (any authenticated user)
+router.post('/', requireAuth, upload.single('reference_photo'), (req, res) => {
   const { name,description,latitude,longitude,body_of_water,water_body_type,organization,dataset_name,access_risk,safety_spring,safety_summer,safety_fall,safety_winter,parameters_tested,community } = req.body
   const photo = req.file ? `/uploads/images/${req.file.filename}` : null
   const result = db.prepare(`INSERT INTO sites (name,description,latitude,longitude,body_of_water,water_body_type,organization,dataset_name,access_risk,safety_spring,safety_summer,safety_fall,safety_winter,parameters_tested,reference_photo,community,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(name,description,parseFloat(latitude),parseFloat(longitude),body_of_water,water_body_type,organization,dataset_name,access_risk||'Low',safety_spring,safety_summer,safety_fall,safety_winter,JSON.stringify(parameters_tested||[]),photo,community,req.user.id)
@@ -41,8 +41,12 @@ router.put('/:id', requireAuth, requireAdmin, (req, res) => {
   res.json(db.prepare('SELECT * FROM sites WHERE id=?').get(req.params.id))
 })
 
-// DELETE /api/sites/:id (admin)
-router.delete('/:id', requireAuth, requireAdmin, (req, res) => {
+// DELETE /api/sites/:id (admin or creator)
+router.delete('/:id', requireAuth, (req, res) => {
+  const site = db.prepare('SELECT * FROM sites WHERE id=?').get(req.params.id)
+  if (!site) return res.status(404).json({ error: 'Site not found' })
+  if (!req.user.is_admin && site.created_by !== req.user.id) return res.status(403).json({ error: 'Not authorized' })
+  db.prepare('DELETE FROM observations WHERE site_id=?').run(req.params.id)
   db.prepare('DELETE FROM sites WHERE id=?').run(req.params.id)
   res.json({ success: true })
 })
@@ -118,6 +122,28 @@ router.post('/:id/observations', requireAuth, upload.array('photos', 10), (req, 
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
+})
+
+// DELETE /api/sites/observations/:id (admin)
+router.delete('/observations/:id', requireAuth, requireAdmin, (req, res) => {
+  db.prepare('DELETE FROM observations WHERE id=?').run(req.params.id)
+  res.json({ success: true })
+})
+
+// GET /api/sites/all-observations (admin — all sites)
+router.get('/all-observations', requireAuth, requireAdmin, (req, res) => {
+  const { limit = 50, offset = 0, site_id } = req.query
+  let q = `SELECT o.*, s.name as site_name, u.display_name as observer_name, u.username FROM observations o
+    LEFT JOIN sites s ON o.site_id=s.id
+    LEFT JOIN users u ON o.observer_id=u.id`
+  const params = []
+  if (site_id) { q += ' WHERE o.site_id=?'; params.push(site_id) }
+  q += ' ORDER BY o.observed_at DESC LIMIT ? OFFSET ?'
+  params.push(parseInt(limit), parseInt(offset))
+  const total = site_id
+    ? db.prepare('SELECT COUNT(*) as c FROM observations WHERE site_id=?').get(site_id).c
+    : db.prepare('SELECT COUNT(*) as c FROM observations').get().c
+  res.json({ observations: db.prepare(q).all(...params), total })
 })
 
 module.exports = router

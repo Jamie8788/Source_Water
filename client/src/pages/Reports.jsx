@@ -3,6 +3,7 @@
  * Dark theme · Markdown rendering · Persistent chat · Auto charts · Download reports
  */
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import PageAmbience from '../components/layout/PageAmbience'
 import { useDropzone } from 'react-dropzone'
 import {
   BarChart, Bar, LineChart, Line, ScatterChart, Scatter,
@@ -789,6 +790,7 @@ export default function Reports() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #060a18 0%, #0c1428 50%, #080f22 100%)', padding: '24px' }}>
+      <PageAmbience/>
       <div style={{ maxWidth: 1400, margin: '0 auto' }}>
 
         {/* Header */}

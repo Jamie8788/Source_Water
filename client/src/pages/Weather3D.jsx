@@ -6,6 +6,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react'
+import PageAmbience from '../components/layout/PageAmbience'
 import {
   Search, X, Wind, Droplets, Gauge, Sun, Bot, User, Send, Loader,
   ChevronDown, ChevronUp, Download, TrendingUp, TrendingDown, Activity,
@@ -127,7 +128,7 @@ function getViewSrc(view, data, center, zoom, dataLayer) {
   switch (view) {
     case 'globe':     return buildGlobeUrl(center, zoom, dataLayer)
     case 'satellite': return data ? `https://maps.google.com/maps?q=${lat},${lon}&z=17&t=k&output=embed` : null
-    case 'street':    return data ? `https://maps.google.com/maps?q=&layer=c&cbll=${lat},${lon}&cbp=11,0,0,0,0&output=embed` : null
+    case 'street':    return null // handled by StreetViewPanel component
     case 'windy':     return data ? `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&zoom=8&level=surface&overlay=wind&product=ecmwf&menu=&message=&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1` : null
     default:          return buildGlobeUrl(center, zoom, dataLayer)
   }
@@ -1527,6 +1528,74 @@ function MySitesPanel({ onFlyTo }) {
   )
 }
 
+// ── Street View Panel (KartaView — free, no API key) ─────────────────────────
+function StreetViewPanel({ lat, lon }) {
+  const [photos, setPhotos] = useState([])
+  const [idx, setIdx] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState(null)
+
+  useEffect(() => {
+    if (!lat || !lon) return
+    setLoading(true); setErr(null); setIdx(0)
+    fetch(`/api/streetview?lat=${lat}&lon=${lon}`)
+      .then(r => r.json())
+      .then(d => {
+        const list = d?.result?.data || []
+        setPhotos(list)
+        setLoading(false)
+        if (!list.length) setErr('No street photos found near this location')
+      })
+      .catch(() => { setErr('Could not load street photos'); setLoading(false) })
+  }, [lat, lon])
+
+  const btn = (disabled, onClick, label) => (
+    <button onClick={onClick} disabled={disabled} style={{
+      padding: '10px 22px', borderRadius: 10, fontSize: 20, fontWeight: 700,
+      background: disabled ? 'rgba(255,255,255,0.05)' : 'rgba(99,102,241,0.7)',
+      color: disabled ? '#334155' : 'white', border: 'none', cursor: disabled ? 'default' : 'pointer',
+    }}>{label}</button>
+  )
+
+  if (loading) return (
+    <div style={{ display:'flex',alignItems:'center',justifyContent:'center',height:'100%',flexDirection:'column',gap:14,color:'#94a3b8' }}>
+      <div style={{ width:36,height:36,border:'3px solid #6366f1',borderTopColor:'transparent',borderRadius:'50%',animation:'spin 0.8s linear infinite' }}/>
+      Loading street photos…
+    </div>
+  )
+  if (err || !photos.length) return (
+    <div style={{ display:'flex',alignItems:'center',justifyContent:'center',height:'100%',flexDirection:'column',gap:10,color:'#64748b' }}>
+      <span style={{ fontSize:40 }}>📷</span>
+      <div style={{ fontSize:14 }}>{err || 'No photos available'}</div>
+      <div style={{ fontSize:12,color:'#475569' }}>KartaView coverage may not exist for this location</div>
+    </div>
+  )
+
+  const photo = photos[idx]
+  const imgUrl = photo.thumb_prj_name || `https://cdn.kartaview.org${photo.name}`
+
+  return (
+    <div style={{ position:'relative',width:'100%',height:'100%',background:'#000',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center' }}>
+      <img
+        key={imgUrl}
+        src={imgUrl}
+        alt="Street view"
+        style={{ width:'100%',height:'100%',objectFit:'cover' }}
+        onError={e => { e.target.src = photos[idx+1]?.thumb_prj_name || '' }}
+      />
+      {/* Nav overlay */}
+      <div style={{ position:'absolute',bottom:24,left:'50%',transform:'translateX(-50%)',display:'flex',alignItems:'center',gap:16,background:'rgba(0,0,0,0.7)',borderRadius:16,padding:'8px 20px',backdropFilter:'blur(8px)' }}>
+        {btn(idx === 0, () => setIdx(i => i-1), '◀')}
+        <span style={{ color:'white',fontSize:13,fontWeight:600,minWidth:80,textAlign:'center' }}>{idx+1} / {photos.length}</span>
+        {btn(idx === photos.length-1, () => setIdx(i => i+1), '▶')}
+      </div>
+      {/* Credit */}
+      <div style={{ position:'absolute',bottom:6,right:10,fontSize:10,color:'rgba(255,255,255,0.35)' }}>KartaView · OpenStreetCam</div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  )
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function Weather3D() {
   const [query, setQuery]               = useState('')
@@ -1632,6 +1701,7 @@ export default function Weather3D() {
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 120px)', background: '#000', overflow: 'hidden', borderRadius: 12 }}>
+      <PageAmbience/>
 
       {/* ── Left: globe/view panel ─────────────────────────────────────────── */}
       <div
@@ -1766,15 +1836,18 @@ export default function Weather3D() {
           )}
         </div>
 
-        {/* ── iframe area ── */}
+        {/* ── iframe / street-view area ── */}
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-          {currentSrc ? (
+          {activeView === 'street' ? (
+            weatherData
+              ? <StreetViewPanel lat={weatherData.lat ?? globeCenter.lat} lon={weatherData.lon ?? globeCenter.lon}/>
+              : <div style={{ display:'flex',alignItems:'center',justifyContent:'center',height:'100%',color:'#334155',fontSize:14,flexDirection:'column',gap:10 }}><span style={{fontSize:32}}>🔍</span>Search a location first</div>
+          ) : currentSrc ? (
             <iframe
               key={iframeKey}
               src={currentSrc}
               title={activeView}
               style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
-              sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
               allowFullScreen
             />
           ) : (
@@ -1783,6 +1856,7 @@ export default function Weather3D() {
               Search a location to enable this view
             </div>
           )}
+
 
           {/* SOURCE Water branding badge — top-left */}
           <div style={{

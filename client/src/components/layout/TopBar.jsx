@@ -8,7 +8,7 @@ import CMSField from '../cms/CMSField'
 import { Bell, Search, ChevronDown, Volume2, VolumeX, Accessibility, Edit3 } from 'lucide-react'
 import api from '../../utils/api'
 
-export default function TopBar({ sidebarWidth, onA11yClick }) {
+export default function TopBar({ sidebarWidth, onA11yClick, onOpenDM }) {
   const { user } = useAuth()
   const { play, enabled, toggle: toggleSound } = useSound()
   const { isDark, toggleMode } = useTheme()
@@ -19,8 +19,12 @@ export default function TopBar({ sidebarWidth, onA11yClick }) {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const menuRef = useRef(null)
 
+  // Poll unread every 5s so badge stays live
   useEffect(() => {
-    api.get('/messages/unread/count').then(r => setUnread(r.data.count || 0)).catch(() => {})
+    const fetchUnread = () => api.get('/messages/unread/count').then(r => setUnread(r.data.count || 0)).catch(() => {})
+    fetchUnread()
+    const iv = setInterval(fetchUnread, 5000)
+    return () => clearInterval(iv)
   }, [])
 
   useEffect(() => {
@@ -93,10 +97,10 @@ export default function TopBar({ sidebarWidth, onA11yClick }) {
           <Accessibility className="w-4 h-4" style={{ color: 'var(--text-muted)' }}/>
         </button>
 
-        <button onClick={() => navigate('/social')} className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors">
-          <Bell className="w-4 h-4" style={{ color: 'var(--text-muted)' }}/>
+        <button onClick={() => { play('click'); onOpenDM ? onOpenDM() : navigate('/social?dm=1') }} className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors" title={unread > 0 ? `${unread} unread message${unread > 1 ? 's' : ''}` : 'Messages'}>
+          <Bell className="w-4 h-4" style={{ color: unread > 0 ? '#6366f1' : 'var(--text-muted)' }}/>
           {unread > 0 && (
-            <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+            <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold animate-pulse">
               {unread > 9 ? '9+' : unread}
             </span>
           )}

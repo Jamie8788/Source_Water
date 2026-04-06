@@ -6,21 +6,28 @@ const upload = require('../middleware/upload')
 // GET /api/messages/conversations
 router.get('/conversations', requireAuth, (req, res) => {
   const uid = req.user.id
-  const convos = db.prepare(`
-    SELECT DISTINCT
-      CASE WHEN dm.sender_id = ? THEN dm.receiver_id ELSE dm.sender_id END as other_id,
-      MAX(dm.created_at) as last_time,
-      (SELECT content FROM direct_messages WHERE (sender_id=? AND receiver_id=other_id) OR (sender_id=other_id AND receiver_id=?) ORDER BY created_at DESC LIMIT 1) as last_message,
-      (SELECT message_type FROM direct_messages WHERE (sender_id=? AND receiver_id=other_id) OR (sender_id=other_id AND receiver_id=?) ORDER BY created_at DESC LIMIT 1) as last_type,
-      (SELECT COUNT(*) FROM direct_messages WHERE receiver_id=? AND sender_id=other_id AND read=0) as unread_count
-    FROM direct_messages dm
-    WHERE dm.sender_id=? OR dm.receiver_id=?
+  // Get distinct conversation partners with last message time
+  const partners = db.prepare(`
+    SELECT CASE WHEN sender_id=? THEN receiver_id ELSE sender_id END as other_id,
+           MAX(created_at) as last_time
+    FROM direct_messages
+    WHERE sender_id=? OR receiver_id=?
     GROUP BY other_id ORDER BY last_time DESC
-  `).all(uid,uid,uid,uid,uid,uid,uid,uid)
+  `).all(uid, uid, uid)
 
-  const enriched = convos.map(c => {
-    const user = db.prepare('SELECT id,username,display_name,avatar_emoji,avatar_bg_color,role,last_login FROM users WHERE id=?').get(c.other_id)
-    return { ...c, user }
+  const enriched = partners.map(p => {
+    const other = p.other_id
+    const lastMsg = db.prepare(`
+      SELECT content, message_type FROM direct_messages
+      WHERE (sender_id=? AND receiver_id=?) OR (sender_id=? AND receiver_id=?)
+      ORDER BY created_at DESC LIMIT 1
+    `).get(uid, other, other, uid)
+    const unread = db.prepare(`
+      SELECT COUNT(*) as c FROM direct_messages
+      WHERE sender_id=? AND receiver_id=? AND read=0
+    `).get(other, uid).c
+    const user = db.prepare('SELECT id,username,display_name,avatar_emoji,avatar_bg_color,role FROM users WHERE id=?').get(other)
+    return { other_id: other, last_message: lastMsg?.content, last_type: lastMsg?.message_type, unread_count: unread, user }
   })
   res.json(enriched)
 })
