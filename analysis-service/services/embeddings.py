@@ -14,7 +14,7 @@ import google.generativeai as genai
 CHUNK_SIZE = 400   # words
 CHUNK_OVERLAP = 60  # words
 TOP_K = 5
-EMBEDDING_MODEL = "models/embedding-001"
+EMBEDDING_MODEL = "models/text-embedding-004"
 
 
 def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -33,19 +33,11 @@ class EmbeddingService:
 
     def _embed(self, texts: List[str]) -> np.ndarray:
         """Embed a list of texts using Gemini API."""
-        result = genai.embed_content(
-            model=EMBEDDING_MODEL,
-            content=texts,
-            task_type="retrieval_document",
-        )
+        result = genai.embed_content(model=EMBEDDING_MODEL, content=texts, task_type="retrieval_document")
         return np.array(result["embedding"], dtype="float32")
 
     def _embed_query(self, query: str) -> np.ndarray:
-        result = genai.embed_content(
-            model=EMBEDDING_MODEL,
-            content=query,
-            task_type="retrieval_query",
-        )
+        result = genai.embed_content(model=EMBEDDING_MODEL, content=query, task_type="retrieval_query")
         return np.array(result["embedding"], dtype="float32")
 
     def chunk_text(self, text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[str]:
@@ -61,15 +53,16 @@ class EmbeddingService:
     def build_index(self, file_id: str, text: str, storage_dir: Path) -> Tuple[None, List[str]]:
         chunks = self.chunk_text(text)
         if not chunks:
-            raise ValueError("Could not create chunks from text")
+            return None, []
 
         print(f"Embedding {len(chunks)} chunks for file {file_id}...")
-        # Gemini embed_content accepts a list
-        embeddings = self._embed(chunks)
-
-        self._save_index(file_id, chunks, embeddings, storage_dir)
-        self.indexes[file_id] = {"chunks": chunks, "embeddings": embeddings}
-        print(f"Index built and saved: {file_id}")
+        try:
+            embeddings = self._embed(chunks)
+            self._save_index(file_id, chunks, embeddings, storage_dir)
+            self.indexes[file_id] = {"chunks": chunks, "embeddings": embeddings}
+            print(f"Index built and saved: {file_id}")
+        except Exception as e:
+            print(f"Embedding failed (Q&A disabled for this file): {e}")
         return None, chunks
 
     def _save_index(self, file_id: str, chunks: List[str], embeddings: np.ndarray, storage_dir: Path):
