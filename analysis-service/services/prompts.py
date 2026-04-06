@@ -69,19 +69,26 @@ def get_ask_user_prompt(query: str, retrieved_chunks: List[str], stats: Dict[str
                 context_parts.append(f"  - {v['column']}: {v['issue']} (value: {v.get('value'):.2f})")
     
     context = "\n".join(context_parts)
-    
-    return f"""Answer this question with ABSOLUTE BREVITY (max 3 sentences):
+
+    if not context.strip():
+        return f"""The user asked: "{query}"
+
+There is no usable content in this document (it may be empty, contain only "null", or could not be parsed).
+
+Respond with exactly: "This document appears to be empty or could not be parsed. Please upload a file with actual water quality data." Do not add anything else."""
+
+    return f"""Answer this question with ABSOLUTE BREVITY (max 3 sentences). ONLY use the data provided below — do NOT invent or assume any values not present.
 
 QUESTION: {query}
 
 {context}
 
 RESPONSE FORMAT:
-- Sentence 1: Direct answer with specific number/value
+- Sentence 1: Direct answer with specific number/value from the data above
 - Sentence 2: Context or impact
 - Sentence 3: Recommendation or conclusion (optional)
 
-CRITICAL: No preamble, no explanation of your analysis, no disclaimers. Just facts and numbers."""
+CRITICAL: If the data above does not contain enough information to answer, say "Insufficient data in this document to answer that question." Do not fabricate numbers."""
 
 
 def get_compare_prompt(file1_name: str, file1_stats: Dict, file1_risk: Dict,
