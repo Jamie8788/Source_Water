@@ -7,29 +7,54 @@ from pathlib import Path
 from typing import Tuple, Dict, Any
 
 import pandas as pd
-from PyPDF2 import PdfReader  # type: ignore
 from docx import Document as DocxDocument  # type: ignore
 
 
 def parse_pdf(file_path: Path) -> Tuple[str, Dict[str, Any]]:
-    """Extract text from PDF."""
+    """Extract text from PDF. Tries pypdf first, pdfplumber as fallback."""
     text = []
     metadata = {}
-    
+
+    # --- Attempt 1: pypdf (maintained successor to PyPDF2) ---
     try:
+        from pypdf import PdfReader  # type: ignore
         with open(file_path, 'rb') as f:
             reader = PdfReader(f)
             metadata = {
                 'pages': len(reader.pages),
-                'title': reader.metadata.title if reader.metadata else None,
-                'author': reader.metadata.author if reader.metadata else None,
+                'title': reader.metadata.get('/Title') if reader.metadata else None,
+                'author': reader.metadata.get('/Author') if reader.metadata else None,
             }
-            for page_num, page in enumerate(reader.pages):
-                text.append(page.extract_text())
+            for page in reader.pages:
+                page_text = page.extract_text() or ''
+                text.append(page_text)
+
+        extracted = "\n\n".join(t for t in text if t.strip())
+        if extracted.strip():
+            return extracted, metadata
+        # If no text extracted, fall through to pdfplumber
+        print("pypdf extracted no text, trying pdfplumber...")
+    except Exception as e:
+        print(f"pypdf failed: {e}, trying pdfplumber...")
+
+    # --- Attempt 2: pdfplumber (better for complex layouts) ---
+    try:
+        import pdfplumber  # type: ignore
+        text = []
+        with pdfplumber.open(file_path) as pdf:
+            metadata['pages'] = len(pdf.pages)
+            for page in pdf.pages:
+                page_text = page.extract_text() or ''
+                text.append(page_text)
+
+        extracted = "\n\n".join(t for t in text if t.strip())
+        if extracted.strip():
+            return extracted, metadata
+        raise ValueError("No text could be extracted from this PDF (may be image-only/scanned).")
+    except ImportError:
+        raise ValueError("PDF parsing unavailable — pypdf and pdfplumber not installed.")
     except Exception as e:
         raise ValueError(f"PDF parsing failed: {str(e)}")
-    
-    return "\n\n".join(text), metadata
 
 
 def parse_docx(file_path: Path) -> Tuple[str, Dict[str, Any]]:

@@ -25,8 +25,8 @@ from services.ml_engine import (
     detect_trends, assess_data_quality, WHO_THRESHOLDS, normalize_column_name
 )
 from services.prompts import (
-    get_analysis_system_prompt, get_ask_user_prompt, get_compare_prompt,
-    get_anomaly_explanation_prompt, get_report_prompt, get_insights_prompt
+    get_analysis_system_prompt, get_document_system_prompt, get_ask_user_prompt,
+    get_compare_prompt, get_anomaly_explanation_prompt, get_report_prompt, get_insights_prompt
 )
 from services.ai_models import ai_service
 from services.nasa_weather import fetch_all_research_data, RESEARCH_LOCATIONS, get_great_lakes_water_data
@@ -340,22 +340,27 @@ async def ask(request: AskRequest):
         
         file_meta = files_metadata[request.file_id]
         
-        # Retrieve relevant chunks
-        retrieved_chunks = embedding_service.retrieve(request.file_id, request.query, top_k=5)
-        
-        # Get stats and ML results
+        # Determine if this is a plain document (PDF/DOCX/TXT) vs numeric data (CSV/XLSX)
         stats = file_meta.get("stats", {})
+        is_document_only = not stats.get("is_numeric", False)
+
+        # Retrieve more chunks for documents, fewer for data files
+        top_k = 10 if is_document_only else 5
+        retrieved_chunks = embedding_service.retrieve(request.file_id, request.query, top_k=top_k)
+
+        # Get ML results (only meaningful for numeric files)
         risk = file_meta.get("risk", {})
         anomalies = file_meta.get("anomalies", {})
-        
-        # Build prompts
-        system_prompt = get_analysis_system_prompt()
+
+        # Build prompts — use document Q&A mode for PDFs/reports, water-quality mode for data
+        system_prompt = get_document_system_prompt() if is_document_only else get_analysis_system_prompt()
         user_prompt = get_ask_user_prompt(
             request.query,
             retrieved_chunks,
             stats,
             anomalies,
-            risk
+            risk,
+            is_document_only=is_document_only,
         )
         
         # Call AI model

@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any
 
 def get_analysis_system_prompt() -> str:
     """
-    System prompt for /ask endpoint.
+    System prompt for /ask endpoint — water quality data mode.
     ENFORCES: Extreme brevity while maintaining intelligence and accuracy.
     """
     return """You are a water quality expert AI. You MUST respond with EXTREME BREVITY.
@@ -28,46 +28,66 @@ EXAMPLE BAD RESPONSE: "The water quality data shows several concerning issues. B
 Be a sniper. Precision over volume."""
 
 
-def get_ask_user_prompt(query: str, retrieved_chunks: List[str], stats: Dict[str, Any], 
-                        anomalies: Dict[str, Any], risk: Dict[str, Any]) -> str:
+def get_document_system_prompt() -> str:
+    """
+    System prompt for /ask on general documents (PDFs, reports, DOCX, TXT).
+    Behaves like a smart research assistant — reads and summarizes actual content.
+    """
+    return """You are a helpful research assistant. You answer questions based ONLY on the provided document content.
+
+RULES:
+1. Only use information from the document excerpts provided — NEVER invent facts, names, numbers, or statistics
+2. If the answer is in the document, provide it clearly and accurately
+3. If asked to summarize, give a concise, well-structured summary of what the document actually says
+4. If the question cannot be answered from the provided excerpts, say: "That information isn't in the excerpts I received from this document — try asking something else."
+5. NO hallucination. NO inventing data.
+6. Match the length of your response to the complexity of the question — summaries can be a few paragraphs, specific questions get direct answers."""
+
+
+def get_ask_user_prompt(query: str, retrieved_chunks: List[str], stats: Dict[str, Any],
+                        anomalies: Dict[str, Any], risk: Dict[str, Any],
+                        is_document_only: bool = False) -> str:
     """
     User prompt for /ask endpoint combining RAG + ML results.
+    is_document_only=True for PDFs/DOCX/TXT without numeric water-quality data.
     """
     context_parts = []
-    
-    # Add retrieved chunks
+
+    # Add retrieved chunks — use more text for documents, less for data summaries
     if retrieved_chunks:
-        context_parts.append("=== RETRIEVED DOCUMENT CONTENT ===")
+        context_parts.append("=== DOCUMENT CONTENT ===")
+        chunk_limit = 1500 if is_document_only else 400
         for i, chunk in enumerate(retrieved_chunks, 1):
-            context_parts.append(f"[Document {i}]: {chunk[:300]}...")
-    
-    # Add computed stats
-    if stats and stats.get('col_stats'):
-        context_parts.append("\n=== DATA STATISTICS ===")
-        for col, col_data in stats['col_stats'].items():
-            if col_data.get('mean') is not None:
-                context_parts.append(f"{col}: mean={col_data.get('mean'):.2f}, "
-                                   f"std={col_data.get('std'):.2f}, "
-                                   f"n_samples={stats.get('summary', {}).get('total_rows', 'N/A')}")
-    
-    # Add anomalies
-    if anomalies and anomalies.get('anomaly_rate'):
-        context_parts.append(f"\n=== ANOMALIES ===")
-        context_parts.append(f"Anomaly rate: {anomalies.get('anomaly_rate'):.1f}%")
-        if anomalies.get('per_column'):
-            for col, col_anom in anomalies['per_column'].items():
-                if col_anom.get('outlier_count', 0) > 0:
-                    context_parts.append(f"{col}: {col_anom['outlier_count']} outliers ({col_anom.get('outlier_pct', 0):.1f}%)")
-    
-    # Add risk assessment
-    if risk:
-        context_parts.append(f"\n=== RISK ASSESSMENT ===")
-        context_parts.append(f"Overall Risk: {risk.get('level', 'unknown').upper()} (score: {risk.get('score', 0):.0f}/100)")
-        if risk.get('violations'):
-            context_parts.append("Violations:")
-            for v in risk['violations'][:3]:
-                context_parts.append(f"  - {v['column']}: {v['issue']} (value: {v.get('value'):.2f})")
-    
+            context_parts.append(f"[Excerpt {i}]:\n{chunk[:chunk_limit]}")
+
+    if not is_document_only:
+        # Add computed stats (water quality / numeric data only)
+        if stats and stats.get('col_stats'):
+            context_parts.append("\n=== DATA STATISTICS ===")
+            for col, col_data in stats['col_stats'].items():
+                if col_data.get('mean') is not None:
+                    context_parts.append(f"{col}: mean={col_data.get('mean'):.2f}, "
+                                       f"std={col_data.get('std'):.2f}, "
+                                       f"n_samples={stats.get('summary', {}).get('total_rows', 'N/A')}")
+
+        # Add anomalies
+        if anomalies and anomalies.get('anomaly_rate'):
+            context_parts.append(f"\n=== ANOMALIES ===")
+            context_parts.append(f"Anomaly rate: {anomalies.get('anomaly_rate'):.1f}%")
+            if anomalies.get('per_column'):
+                for col, col_anom in anomalies['per_column'].items():
+                    if col_anom.get('outlier_count', 0) > 0:
+                        context_parts.append(f"{col}: {col_anom['outlier_count']} outliers ({col_anom.get('outlier_pct', 0):.1f}%)")
+
+        # Add risk assessment
+        if risk:
+            context_parts.append(f"\n=== RISK ASSESSMENT ===")
+            context_parts.append(f"Overall Risk: {risk.get('level', 'unknown').upper()} (score: {risk.get('score', 0):.0f}/100)")
+            if risk.get('violations'):
+                context_parts.append("Violations:")
+                for v in risk['violations'][:3]:
+                    context_parts.append(f"  - {v['column']}: {v['issue']} (value: {v.get('value'):.2f})")
+
     context = "\n".join(context_parts)
 
     if not context.strip():
@@ -75,9 +95,18 @@ def get_ask_user_prompt(query: str, retrieved_chunks: List[str], stats: Dict[str
 
 There is no usable content in this document (it may be empty, contain only "null", or could not be parsed).
 
-Respond with exactly: "This document appears to be empty or could not be parsed. Please upload a file with actual water quality data." Do not add anything else."""
+Respond with exactly: "This document appears to be empty or could not be parsed. Please upload a file with actual data." Do not add anything else."""
 
-    return f"""Answer this question with ABSOLUTE BREVITY (max 3 sentences). ONLY use the data provided below — do NOT invent or assume any values not present.
+    if is_document_only:
+        return f"""Answer the question below using ONLY the document excerpts provided. Do not invent any information.
+
+QUESTION: {query}
+
+{context}
+
+Answer based on what is in the excerpts above. If the answer isn't there, say so honestly."""
+    else:
+        return f"""Answer this question with ABSOLUTE BREVITY (max 3 sentences). ONLY use the data provided below — do NOT invent or assume any values not present.
 
 QUESTION: {query}
 
