@@ -400,21 +400,27 @@ function AnomalyPanel({ selected }) {
       const r = await axios.post(`${SVC}/ml/anomaly/${selected.id}`, {}, { timeout: 30000 })
       setMlResults(r.data)
     } catch {
-      // Fallback: derive from stats
-      const anomalies = []
-      const colStats = selected.stats?.col_stats || {}
-      Object.entries(colStats).forEach(([col, s]) => {
-        if ((s.outliers||0) > 0) {
-          const mean = parseFloat(s.mean), std = parseFloat(s.std)
-          anomalies.push({
-            col, count: s.outliers,
-            high_bound: (mean + 2.5*std).toFixed(3),
-            low_bound: (mean - 2.5*std).toFixed(3),
-            who: whoStatus(col, mean),
-          })
-        }
-      })
-      setMlResults({ anomalies, method:'IQR + 2.5σ rule (local)', note:'Full IsolationForest not available — using statistical fallback' })
+      try {
+        // Fallback: derive from stats
+        const anomalies = []
+        const colStats = selected?.stats?.col_stats || {}
+        Object.entries(colStats).forEach(([col, s]) => {
+          if ((s.outliers||0) > 0) {
+            const mean = parseFloat(s.mean||0), std = parseFloat(s.std||0)
+            if (!isNaN(mean) && !isNaN(std)) {
+              anomalies.push({
+                col, count: s.outliers,
+                high_bound: (mean + 2.5*std).toFixed(3),
+                low_bound: (mean - 2.5*std).toFixed(3),
+                who: whoStatus(col, mean),
+              })
+            }
+          }
+        })
+        setMlResults({ anomalies, method:'IQR + 2.5σ rule (local)', note:'Full IsolationForest not available — using statistical fallback' })
+      } catch(e2) {
+        setMlResults({ anomalies: [], method:'N/A', note:'Could not run anomaly detection on this file type.' })
+      }
     }
     setLoading(false)
   }
@@ -1093,16 +1099,21 @@ export default function Analysis() {
       answer = r.data.response || r.data.answer
     } catch { /* fall through to Pollinations AI */ }
 
-    // Fallback: Pollinations AI with compact stats context
+    // Fallback: only use stats context if we have numeric data, otherwise say so honestly
     if (!answer || answer.includes('unavailable') || answer.includes('reach')) {
-      try {
-        const statsCtx = buildFileContext(null, null, selected.name, selected.stats?.col_stats || null)
-          || `File: ${selected.name}. Columns: ${Object.keys(selected.stats?.col_stats || {}).join(', ')}`
-        const currentChat = chatHistory[selected.id] || []
-        const history = currentChat.slice(0,-2).filter(m=>!m.loading).slice(-6).map(m=>({ role: m.role==='ai'?'assistant':'user', content: m.text }))
-        const sysPrompt = `You are an expert water quality data analyst for Northern Ontario. Dataset info:\n${statsCtx}\n\nBe specific, cite numbers, give actionable insights. Keep responses concise.`
-        answer = await askAI([...history, { role:'user', content:q }], sysPrompt, 900)
-      } catch { answer = null }
+      const hasNumericData = Object.keys(selected.stats?.col_stats || {}).length > 0 && selected.stats?.is_numeric
+      if (hasNumericData) {
+        try {
+          const statsCtx = buildFileContext(null, null, selected.name, selected.stats?.col_stats || null)
+            || `File: ${selected.name}. Columns: ${Object.keys(selected.stats?.col_stats || {}).join(', ')}`
+          const currentChat = chatHistory[selected.id] || []
+          const history = currentChat.slice(0,-2).filter(m=>!m.loading).slice(-6).map(m=>({ role: m.role==='ai'?'assistant':'user', content: m.text }))
+          const sysPrompt = `You are an expert water quality data analyst for Northern Ontario. Dataset info:\n${statsCtx}\n\nOnly answer based on the statistics provided. Do not invent data not present. Keep responses concise.`
+          answer = await askAI([...history, { role:'user', content:q }], sysPrompt, 900)
+        } catch { answer = null }
+      } else {
+        answer = 'The analysis service is currently offline or could not process this document. Please try again in a moment — the service may be waking up (free tier takes ~30s).'
+      }
     }
 
     setChat(prev => prev.map((m,i)=> i===prev.length-1 ? { role:'ai', text: answer || 'No response received.', loading:false } : m))
