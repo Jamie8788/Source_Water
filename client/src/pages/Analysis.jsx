@@ -3,7 +3,8 @@
  * Upgraded from basic file-tool to full ML/analytics module.
  */
 import PageAmbience from '../components/layout/PageAmbience'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { askAI, buildFileContext } from '../utils/openrouter'
 import { useDropzone } from 'react-dropzone'
 import {
   BarChart, Bar, LineChart, Line, ScatterChart, Scatter,
@@ -267,6 +268,37 @@ function InsightCard({ insight, index }) {
   )
 }
 
+// ── Markdown renderer ─────────────────────────────────────────────────────────
+function MdLine({ line }) {
+  const parts = []; let r = line, k = 0
+  while (r) {
+    const m = r.match(/(\*\*|__)(.*?)\1/)
+    if (!m) { parts.push(<span key={k++}>{r}</span>); break }
+    if (m.index > 0) parts.push(<span key={k++}>{r.slice(0, m.index)}</span>)
+    parts.push(<strong key={k++} style={{ color:'var(--text)', fontWeight:700 }}>{m[2]}</strong>)
+    r = r.slice(m.index + m[0].length)
+  }
+  return <>{parts}</>
+}
+function MarkdownChat({ content }) {
+  if (!content) return null
+  const lines = content.split('\n')
+  const els = []; let i = 0
+  while (i < lines.length) {
+    const l = lines[i]
+    if (l.startsWith('### ')) { els.push(<div key={i} style={{ fontSize:12, fontWeight:800, color:'#38bdf8', marginTop:10, marginBottom:3, letterSpacing:'0.03em', borderBottom:'1px solid rgba(56,189,248,0.15)', paddingBottom:3 }}>{l.slice(4)}</div>); i++; continue }
+    if (l.startsWith('## '))  { els.push(<div key={i} style={{ fontSize:13, fontWeight:800, color:'var(--text)', marginTop:10, marginBottom:4 }}>{l.slice(3)}</div>); i++; continue }
+    if (l.startsWith('# '))   { els.push(<div key={i} style={{ fontSize:15, fontWeight:900, color:'var(--text)', marginTop:12, marginBottom:5 }}>{l.slice(2)}</div>); i++; continue }
+    if (l.startsWith('---') || l.startsWith('===')) { els.push(<hr key={i} style={{ border:'none', borderTop:'1px solid rgba(255,255,255,0.1)', margin:'8px 0' }}/>); i++; continue }
+    if (l.startsWith('- ') || l.startsWith('• ')) { els.push(<div key={i} style={{ display:'flex', gap:7, marginBottom:2 }}><span style={{ color:'#38bdf8', flexShrink:0 }}>•</span><span style={{ fontSize:11, lineHeight:1.6, color:'var(--text-muted)' }}><MdLine line={l.slice(2)}/></span></div>); i++; continue }
+    if (/^\d+\.\s/.test(l)) { const m = l.match(/^(\d+)\.\s(.*)/); els.push(<div key={i} style={{ display:'flex', gap:6, marginBottom:2 }}><span style={{ color:'#6366f1', fontWeight:700, fontSize:10, minWidth:16 }}>{m[1]}.</span><span style={{ fontSize:11, lineHeight:1.6, color:'var(--text-muted)' }}><MdLine line={m[2]}/></span></div>); i++; continue }
+    if (l.startsWith('```')) { const code=[]; i++; while(i<lines.length&&!lines[i].startsWith('```')){code.push(lines[i]);i++} els.push(<pre key={i} style={{ background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:7, padding:'8px 12px', fontSize:10, color:'#a5f3fc', overflowX:'auto', margin:'6px 0', lineHeight:1.5 }}>{code.join('\n')}</pre>); i++; continue }
+    if (l.trim() === '') { els.push(<div key={i} style={{ height:5 }}/>); i++; continue }
+    els.push(<div key={i} style={{ fontSize:11, color:'var(--text-muted)', lineHeight:1.7, marginBottom:1 }}><MdLine line={l}/></div>); i++
+  }
+  return <div style={{ display:'flex', flexDirection:'column' }}>{els}</div>
+}
+
 // ── ChatMessage ───────────────────────────────────────────────────────────────
 function ChatMessage({ msg }) {
   const isUser = msg.role === 'user'
@@ -278,22 +310,18 @@ function ChatMessage({ msg }) {
         </div>
       )}
       <div style={{
-        maxWidth:'86%', borderRadius: isUser ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-        padding:'9px 13px', fontSize:12, lineHeight:1.6,
+        maxWidth:'88%', borderRadius: isUser ? '14px 14px 4px 14px' : '4px 14px 14px 14px',
+        padding:'9px 13px',
         background: isUser ? 'linear-gradient(135deg,#6366f1,#4f46e5)' : 'var(--card-bg)',
-        color: isUser ? '#fff' : 'var(--text)',
         border: isUser ? 'none' : '1px solid var(--border)',
       }}>
         {msg.loading
-          ? <span style={{ display:'flex', gap:6, alignItems:'center', color:'var(--text-muted)' }}>
+          ? <span style={{ display:'flex', gap:6, alignItems:'center', color:'var(--text-muted)', fontSize:11 }}>
               <RefreshCw style={{ width:11, height:11, animation:'spin 1s linear infinite' }}/> Analyzing…
             </span>
-          : <div style={{ whiteSpace:'pre-wrap' }} dangerouslySetInnerHTML={{
-              __html: msg.text
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/`(.*?)`/g, '<code style="background:rgba(99,102,241,0.12);padding:1px 5px;border-radius:4px">$1</code>')
-                .replace(/^---$/gm, '<hr style="opacity:0.15;margin:8px 0"/>')
-            }}/>
+          : isUser
+            ? <div style={{ fontSize:12, color:'#fff', lineHeight:1.6 }}>{msg.text}</div>
+            : <MarkdownChat content={msg.text} />
         }
       </div>
     </div>
@@ -727,7 +755,7 @@ export default function Analysis() {
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [selectedCol, setSelectedCol] = useState(null)
-  const [chat, setChat] = useState([])
+  const [chatHistory, setChatHistory] = useState({}) // keyed by file.id — persists across tab switches
   const [question, setQuestion] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [tab, setTab] = useState('overview')
@@ -743,6 +771,9 @@ export default function Analysis() {
     if (!serviceUp) return
     axios.get(`${SVC}/files`).then(r => setFiles(r.data.files||[])).catch(()=>{})
   }, [serviceUp])
+
+  const chat = selected ? (chatHistory[selected.id] || []) : []
+  const setChat = (msgs) => { if (selected) setChatHistory(h => ({ ...h, [selected.id]: typeof msgs === 'function' ? msgs(h[selected.id]||[]) : msgs })) }
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior:'smooth' }) }, [chat])
 
@@ -761,7 +792,7 @@ export default function Analysis() {
       })
       const meta = r.data
       setFiles(prev => [meta, ...prev.filter(f=>f.id!==meta.id)])
-      setSelected(meta); setChat([])
+      setSelected(meta)
     } catch(e) { alert('Upload failed: '+(e.response?.data?.detail||e.message)) }
     setUploading(false); setUploadProgress(0)
   }, [])
@@ -789,18 +820,28 @@ export default function Analysis() {
     if (!q.trim() || !selected) return
     setChat(prev => [...prev, { role:'user', text:q }, { role:'ai', text:'', loading:true }])
     setQuestion(''); setChatLoading(true)
+
+    let answer = null
+
+    // Try backend first (has full ML context including embeddings)
     try {
-      // Enrich prompt with ML context
-      const ctx = {
-        file_id: selected.id,
-        query: q,
-        use_pro_model: false
-      }
-      const r = await axios.post(`${SVC}/ask`, ctx)
-      setChat(prev => prev.map((m,i)=> i===prev.length-1 ? { role:'ai', text:r.data.response || r.data.answer, loading:false } : m))
-    } catch {
-      setChat(prev => prev.map((m,i)=> i===prev.length-1 ? { role:'ai', text:'Unable to reach the analysis service. Please ensure it is running on port 8001.', loading:false } : m))
+      const r = await axios.post(`${SVC}/ask`, { file_id: selected.id, query: q, use_pro_model: false }, { timeout: 20000 })
+      answer = r.data.response || r.data.answer
+    } catch { /* fall through to Pollinations AI */ }
+
+    // Fallback: Pollinations AI with compact stats context
+    if (!answer || answer.includes('unavailable') || answer.includes('reach')) {
+      try {
+        const statsCtx = buildFileContext(null, null, selected.name, selected.stats?.col_stats || null)
+          || `File: ${selected.name}. Columns: ${Object.keys(selected.stats?.col_stats || {}).join(', ')}`
+        const currentChat = chatHistory[selected.id] || []
+        const history = currentChat.slice(0,-2).filter(m=>!m.loading).slice(-6).map(m=>({ role: m.role==='ai'?'assistant':'user', content: m.text }))
+        const sysPrompt = `You are an expert water quality data analyst for Northern Ontario. Dataset info:\n${statsCtx}\n\nBe specific, cite numbers, give actionable insights. Keep responses concise.`
+        answer = await askAI([...history, { role:'user', content:q }], sysPrompt, 900)
+      } catch { answer = null }
     }
+
+    setChat(prev => prev.map((m,i)=> i===prev.length-1 ? { role:'ai', text: answer || 'No response received.', loading:false } : m))
     setChatLoading(false)
   }
 
@@ -915,7 +956,7 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --reload`}
             ) : files.map(f => {
               const fRisk = f.stats ? computeRiskScore(f.stats) : null
               return (
-                <div key={f.id} onClick={() => { setSelected(f); setChat([]) }}
+                <div key={f.id} onClick={() => { setSelected(f) }}
                   style={{ padding:'9px 12px', cursor:'pointer', display:'flex', alignItems:'flex-start', gap:8, transition:'background 0.12s, opacity 0.12s', borderTop:'1px solid var(--border)', background: selected?.id===f.id?'rgba(99,102,241,0.06)':'transparent', group: 'file-item' }}
                   onMouseEnter={e => selected?.id!==f.id && (e.currentTarget.style.background='rgba(99,102,241,0.03)')}
                   onMouseLeave={e => selected?.id!==f.id && (e.currentTarget.style.background='transparent')}>
