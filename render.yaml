@@ -19,19 +19,17 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.9"
 
-  # ── Node.js app (builds client + serves everything) ──────────────────────────
+  # ── Node.js app — rootDir=server so index.js runs with correct __dirname ─────
   - type: web
     name: source-water-app
     runtime: node
-    rootDir: .
-    buildCommand: "cd client && npm install --legacy-peer-deps && VITE_API_URL=/api VITE_ANALYSIS_URL=/ml npm run build && cd ../server && npm install"
-    startCommand: node server/index.js
+    rootDir: server
+    buildCommand: "cd ../client && npm install --legacy-peer-deps && VITE_API_URL=/api VITE_ANALYSIS_URL=/ml npm run build && cd ../server && npm install"
+    startCommand: node index.js
     plan: free
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: "10000"
       - key: JWT_SECRET
         generateValue: true
       - key: OPENROUTER_API_KEY
@@ -39,7 +37,4 @@ services:
       - key: OPENROUTER_MODEL
         value: google/gemma-2-9b-it:free
       - key: ANALYSIS_SERVICE_URL
-        fromService:
-          name: source-water-analysis
-          type: web
-          envVarKey: RENDER_EXTERNAL_URL
+        sync: false
