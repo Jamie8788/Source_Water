@@ -258,6 +258,7 @@ function initSchema() {
     "ALTER TABLE quizzes ADD COLUMN time_limit INTEGER DEFAULT 0",
     "ALTER TABLE quiz_questions ADD COLUMN negative_points REAL DEFAULT 0",
     "ALTER TABLE observations ADD COLUMN flagged INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN avatar_url TEXT",
   ]
   for (const sql of migrations) {
     try { db.prepare(sql).run() } catch (_) { /* column already exists */ }

@@ -1217,7 +1217,7 @@ function QuizBuilder({ quiz, onClose, onSave }) {
                                 )}
                                 <input value={opt} onChange={e => { const o = [...qForm.options]; o[oi] = e.target.value; setQForm(f => ({ ...f, options: o })) }}
                                   placeholder={`Option ${String.fromCharCode(65+oi)}`}
-                                  style={{ flex: 1, ...iS, padding: '7px 12px', border: `1.5px solid ${isCorrect ? '#10b981' : 'var(--border)'}` }}/>
+                                  style={{ flex: 1, minWidth: 0, width: 'auto', background: 'var(--card-bg)', border: `1.5px solid ${isCorrect ? '#10b981' : 'var(--border)'}`, borderRadius: 9, padding: '7px 12px', fontSize: 13, color: 'var(--text)', outline: 'none' }}/>
                                 {qForm.options.length > 2 && (
                                   <button onClick={() => { const o = qForm.options.filter((_,j)=>j!==oi); const ca = qForm.correct_answers.filter(x=>x!==oi).map(x=>x>oi?x-1:x); setQForm(f=>({...f,options:o,correct_answers:ca})) }} style={{ padding: '4px', borderRadius: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', flexShrink: 0 }}>✕</button>
                                 )}
