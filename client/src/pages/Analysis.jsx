@@ -1029,12 +1029,26 @@ export default function Analysis() {
 
   const retryService = () => {
     setServiceUp(null)
-    axios.get(`${SVC}/health`,{timeout:3000}).then(()=>setServiceUp(true)).catch(()=>setServiceUp(false))
+    axios.get(`${SVC}/health`, { timeout: 90000 }).then(() => setServiceUp(true)).catch(() => setServiceUp(false))
   }
 
+  // Auto-ping health check — 90s timeout so Render free tier has time to wake up
+  // Retries every 30s when offline so the service auto-wakes without user action
   useEffect(() => {
-    axios.get(`${SVC}/health`, { timeout: 3000 })
-      .then(() => setServiceUp(true)).catch(() => setServiceUp(false))
+    let cancelled = false
+    const check = () => {
+      axios.get(`${SVC}/health`, { timeout: 90000 })
+        .then(() => { if (!cancelled) setServiceUp(true) })
+        .catch(() => { if (!cancelled) setServiceUp(false) })
+    }
+    check()
+    const interval = setInterval(() => {
+      if (cancelled) return
+      axios.get(`${SVC}/health`, { timeout: 90000 })
+        .then(() => { if (!cancelled) setServiceUp(true) })
+        .catch(() => {})  // keep polling silently when offline
+    }, 30000)
+    return () => { cancelled = true; clearInterval(interval) }
   }, [])
 
   useEffect(() => {
