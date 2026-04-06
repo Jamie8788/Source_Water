@@ -164,6 +164,8 @@ def detect_trends(df: pd.DataFrame, time_col: Optional[str] = None) -> Dict[str,
         y = col_filled.values
         
         try:
+            if len(np.unique(y)) < 2:
+                continue  # Skip constant columns — linregress divides by zero
             slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
             
             trend_direction = 'increasing' if slope > 0 else 'decreasing' if slope < 0 else 'flat'
