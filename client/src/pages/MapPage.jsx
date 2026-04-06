@@ -615,9 +615,17 @@ export default function MapPage() {
                     <div style={{ fontSize:15, fontWeight:800, color:'var(--text)' }}>{selected.name}</div>
                     <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>📍 {selected.location_name}</div>
                   </div>
-                  <button onClick={() => setSelected(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', padding:4 }}>
-                    <X style={{ width:14, height:14 }}/>
-                  </button>
+                  <div style={{ display:'flex', gap:4 }}>
+                    {user?.is_admin && (
+                      <button onClick={async () => { if (!confirm('Delete this site?')) return; await api.delete(`/sites/${selected.id}`).catch(()=>{}); setSites(s => s.filter(x=>x.id!==selected.id)); setSelected(null) }}
+                        style={{ background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.3)', cursor:'pointer', color:'#ef4444', padding:'4px 8px', borderRadius:6, fontSize:11, fontWeight:700 }}>
+                        Delete
+                      </button>
+                    )}
+                    <button onClick={() => setSelected(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', padding:4 }}>
+                      <X style={{ width:14, height:14 }}/>
+                    </button>
+                  </div>
                 </div>
                 <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:8 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:5, padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:700, background: selected.status === 'critical' ? 'rgba(239,68,68,0.12)' : selected.status === 'warning' ? 'rgba(245,158,11,0.12)' : 'rgba(16,185,129,0.12)', color: STATUS_COLORS[selected.status || 'active'] }}>
