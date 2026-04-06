@@ -14,7 +14,7 @@ import google.generativeai as genai
 CHUNK_SIZE = 400   # words
 CHUNK_OVERLAP = 60  # words
 TOP_K = 5
-EMBEDDING_MODEL = "models/text-embedding-004"
+EMBEDDING_MODEL = "models/embedding-001"
 
 
 def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> np.ndarray:
