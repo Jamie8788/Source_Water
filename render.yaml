@@ -11,7 +11,7 @@ services:
       - key: MODEL_PROVIDER
         value: gemini
       - key: GEMINI_API_KEY
-        sync: false          # ← paste your key here in Render dashboard
+        sync: false
       - key: GEMINI_MODEL
         value: gemini-2.5-flash
       - key: GEMINI_PRO_MODEL
@@ -19,31 +19,19 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.9"
 
-  # ── Node.js server  (serves frontend + API + proxies ML) ─────────────────────
+  # ── Node.js app (Docker — builds client + serves everything) ─────────────────
   - type: web
     name: source-water-app
-    runtime: node
-    rootDir: server
-    # Build client first, then install server deps
-    buildCommand: >
-      cd ../client &&
-      npm install &&
-      VITE_API_URL=/api VITE_ANALYSIS_URL=/ml npm run build &&
-      cd ../server &&
-      npm install
-    startCommand: node index.js
+    runtime: docker
+    dockerfilePath: ./Dockerfile
     plan: free
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: "8080"
       - key: JWT_SECRET
         generateValue: true
-      - key: DATABASE_PATH
-        value: ./data/source-water.db
-      - key: MAX_FILE_SIZE
-        value: "104857600"
-      - key: UPLOAD_DIR
-        value: ./uploads
       - key: OPENROUTER_API_KEY
         sync: false
       - key: OPENROUTER_MODEL
