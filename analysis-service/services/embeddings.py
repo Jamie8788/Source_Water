@@ -1,46 +1,42 @@
 """
 Embeddings and RAG service.
-Chunks documents, generates embeddings via Gemini API, and retrieves relevant context.
-Uses numpy cosine similarity instead of FAISS — no PyTorch needed.
+Uses TF-IDF vectorizer (scikit-learn) — 100% free, no API key, no external calls.
+Falls back to keyword overlap scoring if sklearn unavailable.
 """
-import os
 import json
+import pickle
 import numpy as np
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 
-import google.generativeai as genai
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity as sk_cosine
+    SKLEARN_OK = True
+except ImportError:
+    SKLEARN_OK = False
+    print("[embeddings] sklearn unavailable — using keyword fallback")
 
-CHUNK_SIZE = 400   # words
-CHUNK_OVERLAP = 60  # words
-TOP_K = 5
-EMBEDDING_MODEL = "models/text-embedding-004"
+CHUNK_SIZE    = 300     # words per chunk
+CHUNK_OVERLAP = 50      # overlap between chunks
+TOP_K         = 5
+MAX_CHARS     = 150_000  # ~100 pages max — prevents timeout on huge PDFs
 
 
-def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """Compute cosine similarity between vector a and matrix b."""
-    a_norm = a / (np.linalg.norm(a) + 1e-10)
-    b_norm = b / (np.linalg.norm(b, axis=1, keepdims=True) + 1e-10)
-    return b_norm @ a_norm
+def _keyword_score(query: str, chunk: str) -> float:
+    """Simple word-overlap score — fallback when sklearn unavailable."""
+    q = set(query.lower().split())
+    c = set(chunk.lower().split())
+    return len(q & c) / max(len(q), 1)
 
 
 class EmbeddingService:
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY")
-        if api_key:
-            genai.configure(api_key=api_key)
-        self.indexes = {}  # file_id -> {chunks, embeddings}
+        self.indexes = {}  # file_id → {chunks, vectorizer, matrix}
 
-    def _embed(self, texts: List[str]) -> np.ndarray:
-        """Embed a list of texts using Gemini API."""
-        result = genai.embed_content(model=EMBEDDING_MODEL, content=texts, task_type="retrieval_document")
-        return np.array(result["embedding"], dtype="float32")
-
-    def _embed_query(self, query: str) -> np.ndarray:
-        result = genai.embed_content(model=EMBEDDING_MODEL, content=query, task_type="retrieval_query")
-        return np.array(result["embedding"], dtype="float32")
-
+    # ── Chunking ──────────────────────────────────────────────────────────────
     def chunk_text(self, text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[str]:
+        text = text[:MAX_CHARS]  # hard cap to prevent timeout
         words = text.split()
         chunks, i = [], 0
         while i < len(words):
@@ -50,55 +46,96 @@ class EmbeddingService:
             i += size - overlap
         return chunks
 
+    # ── Index build ───────────────────────────────────────────────────────────
     def build_index(self, file_id: str, text: str, storage_dir: Path) -> Tuple[None, List[str]]:
         chunks = self.chunk_text(text)
         if not chunks:
+            self.indexes[file_id] = {"chunks": [], "vectorizer": None, "matrix": None}
             return None, []
 
-        print(f"Embedding {len(chunks)} chunks for file {file_id}...")
+        print(f"[embeddings] Building TF-IDF index: {len(chunks)} chunks for {file_id}")
+
+        vectorizer = None
+        matrix = None
+
+        if SKLEARN_OK:
+            try:
+                vectorizer = TfidfVectorizer(
+                    max_features=10_000,
+                    stop_words="english",
+                    ngram_range=(1, 2),   # unigrams + bigrams
+                    sublinear_tf=True,
+                )
+                matrix = vectorizer.fit_transform(chunks)
+                print(f"[embeddings] TF-IDF ready: {matrix.shape[0]} docs × {matrix.shape[1]} features")
+            except Exception as e:
+                print(f"[embeddings] TF-IDF build failed: {e} — falling back to keyword")
+                vectorizer, matrix = None, None
+
+        self.indexes[file_id] = {"chunks": chunks, "vectorizer": vectorizer, "matrix": matrix}
+
+        # Persist to disk
         try:
-            embeddings = self._embed(chunks)
-            self._save_index(file_id, chunks, embeddings, storage_dir)
-            self.indexes[file_id] = {"chunks": chunks, "embeddings": embeddings}
-            print(f"Index built and saved: {file_id}")
+            storage_dir.mkdir(exist_ok=True)
+            with open(storage_dir / f"{file_id}.pkl", "wb") as f:
+                pickle.dump({"chunks": chunks, "vectorizer": vectorizer, "matrix": matrix}, f)
+            print(f"[embeddings] Index saved: {file_id}")
         except Exception as e:
-            print(f"Embedding failed (Q&A disabled for this file): {e}")
+            print(f"[embeddings] Save failed: {e}")
+
         return None, chunks
 
-    def _save_index(self, file_id: str, chunks: List[str], embeddings: np.ndarray, storage_dir: Path):
-        storage_dir.mkdir(exist_ok=True)
-        np.save(str(storage_dir / f"{file_id}.npy"), embeddings)
-        with open(storage_dir / f"{file_id}.chunks.json", "w") as f:
-            json.dump(chunks, f)
-
+    # ── Index load ────────────────────────────────────────────────────────────
     def load_index(self, file_id: str, storage_dir: Path) -> bool:
-        npy_path = storage_dir / f"{file_id}.npy"
-        chunks_path = storage_dir / f"{file_id}.chunks.json"
-        if not npy_path.exists() or not chunks_path.exists():
-            return False
-        try:
-            embeddings = np.load(str(npy_path))
-            with open(chunks_path, "r") as f:
-                chunks = json.load(f)
-            self.indexes[file_id] = {"chunks": chunks, "embeddings": embeddings}
-            return True
-        except Exception as e:
-            print(f"Error loading index {file_id}: {e}")
-            return False
+        pkl_path = storage_dir / f"{file_id}.pkl"
+        if pkl_path.exists():
+            try:
+                with open(pkl_path, "rb") as f:
+                    self.indexes[file_id] = pickle.load(f)
+                return True
+            except Exception as e:
+                print(f"[embeddings] Load failed {file_id}: {e}")
 
+        # Legacy fallback: old .npy / .chunks.json format
+        npy_path    = storage_dir / f"{file_id}.npy"
+        chunks_path = storage_dir / f"{file_id}.chunks.json"
+        if npy_path.exists() and chunks_path.exists():
+            try:
+                with open(chunks_path) as f:
+                    chunks = json.load(f)
+                self.indexes[file_id] = {"chunks": chunks, "vectorizer": None, "matrix": None}
+                return True
+            except Exception as e:
+                print(f"[embeddings] Legacy load failed {file_id}: {e}")
+        return False
+
+    # ── Retrieval ─────────────────────────────────────────────────────────────
     def retrieve(self, file_id: str, query: str, top_k: int = TOP_K) -> List[str]:
         if file_id not in self.indexes:
             return []
-        q_emb = self._embed_query(query)
-        data = self.indexes[file_id]
-        sims = _cosine_similarity(q_emb, data["embeddings"])
-        top_indices = np.argsort(sims)[::-1][:top_k]
-        return [data["chunks"][i] for i in top_indices]
+        data   = self.indexes[file_id]
+        chunks = data["chunks"]
+        if not chunks:
+            return []
 
+        # TF-IDF cosine similarity
+        if SKLEARN_OK and data.get("vectorizer") and data.get("matrix") is not None:
+            try:
+                q_vec = data["vectorizer"].transform([query])
+                sims  = sk_cosine(q_vec, data["matrix"])[0]
+                top_i = np.argsort(sims)[::-1][:top_k]
+                return [chunks[i] for i in top_i]
+            except Exception as e:
+                print(f"[embeddings] TF-IDF retrieve error: {e}")
+
+        # Keyword fallback
+        scored = sorted((((_keyword_score(query, c), c) for c in chunks)), reverse=True)
+        return [c for _, c in scored[:top_k]]
+
+    # ── Delete ────────────────────────────────────────────────────────────────
     def delete_index(self, file_id: str, storage_dir: Path):
-        if file_id in self.indexes:
-            del self.indexes[file_id]
-        for ext in (".npy", ".chunks.json", ".faiss"):
+        self.indexes.pop(file_id, None)
+        for ext in (".pkl", ".npy", ".chunks.json"):
             p = storage_dir / f"{file_id}{ext}"
             if p.exists():
                 p.unlink()

@@ -1073,6 +1073,7 @@ export default function Analysis() {
       const fd = new FormData(); fd.append('file', file)
       const r = await axios.post(`${SVC}/upload`, fd, {
         onUploadProgress: e => setUploadProgress(Math.round((e.loaded/e.total)*100)),
+        timeout: 180000, // 3 min — large PDFs take time to parse + index
       })
       const meta = r.data
       setFiles(prev => [meta, ...prev.filter(f=>f.id!==meta.id)])
@@ -1082,7 +1083,7 @@ export default function Analysis() {
   }, [])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop, multiple: false, disabled: !serviceUp,
+    onDrop, multiple: false, disabled: serviceUp === false,
     accept: {
       'text/csv': ['.csv'], 'application/vnd.ms-excel': ['.xls'],
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
