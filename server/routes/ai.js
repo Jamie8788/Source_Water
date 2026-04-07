@@ -25,7 +25,7 @@ async function callAI(messages) {
   for (const model of ['mistral', 'llama', 'openai']) {
     try {
       const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), 30000) // 30s per model
+      const timer = setTimeout(() => ctrl.abort(), 12000) // 12s per model — 3 models = 36s max
       const res = await fetch(POLLINATIONS, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

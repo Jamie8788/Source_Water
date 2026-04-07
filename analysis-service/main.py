@@ -47,15 +47,25 @@ dataframes_cache: Dict[str, pd.DataFrame] = {}
 
 # ── Utility Functions ───────────────────────────────────────────────────────
 def clean_json_value(obj):
-    """Recursively clean NaN/inf values for JSON serialization."""
+    """Recursively clean NaN/inf/numpy types for JSON serialization."""
+    import numpy as np
     if isinstance(obj, dict):
-        return {k: clean_json_value(v) for k, v in obj.items()}
+        return {str(k): clean_json_value(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [clean_json_value(v) for v in obj]
     elif isinstance(obj, float):
         if math.isnan(obj) or math.isinf(obj):
             return None
         return obj
+    elif isinstance(obj, (np.integer,)):
+        return int(obj)
+    elif isinstance(obj, (np.floating,)):
+        v = float(obj)
+        return None if (math.isnan(v) or math.isinf(v)) else v
+    elif isinstance(obj, np.ndarray):
+        return [clean_json_value(x) for x in obj.tolist()]
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
     return obj
 
 def load_metadata():
@@ -219,8 +229,8 @@ async def upload_file(file: UploadFile = File(...), x_user_id: Optional[str] = H
         save_metadata()
         
         print(f"File {file_id} processed successfully")
-        
-        return {
+
+        return JSONResponse(content=clean_json_value({
             "id": file_id,
             "filename": filename,
             "name": filename,
@@ -233,7 +243,7 @@ async def upload_file(file: UploadFile = File(...), x_user_id: Optional[str] = H
             "anomalies": anomalies,
             "trends": trends,
             "quality": quality,
-        }
+        }))
     
     except Exception as e:
         print(f"Upload error: {e}")
