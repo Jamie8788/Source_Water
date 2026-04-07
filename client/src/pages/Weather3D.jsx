@@ -137,41 +137,104 @@ function getViewSrc(view, data, center, zoom, dataLayer) {
 }
 
 // ── Data fetching ──────────────────────────────────────────────────────────────
-async function fetchAll(query) {
-  const geoRes = await fetch(
-    `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`
-  )
-  const geoData = await geoRes.json()
-  if (!geoData.results?.length) throw new Error('Location not found')
-  const { latitude: lat, longitude: lon, name, country, admin1 } = geoData.results[0]
-  const location = admin1 ? `${name}, ${admin1}, ${country}` : `${name}, ${country}`
 
-  const [wxRes, aqRes] = await Promise.all([
-    fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-      `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m,wind_direction_10m,weather_code,surface_pressure,visibility` +
-      `&hourly=temperature_2m,precipitation_probability,weather_code` +
-      `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,sunrise,sunset,uv_index_max,precipitation_probability_max` +
-      `&timezone=auto&forecast_days=5`
-    ),
-    fetch(
-      `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}` +
-      `&current=pm2_5,pm10,us_aqi,ozone,nitrogen_dioxide&timezone=auto`
-    ).catch(() => null),
-  ])
-
-  const wx = await wxRes.json()
-  const aq = aqRes?.ok ? await aqRes.json() : null
-
-  // UV from daily max (current.uv_index is 0 at night)
-  const uvIndex = wx.daily?.uv_index_max?.[0] ?? null
-
+// Fallback: wttr.in (no API key, very reliable, works when open-meteo is down)
+async function fetchWttr(query) {
+  const r = await fetch(`https://wttr.in/${encodeURIComponent(query)}?format=j1`)
+  if (!r.ok) throw new Error('wttr.in unavailable')
+  const d = await r.json()
+  const c = d.current_condition?.[0]
+  const today = d.weather?.[0]
+  if (!c) throw new Error('No weather data')
+  // Map wttr.in codes to WMO-style codes (approx)
+  const wCode = parseInt(c.weatherCode ?? '113')
+  const wmoCode = wCode <= 116 ? (wCode === 113 ? 0 : 1) : wCode <= 119 ? 2 : wCode <= 143 ? 45 : wCode <= 176 ? 61 : wCode <= 227 ? 71 : wCode <= 248 ? 45 : wCode <= 284 ? 67 : wCode <= 305 ? 81 : wCode <= 320 ? 77 : wCode <= 389 ? 95 : 99
+  const toF = v => parseFloat(v) || null
+  // Build 5-day from wttr weather array
+  const daily = {
+    temperature_2m_max: d.weather?.map(w => toF(w.maxtempC)),
+    temperature_2m_min: d.weather?.map(w => toF(w.mintempC)),
+    precipitation_sum: d.weather?.map(w => toF(w.hourly?.reduce((a, h) => a + (parseFloat(h.precipMM) || 0), 0)?.toFixed(1))),
+    wind_speed_10m_max: d.weather?.map(w => toF(w.hourly?.[4]?.windspeedKmph) / 3.6),
+    sunrise: d.weather?.map(w => w.astronomy?.[0]?.sunrise),
+    sunset: d.weather?.map(w => w.astronomy?.[0]?.sunset),
+    uv_index_max: d.weather?.map(w => toF(w.uvIndex)),
+    precipitation_probability_max: d.weather?.map(w => toF(w.hourly?.[4]?.chanceofrain)),
+  }
   return {
-    location, name, lat, lon,
-    current: { ...wx.current, uv_index: uvIndex },
-    hourly: wx.hourly,
-    daily: wx.daily,
-    aq: aq?.current,
+    name: query, location: query, lat: null, lon: null,
+    source: 'wttr.in',
+    current: {
+      temperature_2m: toF(c.temp_C),
+      apparent_temperature: toF(c.FeelsLikeC),
+      relative_humidity_2m: toF(c.humidity),
+      wind_speed_10m: toF(c.windspeedKmph) / 3.6,
+      wind_direction_10m: toF(c.winddirDegree),
+      weather_code: wmoCode,
+      surface_pressure: toF(c.pressure),
+      visibility: toF(c.visibility),
+      precipitation: toF(c.precipMM),
+      uv_index: toF(today?.uvIndex),
+    },
+    hourly: null,
+    daily,
+    aq: null,
+  }
+}
+
+async function fetchAll(query) {
+  // Step 1: geocode
+  let lat, lon, name, country, admin1, location
+  try {
+    const geoRes = await fetch(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`
+    )
+    const geoData = await geoRes.json()
+    if (geoData.results?.length) {
+      ;({ latitude: lat, longitude: lon, name, country, admin1 } = geoData.results[0])
+      location = admin1 ? `${name}, ${admin1}, ${country}` : `${name}, ${country}`
+    }
+  } catch { /* will use query string as fallback */ }
+
+  if (!lat) {
+    // Geocoding failed — try wttr directly with query string
+    return fetchWttr(query)
+  }
+
+  // Step 2: try Open-Meteo forecast
+  try {
+    const [wxRes, aqRes] = await Promise.all([
+      fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+        `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m,wind_direction_10m,weather_code,surface_pressure,visibility` +
+        `&hourly=temperature_2m,precipitation_probability,weather_code` +
+        `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,sunrise,sunset,uv_index_max,precipitation_probability_max` +
+        `&timezone=auto&forecast_days=5`
+      ),
+      fetch(
+        `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}` +
+        `&current=pm2_5,pm10,us_aqi,ozone,nitrogen_dioxide&timezone=auto`
+      ).catch(() => null),
+    ])
+
+    if (!wxRes.ok) throw new Error(`open-meteo ${wxRes.status}`)
+    const wx = await wxRes.json()
+    if (wx.error) throw new Error(wx.reason || 'open-meteo error')
+    const aq = aqRes?.ok ? await aqRes.json() : null
+    const uvIndex = wx.daily?.uv_index_max?.[0] ?? null
+
+    return {
+      location, name, lat, lon,
+      current: { ...wx.current, uv_index: uvIndex },
+      hourly: wx.hourly,
+      daily: wx.daily,
+      aq: aq?.current,
+    }
+  } catch (e) {
+    console.warn('[weather] open-meteo failed, trying wttr.in fallback:', e.message)
+    // Step 3: fallback to wttr.in
+    const wttr = await fetchWttr(name || query)
+    return { ...wttr, name: name || query, location, lat, lon }
   }
 }
 
