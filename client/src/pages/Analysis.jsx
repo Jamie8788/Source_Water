@@ -1109,7 +1109,7 @@ export default function Analysis() {
 
     // Try backend first (has full ML context including embeddings)
     try {
-      const r = await axios.post(`${SVC}/ask`, { file_id: selected.id, query: q, use_pro_model: false }, { timeout: 20000 })
+      const r = await axios.post(`${SVC}/ask`, { file_id: selected.id, query: q, use_pro_model: true }, { timeout: 20000 })
       answer = r.data.response || r.data.answer
     } catch { /* fall through to Pollinations AI */ }
 
