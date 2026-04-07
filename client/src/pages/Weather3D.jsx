@@ -404,8 +404,10 @@ function WeatherPanel({ data }) {
         <StatCard icon={Droplets} label="Humidity"  value={`${c.relative_humidity_2m}%`} color="#38bdf8" />
         <StatCard icon={Wind}     label="Wind"      value={`${c.wind_speed_10m?.toFixed(0)} km/h`} sub={windDir(c.wind_direction_10m ?? 0)} color="#a78bfa" />
         <StatCard icon={Gauge}    label="Pressure"  value={`${c.surface_pressure?.toFixed(0)} hPa`} color="#fb923c" />
-        <StatCard icon={Sun}      label="UV Index"  value={c.uv_index?.toFixed(1) ?? '--'} color="#fbbf24"
-          sub={c.uv_index >= 8 ? 'Very High' : c.uv_index >= 6 ? 'High' : c.uv_index >= 3 ? 'Moderate' : 'Low'} />
+        {(() => { const uv = daily?.uv_index_max?.[0] ?? c.uv_index ?? 0; return (
+          <StatCard icon={Sun} label="UV Index (today max)" value={uv?.toFixed(1) ?? '--'} color="#fbbf24"
+            sub={uv >= 8 ? 'Very High' : uv >= 6 ? 'High' : uv >= 3 ? 'Moderate' : uv >= 1 ? 'Low' : 'Minimal'} />
+        )})()}
       </div>
 
       {daily?.sunrise?.[0] && (
