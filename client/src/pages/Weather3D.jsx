@@ -137,9 +137,16 @@ function getViewSrc(view, data, center, zoom, dataLayer) {
 }
 
 // ── Data fetching ──────────────────────────────────────────────────────────────
+function timedFetch(url, ms = 10000) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), ms)
+  return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer))
+}
+
 async function fetchAll(query) {
-  const geoRes = await fetch(
-    `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`
+  const geoRes = await timedFetch(
+    `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`,
+    8000
   )
   const geoData = await geoRes.json()
   if (!geoData.results?.length) throw new Error('Location not found')
@@ -147,23 +154,34 @@ async function fetchAll(query) {
   const location = admin1 ? `${name}, ${admin1}, ${country}` : `${name}, ${country}`
 
   const [wxRes, aqRes] = await Promise.all([
-    fetch(
+    timedFetch(
       `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-      `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m,wind_direction_10m,weather_code,surface_pressure,visibility,uv_index` +
+      `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m,wind_direction_10m,weather_code,surface_pressure,visibility` +
       `&hourly=temperature_2m,precipitation_probability,weather_code` +
       `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,sunrise,sunset,uv_index_max,precipitation_probability_max` +
-      `&timezone=auto&forecast_days=5&forecast_hours=24`
+      `&timezone=auto&forecast_days=5&forecast_hours=24`,
+      10000
     ),
-    fetch(
+    timedFetch(
       `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}` +
-      `&current=pm2_5,pm10,us_aqi,ozone,nitrogen_dioxide&timezone=auto`
-    ),
+      `&current=pm2_5,pm10,us_aqi,ozone,nitrogen_dioxide&timezone=auto`,
+      10000
+    ).catch(() => null),
   ])
 
   const wx = await wxRes.json()
-  const aq = aqRes.ok ? await aqRes.json() : null
+  const aq = aqRes?.ok ? await aqRes.json() : null
 
-  return { location, name, lat, lon, current: wx.current, hourly: wx.hourly, daily: wx.daily, aq: aq?.current }
+  // UV index — use daily max (current is always 0 at night)
+  const uvIndex = wx.daily?.uv_index_max?.[0] ?? null
+
+  return {
+    location, name, lat, lon,
+    current: { ...wx.current, uv_index: uvIndex },
+    hourly: wx.hourly,
+    daily: wx.daily,
+    aq: aq?.current,
+  }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -2318,13 +2336,20 @@ export default function Weather3D() {
     setPinLabel(null)
     setSelectedMarker(null)
     setActiveView('globe')
+    // Safety net — never stuck loading more than 15s
+    const safetyTimer = setTimeout(() => {
+      setLoading(false)
+      setError('Weather fetch timed out — check connection and try again')
+    }, 15000)
     try {
       const data = await fetchAll(q)
+      clearTimeout(safetyTimer)
       setWeatherData(data)
       setGlobeCenter({ lon: data.lon, lat: data.lat })
       setGlobeZoom(450)
       setPinLabel(data.name)
     } catch (e) {
+      clearTimeout(safetyTimer)
       setError(e.message)
     }
     setLoading(false)

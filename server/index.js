@@ -67,6 +67,7 @@ app.use('/api/projects',    require('./routes/projects'))
 app.use('/api/leaderboard', require('./routes/leaderboard'))
 app.use('/api/admin',       require('./routes/admin'))
 app.use('/api/cms',         require('./routes/cms'))
+app.use('/api/research',    require('./routes/research'))
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }))
