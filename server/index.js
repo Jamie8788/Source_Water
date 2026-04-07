@@ -99,4 +99,18 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' })
 })
 
-app.listen(PORT, () => console.log(`\n🌊 SOURCE Water API running on http://localhost:${PORT}\n`))
+app.listen(PORT, () => {
+  console.log(`\n🌊 SOURCE Water API running on http://localhost:${PORT}\n`)
+
+  // Keep analysis service awake on Render free tier (pings every 9 min)
+  if (ANALYSIS_URL && !ANALYSIS_URL.includes('localhost')) {
+    const pingAnalysis = () => {
+      fetch(`${ANALYSIS_URL}/health`, { signal: AbortSignal.timeout(10000) })
+        .then(() => console.log('[keep-alive] analysis service pinged'))
+        .catch(e => console.log(`[keep-alive] analysis ping failed: ${e.message}`))
+    }
+    setTimeout(pingAnalysis, 60000)           // first ping after 1 min
+    setInterval(pingAnalysis, 9 * 60 * 1000)  // then every 9 min
+    console.log(`[keep-alive] will ping analysis service at ${ANALYSIS_URL}`)
+  }
+})
