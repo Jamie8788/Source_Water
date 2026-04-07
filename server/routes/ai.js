@@ -21,16 +21,30 @@ You help community members, researchers, and students understand water quality d
 Be warm, encouraging, and educational. Use simple language for community members, technical detail for researchers. Always emphasize community stewardship and the sacred importance of clean water.`
 
 async function callAI(messages) {
-  // Pollinations.ai — 100% free, no key, no account, no rate limits
-  const res = await fetch(POLLINATIONS, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'openai', messages, max_tokens: 1024, temperature: 0.7 }),
-  })
-  if (!res.ok) return null
-  const data = await res.json()
-  const text = data.choices?.[0]?.message?.content
-  return text ? { text, model: 'pollinations/openai' } : null
+  // Try models in order — mistral is fastest (~3-6s), llama and openai as fallbacks
+  for (const model of ['mistral', 'llama', 'openai']) {
+    try {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 30000) // 30s per model
+      const res = await fetch(POLLINATIONS, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: ctrl.signal,
+        body: JSON.stringify({ model, messages, max_tokens: 1024, temperature: 0.7 }),
+      })
+      clearTimeout(timer)
+      if (!res.ok) continue
+      const data = await res.json()
+      const text = data.choices?.[0]?.message?.content
+      if (text && text.trim().length > 5) {
+        console.log(`[AI] Pollinations/${model}`)
+        return { text, model: `pollinations/${model}` }
+      }
+    } catch (e) {
+      console.log(`[AI] ${model} failed: ${e.message}`)
+    }
+  }
+  return null
 }
 
 // POST /api/ai/public-chat — no auth, used by Weather3D, Reports, etc.
