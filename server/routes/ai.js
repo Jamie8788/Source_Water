@@ -3,8 +3,6 @@ const db = require('../db/connection')
 const { requireAuth } = require('../middleware/auth')
 
 const POLLINATIONS = 'https://text.pollinations.ai/openai'
-const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions'
-const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 const GROQ_KEY = process.env.GROQ_API_KEY
 
@@ -24,27 +22,7 @@ You help community members, researchers, and students understand water quality d
 Be warm, encouraging, and educational. Use simple language for community members, technical detail for researchers. Always emphasize community stewardship and the sacred importance of clean water.`
 
 async function callAI(messages) {
-  // 1. DeepSeek API (fast, reliable — requires DEEPSEEK_API_KEY in Render env)
-  if (DEEPSEEK_KEY) {
-    try {
-      const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), 20000)
-      const res = await fetch(DEEPSEEK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${DEEPSEEK_KEY}` },
-        signal: ctrl.signal,
-        body: JSON.stringify({ model: 'deepseek-chat', messages, max_tokens: 1024, temperature: 0.7 }),
-      })
-      clearTimeout(timer)
-      if (res.ok) {
-        const data = await res.json()
-        const text = data.choices?.[0]?.message?.content
-        if (text?.trim().length > 5) { console.log('[AI] DeepSeek'); return { text, model: 'DeepSeek V3' } }
-      }
-    } catch (e) { console.log(`[AI] DeepSeek failed: ${e.message}`) }
-  }
-
-  // 2. Groq — free tier, fast, reliable (llama-3.1-8b-instant)
+  // 1. Groq — free tier, fast, reliable (llama-3.1-8b-instant)
   if (GROQ_KEY) {
     try {
       const ctrl = new AbortController()
