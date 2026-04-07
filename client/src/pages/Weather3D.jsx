@@ -1231,66 +1231,155 @@ function H2OIntelPanel({ weatherData, researchData }) {
 
 // NOAA buoy station IDs for Great Lakes (NDBC)
 const NOAA_BUOYS = {
-  superior: '45001', // Lake Superior
-  michigan: '45007', // Lake Michigan
-  huron:    '45003', // Lake Huron
-  erie:     '45005', // Lake Erie
-  ontario:  '45012', // Lake Ontario
+  superior: '45001',
+  michigan: '45007',
+  huron:    '45003',
+  erie:     '45005',
+  ontario:  '45012',
 }
 
-async function fetchNOAABuoy(stationId) {
+// Great Lakes centre coordinates for Open-Meteo Marine API
+const LAKE_COORDS = {
+  superior: { lat: 47.5,  lon: -87.5 },
+  michigan: { lat: 44.0,  lon: -87.0 },
+  huron:    { lat: 45.0,  lon: -83.0 },
+  erie:     { lat: 42.2,  lon: -81.2 },
+  ontario:  { lat: 43.7,  lon: -77.8 },
+}
+
+// NOAA GLERL Great Lakes water level stations
+const GLERL_STATIONS = {
+  superior: '9099004', // Marquette
+  michigan: '9075080', // Mackinaw City
+  huron:    '9075080', // shared with Michigan basin
+  erie:     '9063020', // Buffalo
+  ontario:  '9052030', // Oswego
+}
+
+// Fetch real water temp + wave data from Open-Meteo Marine API (CORS-friendly, free)
+async function fetchMarineData(lakeId) {
+  const c = LAKE_COORDS[lakeId]
+  if (!c) return null
   try {
-    const r = await fetch(`https://www.ndbc.noaa.gov/data/realtime2/${stationId}.txt`)
-    const txt = await r.text()
-    const lines = txt.trim().split('\n').filter(l => !l.startsWith('#'))
-    if (lines.length < 3) return null
-    const headers = lines[0].trim().split(/\s+/)
-    const vals    = lines[2].trim().split(/\s+/)
-    const obj = {}
-    headers.forEach((h,i) => { obj[h] = vals[i] })
+    const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${c.lat}&longitude=${c.lon}` +
+      `&current=wave_height,sea_surface_temperature` +
+      `&hourly=sea_surface_temperature,wave_height&timezone=auto&forecast_days=1`
+    const r = await fetch(url)
+    if (!r.ok) return null
+    const d = await r.json()
     return {
-      wtemp:  obj['WTMP'] !== 'MM' ? parseFloat(obj['WTMP']) : null,
-      atmp:   obj['ATMP'] !== 'MM' ? parseFloat(obj['ATMP']) : null,
-      wspd:   obj['WSPD'] !== 'MM' ? parseFloat(obj['WSPD']) : null,
-      wvht:   obj['WVHT'] !== 'MM' ? parseFloat(obj['WVHT']) : null,
-      pres:   obj['PRES'] !== 'MM' ? parseFloat(obj['PRES']) : null,
+      wtemp: d.current?.sea_surface_temperature ?? null,
+      wvht:  d.current?.wave_height ?? null,
+      // 24h history of SST for trend
+      sst_hourly: d.hourly?.sea_surface_temperature?.slice(0, 24) ?? [],
     }
+  } catch { return null }
+}
+
+// Fetch real water level from NOAA CO-OPS (Great Lakes stations)
+async function fetchWaterLevel(stationId) {
+  try {
+    const now = new Date()
+    const end = now.toISOString().slice(0,10).replace(/-/g,'')
+    const start = new Date(now - 2*24*3600*1000).toISOString().slice(0,10).replace(/-/g,'')
+    const url = `https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?begin_date=${start}&end_date=${end}` +
+      `&station=${stationId}&product=water_level&datum=IGLD&time_zone=GMT&units=metric&format=json`
+    const r = await fetch(url)
+    if (!r.ok) return null
+    const d = await r.json()
+    const readings = d.data ?? []
+    if (!readings.length) return null
+    const latest = parseFloat(readings[readings.length - 1]?.v)
+    const oldest = parseFloat(readings[0]?.v)
+    return {
+      level_m: isNaN(latest) ? null : latest,
+      trend_m: isNaN(latest) || isNaN(oldest) ? null : parseFloat((latest - oldest).toFixed(3)),
+    }
+  } catch { return null }
+}
+
+// Fetch real-time DO + turbidity from USGS Water Services (nearest Great Lakes gauge)
+const USGS_SITES = {
+  superior: '04024000', // St. Louis River (Superior inlet)
+  michigan: '04085427', // Green Bay tributary
+  huron:    '04127997', // Au Sable River (Huron tributary)
+  erie:     '04213500', // Cattaraugus Creek
+  ontario:  '04264331', // Oswego River
+}
+
+async function fetchUSGSWaterQuality(lakeId) {
+  const site = USGS_SITES[lakeId]
+  if (!site) return null
+  try {
+    // Fetch last 1 day of DO (00300) and turbidity (63680)
+    const url = `https://waterservices.usgs.gov/nwis/iv/?sites=${site}&parameterCd=00300,63680,00010&period=P1D&format=json`
+    const r = await fetch(url)
+    if (!r.ok) return null
+    const d = await r.json()
+    const series = d.value?.timeSeries ?? []
+    const result = {}
+    series.forEach(s => {
+      const code = s.variable?.variableCode?.[0]?.value
+      const vals = s.values?.[0]?.value ?? []
+      const latest = vals[vals.length - 1]
+      const v = latest ? parseFloat(latest.value) : null
+      if (code === '00300') result.do_mgl    = isNaN(v) ? null : v
+      if (code === '63680') result.turbidity = isNaN(v) ? null : v
+      if (code === '00010') result.water_temp = isNaN(v) ? null : v
+    })
+    return result
+  } catch { return null }
+}
+
+// Fetch 12-month SST history from Open-Meteo for real seasonal curve
+async function fetchMonthlySST(lakeId) {
+  const c = LAKE_COORDS[lakeId]
+  if (!c) return null
+  try {
+    const end = new Date().toISOString().slice(0,10)
+    const start = new Date(Date.now() - 365*24*3600*1000).toISOString().slice(0,10)
+    const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${c.lat}&longitude=${c.lon}` +
+      `&daily=sea_surface_temperature_max,sea_surface_temperature_min&timezone=auto&start_date=${start}&end_date=${end}`
+    const r = await fetch(url)
+    if (!r.ok) return null
+    const d = await r.json()
+    // Average by month
+    const monthly = Array(12).fill(null).map(()=>({sum:0,count:0}))
+    ;(d.daily?.time ?? []).forEach((t,i) => {
+      const m = new Date(t).getMonth()
+      const v = d.daily.sea_surface_temperature_max?.[i]
+      if (v != null && !isNaN(v)) { monthly[m].sum += v; monthly[m].count++ }
+    })
+    return monthly.map(m => m.count > 0 ? parseFloat((m.sum/m.count).toFixed(1)) : null)
   } catch { return null }
 }
 
 // ── Great Lakes Live Panel ──────────────────────────────────────────────────────
 function GreatLakesPanel() {
-  const [buoyData, setBuoyData] = useState({})
+  const [lakeData, setLakeData] = useState({})
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
-  const [backendData, setBackendData] = useState(null)
 
   useEffect(() => {
-    // Fetch NOAA buoy data for all 5 lakes in parallel
     Promise.all(
-      Object.entries(NOAA_BUOYS).map(async ([lake, id]) => {
-        const d = await fetchNOAABuoy(id)
-        return [lake, d]
+      Object.keys(LAKE_COORDS).map(async (lakeId) => {
+        const [marine, waterLevel, usgs, monthlySst] = await Promise.all([
+          fetchMarineData(lakeId),
+          fetchWaterLevel(GLERL_STATIONS[lakeId]),
+          fetchUSGSWaterQuality(lakeId),
+          fetchMonthlySST(lakeId),
+        ])
+        return [lakeId, { marine, waterLevel, usgs, monthlySst }]
       })
     ).then(results => {
       const obj = {}
-      results.forEach(([k,v]) => { obj[k] = v })
-      setBuoyData(obj)
+      results.forEach(([k, v]) => { obj[k] = v })
+      setLakeData(obj)
       setLoading(false)
     })
-    // Also try analysis backend
-    fetch(`${BACKEND}/weather/great-lakes`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setBackendData(d) })
-      .catch(() => {})
   }, [])
 
-  const month = new Date().getMonth()
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  const baseTempMap = {superior:[1,1,2,4,8,14,18,18,14,9,5,2],michigan:[1,1,3,8,14,19,23,23,19,13,7,2],huron:[1,1,3,8,14,19,22,22,18,12,6,2],erie:[2,2,4,10,16,22,25,25,21,15,8,3],ontario:[2,2,4,9,15,20,24,24,20,14,7,3]}
-  const iceMonths  = {superior:[80,85,60,20,2,0,0,0,0,2,20,55],michigan:[50,55,35,8,0,0,0,0,0,0,10,30],huron:[55,60,40,12,0,0,0,0,0,0,12,35],erie:[40,45,25,5,0,0,0,0,0,0,5,20],ontario:[15,18,8,1,0,0,0,0,0,0,1,8]}
-  const algaeMonths= {superior:[5,5,5,8,15,25,40,45,35,20,10,5],michigan:[5,5,8,12,20,35,55,60,45,25,12,5],huron:[5,5,8,12,20,35,50,55,42,22,10,5],erie:[10,10,15,20,35,55,75,80,65,35,15,10],ontario:[8,8,12,18,28,45,62,68,52,30,12,8]}
-  const doMap      = {superior:[12,12,13,13,12,11,10,9,10,11,12,12],michigan:[12,12,13,12,11,10,9,8,9,10,11,12],huron:[12,12,13,12,11,10,9,8,9,11,12,12],erie:[10,10,11,11,10,9,8,6,7,9,10,10],ontario:[11,11,12,12,11,10,9,8,9,10,11,11]}
 
   const lakes = [
     { id:'superior', name:'Superior', icon:'🔵', area:'82,100 km²', depth:'406m max', vol:'12,100 km³' },
@@ -1300,6 +1389,31 @@ function GreatLakesPanel() {
     { id:'ontario',  name:'Ontario',  icon:'🔷', area:'18,960 km²', depth:'244m max', vol:'1,640 km³' },
   ]
 
+  // Derive WQI from real sensor values
+  function calcWQI(wtemp, doVal, turbidity) {
+    let score = 100
+    if (doVal != null) score -= doVal < 5 ? 35 : doVal < 7 ? 15 : doVal < 9 ? 5 : 0
+    if (turbidity != null) score -= turbidity > 100 ? 25 : turbidity > 30 ? 12 : turbidity > 10 ? 5 : 0
+    if (wtemp != null) score -= wtemp > 27 ? 15 : wtemp > 24 ? 7 : 0
+    return Math.max(0, Math.round(score))
+  }
+
+  // Generate ML insight text from real values
+  function mlInsight(l, wtemp, doVal, turbidity, wvht, waterLevel) {
+    if (doVal != null && doVal < 5)
+      return `Lake ${l.name} shows critically low dissolved oxygen (${doVal.toFixed(1)} mg/L — below 5 mg/L WHO minimum). Hypoxic conditions are active; fish kills and anaerobic decomposition are probable. Immediate monitoring of water intake facilities required.`
+    if (turbidity != null && turbidity > 80)
+      return `High turbidity detected in Lake ${l.name} inlet (${turbidity.toFixed(0)} NTU). This level typically indicates recent runoff or algal activity. Chlorophyll-a testing and cyanotoxin screening advised at water treatment plants.`
+    if (wtemp != null && wtemp > 24)
+      return `Lake ${l.name} surface temperature is elevated (${wtemp.toFixed(1)}°C). Temperatures above 24°C accelerate cyanobacteria proliferation. Recommend chlorophyll-a monitoring and beach advisories for shoreline areas.`
+    if (wtemp != null && wtemp < 2)
+      return `Lake ${l.name} near-surface temperature is ${wtemp.toFixed(1)}°C — ice formation conditions. Water clarity typically peaks under ice cover. Prepare contingency plans for spring ice-out nutrient flush and increased runoff contamination risk.`
+    const doStr = doVal != null ? ` DO at ${doVal.toFixed(1)} mg/L is ${doVal >= 9 ? 'excellent' : doVal >= 7 ? 'good' : 'acceptable'}.` : ''
+    const turbStr = turbidity != null ? ` Turbidity ${turbidity.toFixed(0)} NTU — ${turbidity < 5 ? 'excellent clarity' : turbidity < 15 ? 'good clarity' : 'moderate turbidity'}.` : ''
+    const wlStr = waterLevel?.level_m != null ? ` Water level ${waterLevel.level_m.toFixed(2)} m IGLD (${waterLevel.trend_m > 0 ? '↑' : waterLevel.trend_m < 0 ? '↓' : '→'} ${Math.abs(waterLevel.trend_m ?? 0).toFixed(2)} m/2d).` : ''
+    return `Lake ${l.name} conditions nominal.${doStr}${turbStr}${wlStr} Routine monitoring sufficient.`
+  }
+
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
 
@@ -1307,18 +1421,17 @@ function GreatLakesPanel() {
       <div style={{ padding:'10px 12px', borderRadius:10, background:'linear-gradient(135deg,rgba(56,189,248,0.1),rgba(99,102,241,0.08))', border:'1px solid rgba(56,189,248,0.2)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <div>
           <div style={{ fontSize:11, fontWeight:800, color:'#38bdf8', letterSpacing:'0.08em' }}>SOURCE WATER</div>
-          <div style={{ fontSize:9, color:'#475569', marginTop:1 }}>Great Lakes Research Intelligence · NOAA Buoy Network</div>
+          <div style={{ fontSize:9, color:'#475569', marginTop:1 }}>Great Lakes Research Intelligence · Open-Meteo Marine · NOAA CO-OPS · USGS</div>
         </div>
         <div style={{ fontSize:9, color: loading?'#f59e0b':'#10b981', fontWeight:700 }}>
-          {loading ? '⟳ Fetching NOAA…' : '● Live Data'}
+          {loading ? '⟳ Loading APIs…' : '● Live Data'}
         </div>
       </div>
 
       {/* Lake pill selector */}
       <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
         {lakes.map(l => {
-          const buoy = buoyData[l.id]
-          const liveTemp = buoy?.wtemp
+          const wtemp = lakeData[l.id]?.marine?.wtemp ?? lakeData[l.id]?.usgs?.water_temp ?? null
           return (
             <button key={l.id} onClick={() => setSelected(selected===l.id ? null : l.id)}
               style={{ padding:'4px 10px', borderRadius:20, fontSize:10, cursor:'pointer', fontFamily:'inherit',
@@ -1326,7 +1439,7 @@ function GreatLakesPanel() {
                 border: selected===l.id ? '1px solid rgba(56,189,248,0.4)' : '1px solid rgba(255,255,255,0.08)',
                 color: selected===l.id ? '#38bdf8' : '#64748b', fontWeight: selected===l.id ? 700 : 400,
               }}>
-              {l.icon} {l.name}{liveTemp ? ` ${liveTemp}°` : ''}
+              {l.icon} {l.name}{wtemp != null ? ` ${wtemp.toFixed(1)}°` : ''}
             </button>
           )
         })}
@@ -1336,14 +1449,11 @@ function GreatLakesPanel() {
       {!selected && (
         <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
           {lakes.map(l => {
-            const buoy = buoyData[l.id]
-            const seasonTemp = baseTempMap[l.id]?.[month] ?? 12
-            const liveTemp = buoy?.wtemp ?? null
-            const displayTemp = liveTemp ?? seasonTemp
-            const icePct  = iceMonths[l.id]?.[month] ?? 0
-            const algaePct= algaeMonths[l.id]?.[month] ?? 0
-            const doVal   = doMap[l.id]?.[month] ?? 10
-            const wqi = Math.round(Math.max(0, 100 - algaePct*0.4 - icePct*0.1 - (doVal<7?20:0) - (liveTemp&&liveTemp>25?10:0)))
+            const d = lakeData[l.id] ?? {}
+            const wtemp = d.marine?.wtemp ?? d.usgs?.water_temp ?? null
+            const doVal = d.usgs?.do_mgl ?? null
+            const turbidity = d.usgs?.turbidity ?? null
+            const wqi = calcWQI(wtemp, doVal, turbidity)
             const col = wqi>75?'#10b981':wqi>50?'#38bdf8':'#f59e0b'
             return (
               <div key={l.id} onClick={() => setSelected(l.id)}
@@ -1357,12 +1467,12 @@ function GreatLakesPanel() {
                   </div>
                   <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                     <div style={{ textAlign:'center' }}>
-                      <div style={{ fontSize:8, color:'#475569' }}>{liveTemp ? '🛰 NOAA' : 'Season'}</div>
-                      <div style={{ fontSize:13, fontWeight:700, color:'#38bdf8' }}>{displayTemp}°C</div>
+                      <div style={{ fontSize:8, color:'#475569' }}>SST</div>
+                      <div style={{ fontSize:13, fontWeight:700, color:'#38bdf8' }}>{wtemp != null ? `${wtemp.toFixed(1)}°C` : loading ? '…' : '–'}</div>
                     </div>
                     <div style={{ textAlign:'center' }}>
                       <div style={{ fontSize:8, color:'#475569' }}>DO</div>
-                      <div style={{ fontSize:13, fontWeight:700, color:doVal>=8?'#10b981':'#f59e0b' }}>{doVal}</div>
+                      <div style={{ fontSize:13, fontWeight:700, color: doVal!=null?(doVal>=8?'#10b981':'#f59e0b'):'#334155' }}>{doVal != null ? doVal.toFixed(1) : '–'}</div>
                     </div>
                     <div style={{ textAlign:'center' }}>
                       <div style={{ fontSize:8, color:'#475569' }}>WQI</div>
@@ -1374,7 +1484,7 @@ function GreatLakesPanel() {
             )
           })}
           <div style={{ padding:'7px 10px', borderRadius:8, background:'rgba(56,189,248,0.05)', border:'1px solid rgba(56,189,248,0.12)', fontSize:9, color:'#475569', lineHeight:1.6 }}>
-            🛰 Water temps from NOAA buoy network (real-time when available). DO = Dissolved Oxygen mg/L. Click any lake for full ML analysis.
+            🌊 SST from Open-Meteo Marine API · DO &amp; turbidity from USGS gauges · Water levels from NOAA CO-OPS. All real-time. Click any lake for full analysis.
           </div>
         </div>
       )}
@@ -1382,16 +1492,21 @@ function GreatLakesPanel() {
       {/* Detailed lake view */}
       {selected && (() => {
         const l = lakes.find(x=>x.id===selected)
-        const buoy = buoyData[l.id]
-        const seasonTemp = baseTempMap[l.id]?.[month] ?? 12
-        const liveTemp = buoy?.wtemp ?? null
-        const icePct   = iceMonths[l.id]?.[month] ?? 0
-        const algaePct = algaeMonths[l.id]?.[month] ?? 0
-        const algaeCol = algaePct>60?'#ef4444':algaePct>30?'#f59e0b':'#10b981'
-        const doVal    = doMap[l.id]?.[month] ?? 10
-        const historicalTemps = baseTempMap[l.id] ?? Array(12).fill(12)
-        const tempData = months.map((m,i) => ({ month:m, temp:historicalTemps[i], do:doMap[l.id]?.[i]??10 }))
-        const wqi = Math.round(Math.max(0, 100 - algaePct*0.4 - icePct*0.1 - (doVal<7?20:0)))
+        const d = lakeData[l.id] ?? {}
+        const wtemp  = d.marine?.wtemp ?? d.usgs?.water_temp ?? null
+        const wvht   = d.marine?.wvht ?? null
+        const doVal  = d.usgs?.do_mgl ?? null
+        const turbidity = d.usgs?.turbidity ?? null
+        const waterLevel = d.waterLevel ?? null
+        const monthlySst = d.monthlySst ?? Array(12).fill(null)
+        const wqi    = calcWQI(wtemp, doVal, turbidity)
+        const doColor = doVal!=null ? (doVal>=9?'#10b981':doVal>=7?'#38bdf8':'#f59e0b') : '#334155'
+        const turbColor = turbidity!=null ? (turbidity<5?'#10b981':turbidity<30?'#38bdf8':'#f59e0b') : '#334155'
+        const tempData = months.map((m,i) => ({
+          month: m,
+          temp: monthlySst[i] ?? null,
+          do: doVal ?? null,
+        }))
 
         return (
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
@@ -1400,19 +1515,29 @@ function GreatLakesPanel() {
               <button onClick={()=>setSelected(null)} style={{ fontSize:10, color:'#475569', background:'none', border:'none', cursor:'pointer', fontFamily:'inherit' }}>← All Lakes</button>
             </div>
 
-            {/* NOAA live card */}
-            {buoy && (
+            {/* Open-Meteo Marine live card */}
+            {d.marine && (
               <div style={{ padding:'8px 12px', borderRadius:9, background:'rgba(56,189,248,0.08)', border:'1px solid rgba(56,189,248,0.2)', display:'flex', flexWrap:'wrap', gap:10 }}>
-                <div style={{ fontSize:9, color:'#38bdf8', fontWeight:700, width:'100%' }}>🛰 NOAA Buoy {NOAA_BUOYS[l.id]} — Live</div>
-                {buoy.wtemp!=null && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>Water Temp</div><div style={{fontSize:13,fontWeight:700,color:'#38bdf8'}}>{buoy.wtemp}°C</div></div>}
-                {buoy.atmp!=null  && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>Air Temp</div><div style={{fontSize:13,fontWeight:700,color:'#94a3b8'}}>{buoy.atmp}°C</div></div>}
-                {buoy.wspd!=null  && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>Wind</div><div style={{fontSize:13,fontWeight:700,color:'#94a3b8'}}>{buoy.wspd}m/s</div></div>}
-                {buoy.wvht!=null  && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>Wave Ht</div><div style={{fontSize:13,fontWeight:700,color:'#94a3b8'}}>{buoy.wvht}m</div></div>}
+                <div style={{ fontSize:9, color:'#38bdf8', fontWeight:700, width:'100%' }}>🌊 Open-Meteo Marine — Real-Time SST</div>
+                {wtemp!=null && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>Sea Surface Temp</div><div style={{fontSize:13,fontWeight:700,color:'#38bdf8'}}>{wtemp.toFixed(1)}°C</div></div>}
+                {wvht!=null  && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>Wave Height</div><div style={{fontSize:13,fontWeight:700,color:'#94a3b8'}}>{wvht.toFixed(2)} m</div></div>}
+                {waterLevel?.level_m!=null && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>Water Level</div><div style={{fontSize:13,fontWeight:700,color:'#a5b4fc'}}>{waterLevel.level_m.toFixed(2)} m</div></div>}
+                {waterLevel?.trend_m!=null && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>2-Day Trend</div><div style={{fontSize:13,fontWeight:700,color:waterLevel.trend_m>0?'#f59e0b':'#10b981'}}>{waterLevel.trend_m>0?'+':''}{waterLevel.trend_m.toFixed(3)} m</div></div>}
               </div>
             )}
 
-            {/* Temp + DO dual chart */}
-            <div style={{ fontSize:9, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:2 }}>Seasonal Temp (°C) + Dissolved O₂ (mg/L)</div>
+            {/* USGS water quality card */}
+            {d.usgs && (doVal!=null || turbidity!=null) && (
+              <div style={{ padding:'8px 12px', borderRadius:9, background:'rgba(16,185,129,0.07)', border:'1px solid rgba(16,185,129,0.2)', display:'flex', flexWrap:'wrap', gap:10 }}>
+                <div style={{ fontSize:9, color:'#10b981', fontWeight:700, width:'100%' }}>🧪 USGS Water Quality — Tributary Gauge (site {USGS_SITES[l.id]})</div>
+                {doVal!=null    && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>Dissolved O₂</div><div style={{fontSize:13,fontWeight:700,color:doColor}}>{doVal.toFixed(1)} mg/L</div></div>}
+                {turbidity!=null && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>Turbidity</div><div style={{fontSize:13,fontWeight:700,color:turbColor}}>{turbidity.toFixed(0)} NTU</div></div>}
+                {d.usgs.water_temp!=null && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>Water Temp</div><div style={{fontSize:13,fontWeight:700,color:'#38bdf8'}}>{d.usgs.water_temp.toFixed(1)}°C</div></div>}
+              </div>
+            )}
+
+            {/* 12-month SST chart from Open-Meteo historical */}
+            <div style={{ fontSize:9, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:2 }}>12-Month SST History (°C) — Open-Meteo Marine</div>
             <ResponsiveContainer width="100%" height={100}>
               <AreaChart data={tempData} margin={{top:2,right:2,left:-30,bottom:0}}>
                 <defs>
@@ -1428,21 +1553,21 @@ function GreatLakesPanel() {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
                 <XAxis dataKey="month" tick={{fill:'#475569',fontSize:8}} axisLine={false} tickLine={false}/>
                 <YAxis tick={{fill:'#475569',fontSize:8}} axisLine={false} tickLine={false}/>
-                <Tooltip contentStyle={{background:'#0f172a',border:'1px solid rgba(255,255,255,0.1)',borderRadius:6,fontSize:9}} formatter={(v,n)=>[v, n==='temp'?'Temp °C':'DO mg/L']}/>
-                <Area type="monotone" dataKey="temp" stroke="#38bdf8" fill={`url(#lakeGrad_${l.id})`} strokeWidth={2} dot={false}/>
-                <Area type="monotone" dataKey="do"   stroke="#10b981" fill={`url(#doGrad_${l.id})`}   strokeWidth={1.5} dot={false}/>
+                <Tooltip contentStyle={{background:'#0f172a',border:'1px solid rgba(255,255,255,0.1)',borderRadius:6,fontSize:9}} formatter={(v,n)=>[v!=null?v:'N/A', n==='temp'?'SST °C':'DO mg/L']}/>
+                <Area type="monotone" dataKey="temp" stroke="#38bdf8" fill={`url(#lakeGrad_${l.id})`} strokeWidth={2} dot={false} connectNulls/>
+                {doVal!=null && <Area type="monotone" dataKey="do" stroke="#10b981" fill={`url(#doGrad_${l.id})`} strokeWidth={1.5} dot={false} connectNulls/>}
               </AreaChart>
             </ResponsiveContainer>
 
             {/* Key metrics grid */}
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5 }}>
               {[
-                { label:'Live/Season Temp',    val: liveTemp ? `${liveTemp}°C 🛰` : `${seasonTemp}°C`, icon:'🌡️', color:'#38bdf8' },
-                { label:'Dissolved Oxygen',    val:`${doVal} mg/L`,       icon:'💧', color:doVal>=8?'#10b981':'#f59e0b' },
-                { label:'Ice Cover (seasonal)',val:`${icePct}%`,           icon:'🧊', color:icePct>50?'#38bdf8':'#64748b' },
-                { label:'Algae Risk',          val:`${algaePct}%`,         icon:'🌿', color:algaeCol },
-                { label:'Volume',              val:l.vol,                  icon:'🌊', color:'#a5b4fc' },
-                { label:'WQI Score',           val:`${wqi}/100`,           icon:'📊', color:wqi>75?'#10b981':wqi>50?'#38bdf8':'#f59e0b' },
+                { label:'Sea Surface Temp',   val: wtemp!=null ? `${wtemp.toFixed(1)}°C` : '–',            icon:'🌡️', color:'#38bdf8' },
+                { label:'Dissolved Oxygen',   val: doVal!=null ? `${doVal.toFixed(1)} mg/L` : '–',          icon:'💧', color:doColor },
+                { label:'Turbidity',          val: turbidity!=null ? `${turbidity.toFixed(0)} NTU` : '–',   icon:'🌊', color:turbColor },
+                { label:'Wave Height',        val: wvht!=null ? `${wvht.toFixed(2)} m` : '–',               icon:'〰️', color:'#a5b4fc' },
+                { label:'Volume',             val: l.vol,                                                    icon:'💠', color:'#64748b' },
+                { label:'WQI Score',          val:`${wqi}/100`,                                              icon:'📊', color:wqi>75?'#10b981':wqi>50?'#38bdf8':'#f59e0b' },
               ].map(m=>(
                 <div key={m.label} style={{ padding:'7px 9px', borderRadius:9, background:`${m.color}0d`, border:`1px solid ${m.color}20` }}>
                   <div style={{ fontSize:8, color:'#475569' }}>{m.icon} {m.label}</div>
@@ -1454,13 +1579,7 @@ function GreatLakesPanel() {
             {/* SOURCE Water ML Insight */}
             <div style={{ padding:'10px 12px', borderRadius:10, background:'linear-gradient(135deg,rgba(99,102,241,0.07),rgba(56,189,248,0.05))', border:'1px solid rgba(99,102,241,0.2)', fontSize:10, color:'#64748b', lineHeight:1.7 }}>
               <div style={{ fontSize:9, fontWeight:800, color:'#a5b4fc', marginBottom:4, letterSpacing:'0.05em' }}>SOURCE WATER · ML INSIGHT</div>
-              {algaePct > 60
-                ? `Lake ${l.name} is in peak bloom season (algae risk ${algaePct}%). Cyanobacteria probability is elevated — avoid recreational contact near shorelines. Monitor chlorophyll-a and dissolved oxygen at water intake points.`
-                : algaePct > 30
-                ? `Moderate algal activity in Lake ${l.name} (risk ${algaePct}%). Chlorophyll-a and DO monitoring recommended at water intake facilities. Current DO of ${doVal} mg/L is ${doVal>=6?'within':'below'} the 6 mg/L WHO minimum.`
-                : icePct > 50
-                ? `Lake ${l.name} has significant ice cover (~${icePct}%). Water clarity is typically high under ice. Prepare for spring ice-out nutrient flush — peak runoff contamination risk expected in ${months[(month+1)%12]}.`
-                : `Lake ${l.name} conditions are favourable for water quality (WQI ${wqi}/100). DO at ${doVal} mg/L is ${doVal>=8?'optimal':'acceptable'}. Routine monitoring sufficient. Next algae risk window: ${months.find((_,i)=>algaeMonths[l.id][i]>30&&i>month)||'next season'}.`}
+              {mlInsight(l, wtemp, doVal, turbidity, wvht, waterLevel)}
             </div>
           </div>
         )
