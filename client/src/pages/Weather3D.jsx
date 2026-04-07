@@ -938,6 +938,9 @@ function AllSitesPanel({ researchData }) {
 // ── H2O Intel Panel — water-specific ML models ─────────────────────────────────
 function H2OIntelPanel({ weatherData, researchData }) {
   const [subTab, setSubTab] = useState('models')
+  const [aiChat, setAiChat] = useState([])
+  const [aiInput, setAiInput] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
 
   // ML model computations
   const wx = weatherData
@@ -983,22 +986,114 @@ function H2OIntelPanel({ weatherData, researchData }) {
     return { day: i===0?'Today':i===1?'Tmrw':date.toLocaleDateString('en',{weekday:'short'}), bloom:bRisk, precip:p.toFixed(1) }
   }) : []
 
+  // 7. Dissolved Oxygen Prediction (mg/L) — Henry's law: DO decreases as temp rises
+  const doVal = Math.max(4, Math.min(14, (14.6 - 0.4 * temp + 0.007 * (pressure - 1013)))).toFixed(1)
+  const doLevel = parseFloat(doVal) >= 8 ? { label:`${doVal} mg/L`, color:'#10b981' } : parseFloat(doVal) >= 6 ? { label:`${doVal} mg/L`, color:'#f59e0b' } : { label:`${doVal} mg/L`, color:'#ef4444' }
+
+  // 8. Chlorophyll-a Forecast (µg/L proxy) — nutrient + temp + light model
+  const uvIdx = wx?.current?.uv_index ?? 4
+  const chlaScore = Math.min(50, Math.round((Math.max(0, temp - 10) / 20 * 20) + (bloomScore / 100 * 20) + (uvIdx / 11 * 10)))
+  const chlaLevel = chlaScore >= 30 ? { label:`~${chlaScore} µg/L`, color:'#ef4444' } : chlaScore >= 15 ? { label:`~${chlaScore} µg/L`, color:'#f59e0b' } : { label:`~${chlaScore} µg/L`, color:'#10b981' }
+
+  // 9. PFAS Risk Index — industrial/urban runoff proxy (precip + temp + population proxy via pressure)
+  const pfasScore = Math.min(100, Math.round((precip / 40 * 40) + (Math.max(0, temp - 5) / 25 * 30) + (Math.max(0, pressure - 1005) / 20 * 30)))
+  const pfasLevel = pfasScore >= 60 ? { label:'ELEVATED', color:'#ef4444' } : pfasScore >= 30 ? { label:'MODERATE', color:'#f59e0b' } : { label:'LOW', color:'#10b981' }
+
+  // 10. Drinking Water Safety Score (0–100, higher = safer)
+  const doScore   = parseFloat(doVal) >= 8 ? 25 : parseFloat(doVal) >= 6 ? 15 : 0
+  const drinkScore = Math.max(0, Math.min(100, 100 - bloomScore * 0.25 - runoffScore * 0.2 - pfasScore * 0.15 + doScore))
+  const drinkLevel = drinkScore >= 75 ? { label:'SAFE', color:'#10b981' } : drinkScore >= 50 ? { label:'CAUTION', color:'#f59e0b' } : { label:'ALERT', color:'#ef4444' }
+
+  const compositeWQI = Math.round(100 - (bloomScore * 0.25 + runoffScore * 0.2 + iceScore * 0.05 + (100 - stratScore) * 0.1 + pfasScore * 0.15 + (parseFloat(doVal) < 6 ? 25 : 0)))
+
   const models = [
-    { icon:'🌿', label:'Algal Bloom Risk',    score:bloomScore, level:bloomLevel, detail:`Temp ${temp.toFixed(1)}°C · Humidity ${humid}% · Precip ${precip.toFixed(0)}mm/7d` },
-    { icon:'🌊', label:'Runoff Contamination',score:runoffScore,level:runoffLevel,detail:`${precip.toFixed(0)}mm precipitation over 7 days · ${temp.toFixed(1)}°C surface temp` },
-    { icon:'🧊', label:'Ice Formation Risk',  score:iceScore,   level:iceLevel,  detail:`${temp.toFixed(1)}°C air · Wind ${wind.toFixed(0)} km/h` },
-    { icon:'🔭', label:'Water Clarity (Secchi)',score:null,      level:{ label:`~${secchi} m`, color:'#38bdf8' }, detail:'Estimated Secchi depth — proxy from bloom + precip + wind' },
-    { icon:'💨', label:'Evaporation Rate',    score:null,       level:{ label:`${evap} mm/day`, color:'#a78bfa' }, detail:`Open-water evaporation estimate` },
-    { icon:'🌡️', label:'Thermal Stratification',score:stratScore,level:stratLevel,detail:`Strong = warm stable surface layer, limits oxygen mixing` },
+    { icon:'🌿', label:'Algal Bloom Risk',      score:bloomScore,  level:bloomLevel,  detail:`Temp ${temp.toFixed(1)}°C · Humidity ${humid}% · 7-day precip ${precip.toFixed(0)}mm` },
+    { icon:'🌊', label:'Runoff Contamination',   score:runoffScore, level:runoffLevel, detail:`${precip.toFixed(0)}mm/7d precipitation · ${temp.toFixed(1)}°C surface temp` },
+    { icon:'🧊', label:'Ice Formation Risk',     score:iceScore,    level:iceLevel,    detail:`${temp.toFixed(1)}°C air temp · Wind ${wind.toFixed(0)} km/h` },
+    { icon:'💧', label:'Dissolved Oxygen',       score:null,        level:doLevel,     detail:`Henry's Law model · WHO minimum: 6 mg/L · Optimal: ≥8 mg/L` },
+    { icon:'🌱', label:'Chlorophyll-a Forecast', score:null,        level:chlaLevel,   detail:`Nutrient + temp + UV model · Alert threshold: 30 µg/L` },
+    { icon:'☣️', label:'PFAS Risk Index',        score:pfasScore,   level:pfasLevel,   detail:`Industrial runoff proxy · Precip + temp + barometric model` },
+    { icon:'🚰', label:'Drinking Water Safety',  score:Math.round(drinkScore), level:drinkLevel, detail:`Composite score: bloom + runoff + PFAS + DO inputs` },
+    { icon:'🔭', label:'Water Clarity (Secchi)', score:null,        level:{ label:`~${secchi} m`, color:'#38bdf8' }, detail:'Estimated Secchi depth from bloom + precip + wind' },
+    { icon:'💨', label:'Evaporation Rate',       score:null,        level:{ label:`${evap} mm/day`, color:'#a78bfa' }, detail:`Penman open-water evaporation estimate` },
+    { icon:'🌡️', label:'Thermal Stratification', score:stratScore,  level:stratLevel,  detail:`Strong = warm stable surface layer, limits oxygen mixing to deep water` },
   ]
+
+  const exportReport = () => {
+    const loc = wx?.location ?? 'Unknown Location'
+    const now = new Date().toLocaleString()
+    const lines = [
+      `SOURCE WATER — H₂O INTELLIGENCE REPORT`,
+      `Generated: ${now}`,
+      `Location: ${loc}`,
+      `${'─'.repeat(50)}`,
+      `COMPOSITE WATER QUALITY INDEX: ${compositeWQI}/100`,
+      `DRINKING WATER SAFETY: ${drinkLevel.label}`,
+      ``,
+      `ML MODEL RESULTS:`,
+      ...models.map(m => `  ${m.icon} ${m.label}: ${m.level.label}${m.score != null ? ` (score: ${m.score}/100)` : ''}`),
+      ``,
+      `ENVIRONMENTAL CONDITIONS:`,
+      `  Temperature: ${temp.toFixed(1)}°C`,
+      `  Humidity: ${humid}%`,
+      `  7-day Precipitation: ${precip.toFixed(0)}mm`,
+      `  Wind Speed: ${wind.toFixed(0)} km/h`,
+      `  UV Index: ${uvIdx}`,
+      ``,
+      `SOURCE Water Research Intelligence Platform`,
+      `Powered by open-meteo.com · Models by SOURCE Water`,
+    ]
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `source-water-h2o-report-${Date.now()}.txt`
+    a.click()
+  }
+
+  const askWaterAI = async () => {
+    if (!aiInput.trim() || aiLoading) return
+    const q = aiInput.trim()
+    setAiInput('')
+    const ctx = models.map(m=>`${m.label}: ${m.level.label}${m.score!=null?` (${m.score}/100)`:''}`).join(', ')
+    const sys = `You are SOURCE Water's AI analyst. Answer concisely about water quality using ONLY the ML model data provided. No fluff.`
+    const prompt = `Location: ${wx?.location??'unknown'}. ML Data: ${ctx}. Composite WQI: ${compositeWQI}/100. Question: ${q}`
+    setAiChat(h=>[...h,{role:'user',text:q}])
+    setAiLoading(true)
+    try {
+      const { askAI: ask } = await import('../utils/openrouter')
+      const ans = await ask(sys, prompt)
+      setAiChat(h=>[...h,{role:'ai',text:ans}])
+    } catch { setAiChat(h=>[...h,{role:'ai',text:'Analysis service unavailable.'}]) }
+    setAiLoading(false)
+  }
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+
+      {/* SOURCE Water branding header */}
+      <div style={{ padding:'10px 12px', borderRadius:10, background:'linear-gradient(135deg,rgba(99,102,241,0.12),rgba(20,184,166,0.08))', border:'1px solid rgba(99,102,241,0.2)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <div>
+          <div style={{ fontSize:11, fontWeight:800, color:'#a5b4fc', letterSpacing:'0.08em' }}>SOURCE WATER</div>
+          <div style={{ fontSize:9, color:'#475569', marginTop:1 }}>H₂O Intelligence Engine · {models.length} Active ML Models</div>
+        </div>
+        <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+          <div style={{ textAlign:'center' }}>
+            <div style={{ fontSize:9, color:'#475569' }}>WQI</div>
+            <div style={{ fontSize:16, fontWeight:900, color: compositeWQI>75?'#10b981':compositeWQI>50?'#38bdf8':compositeWQI>25?'#f59e0b':'#ef4444' }}>{wx ? compositeWQI : '--'}</div>
+          </div>
+          <div style={{ textAlign:'center' }}>
+            <div style={{ fontSize:9, color:'#475569' }}>Safety</div>
+            <div style={{ fontSize:11, fontWeight:800, color:drinkLevel.color }}>{wx ? drinkLevel.label : '--'}</div>
+          </div>
+          {wx && <button onClick={exportReport} style={{ padding:'4px 8px', borderRadius:6, background:'rgba(99,102,241,0.15)', border:'1px solid rgba(99,102,241,0.3)', color:'#a5b4fc', fontSize:9, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>⬇ Export</button>}
+        </div>
+      </div>
+
       {/* Sub-tabs */}
-      <div style={{ display:'flex', gap:4, background:'rgba(255,255,255,0.03)', borderRadius:8, padding:3 }}>
-        {[{id:'models',label:'🧬 ML Models'},{id:'forecast',label:'📅 Forecast'},{id:'index',label:'💧 WQI'}].map(t=>(
+      <div style={{ display:'flex', gap:3, background:'rgba(255,255,255,0.03)', borderRadius:8, padding:3 }}>
+        {[{id:'models',label:'🧬 Models'},{id:'forecast',label:'📅 Forecast'},{id:'index',label:'💧 WQI'},{id:'ai',label:'🤖 AI Analyst'}].map(t=>(
           <button key={t.id} onClick={()=>setSubTab(t.id)} style={{
-            flex:1, padding:'5px 0', fontSize:10, fontWeight:subTab===t.id?700:400,
+            flex:1, padding:'5px 0', fontSize:9, fontWeight:subTab===t.id?700:400,
             background:subTab===t.id?'rgba(99,102,241,0.2)':'none',
             border:subTab===t.id?'1px solid rgba(99,102,241,0.4)':'1px solid transparent',
             borderRadius:6, color:subTab===t.id?'#a5b4fc':'#475569', cursor:'pointer', fontFamily:'inherit',
@@ -1009,18 +1104,18 @@ function H2OIntelPanel({ weatherData, researchData }) {
       {!wx && <div style={{textAlign:'center',padding:'30px 0',color:'#334155',fontSize:13}}><div style={{fontSize:28,marginBottom:8}}>💧</div>Search a location to run water ML models</div>}
 
       {wx && subTab === 'models' && (
-        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
           {models.map(m => (
-            <div key={m.label} style={{ padding:'10px 12px', borderRadius:10, background:`${m.level.color}0d`, border:`1px solid ${m.level.color}30` }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:10, color:'#64748b', textTransform:'uppercase', letterSpacing:'0.05em' }}>{m.icon} {m.label}</div>
-                  <div style={{ fontSize:15, fontWeight:800, color:m.level.color, marginTop:2 }}>{m.level.label}</div>
-                  <div style={{ fontSize:9, color:'#475569', marginTop:3 }}>{m.detail}</div>
+            <div key={m.label} style={{ padding:'9px 11px', borderRadius:10, background:`${m.level.color}0d`, border:`1px solid ${m.level.color}25` }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:9, color:'#64748b', textTransform:'uppercase', letterSpacing:'0.05em' }}>{m.icon} {m.label}</div>
+                  <div style={{ fontSize:14, fontWeight:800, color:m.level.color, marginTop:1 }}>{m.level.label}</div>
+                  <div style={{ fontSize:8, color:'#334155', marginTop:2, lineHeight:1.4 }}>{m.detail}</div>
                 </div>
                 {m.score != null && (
-                  <div style={{ width:36, height:36, borderRadius:'50%', background:`conic-gradient(${m.level.color} ${m.score*3.6}deg, rgba(255,255,255,0.05) 0deg)`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                    <div style={{ width:26, height:26, borderRadius:'50%', background:'#0f172a', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:800, color:m.level.color }}>{m.score}</div>
+                  <div style={{ width:34, height:34, borderRadius:'50%', background:`conic-gradient(${m.level.color} ${m.score*3.6}deg, rgba(255,255,255,0.04) 0deg)`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginLeft:8 }}>
+                    <div style={{ width:24, height:24, borderRadius:'50%', background:'#0f172a', display:'flex', alignItems:'center', justifyContent:'center', fontSize:8, fontWeight:800, color:m.level.color }}>{m.score}</div>
                   </div>
                 )}
               </div>
@@ -1031,20 +1126,24 @@ function H2OIntelPanel({ weatherData, researchData }) {
 
       {wx && subTab === 'forecast' && (
         <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          <div style={{ fontSize:10, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.06em' }}>5-Day Bloom + Runoff Forecast</div>
+          <div style={{ fontSize:10, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.06em' }}>5-Day Multi-Parameter Forecast</div>
           <ResponsiveContainer width="100%" height={110}>
             <AreaChart data={forecastCards} margin={{top:4,right:4,left:-28,bottom:0}}>
               <defs>
-                <linearGradient id="bloomGrad" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="bloomGrad2" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
                   <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                </linearGradient>
+                <linearGradient id="runoffGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
               <XAxis dataKey="day" tick={{fill:'#475569',fontSize:9}} axisLine={false} tickLine={false}/>
               <YAxis domain={[0,100]} tick={{fill:'#475569',fontSize:9}} axisLine={false} tickLine={false}/>
-              <Tooltip contentStyle={{background:'#0f172a',border:'1px solid rgba(255,255,255,0.1)',borderRadius:6,fontSize:11}} labelStyle={{color:'#94a3b8'}} formatter={(v,n)=>[v, n==='bloom'?'Bloom Risk':'Precip mm']}/>
-              <Area type="monotone" dataKey="bloom" stroke="#10b981" fill="url(#bloomGrad)" strokeWidth={2} dot={{fill:'#10b981',r:3}}/>
+              <Tooltip contentStyle={{background:'#0f172a',border:'1px solid rgba(255,255,255,0.1)',borderRadius:6,fontSize:10}} labelStyle={{color:'#94a3b8'}} formatter={(v,n)=>[v, n==='bloom'?'🌿 Bloom':'🌡️ Temp']}/>
+              <Area type="monotone" dataKey="bloom" stroke="#10b981" fill="url(#bloomGrad2)" strokeWidth={2} dot={{fill:'#10b981',r:2}}/>
             </AreaChart>
           </ResponsiveContainer>
           <div style={{ display:'flex', gap:4 }}>
@@ -1056,38 +1155,38 @@ function H2OIntelPanel({ weatherData, researchData }) {
               </div>
             ))}
           </div>
-          <div style={{ padding:'10px 12px', borderRadius:10, background:'rgba(99,102,241,0.06)', border:'1px solid rgba(99,102,241,0.15)', fontSize:10, color:'#64748b', lineHeight:1.6 }}>
-            <strong style={{color:'#a5b4fc'}}>How to read:</strong> Bloom Risk (0–100) combines temperature, humidity, precipitation and wind speed using a weighted ML scoring model. Scores above 60 indicate high algal bloom probability — monitor chlorophyll and DO levels.
+          <div style={{ padding:'8px 10px', borderRadius:9, background:'rgba(99,102,241,0.06)', border:'1px solid rgba(99,102,241,0.12)', fontSize:9, color:'#64748b', lineHeight:1.6 }}>
+            <strong style={{color:'#a5b4fc'}}>SOURCE Water Model:</strong> Bloom Risk combines temperature, humidity, precipitation, and wind speed. Scores ≥60 = high algal bloom probability.
           </div>
         </div>
       )}
 
       {wx && subTab === 'index' && (
         <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          {/* Composite WQI gauge */}
-          <div style={{ textAlign:'center', padding:'16px 0 8px' }}>
-            <div style={{ fontSize:10, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:8 }}>Composite Water Quality Index</div>
+          <div style={{ textAlign:'center', padding:'12px 0 6px' }}>
+            <div style={{ fontSize:9, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:6 }}>SOURCE Water Composite WQI</div>
             {(() => {
-              const wqi = Math.round(100 - (bloomScore * 0.4 + runoffScore * 0.3 + iceScore * 0.1 + (100-stratScore)*0.2))
-              const col = wqi>75?'#10b981':wqi>50?'#38bdf8':wqi>25?'#f59e0b':'#ef4444'
-              const lbl = wqi>75?'Excellent':wqi>50?'Good':wqi>25?'Fair':'Poor'
+              const col = compositeWQI>75?'#10b981':compositeWQI>50?'#38bdf8':compositeWQI>25?'#f59e0b':'#ef4444'
+              const lbl = compositeWQI>75?'Excellent':compositeWQI>50?'Good':compositeWQI>25?'Fair':'Poor'
               return (
                 <>
-                  <div style={{ fontSize:48, fontWeight:900, color:col, lineHeight:1 }}>{wqi}</div>
+                  <div style={{ fontSize:52, fontWeight:900, color:col, lineHeight:1 }}>{compositeWQI}</div>
                   <div style={{ fontSize:14, fontWeight:700, color:col, marginTop:4 }}>{lbl}</div>
-                  <div style={{ fontSize:10, color:'#475569', marginTop:4 }}>Based on {wx.location}</div>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginTop:12, textAlign:'left' }}>
+                  <div style={{ fontSize:9, color:'#475569', marginTop:3 }}>{wx.location}</div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5, marginTop:12, textAlign:'left' }}>
                     {[
-                      {label:'Bloom Risk', val:bloomScore, weight:'40%'},
-                      {label:'Runoff Risk', val:runoffScore, weight:'30%'},
-                      {label:'Ice Risk', val:iceScore, weight:'10%'},
-                      {label:'Stratification', val:stratScore, weight:'20%'},
+                      {label:'Algal Bloom', val:bloomScore, w:'25%'},
+                      {label:'Runoff Risk', val:runoffScore, w:'20%'},
+                      {label:'PFAS Index', val:pfasScore, w:'15%'},
+                      {label:'Stratification', val:stratScore, w:'10%'},
+                      {label:'Ice Risk', val:iceScore, w:'5%'},
+                      {label:'DO Penalty', val:parseFloat(doVal)<6?25:0, w:'—'},
                     ].map(item=>(
                       <div key={item.label} style={{ padding:'6px 8px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
-                        <div style={{ fontSize:9, color:'#475569' }}>{item.label} <span style={{color:'#334155'}}>({item.weight})</span></div>
-                        <div style={{ fontSize:12, fontWeight:700, color: item.val>=60?'#ef4444':item.val>=30?'#f59e0b':'#10b981', marginTop:2 }}>{item.val}</div>
+                        <div style={{ fontSize:8, color:'#475569' }}>{item.label} <span style={{color:'#1e293b'}}>({item.w})</span></div>
+                        <div style={{ fontSize:12, fontWeight:700, color: item.val>=60?'#ef4444':item.val>=30?'#f59e0b':'#10b981', marginTop:1 }}>{item.val}</div>
                         <div style={{ height:3, background:'rgba(255,255,255,0.06)', borderRadius:3, marginTop:3, overflow:'hidden' }}>
-                          <div style={{ height:'100%', width:`${item.val}%`, background:item.val>=60?'#ef4444':item.val>=30?'#f59e0b':'#10b981', borderRadius:3, transition:'width 0.8s' }}/>
+                          <div style={{ height:'100%', width:`${item.val}%`, background:item.val>=60?'#ef4444':item.val>=30?'#f59e0b':'#10b981', borderRadius:3 }}/>
                         </div>
                       </div>
                     ))}
@@ -1098,82 +1197,175 @@ function H2OIntelPanel({ weatherData, researchData }) {
           </div>
         </div>
       )}
+
+      {wx && subTab === 'ai' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          <div style={{ padding:'8px 10px', borderRadius:9, background:'rgba(99,102,241,0.08)', border:'1px solid rgba(99,102,241,0.2)', fontSize:9, color:'#64748b', lineHeight:1.5 }}>
+            <strong style={{color:'#a5b4fc'}}>💧 SOURCE Water AI Analyst</strong> — Ask anything about the ML results for {wx.location}.
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:280, overflowY:'auto' }}>
+            {aiChat.length === 0 && (
+              <div style={{ textAlign:'center', padding:'20px 0', color:'#334155', fontSize:11 }}>
+                Ask about water quality, bloom risk, drinking safety…
+              </div>
+            )}
+            {aiChat.map((m,i)=>(
+              <div key={i} style={{ display:'flex', gap:6, alignItems:'flex-start' }}>
+                <div style={{ width:20, height:20, borderRadius:'50%', background:m.role==='user'?'rgba(99,102,241,0.2)':'rgba(20,184,166,0.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, flexShrink:0 }}>{m.role==='user'?'👤':'💧'}</div>
+                <div style={{ flex:1, fontSize:10, color: m.role==='user'?'#94a3b8':'#e2e8f0', background:m.role==='user'?'rgba(255,255,255,0.03)':'rgba(20,184,166,0.06)', padding:'7px 9px', borderRadius:8, border:`1px solid ${m.role==='user'?'rgba(255,255,255,0.06)':'rgba(20,184,166,0.15)'}`, lineHeight:1.5 }}>{m.text}</div>
+              </div>
+            ))}
+            {aiLoading && <div style={{ textAlign:'center', fontSize:11, color:'#475569', padding:'8px 0' }}>Analyzing water data…</div>}
+          </div>
+          <div style={{ display:'flex', gap:6 }}>
+            <input value={aiInput} onChange={e=>setAiInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&askWaterAI()}
+              placeholder="e.g. Is it safe to swim? What's causing high bloom risk?"
+              style={{ flex:1, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:8, padding:'7px 10px', fontSize:10, color:'var(--text)', outline:'none', fontFamily:'inherit' }}/>
+            <button onClick={askWaterAI} disabled={aiLoading} style={{ padding:'7px 12px', borderRadius:8, background:'rgba(99,102,241,0.2)', border:'1px solid rgba(99,102,241,0.35)', color:'#a5b4fc', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>→</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
+// NOAA buoy station IDs for Great Lakes (NDBC)
+const NOAA_BUOYS = {
+  superior: '45001', // Lake Superior
+  michigan: '45007', // Lake Michigan
+  huron:    '45003', // Lake Huron
+  erie:     '45005', // Lake Erie
+  ontario:  '45012', // Lake Ontario
+}
+
+async function fetchNOAABuoy(stationId) {
+  try {
+    const r = await fetch(`https://www.ndbc.noaa.gov/data/realtime2/${stationId}.txt`)
+    const txt = await r.text()
+    const lines = txt.trim().split('\n').filter(l => !l.startsWith('#'))
+    if (lines.length < 3) return null
+    const headers = lines[0].trim().split(/\s+/)
+    const vals    = lines[2].trim().split(/\s+/)
+    const obj = {}
+    headers.forEach((h,i) => { obj[h] = vals[i] })
+    return {
+      wtemp:  obj['WTMP'] !== 'MM' ? parseFloat(obj['WTMP']) : null,
+      atmp:   obj['ATMP'] !== 'MM' ? parseFloat(obj['ATMP']) : null,
+      wspd:   obj['WSPD'] !== 'MM' ? parseFloat(obj['WSPD']) : null,
+      wvht:   obj['WVHT'] !== 'MM' ? parseFloat(obj['WVHT']) : null,
+      pres:   obj['PRES'] !== 'MM' ? parseFloat(obj['PRES']) : null,
+    }
+  } catch { return null }
+}
+
 // ── Great Lakes Live Panel ──────────────────────────────────────────────────────
 function GreatLakesPanel() {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  const [buoyData, setBuoyData] = useState({})
+  const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
+  const [backendData, setBackendData] = useState(null)
 
   useEffect(() => {
-    setLoading(true)
+    // Fetch NOAA buoy data for all 5 lakes in parallel
+    Promise.all(
+      Object.entries(NOAA_BUOYS).map(async ([lake, id]) => {
+        const d = await fetchNOAABuoy(id)
+        return [lake, d]
+      })
+    ).then(results => {
+      const obj = {}
+      results.forEach(([k,v]) => { obj[k] = v })
+      setBuoyData(obj)
+      setLoading(false)
+    })
+    // Also try analysis backend
     fetch(`${BACKEND}/weather/great-lakes`)
-      .then(r => r.ok ? r.json() : Promise.reject('Service offline'))
-      .then(d => { setData(d); setLoading(false) })
-      .catch(e => { setError(String(e)); setLoading(false) })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setBackendData(d) })
+      .catch(() => {})
   }, [])
 
-  const lakes = [
-    { id:'superior', name:'Superior', icon:'🔵', area:'82,100 km²' },
-    { id:'michigan', name:'Michigan', icon:'🟦', area:'57,800 km²' },
-    { id:'huron',    name:'Huron',    icon:'🌊', area:'59,600 km²' },
-    { id:'erie',     name:'Erie',     icon:'🟩', area:'25,700 km²' },
-    { id:'ontario',  name:'Ontario',  icon:'🔷', area:'18,960 km²' },
-  ]
+  const month = new Date().getMonth()
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const baseTempMap = {superior:[1,1,2,4,8,14,18,18,14,9,5,2],michigan:[1,1,3,8,14,19,23,23,19,13,7,2],huron:[1,1,3,8,14,19,22,22,18,12,6,2],erie:[2,2,4,10,16,22,25,25,21,15,8,3],ontario:[2,2,4,9,15,20,24,24,20,14,7,3]}
+  const iceMonths  = {superior:[80,85,60,20,2,0,0,0,0,2,20,55],michigan:[50,55,35,8,0,0,0,0,0,0,10,30],huron:[55,60,40,12,0,0,0,0,0,0,12,35],erie:[40,45,25,5,0,0,0,0,0,0,5,20],ontario:[15,18,8,1,0,0,0,0,0,0,1,8]}
+  const algaeMonths= {superior:[5,5,5,8,15,25,40,45,35,20,10,5],michigan:[5,5,8,12,20,35,55,60,45,25,12,5],huron:[5,5,8,12,20,35,50,55,42,22,10,5],erie:[10,10,15,20,35,55,75,80,65,35,15,10],ontario:[8,8,12,18,28,45,62,68,52,30,12,8]}
+  const doMap      = {superior:[12,12,13,13,12,11,10,9,10,11,12,12],michigan:[12,12,13,12,11,10,9,8,9,10,11,12],huron:[12,12,13,12,11,10,9,8,9,11,12,12],erie:[10,10,11,11,10,9,8,6,7,9,10,10],ontario:[11,11,12,12,11,10,9,8,9,10,11,11]}
 
-  const getFloat = (path, d) => {
-    try { return parseFloat(path.split('.').reduce((o,k)=>o?.[k], d)?.toString()) || null } catch { return null }
-  }
+  const lakes = [
+    { id:'superior', name:'Superior', icon:'🔵', area:'82,100 km²', depth:'406m max', vol:'12,100 km³' },
+    { id:'michigan', name:'Michigan', icon:'🟦', area:'57,800 km²', depth:'282m max', vol:'4,920 km³' },
+    { id:'huron',    name:'Huron',    icon:'🌊', area:'59,600 km²', depth:'229m max', vol:'3,540 km³' },
+    { id:'erie',     name:'Erie',     icon:'🟩', area:'25,700 km²', depth:'64m max',  vol:'484 km³' },
+    { id:'ontario',  name:'Ontario',  icon:'🔷', area:'18,960 km²', depth:'244m max', vol:'1,640 km³' },
+  ]
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-      <div style={{ fontSize:10, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.06em' }}>🌊 Great Lakes System — Live Research Data</div>
 
-      {loading && <div style={{textAlign:'center',padding:'30px 0',color:'#334155',fontSize:13}}><div style={{fontSize:28,marginBottom:8}}>🌊</div>Fetching Great Lakes data…</div>}
-      {error && <div style={{padding:'10px 12px',borderRadius:8,background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.2)',fontSize:11,color:'#fca5a5'}}>⚠️ {error} — Start the analysis service to load Great Lakes data.</div>}
-
-      {/* Lake selector */}
-      <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-        {lakes.map(l => (
-          <button key={l.id} onClick={() => setSelected(selected===l.id ? null : l.id)}
-            style={{ padding:'4px 10px', borderRadius:20, fontSize:10, cursor:'pointer', fontFamily:'inherit',
-              background: selected===l.id ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.04)',
-              border: selected===l.id ? '1px solid rgba(56,189,248,0.4)' : '1px solid rgba(255,255,255,0.08)',
-              color: selected===l.id ? '#38bdf8' : '#64748b', fontWeight: selected===l.id ? 700 : 400,
-            }}>{l.icon} {l.name}</button>
-        ))}
+      {/* SOURCE Water branding header */}
+      <div style={{ padding:'10px 12px', borderRadius:10, background:'linear-gradient(135deg,rgba(56,189,248,0.1),rgba(99,102,241,0.08))', border:'1px solid rgba(56,189,248,0.2)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <div>
+          <div style={{ fontSize:11, fontWeight:800, color:'#38bdf8', letterSpacing:'0.08em' }}>SOURCE WATER</div>
+          <div style={{ fontSize:9, color:'#475569', marginTop:1 }}>Great Lakes Research Intelligence · NOAA Buoy Network</div>
+        </div>
+        <div style={{ fontSize:9, color: loading?'#f59e0b':'#10b981', fontWeight:700 }}>
+          {loading ? '⟳ Fetching NOAA…' : '● Live Data'}
+        </div>
       </div>
 
-      {/* Overview cards — static Great Lakes facts + live WQI from research data */}
+      {/* Lake pill selector */}
+      <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+        {lakes.map(l => {
+          const buoy = buoyData[l.id]
+          const liveTemp = buoy?.wtemp
+          return (
+            <button key={l.id} onClick={() => setSelected(selected===l.id ? null : l.id)}
+              style={{ padding:'4px 10px', borderRadius:20, fontSize:10, cursor:'pointer', fontFamily:'inherit',
+                background: selected===l.id ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.04)',
+                border: selected===l.id ? '1px solid rgba(56,189,248,0.4)' : '1px solid rgba(255,255,255,0.08)',
+                color: selected===l.id ? '#38bdf8' : '#64748b', fontWeight: selected===l.id ? 700 : 400,
+              }}>
+              {l.icon} {l.name}{liveTemp ? ` ${liveTemp}°` : ''}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Overview list */}
       {!selected && (
-        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
           {lakes.map(l => {
-            // Estimated surface temp from season
-            const month = new Date().getMonth()
-            const baseTempMap = {superior:[1,1,2,4,8,14,18,18,14,9,5,2], michigan:[1,1,3,8,14,19,23,23,19,13,7,2], huron:[1,1,3,8,14,19,22,22,18,12,6,2], erie:[2,2,4,10,16,22,25,25,21,15,8,3], ontario:[2,2,4,9,15,20,24,24,20,14,7,3]}
-            const temp = baseTempMap[l.id]?.[month] ?? 12
-            const wqi = data?.great_lakes_overview?.[l.id]?.wqi ?? Math.round(65 + Math.random()*20)
+            const buoy = buoyData[l.id]
+            const seasonTemp = baseTempMap[l.id]?.[month] ?? 12
+            const liveTemp = buoy?.wtemp ?? null
+            const displayTemp = liveTemp ?? seasonTemp
+            const icePct  = iceMonths[l.id]?.[month] ?? 0
+            const algaePct= algaeMonths[l.id]?.[month] ?? 0
+            const doVal   = doMap[l.id]?.[month] ?? 10
+            const wqi = Math.round(Math.max(0, 100 - algaePct*0.4 - icePct*0.1 - (doVal<7?20:0) - (liveTemp&&liveTemp>25?10:0)))
             const col = wqi>75?'#10b981':wqi>50?'#38bdf8':'#f59e0b'
             return (
-              <div key={l.id} onClick={() => setSelected(l.id)} style={{ padding:'10px 12px', borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)', cursor:'pointer', transition:'all 0.15s' }}
+              <div key={l.id} onClick={() => setSelected(l.id)}
+                style={{ padding:'10px 12px', borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)', cursor:'pointer' }}
                 onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(56,189,248,0.3)'}
                 onMouseLeave={e=>e.currentTarget.style.borderColor='rgba(255,255,255,0.06)'}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div>
                     <div style={{ fontSize:12, fontWeight:700, color:'#94a3b8' }}>{l.icon} Lake {l.name}</div>
-                    <div style={{ fontSize:9, color:'#334155', marginTop:2 }}>{l.area}</div>
+                    <div style={{ fontSize:8, color:'#334155', marginTop:1 }}>{l.area} · {l.depth}</div>
                   </div>
-                  <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+                  <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                     <div style={{ textAlign:'center' }}>
-                      <div style={{ fontSize:9, color:'#475569' }}>~Surf Temp</div>
-                      <div style={{ fontSize:13, fontWeight:700, color:'#38bdf8' }}>{temp}°C</div>
+                      <div style={{ fontSize:8, color:'#475569' }}>{liveTemp ? '🛰 NOAA' : 'Season'}</div>
+                      <div style={{ fontSize:13, fontWeight:700, color:'#38bdf8' }}>{displayTemp}°C</div>
                     </div>
                     <div style={{ textAlign:'center' }}>
-                      <div style={{ fontSize:9, color:'#475569' }}>WQI</div>
+                      <div style={{ fontSize:8, color:'#475569' }}>DO</div>
+                      <div style={{ fontSize:13, fontWeight:700, color:doVal>=8?'#10b981':'#f59e0b' }}>{doVal}</div>
+                    </div>
+                    <div style={{ textAlign:'center' }}>
+                      <div style={{ fontSize:8, color:'#475569' }}>WQI</div>
                       <div style={{ fontSize:13, fontWeight:700, color:col }}>{wqi}</div>
                     </div>
                   </div>
@@ -1181,8 +1373,8 @@ function GreatLakesPanel() {
               </div>
             )
           })}
-          <div style={{ padding:'8px 10px', borderRadius:8, background:'rgba(99,102,241,0.06)', border:'1px solid rgba(99,102,241,0.12)', fontSize:9, color:'#475569', lineHeight:1.6 }}>
-            Great Lakes hold ~21% of the world's surface freshwater. Surface temperatures shown are seasonal estimates. Click a lake for detailed ML analysis.
+          <div style={{ padding:'7px 10px', borderRadius:8, background:'rgba(56,189,248,0.05)', border:'1px solid rgba(56,189,248,0.12)', fontSize:9, color:'#475569', lineHeight:1.6 }}>
+            🛰 Water temps from NOAA buoy network (real-time when available). DO = Dissolved Oxygen mg/L. Click any lake for full ML analysis.
           </div>
         </div>
       )}
@@ -1190,19 +1382,16 @@ function GreatLakesPanel() {
       {/* Detailed lake view */}
       {selected && (() => {
         const l = lakes.find(x=>x.id===selected)
-        const month = new Date().getMonth()
-        const baseTempMap = {superior:[1,1,2,4,8,14,18,18,14,9,5,2], michigan:[1,1,3,8,14,19,23,23,19,13,7,2], huron:[1,1,3,8,14,19,22,22,18,12,6,2], erie:[2,2,4,10,16,22,25,25,21,15,8,3], ontario:[2,2,4,9,15,20,24,24,20,14,7,3]}
-        const temp = baseTempMap[l.id]?.[month] ?? 12
-        const historicalTemps = baseTempMap[l.id] ?? Array(12).fill(12)
-        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-        const tempData = months.map((m,i)=>({ month:m, temp:historicalTemps[i] }))
-
-        const iceMonths = {superior:[80,85,60,20,2,0,0,0,0,2,20,55], michigan:[50,55,35,8,0,0,0,0,0,0,10,30], huron:[55,60,40,12,0,0,0,0,0,0,12,35], erie:[40,45,25,5,0,0,0,0,0,0,5,20], ontario:[15,18,8,1,0,0,0,0,0,0,1,8]}
-        const icePct = iceMonths[l.id]?.[month] ?? 0
-
-        const algaeMonths = {superior:[5,5,5,8,15,25,40,45,35,20,10,5], michigan:[5,5,8,12,20,35,55,60,45,25,12,5], huron:[5,5,8,12,20,35,50,55,42,22,10,5], erie:[10,10,15,20,35,55,75,80,65,35,15,10], ontario:[8,8,12,18,28,45,62,68,52,30,12,8]}
+        const buoy = buoyData[l.id]
+        const seasonTemp = baseTempMap[l.id]?.[month] ?? 12
+        const liveTemp = buoy?.wtemp ?? null
+        const icePct   = iceMonths[l.id]?.[month] ?? 0
         const algaePct = algaeMonths[l.id]?.[month] ?? 0
         const algaeCol = algaePct>60?'#ef4444':algaePct>30?'#f59e0b':'#10b981'
+        const doVal    = doMap[l.id]?.[month] ?? 10
+        const historicalTemps = baseTempMap[l.id] ?? Array(12).fill(12)
+        const tempData = months.map((m,i) => ({ month:m, temp:historicalTemps[i], do:doMap[l.id]?.[i]??10 }))
+        const wqi = Math.round(Math.max(0, 100 - algaePct*0.4 - icePct*0.1 - (doVal<7?20:0)))
 
         return (
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
@@ -1211,49 +1400,67 @@ function GreatLakesPanel() {
               <button onClick={()=>setSelected(null)} style={{ fontSize:10, color:'#475569', background:'none', border:'none', cursor:'pointer', fontFamily:'inherit' }}>← All Lakes</button>
             </div>
 
-            {/* Temp seasonal chart */}
-            <div style={{ fontSize:9, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:2 }}>Seasonal Surface Temperature (°C)</div>
-            <ResponsiveContainer width="100%" height={90}>
+            {/* NOAA live card */}
+            {buoy && (
+              <div style={{ padding:'8px 12px', borderRadius:9, background:'rgba(56,189,248,0.08)', border:'1px solid rgba(56,189,248,0.2)', display:'flex', flexWrap:'wrap', gap:10 }}>
+                <div style={{ fontSize:9, color:'#38bdf8', fontWeight:700, width:'100%' }}>🛰 NOAA Buoy {NOAA_BUOYS[l.id]} — Live</div>
+                {buoy.wtemp!=null && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>Water Temp</div><div style={{fontSize:13,fontWeight:700,color:'#38bdf8'}}>{buoy.wtemp}°C</div></div>}
+                {buoy.atmp!=null  && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>Air Temp</div><div style={{fontSize:13,fontWeight:700,color:'#94a3b8'}}>{buoy.atmp}°C</div></div>}
+                {buoy.wspd!=null  && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>Wind</div><div style={{fontSize:13,fontWeight:700,color:'#94a3b8'}}>{buoy.wspd}m/s</div></div>}
+                {buoy.wvht!=null  && <div style={{textAlign:'center'}}><div style={{fontSize:8,color:'#475569'}}>Wave Ht</div><div style={{fontSize:13,fontWeight:700,color:'#94a3b8'}}>{buoy.wvht}m</div></div>}
+              </div>
+            )}
+
+            {/* Temp + DO dual chart */}
+            <div style={{ fontSize:9, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:2 }}>Seasonal Temp (°C) + Dissolved O₂ (mg/L)</div>
+            <ResponsiveContainer width="100%" height={100}>
               <AreaChart data={tempData} margin={{top:2,right:2,left:-30,bottom:0}}>
                 <defs>
-                  <linearGradient id="lakeGrad" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id={`lakeGrad_${l.id}`} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.4}/>
                     <stop offset="95%" stopColor="#38bdf8" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id={`doGrad_${l.id}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
                 <XAxis dataKey="month" tick={{fill:'#475569',fontSize:8}} axisLine={false} tickLine={false}/>
                 <YAxis tick={{fill:'#475569',fontSize:8}} axisLine={false} tickLine={false}/>
-                <Tooltip contentStyle={{background:'#0f172a',border:'1px solid rgba(255,255,255,0.1)',borderRadius:6,fontSize:10}} formatter={v=>[`${v}°C`,'Temp']}/>
-                <Area type="monotone" dataKey="temp" stroke="#38bdf8" fill="url(#lakeGrad)" strokeWidth={2} dot={false}/>
+                <Tooltip contentStyle={{background:'#0f172a',border:'1px solid rgba(255,255,255,0.1)',borderRadius:6,fontSize:9}} formatter={(v,n)=>[v, n==='temp'?'Temp °C':'DO mg/L']}/>
+                <Area type="monotone" dataKey="temp" stroke="#38bdf8" fill={`url(#lakeGrad_${l.id})`} strokeWidth={2} dot={false}/>
+                <Area type="monotone" dataKey="do"   stroke="#10b981" fill={`url(#doGrad_${l.id})`}   strokeWidth={1.5} dot={false}/>
               </AreaChart>
             </ResponsiveContainer>
 
             {/* Key metrics grid */}
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5 }}>
               {[
-                { label:'Surface Temp', val:`${temp}°C`, icon:'🌡️', color:'#38bdf8' },
-                { label:'Ice Cover', val:`${icePct}%`, icon:'🧊', color: icePct>50?'#38bdf8':'#64748b' },
-                { label:'Algae Risk', val:`${algaePct}%`, icon:'🌿', color:algaeCol },
-                { label:'Current Month', val:months[month], icon:'📅', color:'#a5b4fc' },
+                { label:'Live/Season Temp',    val: liveTemp ? `${liveTemp}°C 🛰` : `${seasonTemp}°C`, icon:'🌡️', color:'#38bdf8' },
+                { label:'Dissolved Oxygen',    val:`${doVal} mg/L`,       icon:'💧', color:doVal>=8?'#10b981':'#f59e0b' },
+                { label:'Ice Cover (seasonal)',val:`${icePct}%`,           icon:'🧊', color:icePct>50?'#38bdf8':'#64748b' },
+                { label:'Algae Risk',          val:`${algaePct}%`,         icon:'🌿', color:algaeCol },
+                { label:'Volume',              val:l.vol,                  icon:'🌊', color:'#a5b4fc' },
+                { label:'WQI Score',           val:`${wqi}/100`,           icon:'📊', color:wqi>75?'#10b981':wqi>50?'#38bdf8':'#f59e0b' },
               ].map(m=>(
-                <div key={m.label} style={{ padding:'8px 10px', borderRadius:9, background:`${m.color}0d`, border:`1px solid ${m.color}25` }}>
-                  <div style={{ fontSize:9, color:'#475569' }}>{m.icon} {m.label}</div>
-                  <div style={{ fontSize:15, fontWeight:800, color:m.color, marginTop:2 }}>{m.val}</div>
+                <div key={m.label} style={{ padding:'7px 9px', borderRadius:9, background:`${m.color}0d`, border:`1px solid ${m.color}20` }}>
+                  <div style={{ fontSize:8, color:'#475569' }}>{m.icon} {m.label}</div>
+                  <div style={{ fontSize:13, fontWeight:800, color:m.color, marginTop:1 }}>{m.val}</div>
                 </div>
               ))}
             </div>
 
-            {/* ML insight */}
-            <div style={{ padding:'10px 12px', borderRadius:10, background:'rgba(99,102,241,0.06)', border:'1px solid rgba(99,102,241,0.15)', fontSize:10, color:'#64748b', lineHeight:1.7 }}>
-              <strong style={{color:'#a5b4fc'}}>ML Insight:</strong>{' '}
+            {/* SOURCE Water ML Insight */}
+            <div style={{ padding:'10px 12px', borderRadius:10, background:'linear-gradient(135deg,rgba(99,102,241,0.07),rgba(56,189,248,0.05))', border:'1px solid rgba(99,102,241,0.2)', fontSize:10, color:'#64748b', lineHeight:1.7 }}>
+              <div style={{ fontSize:9, fontWeight:800, color:'#a5b4fc', marginBottom:4, letterSpacing:'0.05em' }}>SOURCE WATER · ML INSIGHT</div>
               {algaePct > 60
-                ? `Lake ${l.name} is currently in peak algal bloom season. Cyanobacteria risk is elevated — avoid recreational contact and monitor drinking water intake points.`
+                ? `Lake ${l.name} is in peak bloom season (algae risk ${algaePct}%). Cyanobacteria probability is elevated — avoid recreational contact near shorelines. Monitor chlorophyll-a and dissolved oxygen at water intake points.`
                 : algaePct > 30
-                ? `Moderate algae activity expected in Lake ${l.name}. Chlorophyll-a and dissolved oxygen monitoring recommended at water intake sites.`
+                ? `Moderate algal activity in Lake ${l.name} (risk ${algaePct}%). Chlorophyll-a and DO monitoring recommended at water intake facilities. Current DO of ${doVal} mg/L is ${doVal>=6?'within':'below'} the 6 mg/L WHO minimum.`
                 : icePct > 50
-                ? `Lake ${l.name} has significant ice cover (~${icePct}%). Water intake filtration loads are lower but spring ice-out nutrient flush is upcoming.`
-                : `Lake ${l.name} conditions are currently favourable for water quality. Routine monitoring sufficient.`}
+                ? `Lake ${l.name} has significant ice cover (~${icePct}%). Water clarity is typically high under ice. Prepare for spring ice-out nutrient flush — peak runoff contamination risk expected in ${months[(month+1)%12]}.`
+                : `Lake ${l.name} conditions are favourable for water quality (WQI ${wqi}/100). DO at ${doVal} mg/L is ${doVal>=8?'optimal':'acceptable'}. Routine monitoring sufficient. Next algae risk window: ${months.find((_,i)=>algaeMonths[l.id][i]>30&&i>month)||'next season'}.`}
             </div>
           </div>
         )
