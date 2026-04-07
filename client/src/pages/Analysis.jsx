@@ -1110,16 +1110,17 @@ export default function Analysis() {
 
     let answer = null
 
-    // Try backend — DeepSeek R1 / GPT-4o can take 60-90s on Pollinations, give it time
+    // Try backend — DeepSeek R1 needs up to 90s, plus Render wake-up can be 50s
     try {
-      const r = await axios.post(`${SVC}/ask`, { file_id: selected.id, query: q, use_pro_model: true }, { timeout: 90000 })
+      const r = await axios.post(`${SVC}/ask`, { file_id: selected.id, query: q, use_pro_model: true }, { timeout: 150000 })
       answer = r.data.response || r.data.answer
-    } catch { /* fall through */ }
+    } catch { /* fall through to client-side fallback */ }
 
-    // Fallback: only use stats context if we have numeric data, otherwise say so honestly
-    if (!answer || answer.includes('unavailable') || answer.includes('reach')) {
+    // Fallback when backend times out or offline
+    if (!answer || answer.includes('unavailable')) {
       const hasNumericData = Object.keys(selected.stats?.col_stats || {}).length > 0 && selected.stats?.is_numeric
       if (hasNumericData) {
+        // CSV/Excel: answer from stats context directly
         try {
           const statsCtx = buildFileContext(null, null, selected.name, selected.stats?.col_stats || null)
             || `File: ${selected.name}. Columns: ${Object.keys(selected.stats?.col_stats || {}).join(', ')}`
@@ -1129,7 +1130,12 @@ export default function Analysis() {
           answer = await askAI([...history, { role:'user', content:q }], sysPrompt, 900)
         } catch { answer = null }
       } else {
-        answer = 'The analysis service took too long to respond. This happens on first request (free tier wakes up in ~30s). Please try your question again — it will be fast now.'
+        // PDF/DOCX: try Pollinations directly with document context hint
+        try {
+          const sysPrompt = `You are a research assistant. The user has uploaded a document called "${selected.name}" (${selected.file_type?.toUpperCase()?.replace('.','') || 'document'}). The full-text analysis service is still loading. Answer what you can from the filename and question context, and let the user know they can retry for full document analysis.`
+          answer = await askAI([{ role:'user', content: q }], sysPrompt, 600)
+        } catch { answer = null }
+        if (!answer) answer = 'The analysis service is still waking up. Please try again in 30 seconds — it will be fast after that.'
       }
     }
 
@@ -1331,6 +1337,7 @@ END REPORT
   // ── Derived state (must be before early returns — hooks rule) ───────────────
   const qualityScore = useMemo(() => {
     if (!selected?.stats) return null
+    if (!selected.stats.is_numeric) return null  // PDFs/docs have no numeric quality score
     const s = selected.stats
     const colStats = s.col_stats || {}
     const checks = [
