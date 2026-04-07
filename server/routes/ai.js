@@ -5,6 +5,8 @@ const { requireAuth } = require('../middleware/auth')
 const POLLINATIONS = 'https://text.pollinations.ai/openai'
 const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions'
 const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+const GROQ_KEY = process.env.GROQ_API_KEY
 
 const SYSTEM = `You are Water, the friendly AI assistant for SOURCE Water — a water quality monitoring platform for Northern Ontario, managed by NORDIK Institute at Algoma University.
 
@@ -42,7 +44,27 @@ async function callAI(messages) {
     } catch (e) { console.log(`[AI] DeepSeek failed: ${e.message}`) }
   }
 
-  // 2. Pollinations fallback (no key needed)
+  // 2. Groq — free tier, fast, reliable (llama-3.1-8b-instant)
+  if (GROQ_KEY) {
+    try {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 20000)
+      const res = await fetch(GROQ_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_KEY}` },
+        signal: ctrl.signal,
+        body: JSON.stringify({ model: 'llama-3.1-8b-instant', messages, max_tokens: 1024, temperature: 0.7 }),
+      })
+      clearTimeout(timer)
+      if (res.ok) {
+        const data = await res.json()
+        const text = data.choices?.[0]?.message?.content
+        if (text?.trim().length > 5) { console.log('[AI] Groq/llama-3.1'); return { text, model: 'Groq Llama 3.1' } }
+      }
+    } catch (e) { console.log(`[AI] Groq failed: ${e.message}`) }
+  }
+
+  // 3. Pollinations fallback (no key needed)
   for (const model of ['mistral', 'llama', 'openai']) {
     try {
       const ctrl = new AbortController()
