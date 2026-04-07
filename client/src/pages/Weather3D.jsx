@@ -137,16 +137,9 @@ function getViewSrc(view, data, center, zoom, dataLayer) {
 }
 
 // ── Data fetching ──────────────────────────────────────────────────────────────
-function timedFetch(url, ms = 10000) {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), ms)
-  return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer))
-}
-
 async function fetchAll(query) {
-  const geoRes = await timedFetch(
-    `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`,
-    8000
+  const geoRes = await fetch(
+    `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`
   )
   const geoData = await geoRes.json()
   if (!geoData.results?.length) throw new Error('Location not found')
@@ -154,25 +147,23 @@ async function fetchAll(query) {
   const location = admin1 ? `${name}, ${admin1}, ${country}` : `${name}, ${country}`
 
   const [wxRes, aqRes] = await Promise.all([
-    timedFetch(
+    fetch(
       `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
       `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m,wind_direction_10m,weather_code,surface_pressure,visibility` +
       `&hourly=temperature_2m,precipitation_probability,weather_code` +
       `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,sunrise,sunset,uv_index_max,precipitation_probability_max` +
-      `&timezone=auto&forecast_days=5&forecast_hours=24`,
-      10000
+      `&timezone=auto&forecast_days=5`
     ),
-    timedFetch(
+    fetch(
       `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}` +
-      `&current=pm2_5,pm10,us_aqi,ozone,nitrogen_dioxide&timezone=auto`,
-      10000
+      `&current=pm2_5,pm10,us_aqi,ozone,nitrogen_dioxide&timezone=auto`
     ).catch(() => null),
   ])
 
   const wx = await wxRes.json()
   const aq = aqRes?.ok ? await aqRes.json() : null
 
-  // UV index — use daily max (current is always 0 at night)
+  // UV from daily max (current.uv_index is 0 at night)
   const uvIndex = wx.daily?.uv_index_max?.[0] ?? null
 
   return {
@@ -2703,6 +2694,13 @@ export default function Weather3D() {
             </button>
           </div>
         </div>
+
+        {/* Search error — visible on all tabs */}
+        {error && (
+          <div style={{ margin: '0 14px 0', padding: '7px 10px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: '#fca5a5', fontSize: 12, flexShrink: 0 }}>
+            ⚠ {error}
+          </div>
+        )}
 
         {/* Research site quick buttons */}
         <div style={{ padding: '8px 14px 6px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
