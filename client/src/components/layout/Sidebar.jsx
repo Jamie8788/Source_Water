@@ -8,7 +8,7 @@ import {
   Users, BookOpen, GraduationCap, LineChart, FlaskConical,
   CloudSun, Joystick, ShieldCheck, LogOut, ChevronDown,
   ChevronLeft, ChevronRight, Droplets, Building2, Circle,
-  UserCircle
+  UserCircle, Microscope
 } from 'lucide-react'
 
 const NAV = [
@@ -24,6 +24,7 @@ const NAV = [
   { label: 'Quiz & Learn',    icon: GraduationCap,   path: '/quiz',       color: '#f97316' },
   { section: 'RESEARCH' },
   { label: 'Data Analysis',   icon: LineChart,       path: '/analysis',   color: '#6366f1' },
+  { label: 'Research Hub',    icon: Microscope,      path: '/research',   color: '#a855f7' },
   { label: 'Projects',        icon: FlaskConical,    path: '/projects',   color: '#14b8a6' },
   { label: 'Weather',         icon: CloudSun,        path: '/weather',    color: '#0ea5e9' },
   { section: null },
