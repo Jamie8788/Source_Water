@@ -1102,16 +1102,18 @@ export default function Analysis() {
 
   const ask = async (q) => {
     if (!q.trim() || !selected) return
-    setChat(prev => [...prev, { role:'user', text:q }, { role:'ai', text:'', loading:true }])
+    const isDoc = selected?.file_type && ['.pdf','.docx','.txt','.doc'].includes(selected.file_type)
+    const loadingHint = isDoc ? 'DeepSeek R1 reading document… (up to 60s)' : 'DeepSeek R1 analysing data…'
+    setChat(prev => [...prev, { role:'user', text:q }, { role:'ai', text:loadingHint, loading:true }])
     setQuestion(''); setChatLoading(true)
 
     let answer = null
 
-    // Try backend first (has full ML context including embeddings)
+    // Try backend — DeepSeek R1 / GPT-4o can take 60-90s on Pollinations, give it time
     try {
-      const r = await axios.post(`${SVC}/ask`, { file_id: selected.id, query: q, use_pro_model: true }, { timeout: 20000 })
+      const r = await axios.post(`${SVC}/ask`, { file_id: selected.id, query: q, use_pro_model: true }, { timeout: 90000 })
       answer = r.data.response || r.data.answer
-    } catch { /* fall through to Pollinations AI */ }
+    } catch { /* fall through */ }
 
     // Fallback: only use stats context if we have numeric data, otherwise say so honestly
     if (!answer || answer.includes('unavailable') || answer.includes('reach')) {
@@ -1126,7 +1128,7 @@ export default function Analysis() {
           answer = await askAI([...history, { role:'user', content:q }], sysPrompt, 900)
         } catch { answer = null }
       } else {
-        answer = 'The analysis service is currently offline or could not process this document. Please try again in a moment — the service may be waking up (free tier takes ~30s).'
+        answer = 'The analysis service took too long to respond. This happens on first request (free tier wakes up in ~30s). Please try your question again — it will be fast now.'
       }
     }
 

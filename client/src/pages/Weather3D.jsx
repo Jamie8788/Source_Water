@@ -282,7 +282,7 @@ Air Quality Index: ${weatherData.aq?.us_aqi ?? 'N/A'}
     const systemPrompt = `You are a helpful weather and environmental assistant. The user is asking about the weather at a specific location. Here is the current data:\n\n${ctx}\n\nAnswer concisely (2-4 sentences max). Focus on practical advice. If asked about water safety, factor in AQI, rain, and temperature.`
 
     const response = await askAI(newMsgs, systemPrompt, 512)
-    setMsgs(prev => [...prev, { role: 'assistant', content: response }])
+    setMsgs(prev => [...prev, { role: 'assistant', content: response || 'No response — please try again.' }])
     setLoading(false)
   }
 
@@ -1061,8 +1061,8 @@ function H2OIntelPanel({ weatherData, researchData }) {
     setAiLoading(true)
     try {
       const { askAI: ask } = await import('../utils/openrouter')
-      const ans = await ask(sys, prompt)
-      setAiChat(h=>[...h,{role:'ai',text:ans}])
+      const ans = await ask([{ role: 'user', content: prompt }], sys)
+      setAiChat(h=>[...h,{role:'ai',text:ans||'No response — please try again.'}])
     } catch { setAiChat(h=>[...h,{role:'ai',text:'Analysis service unavailable.'}]) }
     setAiLoading(false)
   }
