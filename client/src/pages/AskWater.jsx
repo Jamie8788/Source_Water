@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import api from '../utils/api'
 import { Send, Mic, MicOff, Trash2 } from 'lucide-react'
-import NibiMascot3D from '../components/NibiMascot3D'
+import NibiMascot from '../components/NibiMascot'
 
 const SUGGESTIONS = [
   'What is a safe pH level for drinking water?',
@@ -20,7 +20,7 @@ function Bubble({ msg }) {
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
       <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold ${isUser ? 'text-white' : 'text-indigo-600'}`}
         style={{ background: isUser ? 'linear-gradient(135deg,#6366f1,#4f46e5)' : '#eef2ff' }}>
-        {isUser ? '👤' : <NibiMascot3D size={36} mood="happy" orbitControls={false}/>}
+        {isUser ? '👤' : <NibiMascot size={36} mood="happy" />}
       </div>
       <div className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
         isUser
@@ -86,7 +86,7 @@ export default function AskWater() {
 
       {/* Header */}
       <div className="flex items-center gap-3 mb-4 flex-shrink-0">
-        <NibiMascot3D size={48} mood="idle" orbitControls={false} style={{ flexShrink: 0 }}/>
+        <NibiMascot size={48} mood="idle"  style={{ flexShrink: 0 }}/>
         <div className="flex-1">
           <h1 className="font-bold text-gray-900 text-base">Ask Nibi</h1>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Powered by Groq · Water quality expert</p>
@@ -101,7 +101,7 @@ export default function AskWater() {
       {/* Big Nibi intro on empty state */}
       {messages.length <= 1 && (
         <div className="flex flex-col items-center mb-4 flex-shrink-0">
-          <NibiMascot3D size={180} mood="wave" orbitControls={true}/>
+          <NibiMascot size={180} mood="wave" />
           <p className="text-sm font-semibold mt-1" style={{ color: 'var(--text)' }}>Hi! I'm Nibi 💧</p>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Ask me anything about water quality</p>
         </div>
@@ -126,7 +126,7 @@ export default function AskWater() {
         {loading && (
           <div className="flex gap-3">
             <div className="flex-shrink-0">
-              <NibiMascot3D size={36} mood="thinking" orbitControls={false}/>
+              <NibiMascot size={36} mood="thinking" />
             </div>
             <div className="card px-4 py-3 rounded-2xl rounded-tl-sm">
               <div className="flex gap-1 items-center h-4">
