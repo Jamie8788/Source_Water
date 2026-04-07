@@ -2,8 +2,9 @@ const router = require('express').Router()
 const db = require('../db/connection')
 const { requireAuth } = require('../middleware/auth')
 
-// No API keys needed — Pollinations.ai is 100% free forever
 const POLLINATIONS = 'https://text.pollinations.ai/openai'
+const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions'
+const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY
 
 const SYSTEM = `You are Water, the friendly AI assistant for SOURCE Water — a water quality monitoring platform for Northern Ontario, managed by NORDIK Institute at Algoma University.
 
@@ -21,11 +22,31 @@ You help community members, researchers, and students understand water quality d
 Be warm, encouraging, and educational. Use simple language for community members, technical detail for researchers. Always emphasize community stewardship and the sacred importance of clean water.`
 
 async function callAI(messages) {
-  // Try models in order — mistral is fastest (~3-6s), llama and openai as fallbacks
+  // 1. DeepSeek API (fast, reliable — requires DEEPSEEK_API_KEY in Render env)
+  if (DEEPSEEK_KEY) {
+    try {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 20000)
+      const res = await fetch(DEEPSEEK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${DEEPSEEK_KEY}` },
+        signal: ctrl.signal,
+        body: JSON.stringify({ model: 'deepseek-chat', messages, max_tokens: 1024, temperature: 0.7 }),
+      })
+      clearTimeout(timer)
+      if (res.ok) {
+        const data = await res.json()
+        const text = data.choices?.[0]?.message?.content
+        if (text?.trim().length > 5) { console.log('[AI] DeepSeek'); return { text, model: 'DeepSeek V3' } }
+      }
+    } catch (e) { console.log(`[AI] DeepSeek failed: ${e.message}`) }
+  }
+
+  // 2. Pollinations fallback (no key needed)
   for (const model of ['mistral', 'llama', 'openai']) {
     try {
       const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), 12000) // 12s per model — 3 models = 36s max
+      const timer = setTimeout(() => ctrl.abort(), 12000)
       const res = await fetch(POLLINATIONS, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -36,13 +57,8 @@ async function callAI(messages) {
       if (!res.ok) continue
       const data = await res.json()
       const text = data.choices?.[0]?.message?.content
-      if (text && text.trim().length > 5) {
-        console.log(`[AI] Pollinations/${model}`)
-        return { text, model: `pollinations/${model}` }
-      }
-    } catch (e) {
-      console.log(`[AI] ${model} failed: ${e.message}`)
-    }
+      if (text?.trim().length > 5) { console.log(`[AI] Pollinations/${model}`); return { text, model: `pollinations/${model}` } }
+    } catch (e) { console.log(`[AI] ${model} failed: ${e.message}`) }
   }
   return null
 }

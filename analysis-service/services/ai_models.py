@@ -16,6 +16,7 @@ import httpx
 
 POLLINATIONS_URL = "https://text.pollinations.ai/openai"
 GROQ_URL         = "https://api.groq.com/openai/v1/chat/completions"
+DEEPSEEK_URL     = "https://api.deepseek.com/chat/completions"
 
 # Pollinations free models (no key needed)
 POLLINATIONS_MODELS = {
@@ -48,7 +49,8 @@ DISPLAY_NAMES = {
 class AIModelService:
     def __init__(self):
         self.http_client = httpx.AsyncClient(timeout=90.0)
-        self.groq_key = os.getenv("GROQ_API_KEY", "")
+        self.groq_key    = os.getenv("GROQ_API_KEY", "")
+        self.deepseek_key = os.getenv("DEEPSEEK_API_KEY", "")
 
     # ── Groq ─────────────────────────────────────────────────────────────────
     async def _groq(self, messages: list, max_tokens: int, model_key: str) -> tuple[str | None, str]:
@@ -103,6 +105,28 @@ class AIModelService:
             print(f"[AI] Pollinations/{model} failed: {e}")
         return None, ""
 
+    # ── DeepSeek ──────────────────────────────────────────────────────────────
+    async def _deepseek(self, messages: list, max_tokens: int, use_pro: bool) -> tuple[str | None, str]:
+        if not self.deepseek_key:
+            return None, ""
+        model = "deepseek-reasoner" if use_pro else "deepseek-chat"
+        try:
+            resp = await self.http_client.post(
+                DEEPSEEK_URL,
+                json={"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.3},
+                headers={"Authorization": f"Bearer {self.deepseek_key}", "Content-Type": "application/json"},
+                timeout=30.0,
+            )
+            if resp.status_code == 200:
+                text = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                if text.strip():
+                    display = "DeepSeek R1" if use_pro else "DeepSeek V3"
+                    print(f"[AI] {display}")
+                    return text, display
+        except Exception as e:
+            print(f"[AI] DeepSeek failed: {e}")
+        return None, ""
+
     # ── Public API ────────────────────────────────────────────────────────────
     async def generate(self,
                        system_prompt: str,
@@ -121,7 +145,12 @@ class AIModelService:
         ]
         model_key = "doc" if is_document else ("pro" if use_pro else "standard")
 
-        # 1. Groq (fastest when key available)
+        # 1. DeepSeek API (best quality, fast — needs DEEPSEEK_API_KEY)
+        text, _ = await self._deepseek(messages, max_tokens, use_pro)
+        if text:
+            return text
+
+        # 2. Groq (fast — needs GROQ_API_KEY)
         text, _ = await self._groq(messages, max_tokens, model_key)
         if text:
             return text
@@ -151,6 +180,10 @@ class AIModelService:
             {"role": "user",   "content": user_prompt},
         ]
         model_key = "doc" if is_document else ("pro" if use_pro else "standard")
+
+        text, name = await self._deepseek(messages, max_tokens, use_pro)
+        if text:
+            return text, name
 
         text, name = await self._groq(messages, max_tokens, model_key)
         if text:

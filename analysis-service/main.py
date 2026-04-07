@@ -5,9 +5,12 @@ FastAPI backend with real ML/AI intelligence.
 import os
 import json
 import uuid
+import asyncio
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from contextlib import asynccontextmanager
+import httpx
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -93,8 +96,31 @@ class ReportRequest(BaseModel):
     output_format: Optional[str] = "text"  # "text" or "json"
 
 
+# ── Keep-alive: ping self every 10 min so Render free tier never sleeps ───────
+@asynccontextmanager
+async def lifespan(application):
+    self_url = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("SELF_URL")
+    task = None
+    if self_url:
+        async def ping():
+            while True:
+                await asyncio.sleep(600)
+                try:
+                    async with httpx.AsyncClient(timeout=10) as c:
+                        await c.get(f"{self_url}/health")
+                    print("[keep-alive] pinged")
+                except Exception as e:
+                    print(f"[keep-alive] ping failed: {e}")
+        task = asyncio.create_task(ping())
+        print(f"[keep-alive] started → {self_url}")
+    else:
+        print("[keep-alive] No RENDER_EXTERNAL_URL set — add it in Render env vars to prevent sleeping")
+    yield
+    if task:
+        task.cancel()
+
 # ── FastAPI App ──────────────────────────────────────────────────────────────
-app = FastAPI(title="SOURCE Water Analysis Service")
+app = FastAPI(title="SOURCE Water Analysis Service", lifespan=lifespan)
 
 app.add_middleware(CORSMiddleware,
     allow_origins=["*"],
