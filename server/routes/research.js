@@ -10,9 +10,8 @@ const { requireAuth } = require('../middleware/auth')
 const db = require('../db/connection')
 const multer = require('multer')
 
-const POLLINATIONS = 'https://text.pollinations.ai/openai'
-const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions'
-const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+const GROQ_KEY = process.env.GROQ_API_KEY
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -53,45 +52,29 @@ Extract EVERY parameter you can find. Return ONLY a valid JSON object — no mar
 Be generous — extract partial values, estimated numbers, descriptive values (e.g. "clear", "cloudy"). Set confidence 0-100 based on image clarity and how many fields you found.`
 
 async function callVisionAI(messages) {
-  // 1. DeepSeek Vision
-  if (DEEPSEEK_KEY) {
-    try {
-      const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), 25000)
-      const resp = await fetch(DEEPSEEK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${DEEPSEEK_KEY}` },
-        signal: ctrl.signal,
-        body: JSON.stringify({ model: 'deepseek-vl2', messages, max_tokens: 1200, temperature: 0.1 }),
-      })
-      clearTimeout(timer)
-      if (resp.ok) {
-        const data = await resp.json()
-        const text = data.choices?.[0]?.message?.content
-        if (text?.trim()) return { text, model: 'DeepSeek Vision' }
-      }
-    } catch (e) { console.log('[scan] DeepSeek failed:', e.message) }
+  if (!GROQ_KEY) {
+    console.log('[scan] No GROQ_API_KEY set')
+    return null
   }
-
-  // 2. Pollinations GPT-4o vision (no key needed)
-  for (const model of ['openai-large', 'openai']) {
-    try {
-      const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), 35000)
-      const resp = await fetch(POLLINATIONS, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: ctrl.signal,
-        body: JSON.stringify({ model, messages, max_tokens: 1200, temperature: 0.1 }),
-      })
-      clearTimeout(timer)
-      if (resp.ok) {
-        const data = await resp.json()
-        const text = data.choices?.[0]?.message?.content
-        if (text?.trim()) return { text, model: `GPT-4o Vision (${model})` }
-      }
-    } catch (e) { console.log(`[scan] ${model} failed:`, e.message) }
-  }
+  try {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 30000)
+    const resp = await fetch(GROQ_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_KEY}` },
+      signal: ctrl.signal,
+      body: JSON.stringify({ model: 'llama-3.2-11b-vision-preview', messages, max_tokens: 1200, temperature: 0.1 }),
+    })
+    clearTimeout(timer)
+    if (resp.ok) {
+      const data = await resp.json()
+      const text = data.choices?.[0]?.message?.content
+      if (text?.trim()) { console.log('[scan] Groq vision OK'); return { text, model: 'Groq Llama Vision' } }
+    } else {
+      const err = await resp.text()
+      console.log('[scan] Groq error:', resp.status, err)
+    }
+  } catch (e) { console.log('[scan] Groq vision failed:', e.message) }
   return null
 }
 
