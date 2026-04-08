@@ -10,9 +10,6 @@
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.2.8",
-    "@react-three/drei": "^10.7.7",
-    "@react-three/fiber": "^9.5.0",
-    "@splinetool/react-spline": "^4.1.0",
     "axios": "^1.6.8",
     "cesium": "^1.140.0",
     "clsx": "^2.1.0",
@@ -30,7 +27,6 @@
     "react-leaflet": "^4.2.1",
     "react-router-dom": "^6.22.3",
     "recharts": "^2.12.3",
-    "three": "^0.183.2",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
