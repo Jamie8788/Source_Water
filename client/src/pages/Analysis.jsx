@@ -1011,6 +1011,321 @@ function WaterQualityDashboard({ serviceUp, onRetryService }) {
   )
 }
 
+// ── FreeAIAnalyzer — 100% client-side, no API key, reads PDF/CSV/Excel in browser ─
+function FreeAIAnalyzer() {
+  const [file, setFile] = useState(null)
+  const [fileText, setFileText] = useState('')
+  const [fileData, setFileData] = useState(null)
+  const [pageCount, setPageCount] = useState(0)
+  const [parsing, setParsing] = useState(false)
+  const [scanProgress, setScanProgress] = useState(0)
+  const [chat, setChat] = useState([])
+  const [question, setQuestion] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const freeEndRef = useRef(null)
+
+  useEffect(() => { freeEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [chat])
+
+  const parseAndSet = async (f) => {
+    setFile(f); setFileText(''); setFileData(null); setChat([]); setPageCount(0)
+    setParsing(true); setScanProgress(0)
+    const ext = f.name.split('.').pop().toLowerCase()
+    try {
+      if (ext === 'pdf') {
+        const buf = await f.arrayBuffer()
+        const pdfjsLib = await import('pdfjs-dist')
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`
+        const doc = await pdfjsLib.getDocument({ data: buf }).promise
+        setPageCount(doc.numPages)
+        let text = ''
+        for (let i = 1; i <= doc.numPages; i++) {
+          const page = await doc.getPage(i)
+          const content = await page.getTextContent()
+          text += content.items.map(it => it.str).join(' ') + '\n'
+          setScanProgress(Math.round((i / doc.numPages) * 100))
+        }
+        setFileText(text.trim())
+      } else if (ext === 'csv') {
+        const text = await f.text()
+        const Papa = await import('papaparse')
+        const result = Papa.default.parse(text, { header: true, skipEmptyLines: true })
+        setFileData({ headers: result.meta?.fields || [], rows: result.data })
+        setFileText(text.slice(0, 4000))
+        setScanProgress(100)
+      } else if (ext === 'xlsx' || ext === 'xls') {
+        const buf = await f.arrayBuffer()
+        const XLSX = await import('xlsx')
+        const wb = XLSX.read(buf, { type: 'array' })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        const raw = XLSX.utils.sheet_to_json(ws, { header: 1 })
+        const headers = (raw[0] || []).map(String)
+        const rows = raw.slice(1).map(row =>
+          Object.fromEntries(headers.map((h, i) => [h, row[i] ?? '']))
+        )
+        setFileData({ headers, rows })
+        setScanProgress(100)
+      } else {
+        const text = await f.text()
+        setFileText(text.trim())
+        setScanProgress(100)
+      }
+    } catch (e) {
+      setFileText(`Error reading file: ${e.message}`)
+      setScanProgress(100)
+    }
+    setParsing(false)
+  }
+
+  const { getRootProps: freeRootProps, getInputProps: freeInputProps, isDragActive: freeDrag } = useDropzone({
+    multiple: false,
+    accept: {
+      'application/pdf': ['.pdf'],
+      'text/csv': ['.csv'],
+      'application/vnd.ms-excel': ['.xls'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'text/plain': ['.txt', '.md'],
+    },
+    onDrop: ([f]) => { if (f) parseAndSet(f) },
+  })
+
+  const sendAI = async (overrideQ) => {
+    const q = (overrideQ !== undefined ? overrideQ : question).trim()
+    if (!q || aiLoading) return
+    if (overrideQ === undefined) setQuestion('')
+    setChat(prev => [...prev,
+      { role: 'user', text: q },
+      { role: 'ai', text: '', loading: true },
+    ])
+    setAiLoading(true)
+
+    const ctx = fileData
+      ? buildFileContext(null, fileData, file.name)
+      : buildFileContext(fileText, null, file?.name || 'document')
+
+    const sysPrompt = file
+      ? `You are an expert document analyst and data scientist. The user uploaded "${file.name}". Here is the content/summary:\n\n${ctx}\n\nAnswer accurately based on this content. Be concise and helpful. For water data, reference WHO/Canadian standards.`
+      : `You are a helpful water quality data analyst for SOURCE Water (Northern Ontario).`
+
+    const history = chat.filter(m => !m.loading).slice(-8).map(m => ({
+      role: m.role === 'ai' ? 'assistant' : 'user', content: m.text,
+    }))
+
+    const answer = await askAI([...history, { role: 'user', content: q }], sysPrompt, 1200)
+
+    setChat(prev => prev.map((m, i) =>
+      i === prev.length - 1
+        ? { ...m, text: answer || "Couldn't get a response — try again.", loading: false }
+        : m
+    ))
+    setAiLoading(false)
+  }
+
+  const fileExt = file?.name?.split('.').pop()?.toLowerCase()
+  const wordCount = fileText ? fileText.split(/\s+/).filter(Boolean).length : 0
+  const suggestions = fileData
+    ? ['Summarize this dataset', 'Any WHO violations?', 'Show me the highest values', 'What are the outliers?']
+    : ['Summarize this document', 'What are the key findings?', 'Any water quality concerns?', 'What actions are recommended?']
+
+  return (
+    <div style={{ display:'flex', gap:16, height:'calc(100vh - 220px)', minHeight:0 }}>
+
+      {/* ── Left panel ── */}
+      <div style={{ width:300, flexShrink:0, display:'flex', flexDirection:'column', gap:12 }}>
+
+        {/* Drop zone */}
+        <div {...freeRootProps()} style={{
+          border:`2px dashed ${freeDrag ? '#6366f1' : 'var(--border)'}`,
+          borderRadius:16, padding:28, textAlign:'center', cursor:'pointer',
+          background: freeDrag ? 'rgba(99,102,241,0.07)' : 'var(--card-bg)', transition:'all 0.2s',
+          position:'relative', overflow:'hidden',
+        }}>
+          <input {...freeInputProps()} />
+          {freeDrag && <>
+            {['tl','tr','bl','br'].map(pos => (
+              <div key={pos} style={{ position:'absolute',
+                top: pos.startsWith('t') ? 8 : 'auto', bottom: pos.startsWith('b') ? 8 : 'auto',
+                left: pos.endsWith('l') ? 8 : 'auto', right: pos.endsWith('r') ? 8 : 'auto',
+                width:20, height:20,
+                borderTop: pos.startsWith('t') ? '2px solid #6366f1' : 'none',
+                borderBottom: pos.startsWith('b') ? '2px solid #6366f1' : 'none',
+                borderLeft: pos.endsWith('l') ? '2px solid #6366f1' : 'none',
+                borderRight: pos.endsWith('r') ? '2px solid #6366f1' : 'none',
+              }}/>
+            ))}
+          </>}
+          <div style={{ width:52, height:52, borderRadius:14, background:'linear-gradient(135deg,#6366f1,#8b5cf6)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 12px' }}>
+            <Upload style={{ width:24, height:24, color:'#fff' }}/>
+          </div>
+          <div style={{ fontSize:14, fontWeight:700, color:'var(--text)', marginBottom:4 }}>
+            {freeDrag ? 'Drop to analyze...' : 'Drop any file here'}
+          </div>
+          <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:12 }}>
+            PDF · CSV · Excel · TXT · Markdown
+          </div>
+          <div style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 12px', borderRadius:20, background:'rgba(16,185,129,0.12)', color:'#10b981', fontSize:10, fontWeight:700 }}>
+            <Zap style={{ width:10, height:10 }}/> 100% FREE · No API Key
+          </div>
+        </div>
+
+        {/* Scan progress */}
+        {parsing && (
+          <div style={{ background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:12, padding:16, position:'relative', overflow:'hidden' }}>
+            <div style={{ fontSize:11, fontWeight:700, color:'#6366f1', marginBottom:10, display:'flex', alignItems:'center', gap:6 }}>
+              <Brain style={{ width:14, height:14, animation:'spin 1.5s linear infinite' }}/> SCANNING DOCUMENT...
+            </div>
+            <div style={{ height:5, background:'rgba(99,102,241,0.15)', borderRadius:3, overflow:'hidden', marginBottom:6 }}>
+              <div style={{ height:'100%', width:`${scanProgress}%`, background:'linear-gradient(90deg,#6366f1,#a855f7)', borderRadius:3, transition:'width 0.3s' }}/>
+            </div>
+            <div style={{ fontSize:10, color:'var(--text-muted)' }}>{scanProgress}% · Extracting text layers…</div>
+            <div style={{ position:'absolute', left:0, right:0, height:2, background:'linear-gradient(90deg,transparent,#6366f1,transparent)', top:`${scanProgress}%`, transition:'top 0.3s', boxShadow:'0 0 10px #6366f1', opacity:0.7 }}/>
+          </div>
+        )}
+
+        {/* File ready card */}
+        {file && !parsing && (
+          <div style={{ background:'var(--card-bg)', border:'1px solid rgba(16,185,129,0.3)', borderRadius:12, padding:14 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+              <div style={{ width:36, height:36, borderRadius:9, background: fileExt==='pdf' ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                {fileData
+                  ? <FileSpreadsheet style={{ width:18, height:18, color:'#10b981' }}/>
+                  : <FileText style={{ width:18, height:18, color: fileExt==='pdf' ? '#ef4444' : '#6366f1' }}/>
+                }
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{file.name}</div>
+                <div style={{ fontSize:10, color:'var(--text-muted)' }}>
+                  {fileData
+                    ? `${fileData.rows.length.toLocaleString()} rows × ${fileData.headers.length} columns`
+                    : `${wordCount.toLocaleString()} words${pageCount ? ` · ${pageCount} pages` : ''}`}
+                </div>
+              </div>
+            </div>
+            <div style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 10px', borderRadius:8, background:'rgba(16,185,129,0.1)', color:'#10b981', fontSize:11, fontWeight:600 }}>
+              <CheckCircle style={{ width:12, height:12 }}/> Ready — ask anything below
+            </div>
+          </div>
+        )}
+
+        {/* Column list for tabular files */}
+        {fileData && !parsing && (
+          <div style={{ background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:12, padding:14 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:'var(--text)', marginBottom:8 }}>📊 Columns</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+              {fileData.headers.slice(0,14).map(h => (
+                <span key={h} style={{ padding:'2px 7px', borderRadius:5, background:'rgba(99,102,241,0.1)', color:'#818cf8', fontSize:10, fontWeight:600 }}>{h}</span>
+              ))}
+              {fileData.headers.length > 14 && (
+                <span style={{ padding:'2px 7px', borderRadius:5, background:'rgba(99,102,241,0.05)', color:'var(--text-muted)', fontSize:10 }}>+{fileData.headers.length-14}</span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Right panel: chat ── */}
+      <div style={{ flex:1, display:'flex', flexDirection:'column', background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:16, overflow:'hidden', minHeight:0 }}>
+
+        {/* Header */}
+        <div style={{ padding:'14px 18px', borderBottom:'1px solid var(--border)', background:'linear-gradient(135deg,rgba(99,102,241,0.08),rgba(139,92,246,0.04))', flexShrink:0, display:'flex', alignItems:'center', gap:10 }}>
+          <div style={{ width:34, height:34, borderRadius:9, background:'linear-gradient(135deg,#6366f1,#8b5cf6)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <Brain style={{ width:17, height:17, color:'#fff' }}/>
+          </div>
+          <div>
+            <div style={{ fontSize:14, fontWeight:800, color:'var(--text)' }}>Free AI File Analyzer</div>
+            <div style={{ fontSize:10, color:'var(--text-muted)' }}>Reads files in your browser · Powered by Pollinations · No API key needed</div>
+          </div>
+          <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:5, padding:'4px 10px', borderRadius:20, background:'rgba(16,185,129,0.1)', color:'#10b981', fontSize:10, fontWeight:700 }}>
+            <Zap style={{ width:10, height:10 }}/> FREE
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div style={{ flex:1, overflowY:'auto', padding:'16px 18px', display:'flex', flexDirection:'column', gap:12, minHeight:0 }}>
+          {chat.length === 0 && (
+            <div style={{ textAlign:'center', padding:'48px 24px' }}>
+              <div style={{ width:70, height:70, borderRadius:20, background:'linear-gradient(135deg,rgba(99,102,241,0.12),rgba(139,92,246,0.08))', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px' }}>
+                <Brain style={{ width:30, height:30, color:'#6366f1' }}/>
+              </div>
+              <div style={{ fontSize:16, fontWeight:800, color:'var(--text)', marginBottom:6 }}>
+                {file ? `"${file.name.length > 30 ? file.name.slice(0,28)+'…' : file.name}" ready` : 'Drop a file to analyze'}
+              </div>
+              <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:24, maxWidth:360, margin:'0 auto 24px' }}>
+                {file
+                  ? 'Ask me anything — I read the full document in your browser'
+                  : 'PDF, CSV, Excel, or text file. Instant AI analysis with no signup, no API key.'}
+              </div>
+              {file && !parsing && (
+                <div style={{ display:'flex', flexWrap:'wrap', gap:8, justifyContent:'center' }}>
+                  {suggestions.map(s => (
+                    <button key={s} onClick={() => sendAI(s)}
+                      style={{ padding:'7px 14px', borderRadius:20, border:'1px solid rgba(99,102,241,0.25)', background:'rgba(99,102,241,0.07)', color:'#818cf8', cursor:'pointer', fontSize:12, fontWeight:600 }}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {chat.map((m, i) => (
+            <div key={i} style={{ display:'flex', justifyContent: m.role==='user' ? 'flex-end' : 'flex-start', animation:'slideInUp 0.2s ease' }}>
+              <div style={{
+                maxWidth:'82%', padding:'11px 15px',
+                borderRadius: m.role==='user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
+                background: m.role==='user' ? 'linear-gradient(135deg,#6366f1,#8b5cf6)' : 'var(--bg)',
+                color: m.role==='user' ? '#fff' : 'var(--text)',
+                border: m.role==='ai' ? '1px solid var(--border)' : 'none',
+                fontSize:13, lineHeight:1.65, whiteSpace:'pre-wrap',
+              }}>
+                {m.loading ? (
+                  <div style={{ display:'flex', gap:5, alignItems:'center' }}>
+                    {[0,1,2].map(j => <div key={j} style={{ width:6, height:6, borderRadius:'50%', background:'#6366f1', animation:`bounce 1s ease ${j*0.18}s infinite` }}/>)}
+                    <span style={{ fontSize:11, color:'var(--text-muted)', marginLeft:6 }}>Analyzing…</span>
+                  </div>
+                ) : m.text}
+              </div>
+            </div>
+          ))}
+          <div ref={freeEndRef}/>
+        </div>
+
+        {/* Quick suggestions after first message */}
+        {chat.length > 0 && file && !aiLoading && (
+          <div style={{ padding:'8px 16px', borderTop:'1px solid var(--border)', flexShrink:0, display:'flex', gap:6, flexWrap:'wrap' }}>
+            {suggestions.slice(0,3).map(s => (
+              <button key={s} onClick={() => sendAI(s)}
+                style={{ padding:'4px 10px', borderRadius:14, border:'1px solid rgba(99,102,241,0.2)', background:'rgba(99,102,241,0.06)', color:'#818cf8', cursor:'pointer', fontSize:10, fontWeight:600 }}>
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Input */}
+        <div style={{ padding:'10px 14px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
+          <div style={{ display:'flex', gap:8, alignItems:'flex-end' }}>
+            <textarea value={question} onChange={e => setQuestion(e.target.value)} rows={2}
+              onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendAI() } }}
+              placeholder={file ? `Ask anything about ${file.name}…` : 'Upload a file first…'}
+              disabled={!file || aiLoading}
+              style={{ flex:1, resize:'none', fontSize:13, padding:'9px 12px', borderRadius:10, border:'1.5px solid var(--border)', background:'var(--card-bg)', color:'var(--text)', outline:'none', fontFamily:'inherit' }}/>
+            <button onClick={() => sendAI()} disabled={!file || !question.trim() || aiLoading}
+              style={{ width:40, height:40, borderRadius:10, background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', cursor:(!file||!question.trim()||aiLoading)?'not-allowed':'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, opacity:(!file||!question.trim()||aiLoading)?0.4:1 }}>
+              {aiLoading
+                ? <RefreshCw style={{ width:16, height:16, color:'#fff', animation:'spin 1s linear infinite' }}/>
+                : <Send style={{ width:16, height:16, color:'#fff' }}/>}
+            </button>
+          </div>
+          <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:4 }}>
+            Enter to send · Reads file in your browser · Zero backend required
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Analysis Component ───────────────────────────────────────────────────
 export default function Analysis() {
   const [serviceUp, setServiceUp] = useState(null)
@@ -1367,7 +1682,8 @@ END REPORT
 
   const MAIN_TABS = [
     { key: 'dashboard', label: '🌊 Water Quality Dashboard', badge: null },
-    { key: 'fileanalysis', label: '🧪 File Analysis', badge: serviceUp === true ? null : serviceUp === null ? '…' : 'offline' },
+    { key: 'freeai', label: '🤖 Free AI Analyzer', badge: 'FREE' },
+    { key: 'fileanalysis', label: '🧪 ML File Analysis', badge: serviceUp === true ? null : serviceUp === null ? '…' : 'offline' },
   ]
 
   // ── MAIN LAYOUT ────────────────────────────────────────────────────────────
@@ -1386,7 +1702,9 @@ END REPORT
             }}>
             {t.label}
             {t.badge && (
-              <span style={{ fontSize:10, padding:'2px 6px', borderRadius:20, background: t.badge === 'offline' ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.2)', color: t.badge === 'offline' ? '#f97316' : 'inherit' }}>{t.badge}</span>
+              <span style={{ fontSize:10, padding:'2px 6px', borderRadius:20,
+                background: t.badge === 'offline' ? 'rgba(249,115,22,0.2)' : t.badge === 'FREE' ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.2)',
+                color: t.badge === 'offline' ? '#f97316' : t.badge === 'FREE' ? '#10b981' : 'inherit' }}>{t.badge}</span>
             )}
           </button>
         ))}
@@ -1396,6 +1714,9 @@ END REPORT
       {mainTab === 'dashboard' && (
         <WaterQualityDashboard serviceUp={serviceUp} onRetryService={retryService}/>
       )}
+
+      {/* Free AI Analyzer — 100% client-side, no API key, no backend needed */}
+      {mainTab === 'freeai' && <FreeAIAnalyzer />}
 
       {/* File Analysis tab — requires Python service */}
       {mainTab === 'fileanalysis' && (
