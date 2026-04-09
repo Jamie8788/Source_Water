@@ -54,8 +54,39 @@ router.post('/:userId', requireAuth, upload.fields([{name:'media',maxCount:5},{n
   const receiverId = parseInt(req.params.userId)
   const mediaFile = req.files?.media?.[0]
   const voiceFile = req.files?.voice_note?.[0]
-  const mediaPath = mediaFile ? `/uploads/images/${mediaFile.filename}` : null
-  const voicePath = voiceFile ? `/uploads/audio/${voiceFile.filename}` : null
+  
+  // Process media path with proper handling
+  let mediaPath = null
+  if (mediaFile) {
+    let relPath = mediaFile.path.replace(/\\/g, '/')
+    const uploadsIndex = relPath.indexOf('/uploads/')
+    if (uploadsIndex !== -1) {
+      relPath = relPath.substring(uploadsIndex + 1)
+    } else {
+      relPath = `uploads/images/${mediaFile.filename}`
+    }
+    if (!relPath.startsWith('uploads/')) {
+      relPath = `uploads/${relPath}`
+    }
+    mediaPath = '/' + relPath
+  }
+  
+  // Process voice note path
+  let voicePath = null
+  if (voiceFile) {
+    let relPath = voiceFile.path.replace(/\\/g, '/')
+    const uploadsIndex = relPath.indexOf('/uploads/')
+    if (uploadsIndex !== -1) {
+      relPath = relPath.substring(uploadsIndex + 1)
+    } else {
+      relPath = `uploads/audio/${voiceFile.filename}`
+    }
+    if (!relPath.startsWith('uploads/')) {
+      relPath = `uploads/${relPath}`
+    }
+    voicePath = '/' + relPath
+  }
+  
   const finalType = voiceFile ? 'voice_note' : mediaFile ? 'image' : message_type
 
   const result = db.prepare('INSERT INTO direct_messages (sender_id,receiver_id,content,media,voice_note,message_type) VALUES (?,?,?,?,?,?)').run(req.user.id, receiverId, content || null, mediaPath, voicePath, finalType)

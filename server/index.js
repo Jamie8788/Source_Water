@@ -6,17 +6,23 @@ const morgan = require('morgan')
 const path = require('path')
 const fs = require('fs')
 const { createProxyMiddleware } = require('http-proxy-middleware')
+const http = require('http')
 
 const { initSchema } = require('./db/schema')
 const { seed } = require('./db/seed')
+const ChatService = require('./services/chat')
 
 const app = express()
+const server = http.createServer(app)
 const PORT = process.env.PORT || 3001
 const ANALYSIS_URL = process.env.ANALYSIS_SERVICE_URL || 'http://localhost:8001'
 
 // Init DB
 initSchema()
 seed().catch(console.error)
+
+// Initialize WebSocket Chat Service
+const chatService = new ChatService(server)
 
 // Security
 app.use(helmet({
@@ -100,8 +106,9 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' })
 })
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`\n🌊 SOURCE Water API running on http://localhost:${PORT}\n`)
+  console.log(`📡 WebSocket Chat Service running on http://localhost:${PORT}\n`)
 
   // Keep analysis service awake on Render free tier (pings every 9 min)
   if (ANALYSIS_URL && !ANALYSIS_URL.includes('localhost')) {

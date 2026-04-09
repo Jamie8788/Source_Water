@@ -39,27 +39,65 @@ router.get('/', requireAuth, (req, res) => {
 // POST /api/posts
 router.post('/', requireAuth, upload.array('media', 10), (req, res) => {
   try {
-    const { content, post_type = 'text', hashtags, location_tag, poll_options } = req.body
-    if (!content && !req.files?.length) return res.status(400).json({ error: 'Content or media required' })
+    const { content, post_type = 'text', hashtags, location_tag, poll_options, poll_question } = req.body
+    
+    // Debug logging for upload issues
+    console.log('Post upload - files:', req.files?.length || 0)
+    console.log('Post upload - content:', content?.substring(0, 100))
+    console.log('Post upload - post_type:', post_type)
+    
+    if (!content && !req.files?.length) {
+      return res.status(400).json({ error: 'Content or media required' })
+    }
 
-    const mediaFiles = req.files?.map(f => {
-      const rel = f.path.replace(/\\/g, '/').split('/uploads/').pop()
-      return `/uploads/${rel}`
-    }) || []
+    // Process uploaded files with better path handling
+    const mediaFiles = []
+    if (req.files && req.files.length > 0) {
+      req.files.forEach(f => {
+        // Handle different path formats (Windows/Unix)
+        let relPath = f.path.replace(/\\/g, '/')
+        
+        // Extract the relative path from uploads directory
+        const uploadsIndex = relPath.indexOf('/uploads/')
+        if (uploadsIndex !== -1) {
+          relPath = relPath.substring(uploadsIndex + 1) // Remove leading slash
+        } else {
+          // Fallback: just use filename if we can't find uploads in path
+          const filename = f.filename || f.originalname
+          relPath = `uploads/images/${filename}`
+        }
+        
+        // Ensure path starts with /uploads/ for consistency
+        if (!relPath.startsWith('uploads/')) {
+          relPath = `uploads/${relPath}`
+        }
+        
+        mediaFiles.push('/' + relPath)
+        
+        console.log('File saved:', f.path, '->', '/' + relPath)
+      })
+    }
+    
     const tags = hashtags ? (Array.isArray(hashtags) ? hashtags : [hashtags]) : []
 
     const result = db.prepare(`
-      INSERT INTO posts (user_id,content,post_type,media,hashtags,location_tag,poll_options)
-      VALUES (?,?,?,?,?,?,?)
+      INSERT INTO posts (user_id,content,post_type,media,hashtags,location_tag,poll_options,poll_question)
+      VALUES (?,?,?,?,?,?,?,?)
     `).run(req.user.id, content, post_type, JSON.stringify(mediaFiles), JSON.stringify(tags),
-      location_tag || null, poll_options || null)
+      location_tag || null, poll_options ? JSON.stringify(poll_options) : null, poll_question || null)
 
     // Award points
     db.prepare('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)').run(req.user.id,5,'post',new Date().toISOString().slice(0,7))
+    
     // Notification to followers (simplified)
     const post = db.prepare('SELECT * FROM posts WHERE id=?').get(result.lastInsertRowid)
+    
+    // Log success
+    console.log('Post created successfully:', result.lastInsertRowid, 'media count:', mediaFiles.length)
+    
     res.json(enrichPost(post))
   } catch (err) {
+    console.error('Post creation error:', err)
     res.status(500).json({ error: err.message })
   }
 })

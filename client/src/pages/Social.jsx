@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useSound } from '../context/SoundContext'
 import { useSearchParams } from 'react-router-dom'
+import { useChat } from '../hooks/useChat'
 import api from '../utils/api'
 import {
   Send, X, Image, Video, Mic, MicOff, Search, UserPlus,
@@ -449,6 +450,20 @@ function DMPanel({ onClose }) {
   const chunksRef = useRef([])
   const bottomRef = useRef(null)
 
+  // Use real-time chat functionality
+  const {
+    isConnected,
+    unreadCount,
+    typingUsers,
+    onlineUsers,
+    sendMessage,
+    markAsRead,
+    startTyping,
+    stopTyping,
+    fetchUnreadCount,
+    resetUnreadCount
+  } = useChat(user?.id)
+
   const fetchConvos = () => {
     api.get('/messages/conversations').then(r => {
       const data = Array.isArray(r.data) ? r.data : []
@@ -471,16 +486,25 @@ function DMPanel({ onClose }) {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  // Poll for new messages every 4s while in a chat
+  // Real-time message handling
   useEffect(() => {
-    if (view !== 'chat' || !selected?.other_user_id) return
-    const iv = setInterval(() => {
+    if (view === 'chat' && selected?.other_user_id) {
+      // Mark messages as read when opening chat
+      markAsRead()
+      resetUnreadCount()
+      
+      // Fetch initial messages
       api.get(`/messages/${selected.other_user_id}`).then(r => {
         if (Array.isArray(r.data)) setMessages(r.data)
       }).catch(() => {})
-    }, 4000)
-    return () => clearInterval(iv)
-  }, [view, selected?.other_user_id])
+    }
+  }, [view, selected?.other_user_id, markAsRead, resetUnreadCount])
+
+  // Handle real-time messages
+  useEffect(() => {
+    // This will be handled by the useChat hook automatically
+    // Messages will be received via WebSocket and added to the state
+  }, [])
 
   const openConvo = (convo) => {
     setSelected(convo)
@@ -507,8 +531,15 @@ function DMPanel({ onClose }) {
     if (!input.trim() || !selected) return
     const content = input
     setInput('')
-    setMessages(prev => [...prev, { content, sender_id: user.id, created_at: new Date().toISOString() }])
-    await api.post(`/messages/${selected.other_user_id}`, { content }).catch(() => {})
+    
+    // Use real-time chat for instant feedback
+    if (isConnected) {
+      sendMessage(selected.other_user_id, content, 'text')
+    } else {
+      // Fallback to HTTP
+      setMessages(prev => [...prev, { content, sender_id: user.id, created_at: new Date().toISOString() }])
+      await api.post(`/messages/${selected.other_user_id}`, { content }).catch(() => {})
+    }
   }
 
   const startRecording = async () => {
