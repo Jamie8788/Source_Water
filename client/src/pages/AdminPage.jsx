@@ -427,7 +427,7 @@ function AlertsAdminPanel() {
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               {['low','medium','high'].map(s => (
                 <button type="button" key={s} onClick={() => setForm(f => ({ ...f, severity: s }))}
-                  style={{ padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                  style={{ padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600,
                     background: form.severity === s ? SEV[s].bg : 'var(--border)',
                     color: form.severity === s ? SEV[s].color : 'var(--text-muted)',
                     border: form.severity === s ? `1px solid ${SEV[s].border}` : '1px solid transparent',

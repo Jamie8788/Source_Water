@@ -873,7 +873,7 @@ export default function Projects() {
         <div style={{ display:'flex', gap:6 }}>
           {['all','active','paused','completed','archived'].map(s => (
             <button key={s} onClick={() => setFilterStatus(s)}
-              style={{ padding:'7px 14px', borderRadius:20, border:'none', cursor:'pointer', fontSize:12, fontWeight:600, background: filterStatus===s ? (s==='all'?'linear-gradient(135deg,#6366f1,#4f46e5)':statusBg(s)) : 'var(--card-bg)', color: filterStatus===s ? (s==='all'?'white':statusColor(s)) : 'var(--text-muted)', border: filterStatus===s ? 'none' : '1px solid var(--border)' }}>
+              style={{ padding:'7px 14px', borderRadius:20, cursor:'pointer', fontSize:12, fontWeight:600, background: filterStatus===s ? (s==='all'?'linear-gradient(135deg,#6366f1,#4f46e5)':statusBg(s)) : 'var(--card-bg)', color: filterStatus===s ? (s==='all'?'white':statusColor(s)) : 'var(--text-muted)', border: filterStatus===s ? 'none' : '1px solid var(--border)' }}>
               {s.charAt(0).toUpperCase()+s.slice(1)}
             </button>
           ))}

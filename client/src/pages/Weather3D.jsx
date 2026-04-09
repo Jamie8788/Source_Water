@@ -1688,9 +1688,9 @@ function MLResearchPanel({ weatherData, researchData }) {
   }) : []
 
   const trend = wqiTrend(wqiForecast.map(d => d.wqi))
-  const precip7 = daily?.precipitation_sum?.slice(0, 5).reduce((a, b) => a + (b ?? 0), 0) ?? 0
-  const avgTemp = daily?.temperature_2m_max?.slice(0, 3).reduce((a, b) => a + b, 0) / 3 ?? c.temperature_2m ?? 15
-  const algae   = algaeRiskFn(avgTemp, c.relative_humidity_2m ?? 60, c.precipitation ?? 0)
+  const precip7 = daily?.precipitation_sum?.slice(0, 5).reduce((a, b) => a + (b || 0), 0) || 0
+  const avgTemp = daily?.temperature_2m_max?.slice(0, 3).reduce((a, b) => a + b, 0) / 3 || c.temperature_2m || 15
+  const algae   = algaeRiskFn(avgTemp, c.relative_humidity_2m || 60, c.precipitation || 0)
   const runoff  = runoffRisk(precip7)
 
   const siteWQIs = QUICK_LOCATIONS
