@@ -1,40 +1,49 @@
 services:
-  # ── Python ML/Analysis Service ───────────────────────────────────────────────
   - type: web
-    name: source-water-analysis
-    runtime: python
-    rootDir: analysis-service
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    name: source-water-api
+    env: node
+    region: oregon
     plan: free
+    buildCommand: "npm install && npm run build"
+    startCommand: "node server/index.js"
     envVars:
-      - key: MODEL_PROVIDER
-        value: gemini
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: GEMINI_MODEL
-        value: gemini-2.5-flash
-      - key: GEMINI_PRO_MODEL
-        value: gemini-2.5-pro
-      - key: PYTHON_VERSION
-        value: "3.11.9"
-
-  # ── Node.js app — rootDir=server so index.js runs with correct __dirname ─────
-  - type: web
-    name: source-water-app
-    runtime: node
-    rootDir: server
-    buildCommand: "cd ../client && npm install --include=dev --legacy-peer-deps && VITE_API_URL=/api VITE_ANALYSIS_URL=/ml npm run build && cd ../server && npm install"
-    startCommand: node index.js
-    plan: free
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: JWT_SECRET
-        generateValue: true
-      - key: OPENROUTER_API_KEY
-        sync: false
-      - key: OPENROUTER_MODEL
-        value: google/gemma-2-9b-it:free
+      - key: NODE_VERSION
+        value: "18"
+      - key: PORT
+        value: "10000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: source-water-db
+          property: connectionString
+      - key: REDIS_URL
+        fromDatabase:
+          name: source-water-redis
+          property: connectionString
       - key: ANALYSIS_SERVICE_URL
-        sync: false
+        value: "http://localhost:8001"
+      - key: UPLOAD_DIR
+        value: "/opt/render/project/src/uploads"
+    healthCheckPath: "/api/health"
+    healthCheckInterval: 30
+    healthCheckTimeout: 10
+    healthCheckRetries: 3
+    healthCheckGracePeriod: 30
+
+  - type: web
+    name: source-water-client
+    env: static
+    region: oregon
+    plan: free
+    buildCommand: "cd client && npm install && npm run build"
+    publishPath: "client/dist"
+    healthCheckPath: "/"
+
+databases:
+  - name: source-water-db
+    plan: free
+    region: oregon
+
+  - name: source-water-redis
+    plan: free
+    region: oregon
+    type: redis
