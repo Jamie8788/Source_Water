@@ -1,4 +1,7 @@
 require('dotenv').config()
+console.log('[startup] Cloudinary cloud_name:', process.env.CLOUDINARY_CLOUD_NAME || '❌ NOT SET')
+console.log('[startup] Cloudinary api_key:', process.env.CLOUDINARY_API_KEY ? '✓' : '❌ NOT SET')
+console.log('[startup] Cloudinary api_secret:', process.env.CLOUDINARY_API_SECRET ? '✓' : '❌ NOT SET')
 const express = require('express')
 const cors = require('cors')
 const helmet = require('helmet')

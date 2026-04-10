@@ -3,11 +3,8 @@ const multer = require('multer')
 const cloudinary = require('cloudinary').v2
 const { Readable } = require('stream')
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-})
+// Config is set per-request so it always reads the latest env vars
+
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } })
 
@@ -22,9 +19,21 @@ function bufferToStream(buffer) {
 router.post('/', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file provided' })
-    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_SECRET) {
-      return res.status(500).json({ error: 'Cloudinary not configured on server. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET in Render environment variables.' })
+
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME
+    const apiKey = process.env.CLOUDINARY_API_KEY
+    const apiSecret = process.env.CLOUDINARY_API_SECRET
+
+    console.log('[upload] Cloudinary config check — cloud_name:', cloudName, 'api_key:', apiKey ? '✓' : '✗', 'api_secret:', apiSecret ? '✓' : '✗')
+
+    if (!cloudName || !apiKey || !apiSecret) {
+      const missing = [!cloudName && 'CLOUDINARY_CLOUD_NAME', !apiKey && 'CLOUDINARY_API_KEY', !apiSecret && 'CLOUDINARY_API_SECRET'].filter(Boolean).join(', ')
+      return res.status(500).json({ error: `Cloudinary not configured. Missing: ${missing}` })
     }
+
+    // Configure fresh on each request
+    cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret })
+
     const folder = req.body.folder || 'source-water'
     const isVideo = req.file.mimetype.startsWith('video/')
     const isAudio = req.file.mimetype.startsWith('audio/')

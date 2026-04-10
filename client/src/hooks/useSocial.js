@@ -85,22 +85,8 @@ export async function createPost({ userId, content, postType = 'text', files = [
     if (files.length > 0) {
       // Upload to Cloudinary so files persist across Render redeploys
       let mediaUrls = []
-      try {
-        const folder = postType === 'video' ? 'source-water/videos' : postType === 'audio' ? 'source-water/audio' : 'source-water/posts'
-        mediaUrls = await Promise.all(files.map(f => uploadToCloudinary(f, folder)))
-      } catch (_) {
-        // Fallback to local upload if Cloudinary fails
-        const fd = new FormData()
-        fd.append('content', content || ' ')
-        fd.append('post_type', postType)
-        files.forEach(f => fd.append('media', f))
-        const token = localStorage.getItem('sb_access_token') || localStorage.getItem('sw_token')
-        const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api','')
-        const res = await fetch(`${apiBase}/api/posts`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
-        const json = await res.json()
-        if (!res.ok) throw new Error(json.error || 'Post failed')
-        return json.post || json
-      }
+      const folder = postType === 'video' ? 'source-water/videos' : postType === 'audio' ? 'source-water/audio' : 'source-water/posts'
+      mediaUrls = await Promise.all(files.map(f => uploadToCloudinary(f, folder)))
       const r = await api.post('/posts', { content, post_type: postType, location_tag: locationTag, media: JSON.stringify(mediaUrls) })
       return r.data.post || r.data
     } else {
