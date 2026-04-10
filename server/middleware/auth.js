@@ -2,17 +2,16 @@ const jwt = require('jsonwebtoken')
 const db = require('../db/connection')
 const { createClient } = require('@supabase/supabase-js')
 
-const supabase = createClient(
-  process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '',
-)
+const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY)
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)
+  : null
 
 const requireAuth = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1]
   if (!token) return res.status(401).json({ error: 'No token provided' })
 
   // Try Supabase JWT first
-  if (process.env.SUPABASE_URL) {
+  if (supabase) {
     try {
       const { data: { user }, error } = await supabase.auth.getUser(token)
       if (user && !error) {
