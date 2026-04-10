@@ -186,7 +186,7 @@ export default function Landing() {
     e.preventDefault(); setError(''); setLoading(true)
     try {
       await register({ username: form.username, email: form.email, password: form.password, display_name: form.display_name })
-      navigate('/dashboard')
+      navigate('/onboarding')
     } catch (err) { setError(err.response?.data?.error || 'Registration failed') }
     finally { setLoading(false) }
   }

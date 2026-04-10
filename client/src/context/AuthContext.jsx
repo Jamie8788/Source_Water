@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import api from '../utils/api'
 
@@ -25,6 +25,7 @@ function toLocalUser(sbUser, meta = {}) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const isRegisteringRef = useRef(false)
 
   const fetchProfile = useCallback(async (sbUser, token) => {
     try {
@@ -60,7 +61,8 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         await fetchProfile(session.user, session.access_token)
-      } else {
+      } else if (!isRegisteringRef.current) {
+        // Only clear user if not in the middle of a registration flow
         setUser(null)
         localStorage.removeItem('sw_user')
         localStorage.removeItem('sb_access_token')
@@ -92,32 +94,45 @@ export function AuthProvider({ children }) {
     const { username, password, display_name, role, avatar_emoji, avatar_bg_color, email } = data
     const userEmail = email || `${username}@sourcewater.app`
 
-    const { data: sbData, error: sbError } = await supabase.auth.signUp({
-      email: userEmail,
-      password,
-      options: {
-        data: { username, display_name: display_name || username, role, avatar_emoji, avatar_bg_color },
-        emailRedirectTo: undefined,
-      },
-    })
-    if (sbError) throw new Error(sbError.message)
-
-    // Auto sign-in immediately (skip email confirmation)
-    if (sbData?.user && !sbData?.session) {
-      const { data: signInData } = await supabase.auth.signInWithPassword({ email: userEmail, password })
-      if (signInData?.session) {
-        localStorage.setItem('sb_access_token', signInData.session.access_token)
-      }
-    }
-
-    // Also register in legacy system for backwards compat
+    isRegisteringRef.current = true
     try {
-      const r = await api.post('/auth/register', data)
-      localStorage.setItem('sw_token', r.data.token)
-    } catch (_) {}
+      const { data: sbData, error: sbError } = await supabase.auth.signUp({
+        email: userEmail,
+        password,
+        options: {
+          data: { username, display_name: display_name || username, role, avatar_emoji, avatar_bg_color },
+          emailRedirectTo: undefined,
+        },
+      })
+      if (sbError) throw new Error(sbError.message)
 
-    return toLocalUser(sbData.user, { username, display_name, role, avatar_emoji, avatar_bg_color })
-  }, [])
+      // Get the session — either from signUp directly or via manual sign-in
+      let session = sbData?.session
+      if (sbData?.user && !session) {
+        const { data: signInData } = await supabase.auth.signInWithPassword({ email: userEmail, password })
+        session = signInData?.session
+      }
+
+      // Also register in legacy system for backwards compat
+      try {
+        const r = await api.post('/auth/register', data)
+        localStorage.setItem('sw_token', r.data.token)
+      } catch (_) {}
+
+      // Explicitly set user now so caller can navigate immediately without flicker
+      if (session?.user) {
+        return await fetchProfile(session.user, session.access_token)
+      }
+
+      const fallback = toLocalUser(sbData.user, { username, display_name, role, avatar_emoji, avatar_bg_color })
+      setUser(fallback)
+      localStorage.setItem('sw_user', JSON.stringify(fallback))
+      return fallback
+    } finally {
+      // Allow a short window for auth state to settle before re-enabling null-clear
+      setTimeout(() => { isRegisteringRef.current = false }, 2000)
+    }
+  }, [fetchProfile])
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut()
