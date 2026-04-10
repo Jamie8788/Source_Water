@@ -269,6 +269,7 @@ function initSchema() {
     "ALTER TABLE quiz_questions ADD COLUMN negative_points REAL DEFAULT 0",
     "ALTER TABLE observations ADD COLUMN flagged INTEGER DEFAULT 0",
     "ALTER TABLE users ADD COLUMN avatar_url TEXT",
+    "ALTER TABLE posts ADD COLUMN poll_question TEXT",
   ]
   for (const sql of migrations) {
     try { db.prepare(sql).run() } catch (_) { /* column already exists */ }
