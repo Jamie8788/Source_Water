@@ -46,9 +46,18 @@ router.post('/', upload.single('file'), async (req, res) => {
 
     const resourceType = isVideo ? 'video' : isAudio ? 'video' : 'image'
 
+    const uploadOptions = { folder, resource_type: resourceType }
+    if (!isVideo) {
+      uploadOptions.quality = 'auto'
+      uploadOptions.fetch_format = 'auto'
+    } else {
+      // Large videos must use async eager processing — skip sync transformations
+      uploadOptions.eager_async = true
+    }
+
     const result = await new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
-        { folder, resource_type: resourceType, quality: 'auto', fetch_format: 'auto' },
+        uploadOptions,
         (err, result) => err ? reject(err) : resolve(result)
       )
       bufferToStream(req.file.buffer).pipe(uploadStream)
