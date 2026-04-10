@@ -270,6 +270,8 @@ function initSchema() {
     "ALTER TABLE observations ADD COLUMN flagged INTEGER DEFAULT 0",
     "ALTER TABLE users ADD COLUMN avatar_url TEXT",
     "ALTER TABLE posts ADD COLUMN poll_question TEXT",
+    "ALTER TABLE direct_messages ADD COLUMN deleted INTEGER DEFAULT 0",
+    "ALTER TABLE direct_messages ADD COLUMN edited INTEGER DEFAULT 0",
   ]
   for (const sql of migrations) {
     try { db.prepare(sql).run() } catch (_) { /* column already exists */ }

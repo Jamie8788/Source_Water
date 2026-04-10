@@ -177,7 +177,10 @@ export async function toggleReaction(postId, userId, reactionType) {
 function legacyGet(path) {
   const token = localStorage.getItem('sw_token') || localStorage.getItem('sb_access_token')
   const base = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api', '')
-  return fetch(`${base}/api${path}`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json())
+  return fetch(`${base}/api${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  }).then(r => r.json())
 }
 
 // ── Direct Messages — always uses legacy SQLite API so all users can talk ─────
@@ -218,7 +221,8 @@ export function useMessages(userId, otherId) {
     if (!userId || !otherId) return
     try {
       const data = await legacyGet(`/messages/${otherId}`)
-      setMessages(Array.isArray(data) ? data : [])
+      // Only update if we got a real array — don't wipe messages on auth errors
+      if (Array.isArray(data)) setMessages(data)
     } catch {} finally {
       setReady(true)
     }
@@ -240,11 +244,47 @@ export async function sendDM(senderId, receiverId, content, mediaFile = null) {
   const base = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api', '')
   const fd = new FormData()
   if (content) fd.append('content', content)
-  if (mediaFile) fd.append('media', mediaFile)
+
+  if (mediaFile) {
+    const isVoice = mediaFile.name?.endsWith('.webm') || mediaFile.type?.includes('audio')
+    try {
+      // Upload to Cloudinary so media persists on Render
+      const folder = isVoice ? 'source-water/voice' : mediaFile.type?.startsWith('video') ? 'source-water/dm-video' : 'source-water/dm'
+      const mediaUrl = await uploadToCloudinary(mediaFile, folder)
+      if (isVoice) fd.append('voice_url', mediaUrl)
+      else fd.append('media_url', mediaUrl)
+    } catch {
+      // Fallback: send file directly
+      if (isVoice) fd.append('voice_note', mediaFile)
+      else fd.append('media', mediaFile)
+    }
+  }
+
   const res = await fetch(`${base}/api/messages/${receiverId}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: fd,
+  })
+  return res.json()
+}
+
+export async function deleteDM(messageId) {
+  const token = localStorage.getItem('sw_token') || localStorage.getItem('sb_access_token')
+  const base = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api', '')
+  const res = await fetch(`${base}/api/messages/${messageId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return res.json()
+}
+
+export async function editDM(messageId, content) {
+  const token = localStorage.getItem('sw_token') || localStorage.getItem('sb_access_token')
+  const base = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api', '')
+  const res = await fetch(`${base}/api/messages/${messageId}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
   })
   return res.json()
 }

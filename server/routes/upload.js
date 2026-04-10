@@ -2,6 +2,12 @@ const router = require('express').Router()
 const multer = require('multer')
 const cloudinary = require('cloudinary').v2
 const { Readable } = require('stream')
+const path = require('path')
+
+// Belt-and-suspenders: if env vars not loaded yet, try loading .env from server dir
+if (!process.env.CLOUDINARY_CLOUD_NAME) {
+  require('dotenv').config({ path: path.join(__dirname, '..', '.env') })
+}
 
 // Config is set per-request so it always reads the latest env vars
 
