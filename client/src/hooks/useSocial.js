@@ -5,6 +5,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { uploadToCloudinary } from '../lib/cloudinaryUpload'
+import api from '../utils/api'
+
+// Check if a value is a real UUID (Supabase) vs integer (old SQLite)
+const isUUID = (id) => typeof id === 'string' && id.includes('-')
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function enrichPost(post) {
@@ -75,7 +79,26 @@ export function useFeed() {
 }
 
 export async function createPost({ userId, content, postType = 'text', files = [], locationTag = '' }) {
-  // Upload media to Cloudinary
+  // Fallback to old API if not a Supabase UUID
+  if (!isUUID(userId)) {
+    if (files.length > 0) {
+      const fd = new FormData()
+      fd.append('content', content || ' ')
+      fd.append('post_type', postType)
+      files.forEach(f => fd.append('media', f))
+      const token = localStorage.getItem('sb_access_token') || localStorage.getItem('sw_token')
+      const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api','')
+      const res = await fetch(`${apiBase}/api/posts`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Post failed')
+      return json.post || json
+    } else {
+      const r = await api.post('/posts', { content, post_type: postType, location_tag: locationTag })
+      return r.data.post || r.data
+    }
+  }
+
+  // Supabase path
   let mediaUrls = []
   if (files.length > 0) {
     const folder = postType === 'video' ? 'source-water/videos' : 'source-water/posts'
@@ -84,19 +107,8 @@ export async function createPost({ userId, content, postType = 'text', files = [
 
   const { data, error } = await supabase
     .from('posts')
-    .insert({
-      user_id: userId,
-      content,
-      post_type: postType,
-      media: mediaUrls,
-      location_tag: locationTag || null,
-    })
-    .select(`
-      *,
-      profiles(id, username, display_name, avatar_emoji, avatar_bg_color, avatar_url, role),
-      post_reactions(reaction_type),
-      comments(count)
-    `)
+    .insert({ user_id: userId, content, post_type: postType, media: mediaUrls, location_tag: locationTag || null })
+    .select(`*, profiles(id, username, display_name, avatar_emoji, avatar_bg_color, avatar_url, role), post_reactions(reaction_type), comments(count)`)
     .single()
 
   if (error) throw new Error(error.message)
@@ -120,6 +132,10 @@ export async function fetchComments(postId) {
 }
 
 export async function addComment(postId, userId, content) {
+  if (!isUUID(userId)) {
+    const r = await api.post(`/posts/${postId}/comments`, { content })
+    return r.data.comment || r.data
+  }
   const { data, error } = await supabase
     .from('comments')
     .insert({ post_id: postId, user_id: userId, content })
@@ -136,6 +152,10 @@ export async function deleteComment(commentId) {
 
 // ── Reactions ─────────────────────────────────────────────────────────────────
 export async function toggleReaction(postId, userId, reactionType) {
+  if (!isUUID(userId)) {
+    const r = await api.post(`/posts/${postId}/react`, { reaction_type: reactionType }).catch(() => null)
+    return r ? true : false
+  }
   // Check if already reacted with this type
   const { data: existing } = await supabase
     .from('post_reactions')
@@ -255,15 +275,21 @@ export function useMessages(userId, otherId) {
 }
 
 export async function sendDM(senderId, receiverId, content, mediaFile = null) {
-  let mediaUrl = null
-  if (mediaFile) {
-    mediaUrl = await uploadToCloudinary(mediaFile, 'source-water/dm')
+  if (!isUUID(senderId)) {
+    const fd = new FormData()
+    if (content) fd.append('content', content)
+    if (mediaFile) fd.append('media', mediaFile)
+    const token = localStorage.getItem('sb_access_token') || localStorage.getItem('sw_token')
+    const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api','')
+    const res = await fetch(`${apiBase}/api/messages/${receiverId}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
+    return res.json()
   }
+  let mediaUrl = null
+  if (mediaFile) mediaUrl = await uploadToCloudinary(mediaFile, 'source-water/dm')
   const { data, error } = await supabase
     .from('direct_messages')
     .insert({ sender_id: senderId, receiver_id: receiverId, content, media: mediaUrl })
-    .select()
-    .single()
+    .select().single()
   if (error) throw new Error(error.message)
   return data
 }
