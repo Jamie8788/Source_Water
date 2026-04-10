@@ -68,10 +68,13 @@ export function AuthProvider({ children }) {
       if (session?.user) {
         await fetchProfile(session.user, session.access_token)
       } else if (!isRegisteringRef.current) {
-        // Only clear user if not in the middle of a registration flow
-        setUser(null)
-        localStorage.removeItem('sw_user')
-        localStorage.removeItem('sb_access_token')
+        // Don't clear if a legacy session is active (admin / SQLite-only users)
+        const hasLegacySession = !!localStorage.getItem('sw_token')
+        if (!hasLegacySession) {
+          setUser(null)
+          localStorage.removeItem('sw_user')
+          localStorage.removeItem('sb_access_token')
+        }
       }
     })
 

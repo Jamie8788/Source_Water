@@ -441,7 +441,10 @@ function DMPanel({ onClose }) {
     resetUnreadCount
   } = useChat(user?.id)
 
-  const sbUserId = user?.supabase_id || user?.id
+  // For DMs we always use the SQLite integer ID — every user (including Supabase
+  // users) has one via the legacy auth/register fallback, and the messages API
+  // uses integer IDs throughout.
+  const sbUserId = user?.id
   const { convos, refresh: fetchConvos } = useConversations(sbUserId)
 
   useEffect(() => {}, []) // convos auto-refresh via realtime in useConversations

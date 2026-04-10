@@ -187,134 +187,87 @@ export async function toggleReaction(postId, userId, reactionType) {
   }
 }
 
-// ── Direct Messages ───────────────────────────────────────────────────────────
+// ── Shared legacy API helper ──────────────────────────────────────────────────
+function legacyGet(path) {
+  const token = localStorage.getItem('sw_token') || localStorage.getItem('sb_access_token')
+  const base = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api', '')
+  return fetch(`${base}/api${path}`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json())
+}
+
+// ── Direct Messages — always uses legacy SQLite API so all users can talk ─────
 export function useConversations(userId) {
   const [convos, setConvos] = useState([])
 
-  const fetch = useCallback(async () => {
+  const load = useCallback(async () => {
     if (!userId) return
-    // Get all DMs involving this user, grouped by conversation partner
-    const { data } = await supabase
-      .from('direct_messages')
-      .select(`
-        *,
-        sender:profiles!direct_messages_sender_id_fkey(id, username, display_name, avatar_emoji, avatar_bg_color, avatar_url),
-        receiver:profiles!direct_messages_receiver_id_fkey(id, username, display_name, avatar_emoji, avatar_bg_color, avatar_url)
-      `)
-      .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
-      .order('created_at', { ascending: false })
-
-    if (!data) return
-
-    const seen = new Map()
-    data.forEach(msg => {
-      const otherId = msg.sender_id === userId ? msg.receiver_id : msg.sender_id
-      const otherUser = msg.sender_id === userId ? msg.receiver : msg.sender
-      if (!seen.has(otherId)) {
-        seen.set(otherId, {
-          other_user_id: otherId,
-          display_name: otherUser?.display_name,
-          username: otherUser?.username,
-          avatar_url: otherUser?.avatar_url,
-          avatar_emoji: otherUser?.avatar_emoji,
-          last_message: msg.content || '📎 Media',
-          unread_count: (!msg.read && msg.receiver_id === userId) ? 1 : 0,
-        })
-      } else if (!msg.read && msg.receiver_id === userId) {
-        seen.get(otherId).unread_count += 1
-      }
-    })
-    setConvos(Array.from(seen.values()))
+    try {
+      const data = await legacyGet('/messages/conversations')
+      if (!Array.isArray(data)) return
+      setConvos(data.map(c => ({
+        other_user_id: c.other_id,
+        display_name: c.user?.display_name || c.user?.username,
+        username: c.user?.username,
+        avatar_emoji: c.user?.avatar_emoji,
+        avatar_bg_color: c.user?.avatar_bg_color,
+        last_message: c.last_message,
+        unread_count: c.unread_count || 0,
+      })))
+    } catch {}
   }, [userId])
 
   useEffect(() => {
-    fetch()
-    const channel = supabase
-      .channel(`convos-${userId}`)
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'direct_messages',
-        filter: `receiver_id=eq.${userId}`,
-      }, fetch)
-      .subscribe()
-    return () => supabase.removeChannel(channel)
-  }, [userId, fetch])
+    load()
+    const t = setInterval(load, 8000)
+    return () => clearInterval(t)
+  }, [load])
 
-  return { convos, refresh: fetch }
+  return { convos, refresh: load }
 }
 
 export function useMessages(userId, otherId) {
   const [messages, setMessages] = useState([])
 
-  const fetch = useCallback(async () => {
+  const load = useCallback(async () => {
     if (!userId || !otherId) return
-    const { data } = await supabase
-      .from('direct_messages')
-      .select('*')
-      .or(`and(sender_id.eq.${userId},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${userId})`)
-      .order('created_at', { ascending: true })
-    setMessages(data || [])
-
-    // Mark as read
-    await supabase
-      .from('direct_messages')
-      .update({ read: true })
-      .eq('receiver_id', userId)
-      .eq('sender_id', otherId)
+    try {
+      const data = await legacyGet(`/messages/${otherId}`)
+      setMessages(Array.isArray(data) ? data : [])
+    } catch {}
   }, [userId, otherId])
 
   useEffect(() => {
-    fetch()
+    load()
     if (!userId || !otherId) return
-    const channel = supabase
-      .channel(`dm-${[userId, otherId].sort().join('-')}`)
-      .on('postgres_changes', {
-        event: 'INSERT', schema: 'public', table: 'direct_messages',
-      }, (payload) => {
-        const msg = payload.new
-        if (
-          (msg.sender_id === userId && msg.receiver_id === otherId) ||
-          (msg.sender_id === otherId && msg.receiver_id === userId)
-        ) {
-          setMessages(prev => [...prev, msg])
-        }
-      })
-      .subscribe()
-    return () => supabase.removeChannel(channel)
-  }, [userId, otherId, fetch])
+    const t = setInterval(load, 4000)
+    return () => clearInterval(t)
+  }, [load])
 
-  return { messages, refresh: fetch }
+  return { messages, refresh: load }
 }
 
 export async function sendDM(senderId, receiverId, content, mediaFile = null) {
-  if (!isUUID(senderId)) {
-    const fd = new FormData()
-    if (content) fd.append('content', content)
-    if (mediaFile) fd.append('media', mediaFile)
-    const token = localStorage.getItem('sb_access_token') || localStorage.getItem('sw_token')
-    const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api','')
-    const res = await fetch(`${apiBase}/api/messages/${receiverId}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
-    return res.json()
-  }
-  let mediaUrl = null
-  if (mediaFile) mediaUrl = await uploadToCloudinary(mediaFile, 'source-water/dm')
-  const { data, error } = await supabase
-    .from('direct_messages')
-    .insert({ sender_id: senderId, receiver_id: receiverId, content, media: mediaUrl })
-    .select().single()
-  if (error) throw new Error(error.message)
-  return data
+  const token = localStorage.getItem('sw_token') || localStorage.getItem('sb_access_token')
+  const base = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api', '')
+  const fd = new FormData()
+  if (content) fd.append('content', content)
+  if (mediaFile) fd.append('media', mediaFile)
+  const res = await fetch(`${base}/api/messages/${receiverId}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: fd,
+  })
+  return res.json()
 }
 
-// ── User search ────────────────────────────────────────────────────────────────
+// ── User search — legacy API returns SQLite integer IDs ───────────────────────
 export async function searchUsers(query, excludeId) {
-  let q = supabase
-    .from('profiles')
-    .select('id, username, display_name, avatar_emoji, avatar_bg_color, avatar_url')
-    .or(`username.ilike.%${query}%,display_name.ilike.%${query}%`)
-    .limit(20)
-  if (isUUID(excludeId)) q = q.neq('id', excludeId)
-  const { data } = await q
-  return data || []
+  try {
+    const data = await legacyGet(`/users/search?q=${encodeURIComponent(query)}`)
+    const users = data.users || data || []
+    return excludeId ? users.filter(u => String(u.id) !== String(excludeId)) : users
+  } catch {
+    return []
+  }
 }
 
 // ── Follows ────────────────────────────────────────────────────────────────────

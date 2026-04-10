@@ -22,6 +22,9 @@ function bufferToStream(buffer) {
 router.post('/', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file provided' })
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_SECRET) {
+      return res.status(500).json({ error: 'Cloudinary not configured on server. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET in Render environment variables.' })
+    }
     const folder = req.body.folder || 'source-water'
     const isVideo = req.file.mimetype.startsWith('video/')
     const isAudio = req.file.mimetype.startsWith('audio/')
