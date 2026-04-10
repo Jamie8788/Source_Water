@@ -86,6 +86,7 @@ export function AuthProvider({ children }) {
       try {
         const r = await api.post('/auth/login', { identifier, password })
         localStorage.setItem('sw_token', r.data.token)
+        localStorage.removeItem('sb_access_token') // clear any stale Supabase token
         localStorage.setItem('sw_user', JSON.stringify(r.data.user))
         setUser(r.data.user)
         return r.data.user
