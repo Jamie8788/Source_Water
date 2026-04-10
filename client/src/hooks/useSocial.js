@@ -296,12 +296,13 @@ export async function sendDM(senderId, receiverId, content, mediaFile = null) {
 
 // ── User search ────────────────────────────────────────────────────────────────
 export async function searchUsers(query, excludeId) {
-  const { data } = await supabase
+  let q = supabase
     .from('profiles')
     .select('id, username, display_name, avatar_emoji, avatar_bg_color, avatar_url')
     .or(`username.ilike.%${query}%,display_name.ilike.%${query}%`)
-    .neq('id', excludeId)
     .limit(20)
+  if (isUUID(excludeId)) q = q.neq('id', excludeId)
+  const { data } = await q
   return data || []
 }
 
