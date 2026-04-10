@@ -433,6 +433,7 @@ function DMPanel({ onClose }) {
     unreadCount,
     typingUsers,
     onlineUsers,
+    lastMessage,
     sendMessage,
     markAsRead,
     startTyping,
@@ -447,33 +448,32 @@ function DMPanel({ onClose }) {
   const sbUserId = user?.id
   const { convos, refresh: fetchConvos } = useConversations(sbUserId)
 
-  useEffect(() => {}, []) // convos auto-refresh via realtime in useConversations
-
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  // Real-time message handling
   useEffect(() => {
     if (view === 'chat' && selected?.other_user_id) {
-      // Mark messages as read when opening chat
       markAsRead()
       resetUnreadCount()
-      
-      // Fetch initial messages
-      api.get(`/messages/${selected.other_user_id}`).then(r => {
-        if (Array.isArray(r.data)) setMessages(r.data)
-      }).catch(() => {})
     }
   }, [view, selected?.other_user_id, markAsRead, resetUnreadCount])
 
-  // Handle real-time messages
+  const { messages: sbMessages, ready: msgsReady, refresh: refreshMessages } = useMessages(sbUserId, selected?.other_user_id)
+
+  // Only replace local messages once the first fetch has completed (avoids empty flash)
+  useEffect(() => { if (msgsReady) setMessages(sbMessages) }, [sbMessages, msgsReady])
+
+  // When a new socket.io message arrives for the open conversation, fetch instantly
   useEffect(() => {
-    // This will be handled by the useChat hook automatically
-    // Messages will be received via WebSocket and added to the state
-  }, [])
-
-  const { messages: sbMessages, refresh: refreshMessages } = useMessages(sbUserId, selected?.other_user_id)
-
-  useEffect(() => { setMessages(sbMessages) }, [sbMessages])
+    if (!lastMessage || !selected?.other_user_id) return
+    const senderId = lastMessage.sender_id
+    const receiverId = lastMessage.receiver_id
+    if (senderId === selected.other_user_id || receiverId === selected.other_user_id) {
+      refreshMessages()
+    } else {
+      // New message from someone else — refresh convo list for badge
+      fetchConvos()
+    }
+  }, [lastMessage]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const openConvo = (convo) => { setSelected(convo); setView('chat') }
 

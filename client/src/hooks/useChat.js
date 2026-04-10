@@ -9,6 +9,7 @@ export function useChat(userId) {
   const [unreadCount, setUnreadCount] = useState(0)
   const [typingUsers, setTypingUsers] = useState(new Set())
   const [onlineUsers, setOnlineUsers] = useState(new Set())
+  const [lastMessage, setLastMessage] = useState(null)
   
   const reconnectAttempts = useRef(0)
   const maxReconnectAttempts = 5
@@ -57,6 +58,7 @@ export function useChat(userId) {
     // Message events
     newSocket.on('new_message', (message) => {
       console.log('New message received:', message)
+      setLastMessage(message)
       // Update unread count
       setUnreadCount(prev => prev + 1)
       
@@ -180,6 +182,7 @@ export function useChat(userId) {
     unreadCount,
     typingUsers,
     onlineUsers,
+    lastMessage,
     sendMessage,
     markAsRead,
     startTyping,

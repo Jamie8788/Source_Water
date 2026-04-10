@@ -226,23 +226,27 @@ export function useConversations(userId) {
 
 export function useMessages(userId, otherId) {
   const [messages, setMessages] = useState([])
+  const [ready, setReady] = useState(false)
 
   const load = useCallback(async () => {
     if (!userId || !otherId) return
     try {
       const data = await legacyGet(`/messages/${otherId}`)
       setMessages(Array.isArray(data) ? data : [])
-    } catch {}
+    } catch {} finally {
+      setReady(true)
+    }
   }, [userId, otherId])
 
   useEffect(() => {
+    setReady(false)
     load()
     if (!userId || !otherId) return
     const t = setInterval(load, 4000)
     return () => clearInterval(t)
   }, [load])
 
-  return { messages, refresh: load }
+  return { messages, ready, refresh: load }
 }
 
 export async function sendDM(senderId, receiverId, content, mediaFile = null) {
