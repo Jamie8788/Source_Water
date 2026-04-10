@@ -54,6 +54,10 @@ export async function uploadToCloudinary(file, folder = 'source-water', onProgre
  * No Render timeout involved.
  */
 async function uploadVideoDirectly(file, folder, token, onProgress) {
+  // Warn if file is huge
+  const MB = file.size / 1024 / 1024
+  if (MB > 500) throw new Error(`Video is ${MB.toFixed(0)} MB — max 500 MB`)
+
   // Step 1: get signature
   const signRes = await fetch(`${API_BASE}/api/upload/sign?folder=${encodeURIComponent(folder)}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -68,34 +72,36 @@ async function uploadVideoDirectly(file, folder, token, onProgress) {
   formData.append('timestamp', String(timestamp))
   formData.append('api_key', api_key)
   formData.append('signature', signature)
-  formData.append('eager_async', 'true') // async processing — avoids sync timeout
+  formData.append('eager_async', 'true')
 
-  // Use XMLHttpRequest so we can track upload progress
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloud_name}/video/upload`)
 
+    const startTime = Date.now()
+
     if (onProgress) {
       xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+        if (!e.lengthComputable) return
+        const pct     = Math.round((e.loaded / e.total) * 100)
+        const elapsed = (Date.now() - startTime) / 1000          // seconds
+        const speed   = elapsed > 0 ? e.loaded / elapsed : 0     // bytes/s
+        const remaining = speed > 0 ? (e.total - e.loaded) / speed : null // seconds
+        onProgress({ pct, speed, remaining, loaded: e.loaded, total: e.total })
       }
     }
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          const data = JSON.parse(xhr.responseText)
-          resolve(data.secure_url)
-        } catch {
-          reject(new Error('Invalid response from Cloudinary'))
-        }
+        try { resolve(JSON.parse(xhr.responseText).secure_url) }
+        catch { reject(new Error('Invalid response from Cloudinary')) }
       } else {
-        reject(new Error(`Cloudinary upload failed: ${xhr.status}`))
+        reject(new Error(`Upload failed (${xhr.status})`))
       }
     }
-    xhr.onerror  = () => reject(new Error('Network error during video upload'))
-    xhr.ontimeout = () => reject(new Error('Video upload timed out'))
-    xhr.timeout  = 15 * 60 * 1000 // 15 minutes max for large videos
+    xhr.onerror   = () => reject(new Error('Network error during upload'))
+    xhr.ontimeout = () => reject(new Error('Upload timed out'))
+    xhr.timeout   = 15 * 60 * 1000
 
     xhr.send(formData)
   })

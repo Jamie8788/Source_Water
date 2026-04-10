@@ -721,7 +721,7 @@ function PostComposer({ user, onPost, onStory }) {
   const [media, setMedia]         = useState([])
   const [postType, setPostType]   = useState('text')
   const [submitting, setSubmit]   = useState(false)
-  const [uploadPct, setUploadPct] = useState(0)
+  const [uploadInfo, setUploadInfo] = useState(null) // { pct, speed, remaining }
   const [err, setErr]             = useState('')
   const [pollMode, setPollMode]   = useState(false)
   const [pollQ, setPollQ]         = useState('')
@@ -738,20 +738,20 @@ function PostComposer({ user, onPost, onStory }) {
     if (pollMode && (!pollQ.trim() || pollOpts.filter(o=>o.trim()).length < 2)) {
       setErr('Poll needs a question and at least 2 options'); return
     }
-    setSubmit(true); setErr(''); setUploadPct(0)
+    setSubmit(true); setErr(''); setUploadInfo(null)
     try {
       const userId = user?.supabase_id||user?.id
       const posted = await createPost({
         userId, content, postType, files:media,
         pollQuestion: pollMode ? pollQ.trim() : '',
         pollOptions:  pollMode ? pollOpts.filter(o=>o.trim()) : [],
-        onProgress: pct => setUploadPct(pct),
+        onProgress: info => setUploadInfo(typeof info === 'object' ? info : { pct: info }),
       })
       onPost(posted)
       setContent(''); setMedia([]); setExpanded(false); setPostType('text')
       setPollMode(false); setPollQ(''); setPollOpts(['',''])
     } catch(e) { setErr(e.message||'Upload failed') }
-    setSubmit(false); setUploadPct(0)
+    setSubmit(false); setUploadInfo(null)
   }
 
   return (
@@ -823,7 +823,15 @@ function PostComposer({ user, onPost, onStory }) {
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors hover:bg-green-50"
                     style={{color:'#10b981'}}><Image className="w-4 h-4"/> Photo</button>
                   <input ref={vidRef} type="file" accept="video/*" className="hidden"
-                    onChange={e=>{if(e.target.files?.[0]){setMedia([e.target.files[0]]);setPostType('video')}}}/>
+                    onChange={e=>{
+                      const f = e.target.files?.[0]
+                      if (!f) return
+                      const mb = f.size/1024/1024
+                      if (mb > 500) { setErr(`Video too large (${mb.toFixed(0)} MB). Max 500 MB.`); return }
+                      if (mb > 100) setErr(`Large video (${mb.toFixed(0)} MB) — upload may take several minutes`)
+                      else setErr('')
+                      setMedia([f]); setPostType('video')
+                    }}/>
                   <button type="button" onClick={()=>vidRef.current?.click()}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors hover:bg-red-50"
                     style={{color:'#ef4444'}}><Video className="w-4 h-4"/> Video</button>
@@ -841,18 +849,25 @@ function PostComposer({ user, onPost, onStory }) {
                     className="px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors"
                     style={{color:'var(--text-muted)',borderColor:'var(--border)'}}>Cancel</button>
                   {err && <span className="text-xs text-red-500 max-w-[140px] leading-tight">{err}</span>}
-                  {submitting && uploadPct > 0 && (
-                    <div className="flex items-center gap-2 flex-1">
-                      <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{background:'var(--border)'}}>
-                        <div className="h-full rounded-full transition-all duration-300" style={{width:`${uploadPct}%`,background:'linear-gradient(90deg,#6366f1,#8b5cf6)'}}/>
+                  {submitting && uploadInfo && (
+                    <div className="flex flex-col gap-1 flex-1">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{background:'var(--border)'}}>
+                          <div className="h-full rounded-full transition-all duration-300" style={{width:`${uploadInfo.pct||0}%`,background:'linear-gradient(90deg,#6366f1,#8b5cf6)'}}/>
+                        </div>
+                        <span className="text-xs font-bold tabular-nums" style={{color:'#6366f1'}}>{uploadInfo.pct||0}%</span>
                       </div>
-                      <span className="text-xs font-bold" style={{color:'#6366f1'}}>{uploadPct}%</span>
+                      <div className="flex gap-2 text-xs" style={{color:'var(--text-muted)'}}>
+                        {uploadInfo.speed > 0 && <span>{(uploadInfo.speed/1024/1024).toFixed(1)} MB/s</span>}
+                        {uploadInfo.remaining > 0 && <span>~{uploadInfo.remaining < 60 ? `${Math.round(uploadInfo.remaining)}s` : `${Math.round(uploadInfo.remaining/60)}m`} left</span>}
+                        {uploadInfo.total > 0 && <span>{(uploadInfo.loaded/1024/1024).toFixed(1)}/{(uploadInfo.total/1024/1024).toFixed(1)} MB</span>}
+                      </div>
                     </div>
                   )}
                   <button onClick={submit} disabled={submitting||(!content.trim()&&!media.length&&!pollMode)}
                     className="px-4 py-1.5 rounded-xl text-xs font-black text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-40"
-                    style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)'}}>
-                    {submitting ? (uploadPct > 0 ? `Uploading ${uploadPct}%` : 'Posting…') : '✦ Post (+5 pts)'}
+                    style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',whiteSpace:'nowrap'}}>
+                    {submitting ? (uploadInfo?.pct > 0 ? `${uploadInfo.pct}%` : 'Posting…') : '✦ Post (+5 pts)'}
                   </button>
                 </div>
               </div>
