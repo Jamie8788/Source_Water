@@ -3,6 +3,7 @@ const multer = require('multer')
 const cloudinary = require('cloudinary').v2
 const { Readable } = require('stream')
 const path = require('path')
+const crypto = require('crypto')
 
 // Belt-and-suspenders: if env vars not loaded yet, try loading .env from server dir
 if (!process.env.CLOUDINARY_CLOUD_NAME) {
@@ -68,6 +69,23 @@ router.post('/', upload.single('file'), async (req, res) => {
     console.error('Cloudinary upload error:', err)
     res.status(500).json({ error: err.message })
   }
+})
+
+// GET /api/upload/sign — client calls this first, then uploads directly to Cloudinary
+// Bypasses Render's 30s timeout for large videos
+router.get('/sign', (req, res) => {
+  const cloudName  = process.env.CLOUDINARY_CLOUD_NAME
+  const apiKey     = process.env.CLOUDINARY_API_KEY
+  const apiSecret  = process.env.CLOUDINARY_API_SECRET
+  if (!cloudName || !apiKey || !apiSecret) return res.status(500).json({ error: 'Cloudinary not configured' })
+
+  const folder    = req.query.folder || 'source-water/videos'
+  const timestamp = Math.round(Date.now() / 1000)
+  // Must sort params alphabetically before signing
+  const paramsStr = `folder=${folder}&timestamp=${timestamp}`
+  const signature = crypto.createHash('sha256').update(paramsStr + apiSecret).digest('hex')
+
+  res.json({ signature, timestamp, api_key: apiKey, cloud_name: cloudName, folder })
 })
 
 module.exports = router

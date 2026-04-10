@@ -721,6 +721,7 @@ function PostComposer({ user, onPost, onStory }) {
   const [media, setMedia]         = useState([])
   const [postType, setPostType]   = useState('text')
   const [submitting, setSubmit]   = useState(false)
+  const [uploadPct, setUploadPct] = useState(0)
   const [err, setErr]             = useState('')
   const [pollMode, setPollMode]   = useState(false)
   const [pollQ, setPollQ]         = useState('')
@@ -737,19 +738,20 @@ function PostComposer({ user, onPost, onStory }) {
     if (pollMode && (!pollQ.trim() || pollOpts.filter(o=>o.trim()).length < 2)) {
       setErr('Poll needs a question and at least 2 options'); return
     }
-    setSubmit(true); setErr('')
+    setSubmit(true); setErr(''); setUploadPct(0)
     try {
       const userId = user?.supabase_id||user?.id
       const posted = await createPost({
         userId, content, postType, files:media,
         pollQuestion: pollMode ? pollQ.trim() : '',
         pollOptions:  pollMode ? pollOpts.filter(o=>o.trim()) : [],
+        onProgress: pct => setUploadPct(pct),
       })
       onPost(posted)
       setContent(''); setMedia([]); setExpanded(false); setPostType('text')
       setPollMode(false); setPollQ(''); setPollOpts(['',''])
     } catch(e) { setErr(e.message||'Upload failed') }
-    setSubmit(false)
+    setSubmit(false); setUploadPct(0)
   }
 
   return (
@@ -839,10 +841,18 @@ function PostComposer({ user, onPost, onStory }) {
                     className="px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors"
                     style={{color:'var(--text-muted)',borderColor:'var(--border)'}}>Cancel</button>
                   {err && <span className="text-xs text-red-500 max-w-[140px] leading-tight">{err}</span>}
+                  {submitting && uploadPct > 0 && (
+                    <div className="flex items-center gap-2 flex-1">
+                      <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{background:'var(--border)'}}>
+                        <div className="h-full rounded-full transition-all duration-300" style={{width:`${uploadPct}%`,background:'linear-gradient(90deg,#6366f1,#8b5cf6)'}}/>
+                      </div>
+                      <span className="text-xs font-bold" style={{color:'#6366f1'}}>{uploadPct}%</span>
+                    </div>
+                  )}
                   <button onClick={submit} disabled={submitting||(!content.trim()&&!media.length&&!pollMode)}
                     className="px-4 py-1.5 rounded-xl text-xs font-black text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-40"
                     style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)'}}>
-                    {submitting ? 'Uploading…' : '✦ Post (+5 pts)'}
+                    {submitting ? (uploadPct > 0 ? `Uploading ${uploadPct}%` : 'Posting…') : '✦ Post (+5 pts)'}
                   </button>
                 </div>
               </div>

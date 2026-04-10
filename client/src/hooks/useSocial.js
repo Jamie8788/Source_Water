@@ -60,11 +60,11 @@ export function useFeed() {
   return { posts, loading, hasMore, fetchMore: () => fetchPosts(false), refresh: () => fetchPosts(true), setPosts }
 }
 
-export async function createPost({ userId, content, postType = 'text', files = [], locationTag = '', pollQuestion = '', pollOptions = [] }) {
+export async function createPost({ userId, content, postType = 'text', files = [], locationTag = '', pollQuestion = '', pollOptions = [], onProgress }) {
   let mediaUrls = []
   if (files.length > 0) {
     const folder = postType === 'video' ? 'source-water/videos' : postType === 'audio' ? 'source-water/audio' : 'source-water/posts'
-    mediaUrls = await Promise.all(files.map(f => uploadToCloudinary(f, folder)))
+    mediaUrls = await Promise.all(files.map(f => uploadToCloudinary(f, folder, onProgress)))
   }
   const payload = {
     content,
