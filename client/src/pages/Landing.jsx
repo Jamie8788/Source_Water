@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useCMS } from '../context/CMSContext'
+import CMSField from '../components/cms/CMSField'
 import { Eye, EyeOff, Droplets, Map, BarChart2, Users, FlaskConical, Gamepad2, MessageSquare, ChevronRight } from 'lucide-react'
 
 /* ── Animated Water Canvas ── */
@@ -218,13 +220,16 @@ export default function Landing() {
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold mb-4"
               style={{ background: 'rgba(99,102,241,0.2)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}>
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"/>
-              LIVE · Northern Ontario Water Intelligence
+              <CMSField page="landing" block="badge" field="text" default="LIVE · Northern Ontario Water Intelligence" tag="span"/>
             </div>
             <h1 className="text-4xl lg:text-5xl font-black text-white leading-tight mb-4" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
-              Protect our<br/><span style={{ background: 'linear-gradient(135deg,#818cf8,#14b8a6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Watersheds</span>
+              <CMSField page="landing" block="hero" field="title_line1" default="Protect our" tag="span"/><br/>
+              <span style={{ background: 'linear-gradient(135deg,#818cf8,#14b8a6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                <CMSField page="landing" block="hero" field="title_line2" default="Watersheds" tag="span"/>
+              </span>
             </h1>
             <p className="text-lg mb-8 max-w-md" style={{ color: '#94a3b8' }}>
-              Real-time water quality monitoring, AI insights, and community science for Northern Ontario.
+              <CMSField page="landing" block="hero" field="subtitle" default="Real-time water quality monitoring, AI insights, and community science for Northern Ontario." tag="span" multiline/>
             </p>
 
             {/* Stats */}

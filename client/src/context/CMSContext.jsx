@@ -1,48 +1,71 @@
-import { createContext, useContext, useState, useCallback, useRef } from 'react'
-import api from '../utils/api'
+/**
+ * CMSContext — stores all CMS content in Supabase (persistent, real-time, free).
+ * Admin clicks "Enter CMS Edit Mode" → every CMSField becomes click-to-edit.
+ * Saves instantly to Supabase. All users see changes immediately.
+ */
+import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 import { useAuth } from './AuthContext'
 
 const CMSContext = createContext(null)
 
 export function CMSProvider({ children }) {
   const { isAdmin } = useAuth()
-  const [cmsMode, setCmsMode] = useState(false)
-  const [content, setContent] = useState({})        // { pageKey: { blockKey: { field: value } } }
-  const [loadedPages, setLoadedPages] = useState({}) // which pages have been fetched
-  const [saving, setSaving] = useState(false)
-  const saveQueue = useRef({})
+  const [cmsMode, setCmsMode]       = useState(false)
+  const [content, setContent]       = useState({})   // { 'page__block__field': value }
+  const [loaded, setLoaded]         = useState(false)
+  const [saving, setSaving]         = useState(false)
 
-  // Load all content for a page from DB
-  const loadPage = useCallback(async (pageKey) => {
-    if (loadedPages[pageKey]) return
-    try {
-      const r = await api.get(`/cms/content/${pageKey}`)
-      setContent(prev => ({ ...prev, [pageKey]: r.data.content || {} }))
-      setLoadedPages(prev => ({ ...prev, [pageKey]: true }))
-    } catch {}
-  }, [loadedPages])
+  // Load ALL CMS content from Supabase on mount — one query, cached in memory
+  useEffect(() => {
+    supabase
+      .from('cms_content')
+      .select('page_key,block_key,field,value')
+      .then(({ data, error }) => {
+        if (error) { console.warn('[CMS] load error', error.message); return }
+        const map = {}
+        ;(data || []).forEach(r => {
+          map[`${r.page_key}__${r.block_key}__${r.field}`] = r.value
+        })
+        setContent(map)
+        setLoaded(true)
+      })
+  }, [])
 
-  // Get a value (falls back to defaultValue if not in DB)
+  // Subscribe to real-time changes so all users see edits instantly
+  useEffect(() => {
+    const channel = supabase
+      .channel('cms_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_content' }, (payload) => {
+        const r = payload.new || payload.old
+        if (!r) return
+        const key = `${r.page_key}__${r.block_key}__${r.field}`
+        if (payload.eventType === 'DELETE') {
+          setContent(prev => { const n = { ...prev }; delete n[key]; return n })
+        } else {
+          setContent(prev => ({ ...prev, [key]: r.value }))
+        }
+      })
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [])
+
+  // Get a value with fallback
   const get = useCallback((pageKey, blockKey, field, defaultValue = '') => {
-    return content[pageKey]?.[blockKey]?.[field] ?? defaultValue
+    return content[`${pageKey}__${blockKey}__${field}`] ?? defaultValue
   }, [content])
 
-  // Save a value to DB immediately
+  // Save a value to Supabase (upsert)
   const save = useCallback(async (pageKey, blockKey, field, value) => {
     // Optimistic update
-    setContent(prev => ({
-      ...prev,
-      [pageKey]: {
-        ...prev[pageKey],
-        [blockKey]: { ...prev[pageKey]?.[blockKey], [field]: value }
-      }
-    }))
+    const key = `${pageKey}__${blockKey}__${field}`
+    setContent(prev => ({ ...prev, [key]: value }))
     setSaving(true)
-    try {
-      await api.put('/cms/content', { page_key: pageKey, block_key: blockKey, field, value })
-    } catch (e) {
-      console.error('CMS save failed', e)
-    }
+    const { error } = await supabase
+      .from('cms_content')
+      .upsert({ page_key: pageKey, block_key: blockKey, field, value, updated_at: new Date().toISOString() },
+               { onConflict: 'page_key,block_key,field' })
+    if (error) console.error('[CMS] save error', error.message)
     setSaving(false)
   }, [])
 
@@ -51,8 +74,11 @@ export function CMSProvider({ children }) {
     setCmsMode(m => !m)
   }, [isAdmin])
 
+  // Legacy compat: keep loadPage as no-op (everything loaded at once now)
+  const loadPage = useCallback(() => {}, [])
+
   return (
-    <CMSContext.Provider value={{ cmsMode, toggleCmsMode, get, save, loadPage, saving, isAdmin }}>
+    <CMSContext.Provider value={{ cmsMode, toggleCmsMode, get, save, loadPage, saving, loaded, isAdmin }}>
       {children}
     </CMSContext.Provider>
   )

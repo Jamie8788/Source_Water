@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
+import { useCMS } from '../context/CMSContext'
 import {
   ShieldCheck, Users, AlertTriangle, Activity, BarChart2,
   FileText, TrendingUp, TrendingDown,
@@ -558,185 +559,298 @@ function ActivityPanel() {
   )
 }
 
-/* ── CMS / CONTENT PANEL ── */
-const PAGE_ROUTES = {
-  home: '/',
-  dashboard: '/dashboard',
-  resources: '/resources',
-  quizzes: '/quizzes',
-  social: '/social',
-  analysis: '/analysis',
-  settings: '/settings',
-}
-const PAGE_LABELS = {
-  home: 'Home / Landing',
-  dashboard: 'Dashboard',
-  resources: 'Resource Library',
-  quizzes: 'Quiz Bank',
-  social: 'Social Feed',
-  analysis: 'Analysis',
-  settings: 'Settings',
+/* ── CMS / CONTENT PANEL — WordPress-style ── */
+
+// All editable fields across every page
+const CMS_SCHEMA = {
+  landing: {
+    label: '🏠 Landing Page',
+    route: '/',
+    fields: [
+      { block: 'badge',  field: 'text',        label: 'Live badge text',        type: 'text',  default: 'LIVE · Northern Ontario Water Intelligence' },
+      { block: 'hero',   field: 'title_line1', label: 'Hero title line 1',      type: 'text',  default: 'Protect our' },
+      { block: 'hero',   field: 'title_line2', label: 'Hero title line 2 (accent)', type: 'text', default: 'Watersheds' },
+      { block: 'hero',   field: 'subtitle',    label: 'Hero subtitle',           type: 'textarea', default: 'Real-time water quality monitoring, AI insights, and community science for Northern Ontario.' },
+      { block: 'stats',  field: 'lakes_label', label: 'Stat 1 label',           type: 'text',  default: 'Lakes' },
+      { block: 'stats',  field: 'samples_label', label: 'Stat 2 label',         type: 'text',  default: 'Samples' },
+      { block: 'stats',  field: 'members_label', label: 'Stat 3 label',         type: 'text',  default: 'Members' },
+      { block: 'org',    field: 'name',        label: 'Organization name',       type: 'text',  default: 'NORDIK Institute · Algoma University' },
+    ],
+  },
+  dashboard: {
+    label: '📊 Dashboard',
+    route: '/dashboard',
+    fields: [
+      { block: 'header', field: 'title',       label: 'Page title',             type: 'text',  default: 'Water Intelligence Dashboard' },
+      { block: 'header', field: 'subtitle',    label: 'Page subtitle',          type: 'text',  default: 'Real-time monitoring across Northern Ontario watersheds' },
+      { block: 'quickstats', field: 'title',   label: 'Quick Stats heading',    type: 'text',  default: 'Quick Stats' },
+      { block: 'welcome', field: 'morning',    label: 'Morning greeting',       type: 'text',  default: 'Good morning' },
+      { block: 'welcome', field: 'afternoon',  label: 'Afternoon greeting',     type: 'text',  default: 'Good afternoon' },
+      { block: 'welcome', field: 'evening',    label: 'Evening greeting',       type: 'text',  default: 'Good evening' },
+    ],
+  },
+  social: {
+    label: '💬 Social Feed',
+    route: '/social',
+    fields: [
+      { block: 'header', field: 'title',       label: 'Page title',             type: 'text',  default: 'Community Feed' },
+      { block: 'header', field: 'subtitle',    label: 'Page subtitle',          type: 'text',  default: 'Connect with water researchers & community members' },
+      { block: 'composer', field: 'placeholder', label: 'Post box placeholder', type: 'text', default: "What's happening with water today? 💧" },
+      { block: 'empty',  field: 'title',       label: 'Empty feed title',       type: 'text',  default: 'Nothing here yet' },
+      { block: 'empty',  field: 'subtitle',    label: 'Empty feed subtitle',    type: 'text',  default: 'Be the first to share something!' },
+    ],
+  },
+  research: {
+    label: '🔬 Research Hub',
+    route: '/research',
+    fields: [
+      { block: 'header', field: 'title',       label: 'Hub title',              type: 'text',  default: 'Water Research Hub' },
+      { block: 'header', field: 'subtitle',    label: 'Hub tagline',            type: 'text',  default: 'AI field note scanner · ECCC live data · ML predictions · Free datasets' },
+      { block: 'scanner', field: 'upload_label', label: 'Upload label',         type: 'text',  default: 'Upload image' },
+      { block: 'scanner', field: 'upload_hint',  label: 'Upload hint',          type: 'text',  default: 'Field notes · lab sheets · test strips · water samples' },
+      { block: 'scanner', field: 'placeholder',  label: 'Chat placeholder',     type: 'text',  default: 'Ask a water quality question or upload an image…' },
+    ],
+  },
+  resources: {
+    label: '📚 Resources',
+    route: '/resources',
+    fields: [
+      { block: 'header', field: 'title',       label: 'Page title',             type: 'text',  default: 'Resource Library' },
+      { block: 'header', field: 'subtitle',    label: 'Page subtitle',          type: 'text',  default: 'Guides, datasets, and tools for water quality research' },
+    ],
+  },
+  ai: {
+    label: '🤖 Ask Water AI',
+    route: '/dashboard',
+    fields: [
+      { block: 'ai_chat', field: 'title',      label: 'AI chat title',          type: 'text',  default: 'Ask Water AI' },
+      { block: 'ai_chat', field: 'greeting',   label: 'AI greeting message',    type: 'textarea', default: "Hi! I'm Water, your AI guide. Ask me anything about water quality, Northern Ontario watersheds, or how to use this platform!" },
+      { block: 'ai_chat', field: 'placeholder', label: 'Chat input placeholder', type: 'text', default: 'Ask about water quality, parameters, or local data…' },
+    ],
+  },
+  alerts: {
+    label: '🔔 Alerts',
+    route: '/alerts',
+    fields: [
+      { block: 'header', field: 'title',       label: 'Page title',             type: 'text',  default: 'Water Quality Alerts' },
+      { block: 'header', field: 'subtitle',    label: 'Page subtitle',          type: 'text',  default: 'Real-time notifications and advisories' },
+      { block: 'empty',  field: 'text',        label: 'No alerts message',      type: 'text',  default: 'No active alerts in your area' },
+    ],
+  },
+  global: {
+    label: '🌐 Site-wide',
+    route: null,
+    fields: [
+      { block: 'site',   field: 'name',        label: 'Site name',              type: 'text',  default: 'SOURCE Water' },
+      { block: 'site',   field: 'tagline',     label: 'Site tagline',           type: 'text',  default: 'Northern Ontario Water Intelligence' },
+      { block: 'footer', field: 'copyright',   label: 'Footer copyright',       type: 'text',  default: '© 2025 NORDIK Institute · Algoma University' },
+      { block: 'footer', field: 'tagline',     label: 'Footer tagline',         type: 'text',  default: 'Protecting Northern Ontario watersheds through community science.' },
+      { block: 'announcement', field: 'text',  label: 'Global announcement banner (leave blank to hide)', type: 'textarea', default: '' },
+      { block: 'announcement', field: 'color', label: 'Announcement color (hex)', type: 'text', default: '#6366f1' },
+    ],
+  },
 }
 
 function ContentPanel() {
-  const [cmsData, setCmsData] = useState([])
+  const { get, save, saving } = useCMS()
+  const [activePage, setActivePage] = useState('landing')
   const [resources, setResources] = useState([])
   const [editRes, setEditRes] = useState(null)
   const [resForm, setResForm] = useState({})
-  const [saving, setSaving] = useState(false)
+  const [resSaving, setResSaving] = useState(false)
+  const [drafts, setDrafts] = useState({})   // local draft changes before save
+  const [saved, setSaved]   = useState({})   // which fields just saved (for flash)
 
   useEffect(() => {
-    api.get('/cms/all').then(r => setCmsData(r.data.content || [])).catch(() => {})
     api.get('/resources').then(r => setResources(r.data || [])).catch(() => {})
   }, [])
 
-  // Group CMS entries by page_key and find latest updated_at per page
-  const pageMap = {}
-  cmsData.forEach(row => {
-    if (!pageMap[row.page_key] || row.updated_at > pageMap[row.page_key].updated_at) {
-      pageMap[row.page_key] = { updated_at: row.updated_at, count: (pageMap[row.page_key]?.count || 0) + 1 }
-    } else {
-      pageMap[row.page_key].count = (pageMap[row.page_key].count || 0) + 1
-    }
-  })
+  const schema = CMS_SCHEMA[activePage]
 
-  const timeSince = (d) => {
-    if (!d) return 'never'
-    const diff = Date.now() - new Date(d)
-    if (diff < 60000) return 'just now'
-    if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago'
-    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago'
-    return Math.floor(diff / 86400000) + 'd ago'
+  const getDraft = (block, field, def) => {
+    const key = `${block}__${field}`
+    return drafts[key] !== undefined ? drafts[key] : get(activePage, block, field, def)
+  }
+
+  const setDraft = (block, field, value) => {
+    setDrafts(d => ({ ...d, [`${block}__${field}`]: value }))
+  }
+
+  const saveField = async (block, field, def) => {
+    const key = `${block}__${field}`
+    const value = drafts[key] !== undefined ? drafts[key] : get(activePage, block, field, def)
+    await save(activePage, block, field, value)
+    setSaved(s => ({ ...s, [key]: true }))
+    setTimeout(() => setSaved(s => { const n = { ...s }; delete n[key]; return n }), 2000)
+  }
+
+  const saveAll = async () => {
+    for (const f of schema.fields) {
+      const key = `${f.block}__${f.field}`
+      if (drafts[key] !== undefined) await save(activePage, f.block, f.field, drafts[key])
+    }
+    setDrafts({})
+  }
+
+  const inpStyle = {
+    width: '100%', background: 'var(--page-bg)', border: '1.5px solid var(--border)',
+    borderRadius: 9, padding: '8px 12px', fontSize: 13, color: 'var(--text)', outline: 'none',
+    fontFamily: 'inherit', lineHeight: 1.5,
   }
 
   const openEditRes = (r) => {
     setEditRes(r)
     setResForm({ title: r.title, description: r.description || '', category: r.category || '', visibility: r.visibility || 'public' })
   }
-
   const saveRes = async () => {
-    setSaving(true)
+    setResSaving(true)
     const r = await api.put(`/resources/${editRes.id}`, resForm).catch(() => null)
     if (r) setResources(prev => prev.map(x => x.id === editRes.id ? { ...x, ...resForm } : x))
-    setSaving(false)
-    setEditRes(null)
+    setResSaving(false); setEditRes(null)
   }
-
   const deleteRes = async (id) => {
     if (!confirm('Delete this resource?')) return
     await api.delete(`/resources/${id}`).catch(() => {})
     setResources(prev => prev.filter(r => r.id !== id))
   }
 
-  const inpStyle = { width: '100%', background: 'var(--card-bg)', border: '1.5px solid var(--border)', borderRadius: 9, padding: '8px 12px', fontSize: 13, color: 'var(--text)', outline: 'none' }
+  const hasDrafts = Object.keys(drafts).length > 0
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* CMS Edit Mode banner */}
-      <div style={{
-        background: 'linear-gradient(135deg, rgba(99,102,241,0.08), rgba(20,184,166,0.06))',
-        border: '1px solid rgba(99,102,241,0.15)', borderRadius: 12, padding: 16,
-        display: 'flex', alignItems: 'center', gap: 14,
-      }}>
-        <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(99,102,241,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Edit2 style={{ width: 18, height: 18, color: '#818cf8' }}/>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>Visual CMS — Inline Edit Mode</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Navigate to a page then click "Enter CMS Edit Mode" in the top toolbar. Click any text to edit it live.</div>
-        </div>
+    <div style={{ display: 'flex', gap: 20, minHeight: 600 }}>
+
+      {/* ── Left sidebar: page selector ── */}
+      <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Pages</div>
+        {Object.entries(CMS_SCHEMA).map(([key, page]) => (
+          <button key={key} onClick={() => { setActivePage(key); setDrafts({}) }}
+            style={{
+              width: '100%', textAlign: 'left', padding: '9px 14px', borderRadius: 10, border: 'none',
+              cursor: 'pointer', fontSize: 13, fontWeight: activePage === key ? 700 : 500,
+              background: activePage === key ? 'rgba(99,102,241,0.15)' : 'transparent',
+              color: activePage === key ? '#818cf8' : 'var(--text)',
+              transition: 'all 0.15s',
+            }}>
+            {page.label}
+          </button>
+        ))}
+        <div style={{ height: 1, background: 'var(--border)', margin: '8px 0' }}/>
+        <button onClick={() => { setActivePage('resources'); setDrafts({}) }}
+          style={{
+            width: '100%', textAlign: 'left', padding: '9px 14px', borderRadius: 10, border: 'none',
+            cursor: 'pointer', fontSize: 13, fontWeight: activePage === 'resources_list' ? 700 : 500,
+            background: 'transparent', color: 'var(--text)', transition: 'all 0.15s',
+          }}>
+          📂 Manage Resources
+        </button>
       </div>
 
-      {/* CMS pages */}
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 10 }}>CMS Pages</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
-          {Object.entries(PAGE_LABELS).map(([key, label]) => {
-            const info = pageMap[key]
+      {/* ── Right: editor ── */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)' }}>{schema?.label}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+              Edit text — changes saved to Supabase, visible to all users instantly
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {saving && <span style={{ fontSize: 12, color: '#10b981' }}>Saving…</span>}
+            {schema?.route && (
+              <a href={schema.route} target="_blank" rel="noreferrer"
+                style={{ padding: '7px 14px', borderRadius: 9, background: 'rgba(99,102,241,0.1)', color: '#818cf8', textDecoration: 'none', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Eye style={{ width: 13, height: 13 }}/> Preview page
+              </a>
+            )}
+            {hasDrafts && (
+              <button onClick={saveAll}
+                style={{ padding: '7px 18px', borderRadius: 9, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: 'white', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+                Save All Changes
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Inline edit mode note */}
+        <div style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#10b981', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Edit2 style={{ width: 14, height: 14, flexShrink: 0 }}/>
+          <span><strong>Also:</strong> click "Enter CMS Edit Mode" in the top bar when viewing any page — click any text directly on the page to edit it live.</span>
+        </div>
+
+        {/* Fields */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {schema?.fields.map(f => {
+            const key = `${f.block}__${f.field}`
+            const val = getDraft(f.block, f.field, f.default)
+            const isSaved = saved[key]
             return (
-              <div key={key} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14, transition: 'all 0.15s' }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(99,102,241,0.1)' }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                  <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>{label}</span>
-                  <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-                    background: info ? 'rgba(16,185,129,0.12)' : 'rgba(100,116,139,0.1)',
-                    color: info ? '#10b981' : '#94a3b8' }}>
-                    {info ? 'has content' : 'default'}
-                  </span>
+              <div key={key} style={{ background: 'var(--card-bg)', border: `1px solid ${isSaved ? '#10b981' : 'var(--border)'}`, borderRadius: 12, padding: 16, transition: 'border-color 0.3s' }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: 8 }}>
+                  {f.label}
+                  <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 8, color: '#475569' }}>{f.block} › {f.field}</span>
+                </label>
+                {f.type === 'textarea' ? (
+                  <textarea rows={3} value={val}
+                    onChange={e => setDraft(f.block, f.field, e.target.value)}
+                    style={{ width: '100%', background: 'var(--page-bg)', border: '1.5px solid var(--border)', borderRadius: 9, padding: '8px 12px', fontSize: 13, color: 'var(--text)', outline: 'none', fontFamily: 'inherit', resize: 'vertical', lineHeight: 1.5 }}
+                  />
+                ) : (
+                  <input type="text" value={val}
+                    onChange={e => setDraft(f.block, f.field, e.target.value)}
+                    style={{ width: '100%', background: 'var(--page-bg)', border: '1.5px solid var(--border)', borderRadius: 9, padding: '8px 12px', fontSize: 13, color: 'var(--text)', outline: 'none', fontFamily: 'inherit' }}
+                  />
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                  <span style={{ fontSize: 11, color: '#475569' }}>Default: {f.default.slice(0, 60)}{f.default.length > 60 ? '…' : ''}</span>
+                  <button onClick={() => saveField(f.block, f.field, f.default)}
+                    style={{ padding: '4px 14px', borderRadius: 7, background: isSaved ? '#10b981' : 'rgba(99,102,241,0.15)', color: isSaved ? 'white' : '#818cf8', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, transition: 'all 0.2s' }}>
+                    {isSaved ? '✓ Saved!' : 'Save'}
+                  </button>
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10 }}>
-                  {info ? `${info.count} field${info.count !== 1 ? 's' : ''} · last edited ${timeSince(info.updated_at)}` : 'No custom content yet'}
-                </div>
-                <a href={PAGE_ROUTES[key]} target="_blank" rel="noreferrer"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 8, background: 'rgba(99,102,241,0.1)', color: '#818cf8', textDecoration: 'none', fontSize: 12, fontWeight: 600 }}>
-                  <Eye style={{ width: 12, height: 12 }}/> Go to page
-                </a>
               </div>
             )
           })}
         </div>
-      </div>
 
-      {/* Resources management */}
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 10 }}>Resource Library ({resources.length})</div>
-
-        {/* Edit modal */}
-        {editRes && (
-          <div style={{ background: 'var(--card-bg)', border: '1px solid #6366f1', borderRadius: 12, padding: 16, marginBottom: 12 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 12 }}>Edit: {editRes.title}</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Title</label>
-                <input style={inpStyle} value={resForm.title} onChange={e => setResForm(f => ({ ...f, title: e.target.value }))}/>
+        {/* Resources section */}
+        {activePage === 'resources' && resources.length > 0 && (
+          <div style={{ marginTop: 24 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 10 }}>Resource Library ({resources.length})</div>
+            {editRes && (
+              <div style={{ background: 'var(--card-bg)', border: '1px solid #6366f1', borderRadius: 12, padding: 16, marginBottom: 12 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 12 }}>Edit: {editRes.title}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div><label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Title</label>
+                    <input style={{ width:'100%', background:'var(--page-bg)', border:'1.5px solid var(--border)', borderRadius:9, padding:'8px 12px', fontSize:13, color:'var(--text)', outline:'none' }} value={resForm.title} onChange={e => setResForm(f => ({ ...f, title: e.target.value }))}/></div>
+                  <div><label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Category</label>
+                    <input style={{ width:'100%', background:'var(--page-bg)', border:'1.5px solid var(--border)', borderRadius:9, padding:'8px 12px', fontSize:13, color:'var(--text)', outline:'none' }} value={resForm.category} onChange={e => setResForm(f => ({ ...f, category: e.target.value }))}/></div>
+                </div>
+                <div style={{ marginTop: 10 }}><label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Description</label>
+                  <textarea rows={2} style={{ width:'100%', background:'var(--page-bg)', border:'1.5px solid var(--border)', borderRadius:9, padding:'8px 12px', fontSize:13, color:'var(--text)', outline:'none', resize:'none' }} value={resForm.description} onChange={e => setResForm(f => ({ ...f, description: e.target.value }))}/></div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
+                  <button onClick={() => setEditRes(null)} style={{ padding: '7px 14px', borderRadius: 8, background: 'var(--border)', color: 'var(--text-muted)', border: 'none', cursor: 'pointer', fontSize: 12 }}>Cancel</button>
+                  <button onClick={saveRes} disabled={resSaving} style={{ padding: '7px 16px', borderRadius: 8, background: 'rgba(99,102,241,0.12)', color: '#818cf8', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                    {resSaving ? 'Saving…' : 'Save Changes'}
+                  </button>
+                </div>
               </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Category</label>
-                <input style={inpStyle} value={resForm.category} onChange={e => setResForm(f => ({ ...f, category: e.target.value }))}/>
-              </div>
-            </div>
-            <div style={{ marginTop: 10 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Description</label>
-              <textarea rows={2} style={{ ...inpStyle, resize: 'none' }} value={resForm.description} onChange={e => setResForm(f => ({ ...f, description: e.target.value }))}/>
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
-              <select style={{ ...inpStyle, width: 'auto' }} value={resForm.visibility} onChange={e => setResForm(f => ({ ...f, visibility: e.target.value }))}>
-                <option value="public">Public</option>
-                <option value="private">Private</option>
-              </select>
-              <button onClick={() => setEditRes(null)} style={{ padding: '7px 14px', borderRadius: 8, background: 'var(--border)', color: 'var(--text-muted)', border: 'none', cursor: 'pointer', fontSize: 12 }}>Cancel</button>
-              <button onClick={saveRes} disabled={saving} style={{ padding: '7px 16px', borderRadius: 8, background: 'rgba(99,102,241,0.12)', color: '#818cf8', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
-                {saving ? 'Saving…' : 'Save Changes'}
-              </button>
+            )}
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+              {resources.map((r, i) => (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderTop: i > 0 ? '1px solid var(--border)' : 'none' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.resource_type} {r.category ? `· ${r.category}` : ''} · {r.visibility}</div>
+                  </div>
+                  <button onClick={() => openEditRes(r)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(99,102,241,0.1)', color: '#818cf8', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Edit</button>
+                  <button onClick={() => deleteRes(r.id)} style={{ padding: 5, borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><Trash2 style={{ width: 13, height: 13 }}/></button>
+                </div>
+              ))}
             </div>
           </div>
         )}
-
-        <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-          {resources.length === 0 ? (
-            <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No resources yet</div>
-          ) : resources.map((r, i) => (
-            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderTop: i > 0 ? '1px solid var(--border)' : 'none', transition: 'background 0.12s' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.03)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.resource_type} {r.category ? `· ${r.category}` : ''} · {r.visibility}</div>
-              </div>
-              <button onClick={() => openEditRes(r)}
-                style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(99,102,241,0.1)', color: '#818cf8', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                Edit
-              </button>
-              <button onClick={() => deleteRes(r.id)}
-                style={{ padding: 5, borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
-                onMouseEnter={e => { e.currentTarget.style.color = '#ef4444' }}
-                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)' }}>
-                <Trash2 style={{ width: 13, height: 13 }}/>
-              </button>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   )
