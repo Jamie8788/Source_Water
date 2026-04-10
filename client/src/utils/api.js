@@ -16,10 +16,8 @@ api.interceptors.response.use(
   res => res,
   err => {
     if (err.response?.status === 401) {
+      // Only clear legacy token — Supabase handles its own session via onAuthStateChange
       localStorage.removeItem('sw_token')
-      localStorage.removeItem('sw_user')
-      localStorage.removeItem('sb_access_token')
-      window.location.href = '/'
     }
     return Promise.reject(err)
   }
