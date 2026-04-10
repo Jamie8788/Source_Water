@@ -28,8 +28,9 @@ export function AuthProvider({ children }) {
   const isRegisteringRef = useRef(false)
 
   const fetchProfile = useCallback(async (sbUser, token) => {
-    // Always preserve onboarding_completed from cache — fetchProfile must never wipe it
     const cached = JSON.parse(localStorage.getItem('sw_user') || '{}')
+    // Supabase user_metadata is the ultimate fallback — persists across DB wipes and logouts
+    const sbOnboarded = sbUser.user_metadata?.onboarding_completed
     try {
       localStorage.setItem('sb_access_token', token)
       const r = await api.get('/auth/me', {
@@ -38,14 +39,14 @@ export function AuthProvider({ children }) {
       const profile = r.data?.user || r.data
       const merged = toLocalUser(sbUser, {
         ...profile,
-        onboarding_completed: profile.onboarding_completed ?? cached.onboarding_completed,
+        onboarding_completed: profile.onboarding_completed ?? cached.onboarding_completed ?? sbOnboarded,
       })
       setUser(merged)
       localStorage.setItem('sw_user', JSON.stringify(merged))
       return merged
     } catch {
       const fallback = toLocalUser(sbUser, {
-        onboarding_completed: cached.onboarding_completed,
+        onboarding_completed: cached.onboarding_completed ?? sbOnboarded,
       })
       setUser(fallback)
       localStorage.setItem('sw_user', JSON.stringify(fallback))

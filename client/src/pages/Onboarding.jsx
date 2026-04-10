@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
 import api from '../utils/api'
 import { Check, ChevronRight, ChevronLeft, Pencil } from 'lucide-react'
 
@@ -41,6 +42,10 @@ export default function Onboarding() {
     setLoading(true)
     try {
       await api.put('/users/me', { ...form, onboarding_completed: 1 })
+    } catch (_) {}
+    // Persist onboarding flag in Supabase metadata so it survives DB wipes + logouts
+    try {
+      await supabase.auth.updateUser({ data: { onboarding_completed: true, ...form } })
     } catch (_) {}
     // Always mark complete locally so ProtectedLayout lets us through
     updateUser({ onboarding_completed: 1, ...form })
