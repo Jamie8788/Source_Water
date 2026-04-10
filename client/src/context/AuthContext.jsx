@@ -97,10 +97,18 @@ export function AuthProvider({ children }) {
       password,
       options: {
         data: { username, display_name: display_name || username, role, avatar_emoji, avatar_bg_color },
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo: undefined,
       },
     })
     if (sbError) throw new Error(sbError.message)
+
+    // Auto sign-in immediately (skip email confirmation)
+    if (sbData?.user && !sbData?.session) {
+      const { data: signInData } = await supabase.auth.signInWithPassword({ email: userEmail, password })
+      if (signInData?.session) {
+        localStorage.setItem('sb_access_token', signInData.session.access_token)
+      }
+    }
 
     // Also register in legacy system for backwards compat
     try {
