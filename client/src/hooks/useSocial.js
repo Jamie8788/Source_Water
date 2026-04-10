@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase'
 import { uploadToCloudinary } from '../lib/cloudinaryUpload'
 import api from '../utils/api'
 
+
 // Check if a value is a real UUID (Supabase) vs integer (old SQLite)
 const isUUID = (id) => typeof id === 'string' && id.includes('-')
 
@@ -82,16 +83,26 @@ export async function createPost({ userId, content, postType = 'text', files = [
   // Fallback to old API if not a Supabase UUID
   if (!isUUID(userId)) {
     if (files.length > 0) {
-      const fd = new FormData()
-      fd.append('content', content || ' ')
-      fd.append('post_type', postType)
-      files.forEach(f => fd.append('media', f))
-      const token = localStorage.getItem('sb_access_token') || localStorage.getItem('sw_token')
-      const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api','')
-      const res = await fetch(`${apiBase}/api/posts`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || 'Post failed')
-      return json.post || json
+      // Upload to Cloudinary so files persist across Render redeploys
+      let mediaUrls = []
+      try {
+        const folder = postType === 'video' ? 'source-water/videos' : postType === 'audio' ? 'source-water/audio' : 'source-water/posts'
+        mediaUrls = await Promise.all(files.map(f => uploadToCloudinary(f, folder)))
+      } catch (_) {
+        // Fallback to local upload if Cloudinary fails
+        const fd = new FormData()
+        fd.append('content', content || ' ')
+        fd.append('post_type', postType)
+        files.forEach(f => fd.append('media', f))
+        const token = localStorage.getItem('sb_access_token') || localStorage.getItem('sw_token')
+        const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api','')
+        const res = await fetch(`${apiBase}/api/posts`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.error || 'Post failed')
+        return json.post || json
+      }
+      const r = await api.post('/posts', { content, post_type: postType, location_tag: locationTag, media: JSON.stringify(mediaUrls) })
+      return r.data.post || r.data
     } else {
       const r = await api.post('/posts', { content, post_type: postType, location_tag: locationTag })
       return r.data.post || r.data

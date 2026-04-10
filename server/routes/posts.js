@@ -39,45 +39,30 @@ router.get('/', requireAuth, (req, res) => {
 // POST /api/posts
 router.post('/', requireAuth, upload.array('media', 10), (req, res) => {
   try {
-    const { content, post_type = 'text', hashtags, location_tag, poll_options, poll_question } = req.body
-    
-    // Debug logging for upload issues
-    console.log('Post upload - files:', req.files?.length || 0)
-    console.log('Post upload - content:', content?.substring(0, 100))
-    console.log('Post upload - post_type:', post_type)
-    
-    if (!content && !req.files?.length) {
+    const { content, post_type = 'text', hashtags, location_tag, poll_options, poll_question, media: mediaJson } = req.body
+
+    if (!content && !req.files?.length && !mediaJson) {
       return res.status(400).json({ error: 'Content or media required' })
     }
 
-    // Process uploaded files with better path handling
-    const mediaFiles = []
-    if (req.files && req.files.length > 0) {
+    // Build media array: prefer Cloudinary URLs passed as JSON, then uploaded files
+    let mediaFiles = []
+    if (mediaJson) {
+      try { mediaFiles = JSON.parse(mediaJson) } catch (_) {}
+    } else if (req.files && req.files.length > 0) {
       req.files.forEach(f => {
-        // Handle different path formats (Windows/Unix)
         let relPath = f.path.replace(/\\/g, '/')
-        
-        // Extract the relative path from uploads directory
         const uploadsIndex = relPath.indexOf('/uploads/')
         if (uploadsIndex !== -1) {
-          relPath = relPath.substring(uploadsIndex + 1) // Remove leading slash
+          relPath = relPath.substring(uploadsIndex + 1)
         } else {
-          // Fallback: just use filename if we can't find uploads in path
-          const filename = f.filename || f.originalname
-          relPath = `uploads/images/${filename}`
+          relPath = `uploads/images/${f.filename || f.originalname}`
         }
-        
-        // Ensure path starts with /uploads/ for consistency
-        if (!relPath.startsWith('uploads/')) {
-          relPath = `uploads/${relPath}`
-        }
-        
+        if (!relPath.startsWith('uploads/')) relPath = `uploads/${relPath}`
         mediaFiles.push('/' + relPath)
-        
-        console.log('File saved:', f.path, '->', '/' + relPath)
       })
     }
-    
+
     const tags = hashtags ? (Array.isArray(hashtags) ? hashtags : [hashtags]) : []
 
     const result = db.prepare(`

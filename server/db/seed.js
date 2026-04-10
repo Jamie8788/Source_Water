@@ -2,15 +2,19 @@ const bcrypt = require('bcryptjs')
 const db = require('./connection')
 
 async function seed() {
+  // Always ensure admin exists regardless of other users
+  const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get('admin')
+  if (!adminExists) {
+    const hash = bcrypt.hashSync('nordik2026', 10)
+    db.prepare(`INSERT OR IGNORE INTO users (username,email,password_hash,display_name,role,avatar_emoji,avatar_bg_color,is_admin,onboarding_completed)
+      VALUES (?,?,?,?,?,?,?,?,?)`).run('admin','info@nordikinstitute.com',hash,'SOURCE Water Admin','SOURCE Water team member','🌊','#0ea5e9',1,1)
+    console.log('✅ Admin user created: admin / nordik2026')
+  }
+
   const existing = db.prepare('SELECT COUNT(*) as c FROM users').get()
-  if (existing.c > 0) return console.log('DB already seeded.')
+  if (existing.c > 1) return console.log('DB already seeded.')
 
   console.log('Seeding database...')
-
-  // Admin user
-  const hash = bcrypt.hashSync('nordik2026', 10)
-  db.prepare(`INSERT INTO users (username,email,password_hash,display_name,role,avatar_emoji,avatar_bg_color,is_admin,onboarding_completed)
-    VALUES (?,?,?,?,?,?,?,?,?)`).run('admin','info@nordikinstitute.com',hash,'SOURCE Water Admin','SOURCE Water team member','🌊','#0ea5e9',1,1)
 
   // Communities
   const comms = ['Huron Shores','Thessalon','Sault Ste. Marie','Bruce Mines','Blind River','Elliot Lake','Iron Bridge','Wawa','White River','Chapleau','Hearst','Kapuskasing','Spanish','Manitoulin Island','Timmins']
