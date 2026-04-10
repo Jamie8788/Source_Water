@@ -6,6 +6,10 @@ import { useSearchParams } from 'react-router-dom'
 import { useChat } from '../hooks/useChat'
 import api from '../utils/api'
 import {
+  useFeed, createPost, deletePost, fetchComments, addComment,
+  toggleReaction, useConversations, useMessages, sendDM, searchUsers,
+} from '../hooks/useSocial'
+import {
   Send, X, Image, Video, Mic, MicOff, Search, UserPlus,
   ArrowLeft, MessageCircle, Share2, MoreHorizontal,
   Award, TrendingUp, Bookmark, Bell,
@@ -103,33 +107,30 @@ function PostCard({ post, currentUser, onDelete, onPin }) {
 
   const loadComments = async () => {
     if (!showComments) {
-      const r = await api.get(`/posts/${post.id}/comments`).catch(() => ({ data: [] }))
-      setComments(Array.isArray(r.data) ? r.data : r.data.comments || [])
+      const data = await fetchComments(post.id).catch(() => [])
+      setComments(data)
     }
     setShowComments(s => !s)
   }
 
   const submitComment = async () => {
     if (!comment.trim()) return
-    const r = await api.post(`/posts/${post.id}/comments`, { content: comment }).catch(() => null)
-    if (r) {
-      const newComment = r.data.comment || r.data
-      setComments(prev => [...prev, newComment])
-      setComment('')
-    }
+    const userId = currentUser?.supabase_id || currentUser?.id
+    const newComment = await addComment(post.id, userId, comment).catch(() => null)
+    if (newComment) { setComments(prev => [...prev, newComment]); setComment('') }
   }
 
   const handleReact = async (type) => {
     setShowReactPicker(false)
-    if (myReaction === type) {
-      await api.delete(`/posts/${post.id}/react`, { data: { reaction_type: type } }).catch(() => {})
+    const userId = currentUser?.supabase_id || currentUser?.id
+    const wasAdded = await toggleReaction(post.id, userId, type).catch(() => null)
+    if (wasAdded === null) return
+    if (!wasAdded) {
       setReactCounts(prev => ({ ...prev, [type]: Math.max(0, (prev[type] || 0) - 1) }))
       setMyReaction(null)
     } else {
       if (myReaction) setReactCounts(prev => ({ ...prev, [myReaction]: Math.max(0, (prev[myReaction] || 0) - 1) }))
-      const r = await api.post(`/posts/${post.id}/react`, { reaction_type: type }).catch(() => null)
-      if (r) setReactCounts(r.data)
-      else setReactCounts(prev => ({ ...prev, [type]: (prev[type] || 0) + 1 }))
+      setReactCounts(prev => ({ ...prev, [type]: (prev[type] || 0) + 1 }))
       setMyReaction(type)
     }
   }
@@ -323,33 +324,10 @@ function PostComposer({ user, onPost }) {
     setSubmitting(true)
     setUploadErr('')
     try {
-      let posted
-      const token = localStorage.getItem('sw_token')
-      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
-      if (media.length) {
-        // Use native fetch — Axios can break multipart boundaries in v1.x
-        const fd = new FormData()
-        fd.append('content', content || ' ')
-        fd.append('post_type', postType)
-        media.forEach(f => fd.append('media', f))
-        const res = await fetch(`${apiBase}/posts`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          body: fd,
-        })
-        const json = await res.json()
-        if (!res.ok) throw new Error(json.error || `Server error ${res.status}`)
-        posted = json.post || json
-      } else {
-        const r = await api.post('/posts', { content, post_type: postType })
-        posted = r.data.post || r.data
-      }
-      if (posted?.id) {
-        onPost(posted)
-        setContent(''); setMedia([]); setExpanded(false); setPostType('text')
-      } else {
-        setUploadErr('Unexpected response — please refresh')
-      }
+      const userId = user?.supabase_id || user?.id
+      const posted = await createPost({ userId, content, postType, files: media })
+      onPost(posted)
+      setContent(''); setMedia([]); setExpanded(false); setPostType('text')
     } catch (e) {
       setUploadErr(e.message || 'Upload failed — please try again')
     }
@@ -464,25 +442,10 @@ function DMPanel({ onClose }) {
     resetUnreadCount
   } = useChat(user?.id)
 
-  const fetchConvos = () => {
-    api.get('/messages/conversations').then(r => {
-      const data = Array.isArray(r.data) ? r.data : []
-      setConvos(data.map(c => ({
-        other_user_id: c.other_id,
-        display_name: c.user?.display_name || c.user?.username,
-        username: c.user?.username,
-        last_message: c.last_message,
-        unread_count: c.unread_count,
-      })))
-    }).catch(() => {})
-  }
+  const sbUserId = user?.supabase_id || user?.id
+  const { convos, refresh: fetchConvos } = useConversations(sbUserId)
 
-  // Fetch immediately and poll every 5s so new conversations appear automatically
-  useEffect(() => {
-    fetchConvos()
-    const iv = setInterval(fetchConvos, 5000)
-    return () => clearInterval(iv)
-  }, [])
+  useEffect(() => {}, []) // convos auto-refresh via realtime in useConversations
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
@@ -506,40 +469,30 @@ function DMPanel({ onClose }) {
     // Messages will be received via WebSocket and added to the state
   }, [])
 
-  const openConvo = (convo) => {
-    setSelected(convo)
-    setView('chat')
-    api.get(`/messages/${convo.other_user_id}`).then(r => setMessages(Array.isArray(r.data) ? r.data : [])).catch(() => {})
-  }
+  const { messages: sbMessages, refresh: refreshMessages } = useMessages(sbUserId, selected?.other_user_id)
+
+  useEffect(() => { setMessages(sbMessages) }, [sbMessages])
+
+  const openConvo = (convo) => { setSelected(convo); setView('chat') }
 
   const startWith = (member) => {
     setSelected({ other_user_id: member.id, display_name: member.display_name, username: member.username, avatar_url: member.avatar_url })
     setView('chat')
-    api.get(`/messages/${member.id}`).then(r => setMessages(Array.isArray(r.data) ? r.data : [])).catch(() => {})
   }
 
   const searchMembers = async (q) => {
     setMemberSearch(q)
     if (q.length < 2) { setMembers([]); return }
-    try {
-      const r = await api.get(`/users/search?q=${encodeURIComponent(q)}`)
-      setMembers((r.data.users || []).filter(m => m.id !== user?.id))
-    } catch { setMembers([]) }
+    const results = await searchUsers(q, sbUserId).catch(() => [])
+    setMembers(results)
   }
 
   const send = async () => {
     if (!input.trim() || !selected) return
     const content = input
     setInput('')
-    
-    // Use real-time chat for instant feedback
-    if (isConnected) {
-      sendMessage(selected.other_user_id, content, 'text')
-    } else {
-      // Fallback to HTTP
-      setMessages(prev => [...prev, { content, sender_id: user.id, created_at: new Date().toISOString() }])
-      await api.post(`/messages/${selected.other_user_id}`, { content }).catch(() => {})
-    }
+    setMessages(prev => [...prev, { content, sender_id: sbUserId, created_at: new Date().toISOString() }])
+    await sendDM(sbUserId, selected.other_user_id, content).catch(() => {})
   }
 
   const startRecording = async () => {
@@ -550,15 +503,9 @@ function DMPanel({ onClose }) {
       mr.ondataavailable = e => chunksRef.current.push(e.data)
       mr.onstop = async () => {
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        const fd = new FormData()
-        fd.append('voice_note', blob, 'voice.webm')
-        const token = localStorage.getItem('sw_token')
-        const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
-        const res = await fetch(`${apiBase}/messages/${selected.other_user_id}`, {
-          method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
-        }).catch(() => null)
-        const r = res ? { data: await res.json().catch(() => null) } : null
-        if (r?.data) setMessages(prev => [...prev, r.data])
+        const voiceFile = new File([blob], 'voice.webm', { type: 'audio/webm' })
+        const msg = await sendDM(sbUserId, selected.other_user_id, '', voiceFile).catch(() => null)
+        if (msg) setMessages(prev => [...prev, msg])
         stream.getTracks().forEach(t => t.stop())
       }
       mediaRef.current = mr; mr.start(); setRecording(true)
@@ -735,15 +682,9 @@ function DMPanel({ onClose }) {
                 <input type="file" accept="image/*,video/*" className="hidden" onChange={async e => {
                   const file = e.target.files?.[0]
                   if (!file || !selected) return
-                  const fd = new FormData(); fd.append('media', file)
                   try {
-                    const token = localStorage.getItem('sw_token')
-                    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
-                    const res = await fetch(`${apiBase}/messages/${selected.other_user_id}`, {
-                      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
-                    })
-                    const data = await res.json()
-                    if (data?.id) setMessages(prev => [...prev, data])
+                    const msg = await sendDM(sbUserId, selected.other_user_id, '', file)
+                    if (msg) setMessages(prev => [...prev, msg])
                   } catch { /* silent */ }
                   e.target.value = ''
                 }}/>
@@ -962,8 +903,7 @@ export default function Social() {
   const { user } = useAuth()
   const { play } = useSound()
   const [searchParams] = useSearchParams()
-  const [posts, setPosts] = useState([])
-  const [loading, setLoading] = useState(true)
+  const { posts, loading, setPosts, refresh: refreshFeed } = useFeed()
   const [showDM, setShowDM] = useState(searchParams.get('dm') === '1')
   const [activeTab, setActiveTab] = useState('feed')
   const [showLeaderboard, setShowLeaderboard] = useState(false)
@@ -971,8 +911,6 @@ export default function Social() {
   const [pointFlash, setPointFlash] = useState(false)
 
   useEffect(() => {
-    api.get('/posts').then(r => { setPosts(r.data.posts || []); setLoading(false) }).catch(() => setLoading(false))
-    // Fetch current user's points from leaderboard
     api.get('/leaderboard').then(r => {
       const me = (r.data.leaderboard || []).find(u => u.id === user?.id)
       if (me) setMyMonthPoints(me.points || 0)
@@ -990,7 +928,7 @@ export default function Social() {
   }
 
   const handleDelete = async (id) => {
-    await api.delete(`/posts/${id}`).catch(() => {})
+    await deletePost(id).catch(() => {})
     setPosts(prev => prev.filter(p => p.id !== id))
   }
 

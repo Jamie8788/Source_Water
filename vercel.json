@@ -1,0 +1,30 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "client/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "https://source-water-app.onrender.com/api/$1"
+    },
+    {
+      "src": "/ml/(.*)",
+      "dest": "https://source-water-app.onrender.com/ml/$1"
+    },
+    {
+      "src": "/uploads/(.*)",
+      "dest": "https://source-water-app.onrender.com/uploads/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
+}

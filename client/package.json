@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.2.8",
+    "@supabase/supabase-js": "^2.103.0",
     "axios": "^1.6.8",
     "cesium": "^1.140.0",
     "clsx": "^2.1.0",

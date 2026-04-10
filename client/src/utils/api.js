@@ -6,7 +6,8 @@ const api = axios.create({
 })
 
 api.interceptors.request.use(config => {
-  const token = localStorage.getItem('sw_token')
+  // Prefer Supabase token, fallback to legacy JWT
+  const token = localStorage.getItem('sb_access_token') || localStorage.getItem('sw_token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
@@ -17,6 +18,7 @@ api.interceptors.response.use(
     if (err.response?.status === 401) {
       localStorage.removeItem('sw_token')
       localStorage.removeItem('sw_user')
+      localStorage.removeItem('sb_access_token')
       window.location.href = '/'
     }
     return Promise.reject(err)
