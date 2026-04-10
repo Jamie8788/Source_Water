@@ -249,6 +249,16 @@ function initSchema() {
       created_at TEXT DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS cms_content (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      page TEXT NOT NULL,
+      section TEXT NOT NULL,
+      content TEXT,
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(page, section)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_posts_user ON posts(user_id);
   `)
 
