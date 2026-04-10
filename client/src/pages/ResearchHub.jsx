@@ -12,7 +12,7 @@ import {
   Scan, Droplets, Brain, Database, Upload, CheckCircle,
   AlertTriangle, TrendingUp, TrendingDown, Zap, Activity,
   FlaskConical, Waves, Wind, Thermometer, Eye, Save, RefreshCw,
-  ExternalLink, ChevronRight, Info, Loader
+  ExternalLink, ChevronRight, Info, Loader, Send, ImagePlus, X, Bot, User
 } from 'lucide-react'
 import api from '../utils/api'
 import PageAmbience from '../components/layout/PageAmbience'
@@ -109,54 +109,80 @@ function ExtractedField({ label, value, unit, index, status }) {
   )
 }
 
-// ── Scanner tab ───────────────────────────────────────────────────────────────
+// ── Scanner tab — ChatGPT-style multimodal interface ─────────────────────────
 function ScannerTab() {
-  const [phase, setPhase]           = useState('idle') // idle | scanning | done | error
-  const [dragOver, setDragOver]     = useState(false)
-  const [imageUrl, setImageUrl]     = useState(null)
-  const [extracted, setExtracted]   = useState(null)
-  const [aiModel, setAiModel]       = useState('')
-  const [saving, setSaving]         = useState(false)
-  const [saved, setSaved]           = useState(false)
-  const [scanProgress, setScanProgress] = useState(0)
-  const fileRef = useRef()
+  const [image, setImage]         = useState(null) // { url, base64, mime, name }
+  const [dragOver, setDragOver]   = useState(false)
+  const [extracted, setExtracted] = useState(null)
+  const [messages, setMessages]   = useState([])   // [{role:'user'|'assistant', text, model?}]
+  const [input, setInput]         = useState('')
+  const [loading, setLoading]     = useState(false)
+  const [saving, setSaving]       = useState(false)
+  const [saved, setSaved]         = useState(false)
+  const fileRef   = useRef()
+  const inputRef  = useRef()
+  const bottomRef = useRef()
 
-  const scan = useCallback(async (file) => {
+  // Auto-scroll to bottom of chat
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
+
+  const handleFile = useCallback((file) => {
     if (!file || !file.type.startsWith('image/')) return
-    setPhase('scanning')
-    setExtracted(null)
-    setSaved(false)
-    setImageUrl(URL.createObjectURL(file))
-
-    // Animate progress bar
-    let p = 0
-    const iv = setInterval(() => { p = Math.min(p + Math.random() * 8, 88); setScanProgress(p) }, 200)
-
-    try {
-      const form = new FormData()
-      form.append('image', file)
-      const { data } = await api.post('/research/scan', form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 60000,
-      })
-      clearInterval(iv)
-      setScanProgress(100)
-      setExtracted(data.extracted)
-      setAiModel(data.model || 'AI Vision')
-      setTimeout(() => setPhase('done'), 400)
-    } catch (e) {
-      clearInterval(iv)
-      setPhase('error')
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      const dataUrl = e.target.result
+      const base64  = dataUrl.split(',')[1]
+      const newImg  = { url: dataUrl, base64, mime: file.type, name: file.name }
+      setImage(newImg)
+      setSaved(false)
+      setExtracted(null)
+      setMessages([{ role: 'user', text: `📎 Uploaded: **${file.name}**`, isSystem: true }])
+      setLoading(true)
+      try {
+        const { data } = await api.post('/research/chat', {
+          message: 'Please analyze this water quality image. Extract ALL parameters you can find (pH, temperature, turbidity, dissolved oxygen, nitrates, conductivity, phosphorus, and any others visible), compare each against WHO/Health Canada standards, give an overall water quality verdict, and flag any concerns.',
+          imageBase64: base64,
+          imageMime: file.type,
+          history: [],
+        }, { timeout: 60000 })
+        setMessages(prev => [...prev, { role: 'assistant', text: data.reply, model: data.model }])
+        if (data.extracted) setExtracted(data.extracted)
+      } catch (err) {
+        setMessages(prev => [...prev, { role: 'assistant', text: '**Error:** Could not analyze image. Make sure `GEMINI_API_KEY` is set in your Render environment variables, then try again.', error: true }])
+      }
+      setLoading(false)
     }
+    reader.readAsDataURL(file)
   }, [])
 
-  const onDrop = useCallback((e) => {
-    e.preventDefault(); setDragOver(false)
-    const file = e.dataTransfer.files[0]
-    if (file) scan(file)
-  }, [scan])
+  const sendMessage = useCallback(async () => {
+    const text = input.trim()
+    if (!text || loading) return
+    const userMsg = { role: 'user', text }
+    setMessages(prev => [...prev, userMsg])
+    setInput('')
+    setLoading(true)
 
-  const onFile = (e) => { const f = e.target.files[0]; if (f) scan(f) }
+    // Build history for context (skip system messages)
+    const history = messages
+      .filter(m => !m.isSystem)
+      .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', content: m.text }))
+
+    try {
+      const { data } = await api.post('/research/chat', {
+        message: text,
+        imageBase64: null,
+        imageMime: null,
+        history,
+        extractedContext: extracted,
+      }, { timeout: 30000 })
+      setMessages(prev => [...prev, { role: 'assistant', text: data.reply, model: data.model }])
+    } catch {
+      setMessages(prev => [...prev, { role: 'assistant', text: 'Error reaching AI — please try again.', error: true }])
+    }
+    setLoading(false)
+    inputRef.current?.focus()
+  }, [input, loading, messages, extracted])
 
   const saveObs = async () => {
     if (!extracted) return
@@ -164,371 +190,238 @@ function ScannerTab() {
     try {
       await api.post('/research/observations', {
         location_name: extracted.location || 'Field Observation',
-        ph: extracted.ph,
-        temperature_c: extracted.temperature_c,
-        turbidity_ntu: extracted.turbidity_ntu,
-        dissolved_oxygen: extracted.dissolved_oxygen_mgl,
-        conductivity: extracted.conductivity_us_cm,
-        nitrates: extracted.nitrates_mgl,
-        phosphorus: extracted.phosphorus_mgl,
-        chlorine: extracted.chlorine_mgl,
-        water_color: extracted.water_color,
-        odor: extracted.odor,
-        notes: extracted.notes,
+        ph: extracted.ph, temperature_c: extracted.temperature_c,
+        turbidity_ntu: extracted.turbidity_ntu, dissolved_oxygen: extracted.dissolved_oxygen_mgl,
+        conductivity: extracted.conductivity_us_cm, nitrates: extracted.nitrates_mgl,
+        phosphorus: extracted.phosphorus_mgl, chlorine: extracted.chlorine_mgl,
+        water_color: extracted.water_color, odor: extracted.odor, notes: extracted.notes,
         observed_at: extracted.date ? new Date(extracted.date).toISOString() : undefined,
-        ai_model: aiModel,
+        ai_model: messages.find(m => m.model)?.model || 'Gemini 2.5 Flash',
       })
       setSaved(true)
-    } catch { /* ignore */ }
+    } catch {}
     setSaving(false)
   }
 
-  const reset = () => { setPhase('idle'); setExtracted(null); setImageUrl(null); setSaved(false); setScanProgress(0) }
+  const reset = () => { setImage(null); setMessages([]); setExtracted(null); setSaved(false) }
 
   const fields = extracted ? [
-    { key: 'ph',                   label: 'pH',               unit: '',         val: extracted.ph },
-    { key: 'temperature_c',        label: 'Temperature',      unit: '°C',       val: extracted.temperature_c },
-    { key: 'turbidity_ntu',        label: 'Turbidity',        unit: 'NTU',      val: extracted.turbidity_ntu },
-    { key: 'dissolved_oxygen_mgl', label: 'Dissolved O₂',     unit: 'mg/L',     val: extracted.dissolved_oxygen_mgl },
-    { key: 'conductivity_us_cm',   label: 'Conductivity',     unit: 'µS/cm',    val: extracted.conductivity_us_cm },
-    { key: 'nitrates_mgl',         label: 'Nitrates',         unit: 'mg/L',     val: extracted.nitrates_mgl },
-    { key: 'phosphorus_mgl',       label: 'Phosphorus',       unit: 'mg/L',     val: extracted.phosphorus_mgl },
-    { key: 'chlorine_mgl',         label: 'Chlorine',         unit: 'mg/L',     val: extracted.chlorine_mgl },
+    { key: 'ph',                   label: 'pH',           unit: '',      val: extracted.ph },
+    { key: 'temperature_c',        label: 'Temp',         unit: '°C',    val: extracted.temperature_c },
+    { key: 'turbidity_ntu',        label: 'Turbidity',    unit: 'NTU',   val: extracted.turbidity_ntu },
+    { key: 'dissolved_oxygen_mgl', label: 'DO',           unit: 'mg/L',  val: extracted.dissolved_oxygen_mgl },
+    { key: 'conductivity_us_cm',   label: 'Conductivity', unit: 'µS/cm', val: extracted.conductivity_us_cm },
+    { key: 'nitrates_mgl',         label: 'Nitrates',     unit: 'mg/L',  val: extracted.nitrates_mgl },
+    { key: 'phosphorus_mgl',       label: 'Phosphorus',   unit: 'mg/L',  val: extracted.phosphorus_mgl },
+    { key: 'chlorine_mgl',         label: 'Chlorine',     unit: 'mg/L',  val: extracted.chlorine_mgl },
   ].filter(f => f.val != null) : []
 
   return (
-    <div style={{ display: 'flex', gap: 20, height: '100%', overflow: 'hidden' }}>
-      {/* Left — drop zone + image preview */}
-      <div style={{ flex: '0 0 340px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', gap: 16, height: '100%', overflow: 'hidden' }}>
 
-        {/* Drop zone */}
-        <AnimatePresence mode="wait">
-          {phase === 'idle' && (
-            <motion.div
-              key="drop"
-              initial={{ opacity: 0, scale: 0.97 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.97 }}
-              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={onDrop}
-              onClick={() => fileRef.current?.click()}
+      {/* ── Left panel: upload + extracted cards ── */}
+      <div style={{ flex: '0 0 280px', display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto' }}>
+
+        {/* Upload zone / image preview */}
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={e => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]) }}
+          onClick={() => !image && fileRef.current?.click()}
+          style={{
+            position: 'relative', borderRadius: 14, overflow: 'hidden',
+            height: image ? 180 : 160,
+            border: `2px dashed ${dragOver ? '#6366f1' : image ? 'transparent' : 'rgba(99,102,241,0.3)'}`,
+            background: dragOver ? 'rgba(99,102,241,0.08)' : image ? 'transparent' : 'rgba(255,255,255,0.02)',
+            cursor: image ? 'default' : 'pointer',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            transition: 'all 0.2s', flexShrink: 0,
+          }}
+        >
+          {image ? (
+            <>
+              <img src={image.url} alt="uploaded" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <button
+                onClick={e => { e.stopPropagation(); reset() }}
+                style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}
+              ><X size={14}/></button>
+              <button
+                onClick={e => { e.stopPropagation(); fileRef.current?.click() }}
+                style={{ position: 'absolute', bottom: 8, right: 8, background: 'rgba(99,102,241,0.8)', border: 'none', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', color: '#fff', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}
+              ><ImagePlus size={12}/> Change</button>
+            </>
+          ) : (
+            <>
+              <motion.div animate={{ y: dragOver ? -4 : 0 }}>
+                <Upload size={28} color={dragOver ? '#818cf8' : '#475569'} />
+              </motion.div>
+              <div style={{ textAlign: 'center', marginTop: 8 }}>
+                <div style={{ color: '#94a3b8', fontSize: 13, fontWeight: 600 }}>Upload image</div>
+                <div style={{ color: '#475569', fontSize: 11, marginTop: 3 }}>Field notes · lab sheets · test strips · water samples</div>
+              </div>
+            </>
+          )}
+          <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
+        </div>
+
+        {/* Extracted param cards */}
+        {fields.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: 2, padding: '0 2px' }}>
+              ⚡ {fields.length} parameters extracted
+            </div>
+            {fields.map((f, i) => (
+              <ExtractedField key={f.key} index={i} label={f.label} value={f.val} unit={f.unit} status={paramStatus(f.key, f.val)} />
+            ))}
+            {extracted?.confidence != null && (
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 8, padding: '8px 10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <span style={{ fontSize: 10, color: '#475569' }}>AI Confidence</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: extracted.confidence > 70 ? '#10b981' : '#f59e0b' }}>{extracted.confidence}%</span>
+                </div>
+                <div style={{ height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
+                  <motion.div initial={{ width: 0 }} animate={{ width: `${extracted.confidence}%` }} transition={{ duration: 1 }}
+                    style={{ height: '100%', borderRadius: 2, background: extracted.confidence > 70 ? '#10b981' : '#f59e0b' }} />
+                </div>
+              </div>
+            )}
+            <motion.button
+              whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+              onClick={saveObs} disabled={saving || saved}
               style={{
-                height: 220,
-                border: `2px dashed ${dragOver ? '#6366f1' : 'rgba(99,102,241,0.3)'}`,
-                borderRadius: 16,
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', gap: 10,
-                background: dragOver ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.02)',
-                transition: 'all 0.2s',
+                padding: '9px 0', borderRadius: 10, border: 'none', cursor: saved ? 'default' : 'pointer',
+                background: saved ? '#10b981' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+                color: '#fff', fontSize: 12, fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
               }}
             >
-              <motion.div animate={{ y: dragOver ? -6 : 0 }} transition={{ type: 'spring' }}>
-                <Upload size={36} color={dragOver ? '#818cf8' : '#475569'} />
-              </motion.div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ color: '#94a3b8', fontSize: 14, fontWeight: 600 }}>Drop field note photo here</div>
-                <div style={{ color: '#475569', fontSize: 12, marginTop: 4 }}>Handwritten notes, lab printouts, forms</div>
-              </div>
-              <div style={{ fontSize: 11, color: '#334155', background: 'rgba(99,102,241,0.1)', padding: '4px 12px', borderRadius: 20 }}>
-                click or drag & drop
-              </div>
-              <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onFile} />
-            </motion.div>
-          )}
-
-          {(phase === 'scanning' || phase === 'done' || phase === 'error') && imageUrl && (
-            <motion.div
-              key="scanner"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              style={{ position: 'relative', borderRadius: 16, overflow: 'hidden', height: 220 }}
-            >
-              <img src={imageUrl} alt="scan" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-
-              {/* Scan overlay */}
-              {phase === 'scanning' && (
-                <>
-                  {/* Green scanline sweep */}
-                  <motion.div
-                    animate={{ top: ['0%', '100%', '0%'] }}
-                    transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-                    style={{
-                      position: 'absolute', left: 0, right: 0, height: 3,
-                      background: 'linear-gradient(90deg, transparent, #00ff88, transparent)',
-                      boxShadow: '0 0 12px #00ff88', zIndex: 3,
-                    }}
-                  />
-                  {/* Dark overlay */}
-                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,20,0,0.5)', zIndex: 2 }} />
-                  {/* Corner brackets */}
-                  {[[-1,-1],[1,-1],[-1,1],[1,1]].map(([sx,sy], i) => (
-                    <div key={i} style={{
-                      position: 'absolute', width: 20, height: 20, zIndex: 4,
-                      top: sy === -1 ? 10 : 'auto', bottom: sy === 1 ? 10 : 'auto',
-                      left: sx === -1 ? 10 : 'auto', right: sx === 1 ? 10 : 'auto',
-                      borderTop: sy === -1 ? '2px solid #00ff88' : 'none',
-                      borderBottom: sy === 1 ? '2px solid #00ff88' : 'none',
-                      borderLeft: sx === -1 ? '2px solid #00ff88' : 'none',
-                      borderRight: sx === 1 ? '2px solid #00ff88' : 'none',
-                    }}/>
-                  ))}
-                  {/* Scanning text */}
-                  <motion.div
-                    animate={{ opacity: [1, 0.4, 1] }}
-                    transition={{ duration: 0.8, repeat: Infinity }}
-                    style={{
-                      position: 'absolute', bottom: 14, left: 0, right: 0,
-                      textAlign: 'center', color: '#00ff88',
-                      fontSize: 11, fontWeight: 700, letterSpacing: 3,
-                      fontFamily: 'monospace', zIndex: 4,
-                    }}
-                  >
-                    ANALYZING FIELD NOTES...
-                  </motion.div>
-                  {/* Expanding sonar rings */}
-                  {[0,1,2].map(i => (
-                    <motion.div key={i}
-                      initial={{ scale: 0.3, opacity: 0.8 }}
-                      animate={{ scale: 2.5, opacity: 0 }}
-                      transition={{ duration: 2, repeat: Infinity, delay: i * 0.66, ease: 'easeOut' }}
-                      style={{
-                        position: 'absolute', top: '50%', left: '50%',
-                        width: 60, height: 60, marginTop: -30, marginLeft: -30,
-                        border: '2px solid #00ff88', borderRadius: '50%', zIndex: 3,
-                      }}
-                    />
-                  ))}
-                </>
-              )}
-
-              {/* Done overlay */}
-              {phase === 'done' && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  style={{
-                    position: 'absolute', inset: 0, background: 'rgba(16,185,129,0.15)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 4,
-                  }}
-                >
-                  <motion.div
-                    initial={{ scale: 0 }} animate={{ scale: 1 }}
-                    transition={{ type: 'spring', stiffness: 300 }}
-                  >
-                    <CheckCircle size={48} color="#10b981" />
-                  </motion.div>
-                </motion.div>
-              )}
-
-              {phase === 'error' && (
-                <div style={{
-                  position: 'absolute', inset: 0, background: 'rgba(239,68,68,0.2)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 4,
-                }}>
-                  <AlertTriangle size={48} color="#ef4444" />
-                </div>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Progress bar */}
-        {phase === 'scanning' && (
-          <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
-            <motion.div
-              animate={{ width: `${scanProgress}%` }}
-              transition={{ duration: 0.3 }}
-              style={{ height: '100%', background: 'linear-gradient(90deg, #6366f1, #00ff88)', borderRadius: 2 }}
-            />
-          </div>
-        )}
-
-        {/* Info / status cards */}
-        {extracted && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {extracted.location && (
-              <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10, padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'center' }}>
-                <span style={{ fontSize: 16 }}>📍</span>
-                <div>
-                  <div style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: 1 }}>Location</div>
-                  <div style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 600 }}>{extracted.location}</div>
-                </div>
-              </div>
-            )}
-            {(extracted.date || extracted.observer) && (
-              <div style={{ display: 'flex', gap: 8 }}>
-                {extracted.date && (
-                  <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '8px 12px' }}>
-                    <div style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: 1 }}>Date</div>
-                    <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>{extracted.date}</div>
-                  </div>
-                )}
-                {extracted.observer && (
-                  <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '8px 12px' }}>
-                    <div style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: 1 }}>Observer</div>
-                    <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>{extracted.observer}</div>
-                  </div>
-                )}
-              </div>
-            )}
-            {extracted.confidence != null && (
-              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '8px 12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <span style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: 1 }}>AI Confidence</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: extracted.confidence > 70 ? '#10b981' : '#f59e0b' }}>{extracted.confidence}%</span>
-                </div>
-                <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${extracted.confidence}%` }}
-                    transition={{ duration: 1, ease: 'easeOut' }}
-                    style={{ height: '100%', borderRadius: 2, background: extracted.confidence > 70 ? 'linear-gradient(90deg,#10b981,#34d399)' : 'linear-gradient(90deg,#f59e0b,#fbbf24)' }}
-                  />
-                </div>
-                <div style={{ fontSize: 10, color: '#334155', marginTop: 4 }}>Powered by {aiModel}</div>
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <motion.button
-                whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                onClick={saveObs} disabled={saving || saved}
-                style={{
-                  flex: 1, padding: '10px 0', borderRadius: 10, border: 'none', cursor: saved ? 'default' : 'pointer',
-                  background: saved ? '#10b981' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
-                  color: '#fff', fontSize: 13, fontWeight: 700,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                }}
-              >
-                {saving ? <><Loader size={14} className="animate-spin"/> Saving…</> : saved ? <><CheckCircle size={14}/> Saved!</> : <><Save size={14}/> Save to DB</>}
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                onClick={reset}
-                style={{ padding: '10px 16px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: 13 }}
-              >
-                <RefreshCw size={14} />
-              </motion.button>
-            </div>
+              {saving ? <><Loader size={13} style={{ animation: 'spin 1s linear infinite' }}/> Saving…</> : saved ? <><CheckCircle size={13}/> Saved to DB</> : <><Save size={13}/> Save Observation</>}
+            </motion.button>
           </motion.div>
         )}
 
-        {phase === 'error' && (
-          <div style={{ textAlign: 'center', padding: '12px 0' }}>
-            <div style={{ color: '#fca5a5', fontSize: 13, marginBottom: 8 }}>Vision AI unavailable — try again</div>
-            <button onClick={reset} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '6px 16px', color: '#fca5a5', cursor: 'pointer', fontSize: 12 }}>Try Again</button>
+        {/* No image yet — hint chips */}
+        {!image && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '4px 0' }}>
+            {['pH', 'Temperature', 'Turbidity', 'Dissolved O₂', 'Nitrates', 'Conductivity', 'Phosphorus', 'TDS'].map(p => (
+              <span key={p} style={{ fontSize: 10, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 20, padding: '2px 8px', color: '#818cf8' }}>{p}</span>
+            ))}
           </div>
         )}
       </div>
 
-      {/* Right — extracted data */}
-      <div style={{ flex: 1, overflowY: 'auto', paddingRight: 4 }}>
-        {phase === 'idle' && (
-          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, color: '#334155', textAlign: 'center' }}>
-            <motion.div animate={{ y: [0,-8,0] }} transition={{ duration: 3, repeat: Infinity }}>
-              <FlaskConical size={56} color="#1e3a5f" />
-            </motion.div>
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#475569', marginBottom: 6 }}>AI Field Note Scanner</div>
-              <div style={{ fontSize: 13, color: '#334155', maxWidth: 280, lineHeight: 1.6 }}>
-                Drop a photo of handwritten water quality observations, lab sheets, or field notes.<br/><br/>
-                AI reads the handwriting and automatically extracts all parameters.
+      {/* ── Right panel: full chat interface ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, overflow: 'hidden' }}>
+
+        {/* Chat messages */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {messages.length === 0 && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: '#334155', textAlign: 'center', padding: '20px 0' }}>
+              <motion.div animate={{ y: [0,-6,0] }} transition={{ duration: 3, repeat: Infinity }}>
+                <Bot size={44} color="#4f46e5" strokeWidth={1.5} />
+              </motion.div>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#6366f1', marginBottom: 6 }}>Water Research AI</div>
+                <div style={{ fontSize: 12, color: '#475569', maxWidth: 320, lineHeight: 1.7 }}>
+                  Upload a photo of field notes, lab printouts, test strips, or any water quality document.<br/>
+                  Ask follow-up questions about parameters, standards, or treatment.
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', maxWidth: 360 }}>
+                {['What does pH 6.2 mean for drinking water?', 'Compare turbidity to WHO limits', 'Is this water safe?', 'What causes high nitrates?'].map(q => (
+                  <button key={q} onClick={() => { setInput(q); inputRef.current?.focus() }}
+                    style={{ fontSize: 11, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 20, padding: '5px 12px', color: '#818cf8', cursor: 'pointer' }}>
+                    {q}
+                  </button>
+                ))}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-              {['pH', 'Temperature', 'Turbidity', 'Dissolved O₂', 'Nitrates', 'Conductivity'].map(p => (
-                <span key={p} style={{ fontSize: 11, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 20, padding: '3px 10px', color: '#818cf8' }}>{p}</span>
-              ))}
-            </div>
-          </div>
-        )}
+          )}
 
-        {phase === 'scanning' && (
-          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
-            {/* Spinning hexagon/DNA scanner visual */}
-            <div style={{ position: 'relative', width: 120, height: 120 }}>
-              {[0,60,120,180,240,300].map((deg, i) => (
-                <motion.div key={i}
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 3 + i * 0.5, repeat: Infinity, ease: 'linear' }}
-                  style={{
-                    position: 'absolute', top: '50%', left: '50%',
-                    width: 10, height: 10, marginTop: -5, marginLeft: -5,
-                    borderRadius: '50%',
-                    background: `hsl(${deg},80%,60%)`,
-                    transformOrigin: `${50 - 40 * Math.cos(deg * Math.PI/180)}px ${50 - 40 * Math.sin(deg * Math.PI/180)}px`,
-                    boxShadow: `0 0 8px hsl(${deg},80%,60%)`,
-                  }}
-                />
-              ))}
-              <motion.div
-                animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
-                transition={{ duration: 1.5, repeat: Infinity }}
-                style={{
-                  position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-                  width: 50, height: 50, borderRadius: '50%',
-                  background: 'radial-gradient(circle, rgba(99,102,241,0.4), transparent)',
-                  border: '2px solid rgba(99,102,241,0.6)',
-                }}
-              />
-            </div>
-            <div style={{ textAlign: 'center' }}>
-              <motion.div animate={{ opacity: [1,0.4,1] }} transition={{ duration: 0.8, repeat: Infinity }}
-                style={{ fontSize: 14, fontWeight: 700, color: '#00ff88', fontFamily: 'monospace', letterSpacing: 3 }}>
-                PROCESSING IMAGE…
-              </motion.div>
-              <div style={{ fontSize: 12, color: '#475569', marginTop: 8 }}>AI reading field notes via GPT-4o Vision</div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '80%' }}>
-              {['Detecting text regions…', 'Reading handwriting…', 'Extracting parameters…', 'Cross-checking WHO limits…'].map((s, i) => (
-                <motion.div key={s}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.6 }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#475569' }}
-                >
-                  <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ duration: 1, repeat: Infinity, delay: i * 0.3 }}
-                    style={{ width: 6, height: 6, borderRadius: '50%', background: '#6366f1', flexShrink: 0 }} />
-                  {s}
-                </motion.div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {phase === 'done' && fields.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-              style={{ fontSize: 11, color: '#475569', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 4 }}>
-              ⚡ Extracted {fields.length} parameters
+          {messages.map((msg, i) => (
+            <motion.div key={i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+              style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
+              {/* Avatar */}
+              <div style={{
+                width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                background: msg.role === 'user' ? 'rgba(99,102,241,0.2)' : 'rgba(16,185,129,0.15)',
+                border: `1px solid ${msg.role === 'user' ? 'rgba(99,102,241,0.3)' : 'rgba(16,185,129,0.3)'}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {msg.role === 'user' ? <User size={13} color="#818cf8"/> : <Bot size={13} color="#10b981"/>}
+              </div>
+              {/* Bubble */}
+              <div style={{
+                maxWidth: '80%',
+                background: msg.isSystem ? 'rgba(255,255,255,0.03)' : msg.role === 'user' ? 'rgba(99,102,241,0.12)' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${msg.error ? 'rgba(239,68,68,0.3)' : msg.role === 'user' ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.08)'}`,
+                borderRadius: msg.role === 'user' ? '14px 4px 14px 14px' : '4px 14px 14px 14px',
+                padding: '10px 14px',
+                fontSize: 13, color: msg.error ? '#fca5a5' : msg.isSystem ? '#475569' : '#cbd5e1',
+                lineHeight: 1.65,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}>
+                {/* Render basic markdown: bold, line breaks */}
+                {msg.text?.split(/(\*\*.*?\*\*)/g).map((part, j) =>
+                  part.startsWith('**') && part.endsWith('**')
+                    ? <strong key={j} style={{ color: '#e2e8f0' }}>{part.slice(2,-2)}</strong>
+                    : part
+                )}
+                {msg.model && <div style={{ fontSize: 10, color: '#334155', marginTop: 6 }}>Powered by {msg.model}</div>}
+              </div>
             </motion.div>
-            {fields.map((f, i) => (
-              <ExtractedField
-                key={f.key} index={i}
-                label={f.label} value={f.val} unit={f.unit}
-                status={paramStatus(f.key, f.val)}
-              />
-            ))}
-            {extracted.notes && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: fields.length * 0.08 + 0.2 }}
-                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '10px 14px', marginTop: 4 }}
-              >
-                <div style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Field Notes</div>
-                <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.6 }}>{extracted.notes}</div>
-              </motion.div>
-            )}
-          </div>
-        )}
+          ))}
 
-        {phase === 'done' && fields.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '40px 20px', color: '#475569' }}>
-            <AlertTriangle size={32} style={{ marginBottom: 10 }} />
-            <div style={{ fontSize: 14 }}>No water quality parameters detected</div>
-            <div style={{ fontSize: 12, marginTop: 6 }}>Make sure the image contains water quality measurements</div>
-          </div>
-        )}
+          {loading && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Bot size={13} color="#10b981"/>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '4px 14px 14px 14px', padding: '12px 16px', display: 'flex', gap: 5, alignItems: 'center' }}>
+                {[0,1,2].map(i => (
+                  <motion.div key={i} animate={{ y: [0,-4,0] }} transition={{ duration: 0.6, repeat: Infinity, delay: i*0.15 }}
+                    style={{ width: 7, height: 7, borderRadius: '50%', background: '#6366f1' }} />
+                ))}
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Input bar */}
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '10px 12px', display: 'flex', gap: 8, alignItems: 'flex-end', background: 'rgba(0,0,0,0.15)' }}>
+          <button
+            onClick={() => fileRef.current?.click()}
+            title="Attach image"
+            style={{ padding: '8px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10, cursor: 'pointer', color: '#818cf8', flexShrink: 0, display: 'flex', alignItems: 'center' }}
+          ><ImagePlus size={16}/></button>
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+            placeholder={image ? 'Ask about this sample… (e.g. "Is the pH safe for drinking water?")' : 'Ask a water quality question or upload an image…'}
+            rows={1}
+            style={{
+              flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 10, padding: '8px 12px', color: '#e2e8f0', fontSize: 13,
+              resize: 'none', outline: 'none', fontFamily: 'inherit', lineHeight: 1.5,
+              maxHeight: 120, overflowY: 'auto',
+            }}
+          />
+          <motion.button
+            whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+            onClick={sendMessage} disabled={loading || !input.trim()}
+            style={{
+              padding: '8px 14px', background: loading || !input.trim() ? 'rgba(99,102,241,0.2)' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+              border: 'none', borderRadius: 10, cursor: loading || !input.trim() ? 'default' : 'pointer',
+              color: '#fff', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, flexShrink: 0,
+            }}
+          >
+            {loading ? <Loader size={15} style={{ animation: 'spin 1s linear infinite' }}/> : <Send size={15}/>}
+          </motion.button>
+        </div>
       </div>
     </div>
   )
