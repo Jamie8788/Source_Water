@@ -28,19 +28,25 @@ export function AuthProvider({ children }) {
   const isRegisteringRef = useRef(false)
 
   const fetchProfile = useCallback(async (sbUser, token) => {
+    // Always preserve onboarding_completed from cache — fetchProfile must never wipe it
+    const cached = JSON.parse(localStorage.getItem('sw_user') || '{}')
     try {
-      // Store access token for api.js interceptor
       localStorage.setItem('sb_access_token', token)
       const r = await api.get('/auth/me', {
         headers: { Authorization: `Bearer ${token}` }
       })
       const profile = r.data?.user || r.data
-      const merged = toLocalUser(sbUser, profile)
+      const merged = toLocalUser(sbUser, {
+        ...profile,
+        onboarding_completed: profile.onboarding_completed ?? cached.onboarding_completed,
+      })
       setUser(merged)
       localStorage.setItem('sw_user', JSON.stringify(merged))
       return merged
     } catch {
-      const fallback = toLocalUser(sbUser)
+      const fallback = toLocalUser(sbUser, {
+        onboarding_completed: cached.onboarding_completed,
+      })
       setUser(fallback)
       localStorage.setItem('sw_user', JSON.stringify(fallback))
       return fallback
