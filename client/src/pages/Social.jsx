@@ -417,7 +417,6 @@ function PostComposer({ user, onPost }) {
 function DMPanel({ onClose }) {
   const { user } = useAuth()
   const [view, setView] = useState('list')
-  const [convos, setConvos] = useState([])
   const [selected, setSelected] = useState(null)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
