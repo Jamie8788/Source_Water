@@ -1,22 +1,23 @@
 import PageAmbience from '../components/layout/PageAmbience'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useSound } from '../context/SoundContext'
 import { useSearchParams } from 'react-router-dom'
 import { useChat } from '../hooks/useChat'
 import api from '../utils/api'
 import {
-  useFeed, createPost, deletePost, fetchComments, addComment,
+  useFeed, createPost, deletePost, fetchComments, addComment, deleteComment,
   toggleReaction, useConversations, useMessages, sendDM, deleteDM, editDM, searchUsers,
 } from '../hooks/useSocial'
 import {
   Send, X, Image, Video, Mic, MicOff, Search, UserPlus,
   ArrowLeft, MessageCircle, MoreHorizontal,
-  Award, TrendingUp, Bell, Hash, Trash2, Pin, Plus, Edit2, Check, Smile
+  Award, TrendingUp, Bell, Hash, Trash2, Pin, Plus, Edit2, Check,
+  Bookmark, BookmarkCheck, Filter, BarChart2,
 } from 'lucide-react'
 
 /* ─────────────────────────────────────────────────────────────── */
-/*  CSS Animations (injected once)                                 */
+/*  CSS Animations                                                  */
 /* ─────────────────────────────────────────────────────────────── */
 const STYLES = `
 @keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
@@ -27,9 +28,11 @@ const STYLES = `
 @keyframes storyPulse{0%,100%{opacity:1}50%{opacity:0.6}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes slideRight{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
+@keyframes notifDrop{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
 .anim-slide-up{animation:slideUp 0.35s cubic-bezier(.34,1.3,.64,1) both}
 .anim-pop-in{animation:popIn 0.25s cubic-bezier(.34,1.4,.64,1) both}
 .anim-fade{animation:fadeIn 0.2s ease both}
+.anim-notif{animation:notifDrop 0.2s ease both}
 .skeleton-pulse{background:linear-gradient(90deg,var(--page-bg) 25%,rgba(99,102,241,0.07) 50%,var(--page-bg) 75%);background-size:400px 100%;animation:shimmer 1.4s infinite}
 .dm-bubble-out{background:linear-gradient(135deg,#6366f1,#8b5cf6)!important;color:#fff!important}
 .dm-bubble-in{background:var(--card-bg)!important;color:var(--text)!important}
@@ -37,6 +40,8 @@ const STYLES = `
 .msg-actions{opacity:0;transition:opacity 0.15s}
 .story-ring{background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);padding:2px;border-radius:50%}
 .story-ring-seen{background:var(--border);padding:2px;border-radius:50%}
+.notif-dot{position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#ef4444;border:2px solid var(--card-bg)}
+.poll-bar{transition:width 0.6s cubic-bezier(.34,1.56,.64,1)}
 `
 
 const STORY_GRADIENTS = [
@@ -57,6 +62,42 @@ const REACTIONS = [
   { type:'curious',   emoji:'🔬', label:'Curious',  color:'#f59e0b' },
   { type:'great_work',emoji:'⭐', label:'Star',     color:'#f97316' },
 ]
+
+// Water parameter patterns for auto-detection in post content
+const WATER_PARAM_PATTERNS = [
+  { re:/\bpH\s*[:=]?\s*(\d+\.?\d*)/i,              label:'pH',          color:'#0ea5e9' },
+  { re:/\bturbidity\s*[:=]?\s*(\d+\.?\d*)/i,        label:'Turbidity',   color:'#f59e0b' },
+  { re:/\b(DO|dissolved\s*oxygen)\s*[:=]?\s*(\d+\.?\d*)/i, label:'DO',  color:'#10b981' },
+  { re:/\btemperature\s*[:=]?\s*(\d+\.?\d*)/i,      label:'Temp',        color:'#ef4444' },
+  { re:/\bconductivity\s*[:=]?\s*(\d+\.?\d*)/i,     label:'Conductivity',color:'#8b5cf6' },
+  { re:/\bnitrate\s*[:=]?\s*(\d+\.?\d*)/i,           label:'Nitrate',    color:'#f97316' },
+  { re:/\bphosphorus\s*[:=]?\s*(\d+\.?\d*)/i,        label:'Phosphorus', color:'#ec4899' },
+  { re:/\btds\s*[:=]?\s*(\d+\.?\d*)/i,               label:'TDS',        color:'#14b8a6' },
+  { re:/\btss\s*[:=]?\s*(\d+\.?\d*)/i,               label:'TSS',        color:'#6366f1' },
+  { re:/\bchlorophyll\s*[:=]?\s*(\d+\.?\d*)/i,       label:'Chlorophyll',color:'#22c55e' },
+]
+
+function detectWaterParams(content) {
+  if (!content) return []
+  const found = []
+  WATER_PARAM_PATTERNS.forEach(({ re, label, color }) => {
+    const m = content.match(re)
+    if (m) found.push({ label, value: m[2] || m[1], color })
+  })
+  return found
+}
+
+// Bookmarks (localStorage)
+const BKEY = 'sw_post_bookmarks'
+function getBookmarks() {
+  try { return new Set(JSON.parse(localStorage.getItem(BKEY) || '[]')) } catch { return new Set() }
+}
+function toggleBookmarkPost(id) {
+  const bms = getBookmarks()
+  if (bms.has(id)) bms.delete(id); else bms.add(id)
+  localStorage.setItem(BKEY, JSON.stringify([...bms]))
+  return bms.has(id)
+}
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api','')
 const mediaUrl  = (src) => !src ? '' : src.startsWith('http') ? src : `${API_BASE}${src}`
@@ -160,7 +201,6 @@ function StoryViewer({ groups, startGroupIdx, onClose }) {
       onClick={onClose}>
       <div className="relative w-full max-w-sm h-full max-h-[90vh] flex flex-col"
         onClick={e=>e.stopPropagation()}>
-        {/* Progress bars */}
         <div className="absolute top-0 left-0 right-0 z-10 flex gap-1 p-3">
           {group.stories.map((_,i)=>(
             <div key={i} className="flex-1 h-0.5 rounded-full overflow-hidden" style={{background:'rgba(255,255,255,0.3)'}}>
@@ -169,7 +209,6 @@ function StoryViewer({ groups, startGroupIdx, onClose }) {
             </div>
           ))}
         </div>
-        {/* Author */}
         <div className="absolute top-8 left-0 right-0 z-10 flex items-center gap-2 px-4 py-2">
           <Avatar user={group.user} size={36}/>
           <div>
@@ -180,7 +219,6 @@ function StoryViewer({ groups, startGroupIdx, onClose }) {
             <X className="w-5 h-5"/>
           </button>
         </div>
-        {/* Story content */}
         <div className="flex-1 rounded-2xl overflow-hidden relative flex items-center justify-center"
           style={{background: story.bg_gradient || STORY_GRADIENTS[0], marginTop:16}}>
           {isImg && <img src={mediaUrl(story.media[0])} alt="" className="w-full h-full object-cover absolute inset-0"/>}
@@ -191,7 +229,6 @@ function StoryViewer({ groups, startGroupIdx, onClose }) {
             </div>
           )}
         </div>
-        {/* Tap zones */}
         <div className="absolute inset-0 flex top-16" style={{zIndex:5}}>
           <div className="flex-1" onClick={prev}/>
           <div className="flex-1" onClick={next}/>
@@ -225,7 +262,6 @@ function StoryCreator({ user, onClose, onCreated }) {
     <div className="fixed inset-0 z-[998] flex items-center justify-center bg-black/80 anim-fade" onClick={onClose}>
       <div className="w-full max-w-sm rounded-3xl overflow-hidden anim-pop-in" onClick={e=>e.stopPropagation()}
         style={{background:'var(--card-bg)',border:'1px solid var(--border)'}}>
-        {/* Gradient preview */}
         <div className="relative h-48 flex items-center justify-center"
           style={{background: mediaFile ? undefined : STORY_GRADIENTS[gradIdx]}}>
           {mediaFile
@@ -238,7 +274,6 @@ function StoryCreator({ user, onClose, onCreated }) {
             <X className="w-4 h-4"/>
           </button>
         </div>
-        {/* Gradient picker */}
         {!mediaFile && (
           <div className="flex gap-2 px-4 py-3 overflow-x-auto">
             {STORY_GRADIENTS.map((g,i)=>(
@@ -272,7 +307,6 @@ function StoriesBar({ groups, currentUser, onView, onAdd }) {
   return (
     <div className="card mb-4 overflow-hidden">
       <div className="flex gap-3 px-4 py-3 overflow-x-auto" style={{scrollbarWidth:'none'}}>
-        {/* Add story */}
         <div className="flex flex-col items-center gap-1 flex-shrink-0 cursor-pointer" onClick={onAdd}>
           <div className="relative">
             <Avatar user={currentUser} size={56}/>
@@ -281,12 +315,11 @@ function StoriesBar({ groups, currentUser, onView, onAdd }) {
           </div>
           <span className="text-xs font-semibold truncate w-14 text-center" style={{color:'var(--text-muted)'}}>Your story</span>
         </div>
-        {/* Story groups */}
         {groups.map((g,i)=>(
-          <div key={g.user.id||i} className="flex flex-col items-center gap-1 flex-shrink-0 cursor-pointer" onClick={()=>onView(i)}>
+          <div key={g.user?.id||i} className="flex flex-col items-center gap-1 flex-shrink-0 cursor-pointer" onClick={()=>onView(i)}>
             <Avatar user={g.user} size={56} story seen={g.seen}/>
             <span className="text-xs font-semibold truncate w-14 text-center" style={{color:'var(--text)'}}>
-              {g.user.display_name?.split(' ')[0] || g.user.username}
+              {g.user?.display_name?.split(' ')[0] || g.user?.username}
             </span>
           </div>
         ))}
@@ -298,8 +331,131 @@ function StoriesBar({ groups, currentUser, onView, onAdd }) {
   )
 }
 
+/* ─── Poll View ──────────────────────────────────────────────── */
+function PollView({ post, currentUserId }) {
+  const raw = post.poll_options
+  // Support both old array format and new object format {options:[], votes:{}}
+  const opts   = Array.isArray(raw) ? raw : (raw?.options || [])
+  const [votes, setVotes] = useState(raw?.votes || {})
+  const total  = Object.values(votes).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0)
+  const myVoteIdx = Object.entries(votes).find(([, v]) => (v||[]).some(id => String(id) === String(currentUserId)))?.[0]
+
+  const vote = async (e, idx) => {
+    e.stopPropagation()
+    if (myVoteIdx !== undefined) return // already voted
+    try {
+      const r = await api.post(`/posts/${post.id}/poll/vote`, { option_index: idx })
+      setVotes(r.data?.votes || {})
+    } catch {}
+  }
+
+  const showResults = myVoteIdx !== undefined
+
+  if (!opts.length) return null
+  return (
+    <div className="rounded-2xl p-4 mb-3" style={{background:'var(--page-bg)', border:'1px solid var(--border)'}}>
+      {post.poll_question && (
+        <div className="flex items-center gap-2 mb-3">
+          <BarChart2 className="w-4 h-4 flex-shrink-0" style={{color:'#6366f1'}}/>
+          <p className="font-bold text-sm" style={{color:'var(--text)'}}>{post.poll_question}</p>
+        </div>
+      )}
+      {opts.map((opt, i) => {
+        const vCount  = (votes[i] || []).length
+        const pct     = total > 0 ? Math.round((vCount / total) * 100) : 0
+        const isMe    = String(myVoteIdx) === String(i)
+        return (
+          <button key={i} onClick={e => vote(e, i)} disabled={showResults}
+            className="w-full text-left mb-2 rounded-xl overflow-hidden relative"
+            style={{border:`1.5px solid ${isMe ? '#6366f1' : 'var(--border)'}`, cursor: showResults ? 'default' : 'pointer',
+              background:'var(--card-bg)', transition:'border-color 0.2s'}}>
+            {/* % fill bar */}
+            {showResults && (
+              <div className="absolute inset-0 rounded-xl poll-bar"
+                style={{background: isMe ? 'rgba(99,102,241,0.18)' : 'rgba(99,102,241,0.06)', width:`${pct}%`, maxWidth:'100%'}}/>
+            )}
+            <div className="relative flex items-center justify-between px-4 py-2.5">
+              <span className="text-sm font-medium" style={{color: isMe ? '#6366f1' : 'var(--text)'}}>
+                {isMe && <Check className="w-3 h-3 inline mr-1.5 text-indigo-500"/>}{opt}
+              </span>
+              {showResults && (
+                <span className="text-xs font-black ml-2 flex-shrink-0" style={{color: isMe ? '#6366f1' : 'var(--text-muted)'}}>
+                  {pct}%
+                </span>
+              )}
+            </div>
+          </button>
+        )
+      })}
+      <p className="text-xs text-center mt-1" style={{color:'var(--text-muted)'}}>
+        {showResults ? `${total} vote${total!==1?'s':''} · Your vote recorded` : 'Tap to vote'}
+      </p>
+    </div>
+  )
+}
+
+/* ─── Notifications Panel ────────────────────────────────────── */
+function NotificationsPanel({ onClose }) {
+  const [notifs, setNotifs]   = useState([])
+  const [unread, setUnread]   = useState(0)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.get('/notifications').then(r => {
+      setNotifs(r.data.notifications || [])
+      setUnread(r.data.unread || 0)
+    }).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  const readAll = async () => {
+    await api.post('/notifications/read-all').catch(() => {})
+    setNotifs(p => p.map(n => ({ ...n, read: 1 })))
+    setUnread(0)
+  }
+
+  const ICONS = { dm:'💬', reaction:'💧', comment:'🗨️', follow:'👤', default:'🔔' }
+  const icon = (t) => ICONS[t] || ICONS.default
+
+  return (
+    <div className="absolute right-0 top-full mt-2 w-80 rounded-2xl shadow-2xl border overflow-hidden anim-notif z-50"
+      style={{background:'var(--card-bg)', borderColor:'var(--border)'}}>
+      <div className="flex items-center justify-between px-4 py-3 border-b" style={{borderColor:'var(--border)'}}>
+        <h3 className="font-black text-sm" style={{color:'var(--text)'}}>Notifications</h3>
+        <div className="flex items-center gap-2">
+          {unread > 0 && (
+            <button onClick={readAll} className="text-xs font-bold px-2 py-0.5 rounded-lg hover:bg-indigo-50 transition-colors"
+              style={{color:'#6366f1'}}>Mark all read</button>
+          )}
+          <button onClick={onClose}><X className="w-4 h-4" style={{color:'var(--text-muted)'}}/></button>
+        </div>
+      </div>
+      <div className="max-h-96 overflow-y-auto">
+        {loading ? (
+          <div className="p-8 text-center text-sm" style={{color:'var(--text-muted)'}}>Loading…</div>
+        ) : notifs.length === 0 ? (
+          <div className="p-8 text-center">
+            <div className="text-4xl mb-2">🔔</div>
+            <p className="text-sm" style={{color:'var(--text-muted)'}}>No notifications yet</p>
+          </div>
+        ) : notifs.map(n => (
+          <div key={n.id} className="flex items-start gap-3 px-4 py-3 border-b transition-colors hover:bg-indigo-50/20"
+            style={{borderColor:'var(--border)', background: n.read ? 'transparent' : 'rgba(99,102,241,0.04)'}}>
+            <span className="text-lg flex-shrink-0 mt-0.5">{icon(n.type)}</span>
+            <div className="flex-1 min-w-0">
+              {n.title && <p className="text-xs font-black" style={{color:'var(--text)'}}>{n.title}</p>}
+              <p className="text-xs leading-snug" style={{color:'var(--text-muted)'}}>{n.message}</p>
+              <p className="text-xs mt-0.5" style={{color:'var(--text-muted)',opacity:.7}}>{timeAgo(n.created_at)}</p>
+            </div>
+            {!n.read && <div className="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0 mt-1.5"/>}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /* ─── Post Card ──────────────────────────────────────────────── */
-function PostCard({ post, currentUser, onDelete, onPin, animDelay=0 }) {
+function PostCard({ post, currentUser, onDelete, onPin, animDelay=0, onHashtagClick }) {
   const [showComments, setShowComments] = useState(false)
   const [comment, setComment]           = useState('')
   const [comments, setComments]         = useState([])
@@ -309,11 +465,13 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0 }) {
   const [showMenu, setShowMenu]         = useState(false)
   const [heartAnim, setHeartAnim]       = useState(false)
   const [pointAnim, setPointAnim]       = useState(false)
+  const [bookmarked, setBookmarked]     = useState(() => getBookmarks().has(post.id))
   const reactTimer = useRef(null)
   const lastTap    = useRef(0)
 
-  const author     = post.user || { display_name:post.display_name, username:post.username }
-  const totalReacts= Object.values(reactCounts).reduce((a,b)=>a+b,0)
+  const author      = post.user || { display_name:post.display_name, username:post.username }
+  const totalReacts = Object.values(reactCounts).reduce((a,b)=>a+b,0)
+  const waterParams = useMemo(() => detectWaterParams(post.content), [post.content])
 
   const loadComments = async () => {
     if (!showComments) setComments(await fetchComments(post.id).catch(()=>[]))
@@ -348,6 +506,19 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0 }) {
     if (now - lastTap.current < 350) { setHeartAnim(true); setTimeout(()=>setHeartAnim(false),600); handleReact('drop') }
     lastTap.current = now
   }
+
+  const handleBookmark = (e) => {
+    e.stopPropagation()
+    setBookmarked(toggleBookmarkPost(post.id))
+  }
+
+  // Render content with clickable hashtags
+  const renderContent = (text) => text.split(/(#\w+)/g).map((pt, i) =>
+    pt.startsWith('#')
+      ? <span key={i} className="font-semibold cursor-pointer hover:underline" style={{color:'#6366f1'}}
+          onClick={e=>{e.stopPropagation();onHashtagClick?.(pt)}}>{pt}</span>
+      : pt
+  )
 
   return (
     <div className="card overflow-visible relative anim-slide-up"
@@ -414,12 +585,20 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0 }) {
         {/* Content */}
         {post.content && (
           <p className="text-sm leading-relaxed mb-3" style={{color:'var(--text)'}}>
-            {post.content.split(/(#\w+)/g).map((pt,i)=>
-              pt.startsWith('#')
-                ? <span key={i} className="font-semibold cursor-pointer hover:underline" style={{color:'#6366f1'}}>{pt}</span>
-                : pt
-            )}
+            {renderContent(post.content)}
           </p>
+        )}
+
+        {/* Water parameter auto-chips */}
+        {waterParams.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {waterParams.map(({label, value, color}) => (
+              <span key={label} className="text-xs px-2.5 py-0.5 rounded-full font-bold"
+                style={{background:color+'18', color, border:`1px solid ${color}30`}}>
+                💧 {label}{value ? `: ${value}` : ''}
+              </span>
+            ))}
+          </div>
         )}
 
         <MediaGrid media={post.media} type={post.post_type}/>
@@ -430,16 +609,7 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0 }) {
 
         {/* Poll */}
         {post.poll_options && (
-          <div className="rounded-2xl p-4 mb-3" style={{background:'var(--page-bg)',border:'1px solid var(--border)'}}>
-            <p className="font-bold text-sm mb-3" style={{color:'var(--text)'}}>📊 {post.poll_question}</p>
-            {(Array.isArray(post.poll_options)?post.poll_options:JSON.parse(post.poll_options||'[]')).map((opt,i)=>(
-              <button key={i} onClick={e=>{e.stopPropagation();api.post(`/posts/${post.id}/poll/vote`,{option_index:i})}}
-                className="w-full text-left px-4 py-2.5 rounded-xl mb-2 text-sm font-medium transition-all hover:scale-[1.01] active:scale-[0.99]"
-                style={{background:'var(--card-bg)',border:'1.5px solid var(--border)',color:'var(--text)'}}>
-                {opt}
-              </button>
-            ))}
-          </div>
+          <PollView post={post} currentUserId={currentUser?.id}/>
         )}
 
         {/* Heart burst */}
@@ -494,6 +664,13 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0 }) {
             <span className="text-xs">{showComments?'Hide':post.comment_count||0}</span>
           </button>
 
+          {/* Bookmark */}
+          <button onClick={handleBookmark}
+            className="flex items-center gap-1 px-3 py-2 rounded-xl text-sm transition-all hover:bg-gray-50 active:scale-95"
+            style={{color: bookmarked ? '#6366f1' : 'var(--text-muted)'}}>
+            {bookmarked ? <BookmarkCheck className="w-4 h-4"/> : <Bookmark className="w-4 h-4"/>}
+          </button>
+
           {/* +pts float */}
           <div className="relative ml-auto">
             {pointAnim && (
@@ -539,23 +716,38 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0 }) {
 
 /* ─── Post Composer ──────────────────────────────────────────── */
 function PostComposer({ user, onPost, onStory }) {
-  const [expanded, setExpanded] = useState(false)
-  const [content, setContent]   = useState('')
-  const [media, setMedia]       = useState([])
-  const [postType, setPostType] = useState('text')
-  const [submitting, setSubmit] = useState(false)
-  const [err, setErr]           = useState('')
+  const [expanded, setExpanded]   = useState(false)
+  const [content, setContent]     = useState('')
+  const [media, setMedia]         = useState([])
+  const [postType, setPostType]   = useState('text')
+  const [submitting, setSubmit]   = useState(false)
+  const [err, setErr]             = useState('')
+  const [pollMode, setPollMode]   = useState(false)
+  const [pollQ, setPollQ]         = useState('')
+  const [pollOpts, setPollOpts]   = useState(['', ''])
   const imgRef = useRef(null)
   const vidRef = useRef(null)
 
+  const addPollOpt = () => { if (pollOpts.length < 4) setPollOpts(p=>[...p,'']) }
+  const removePollOpt = (i) => { if (pollOpts.length > 2) setPollOpts(p=>p.filter((_,j)=>j!==i)) }
+  const updatePollOpt = (i, v) => setPollOpts(p=>p.map((o,j)=>j===i?v:o))
+
   const submit = async () => {
-    if (!content.trim()&&!media.length) return
+    if (!content.trim()&&!media.length&&!pollMode) return
+    if (pollMode && (!pollQ.trim() || pollOpts.filter(o=>o.trim()).length < 2)) {
+      setErr('Poll needs a question and at least 2 options'); return
+    }
     setSubmit(true); setErr('')
     try {
       const userId = user?.supabase_id||user?.id
-      const posted = await createPost({ userId, content, postType, files:media })
+      const posted = await createPost({
+        userId, content, postType, files:media,
+        pollQuestion: pollMode ? pollQ.trim() : '',
+        pollOptions:  pollMode ? pollOpts.filter(o=>o.trim()) : [],
+      })
       onPost(posted)
       setContent(''); setMedia([]); setExpanded(false); setPostType('text')
+      setPollMode(false); setPollQ(''); setPollOpts(['',''])
     } catch(e) { setErr(e.message||'Upload failed') }
     setSubmit(false)
   }
@@ -574,10 +766,38 @@ function PostComposer({ user, onPost, onStory }) {
           ) : (
             <div className="anim-fade">
               <textarea value={content} onChange={e=>setContent(e.target.value)} autoFocus
-                placeholder="Share something with the water community…"
+                placeholder={pollMode ? 'Add context to your poll (optional)…' : 'Share something with the water community…'}
                 rows={3} maxLength={500}
                 className="w-full resize-none text-sm p-3 rounded-2xl outline-none transition-all"
                 style={{background:'var(--page-bg)',border:'1.5px solid var(--border)',color:'var(--text)'}}/>
+
+              {/* Poll creator */}
+              {pollMode && (
+                <div className="mt-2 rounded-2xl p-3 space-y-2" style={{background:'var(--page-bg)',border:'1.5px solid var(--border)'}}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <BarChart2 className="w-4 h-4 text-indigo-500"/>
+                    <span className="text-xs font-black" style={{color:'#6366f1'}}>Poll</span>
+                  </div>
+                  <input value={pollQ} onChange={e=>setPollQ(e.target.value)} placeholder="Ask your question…"
+                    className="w-full text-sm px-3 py-2 rounded-xl" maxLength={120}
+                    style={{background:'var(--card-bg)',border:'1px solid var(--border)',color:'var(--text)'}}/>
+                  {pollOpts.map((opt, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <input value={opt} onChange={e=>updatePollOpt(i, e.target.value)}
+                        placeholder={`Option ${i+1}`} maxLength={80}
+                        className="flex-1 text-sm px-3 py-1.5 rounded-xl"
+                        style={{background:'var(--card-bg)',border:'1px solid var(--border)',color:'var(--text)'}}/>
+                      {pollOpts.length > 2 && (
+                        <button onClick={()=>removePollOpt(i)} className="text-red-400 hover:text-red-600"><X className="w-3.5 h-3.5"/></button>
+                      )}
+                    </div>
+                  ))}
+                  {pollOpts.length < 4 && (
+                    <button onClick={addPollOpt} className="text-xs font-bold px-3 py-1 rounded-lg hover:bg-indigo-50"
+                      style={{color:'#6366f1'}}>+ Add option</button>
+                  )}
+                </div>
+              )}
 
               {media.length>0 && (
                 <div className="flex gap-2 flex-wrap mt-2">
@@ -605,17 +825,21 @@ function PostComposer({ user, onPost, onStory }) {
                   <button type="button" onClick={()=>vidRef.current?.click()}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors hover:bg-red-50"
                     style={{color:'#ef4444'}}><Video className="w-4 h-4"/> Video</button>
+                  <button type="button" onClick={()=>setPollMode(p=>!p)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors"
+                    style={{color:'#6366f1', background: pollMode ? 'rgba(99,102,241,0.1)' : 'transparent'}}>
+                    <BarChart2 className="w-4 h-4"/> Poll</button>
                   <button type="button" onClick={()=>{setExpanded(false);onStory()}}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors hover:bg-purple-50"
                     style={{color:'#8b5cf6'}}><Plus className="w-4 h-4"/> Story</button>
                   <span className="text-xs self-center px-1" style={{color:'var(--text-muted)'}}>{content.length}/500</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={()=>{setExpanded(false);setContent('');setMedia([])}}
+                  <button onClick={()=>{setExpanded(false);setContent('');setMedia([]);setPollMode(false)}}
                     className="px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors"
                     style={{color:'var(--text-muted)',borderColor:'var(--border)'}}>Cancel</button>
                   {err && <span className="text-xs text-red-500 max-w-[140px] leading-tight">{err}</span>}
-                  <button onClick={submit} disabled={submitting||(!content.trim()&&!media.length)}
+                  <button onClick={submit} disabled={submitting||(!content.trim()&&!media.length&&!pollMode)}
                     className="px-4 py-1.5 rounded-xl text-xs font-black text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-40"
                     style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)'}}>
                     {submitting ? 'Uploading…' : '✦ Post (+5 pts)'}
@@ -647,8 +871,6 @@ function DMPanel({ onClose }) {
   const bottomRef = useRef(null)
 
   const { lastMessage, markAsRead, resetUnreadCount } = useChat(user?.id)
-  // Always use the SQLite integer ID for DM sender_id comparisons.
-  // user?.id may be a Supabase UUID — localStorage sw_user always has the integer id.
   const sbUserId = (() => {
     try { return JSON.parse(localStorage.getItem('sw_user') || 'null')?.id } catch { return null }
   })() || user?.id
@@ -676,10 +898,8 @@ function DMPanel({ onClose }) {
   const send = async () => {
     if (!input.trim()||!selected) return
     const content = input; setInput('')
-    // Optimistic message — use numeric ID so isMine check works immediately
     setMessages(p=>[...p,{content,sender_id:Number(sbUserId)||sbUserId,created_at:new Date().toISOString()}])
     const msg = await sendDM(sbUserId, selected.other_user_id, content).catch(()=>null)
-    // Replace optimistic with real message from server
     if (msg?.id) refreshMessages()
   }
 
@@ -705,7 +925,7 @@ function DMPanel({ onClose }) {
         const blob = new Blob(chunksRef.current,{type:'audio/webm'})
         const vf = new File([blob],'voice.webm',{type:'audio/webm'})
         const msg = await sendDM(sbUserId,selected.other_user_id,'',vf).catch(()=>null)
-        if(msg) setMessages(p=>[...p,msg])
+        if(msg&&msg.id) setMessages(p=>[...p,msg])
         stream.getTracks().forEach(t=>t.stop())
       }
       mediaRef.current=mr; mr.start(); setRecording(true)
@@ -783,7 +1003,7 @@ function DMPanel({ onClose }) {
         </div>
       )}
 
-      {/* Search */}
+      {/* Search new */}
       {view==='new'&&(
         <div className="flex-1 overflow-y-auto">
           <div className="p-3 border-b" style={{borderColor:'var(--border)',background:'var(--page-bg)'}}>
@@ -828,12 +1048,12 @@ function DMPanel({ onClose }) {
             )}
             {messages.map((m,i)=>{
               const isMine = String(m.sender_id) === String(sbUserId)
-              const isImg = m.media&&!m.media.match?.(/\.(webm|mp3|ogg)$/i)&&m.message_type!=='voice_note'
-              const isVid = m.media&&m.media.match?.(/\.(mp4|webm|mov)$/i)
+              const isImg  = m.media&&!m.media.match?.(/\.(webm|mp3|ogg)$/i)&&m.message_type!=='voice_note'
+              const isVid  = m.media&&m.media.match?.(/\.(mp4|webm|mov)$/i)
               return (
                 <div key={m.id||i} className={`flex msg-hover ${isMine?'justify-end':'justify-start'} gap-1.5 items-end`}>
                   {!isMine&&<Avatar user={{username:selected?.username,display_name:selected?.display_name}} size={24}/>}
-                  <div className={`max-w-[76%] relative group`}>
+                  <div className="max-w-[76%] relative group">
                     {editId===m.id ? (
                       <div className="flex gap-1">
                         <input value={editText} onChange={e=>setEditText(e.target.value)}
@@ -864,7 +1084,6 @@ function DMPanel({ onClose }) {
                             </p>
                           </div>
                         )}
-                        {/* Actions on hover */}
                         {isMine&&(
                           <div className="msg-actions absolute -top-6 right-0 flex gap-1 bg-white shadow-lg rounded-xl px-1.5 py-1 border"
                             style={{borderColor:'var(--border)'}}>
@@ -889,15 +1108,14 @@ function DMPanel({ onClose }) {
             <div ref={bottomRef}/>
           </div>
 
-          {/* Input */}
           <div className="flex-shrink-0 border-t" style={{background:'var(--card-bg)',borderColor:'var(--border)'}}>
             <div className="flex items-center gap-2 p-2">
               <button onClick={recording?stopRecording:startRecording}
-                className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${recording?'bg-red-500 animate-pulse':'hover:bg-gray-100'}`}
+                className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${recording?'bg-red-500 animate-pulse':''}`}
                 style={{background:recording?'#ef4444':'var(--page-bg)'}}>
                 {recording?<MicOff className="w-4 h-4 text-white"/>:<Mic className="w-4 h-4" style={{color:'var(--text-muted)'}}/>}
               </button>
-              <label className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:bg-gray-100 transition-colors"
+              <label className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer"
                 style={{background:'var(--page-bg)'}}>
                 <Image className="w-4 h-4" style={{color:'var(--text-muted)'}}/>
                 <input type="file" accept="image/*,video/*" className="hidden" onChange={async e=>{
@@ -928,7 +1146,7 @@ function DMPanel({ onClose }) {
   )
 }
 
-/* ─── Leaderboard Card (auto-refresh) ───────────────────────── */
+/* ─── Leaderboard Card ───────────────────────────────────────── */
 function LeaderboardCard({ currentUserId, onShowFull }) {
   const [data, setData] = useState([])
   const medals = ['🥇','🥈','🥉']
@@ -949,8 +1167,7 @@ function LeaderboardCard({ currentUserId, onShowFull }) {
       <div className="space-y-2">
         {data.map((u,i)=>(
           <div key={u.id||i} className="flex items-center gap-2.5 rounded-xl px-2 py-1 transition-all"
-            style={{background:u.id===currentUserId?'rgba(99,102,241,0.08)':'transparent',
-              animationDelay:`${i*60}ms`}}>
+            style={{background:u.id===currentUserId?'rgba(99,102,241,0.08)':'transparent'}}>
             <span className="text-base w-5 text-center flex-shrink-0">{medals[i]||`${i+1}`}</span>
             <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0"
               style={{background:u.id===currentUserId?'linear-gradient(135deg,#f59e0b,#ef4444)':'linear-gradient(135deg,#6366f1,#14b8a6)'}}>
@@ -1022,14 +1239,6 @@ function FullLeaderboard({ currentUserId, onClose, inline=false }) {
                   style={{background:'#6366f1',color:'white'}}>You</span>}
               </div>
               <div className="text-xs" style={{color:'var(--text-muted)'}}>{u.posts}p · {u.quizzes_passed}q · {u.observations}obs</div>
-              {u.badges?.length>0&&(
-                <div className="flex gap-1 mt-0.5 flex-wrap">
-                  {u.badges.map((b,bi)=>(
-                    <span key={bi} className="text-xs px-1.5 py-0.5 rounded-full"
-                      style={{background:'rgba(99,102,241,0.1)',color:'#6366f1',fontSize:10}}>{b}</span>
-                  ))}
-                </div>
-              )}
             </div>
             <div className="text-right flex-shrink-0">
               <div className="font-black text-base" style={{color:i===0?'#f59e0b':i===1?'#9ca3af':i===2?'#b45309':'#6366f1'}}>{u.points||0}</div>
@@ -1050,11 +1259,11 @@ function FullLeaderboard({ currentUserId, onClose, inline=false }) {
 }
 
 /* ─── Trending Card ──────────────────────────────────────────── */
-function TrendingCard({ posts }) {
+function TrendingCard({ posts, activeTag, onTagClick }) {
   const tags = Object.entries(
     (posts||[]).flatMap(p=>(p.content||'').match(/#\w+/g)||[])
       .reduce((acc,t)=>({...acc,[t]:(acc[t]||0)+1}),{})
-  ).sort((a,b)=>b[1]-a[1]).slice(0,6)
+  ).sort((a,b)=>b[1]-a[1]).slice(0,7)
   return (
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-3">
@@ -1065,13 +1274,15 @@ function TrendingCard({ posts }) {
         ? <p className="text-xs" style={{color:'var(--text-muted)'}}>Post with #hashtags to trend!</p>
         : <div className="space-y-2">
           {tags.map(([tag,count])=>(
-            <div key={tag} className="flex items-center justify-between cursor-pointer group">
+            <button key={tag} onClick={()=>onTagClick?.(activeTag===tag?null:tag)}
+              className="w-full flex items-center justify-between rounded-xl px-2 py-1.5 transition-colors text-left"
+              style={{background:activeTag===tag?'rgba(99,102,241,0.1)':'transparent'}}>
               <div className="flex items-center gap-1.5">
                 <Hash className="w-3 h-3 flex-shrink-0" style={{color:'#6366f1'}}/>
-                <span className="text-sm font-bold group-hover:underline" style={{color:'#6366f1'}}>{tag.slice(1)}</span>
+                <span className="text-sm font-bold" style={{color:'#6366f1'}}>{tag.slice(1)}</span>
               </div>
               <span className="text-xs" style={{color:'var(--text-muted)'}}>{count} post{count>1?'s':''}</span>
-            </div>
+            </button>
           ))}
         </div>
       }
@@ -1091,22 +1302,68 @@ export default function Social() {
   const [showLeaderboard, setShowLB]  = useState(false)
   const [myMonthPts, setMyMonthPts]   = useState(null)
   const [pointFlash, setPointFlash]   = useState(false)
-  const [viewingStory, setViewingStory] = useState(null) // { groupIdx }
+  const [viewingStory, setViewingStory] = useState(null)
   const [creatingStory, setCreating]  = useState(false)
   const [seenStories, setSeenStories] = useState(new Set())
 
-  // Derive story groups from feed (posts with type='story' in last 24h)
-  const storyGroups = (() => {
+  // Feed filters
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterMode, setFilterMode]   = useState('all') // all | research | saved
+  const [activeHashtag, setActiveHashtag] = useState(null)
+
+  // Notifications
+  const [showNotifs, setShowNotifs]   = useState(false)
+  const [unreadNotifs, setUnreadNotifs] = useState(0)
+  const notifRef = useRef(null)
+
+  // Derive story groups from feed
+  const storyGroups = useMemo(() => {
     const cutoff = Date.now() - 86400000
     const stories = posts.filter(p => p.post_type==='story' && new Date(p.created_at)>cutoff)
     const grouped = {}
     stories.forEach(s => {
       const uid = s.user?.id || s.user_id
-      if (!grouped[uid]) grouped[uid] = { user: s.user||{id:uid,username:s.username}, stories:[] }
-      grouped[uid].stories.push({...s, bg_gradient: STORY_GRADIENTS[s.id % STORY_GRADIENTS.length]})
+      if (!grouped[uid]) grouped[uid] = { user: s.user||{id:uid,username:s.username}, stories:[], seen: seenStories.has(uid) }
+      grouped[uid].stories.push({...s, bg_gradient: STORY_GRADIENTS[(s.id||0) % STORY_GRADIENTS.length]})
     })
     return Object.values(grouped)
-  })()
+  }, [posts, seenStories])
+
+  // Filtered feed posts
+  const feedPosts = useMemo(() => {
+    let ps = posts.filter(p => p.post_type !== 'story')
+    if (activeHashtag) ps = ps.filter(p => (p.content||'').toLowerCase().includes(activeHashtag.toLowerCase()))
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      ps = ps.filter(p => (p.content||'').toLowerCase().includes(q) || (p.user?.display_name||'').toLowerCase().includes(q) || (p.user?.username||'').toLowerCase().includes(q))
+    }
+    if (filterMode === 'research') {
+      const researchRoles = ['Researcher','SOURCE Water team member','Water quality analyst']
+      ps = ps.filter(p => researchRoles.some(r => (p.user?.role||'').includes(r)) || p.poll_question)
+    }
+    if (filterMode === 'saved') {
+      const bms = getBookmarks()
+      ps = ps.filter(p => bms.has(p.id))
+    }
+    return ps
+  }, [posts, activeHashtag, searchQuery, filterMode])
+
+  // Poll unread notifications
+  useEffect(() => {
+    const fetchUnread = () => {
+      api.get('/notifications').then(r => setUnreadNotifs(r.data.unread || 0)).catch(() => {})
+    }
+    fetchUnread()
+    const t = setInterval(fetchUnread, 30000)
+    return () => clearInterval(t)
+  }, [])
+
+  // Close notif panel on outside click
+  useEffect(() => {
+    const handler = (e) => { if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifs(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
 
   useEffect(()=>{
     api.get('/leaderboard').then(r=>{
@@ -1134,6 +1391,18 @@ export default function Social() {
     if (g) setSeenStories(s=>new Set([...s, g.user.id]))
   }
 
+  const handleHashtagClick = (tag) => {
+    setActiveHashtag(prev => prev === tag ? null : tag)
+    setFilterMode('all')
+    setSearchQuery('')
+  }
+
+  const FILTERS = [
+    { id:'all',      label:'🌊 All' },
+    { id:'research', label:'🔬 Research' },
+    { id:'saved',    label:'🔖 Saved' },
+  ]
+
   return (
     <div>
       <style>{STYLES}</style>
@@ -1145,11 +1414,23 @@ export default function Social() {
           <h1 className="text-2xl font-black" style={{color:'var(--text)'}}>Social Space</h1>
           <p className="text-sm" style={{color:'var(--text-muted)'}}>Connect with the water community 🌊</p>
         </div>
-        <button onClick={()=>{setShowDM(s=>!s);play('click')}}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-black text-white transition-all hover:opacity-90 active:scale-95"
-          style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)'}}>
-          <MessageCircle className="w-4 h-4"/> Messages
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Notifications bell */}
+          <div className="relative" ref={notifRef}>
+            <button onClick={()=>setShowNotifs(s=>!s)}
+              className="relative w-10 h-10 rounded-xl flex items-center justify-center transition-colors hover:bg-indigo-50"
+              style={{border:'1.5px solid var(--border)',background:'var(--card-bg)'}}>
+              <Bell className="w-4 h-4" style={{color:'var(--text-muted)'}}/>
+              {unreadNotifs > 0 && <div className="notif-dot"/>}
+            </button>
+            {showNotifs && <NotificationsPanel onClose={()=>setShowNotifs(false)}/>}
+          </div>
+          <button onClick={()=>{setShowDM(s=>!s);play('click')}}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-black text-white transition-all hover:opacity-90 active:scale-95"
+            style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)'}}>
+            <MessageCircle className="w-4 h-4"/> Messages
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -1209,6 +1490,40 @@ export default function Social() {
               onView={handleStoryView}
               onAdd={()=>setCreating(true)}/>
 
+            {/* Search bar */}
+            <div className="relative mb-3">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{color:'var(--text-muted)'}}/>
+              <input value={searchQuery} onChange={e=>{setSearchQuery(e.target.value);setActiveHashtag(null)}}
+                placeholder="Search posts, people, parameters…"
+                className="w-full pl-10 pr-4 py-2.5 rounded-2xl text-sm outline-none"
+                style={{background:'var(--card-bg)',border:'1.5px solid var(--border)',color:'var(--text)'}}/>
+              {searchQuery && (
+                <button onClick={()=>setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <X className="w-4 h-4" style={{color:'var(--text-muted)'}}/>
+                </button>
+              )}
+            </div>
+
+            {/* Filter pills */}
+            <div className="flex gap-2 mb-4 flex-wrap">
+              {FILTERS.map(f=>(
+                <button key={f.id} onClick={()=>{setFilterMode(f.id);setActiveHashtag(null);setSearchQuery('')}}
+                  className="px-3 py-1.5 rounded-full text-xs font-bold transition-all"
+                  style={{background:filterMode===f.id&&!activeHashtag?'linear-gradient(135deg,#6366f1,#8b5cf6)':'var(--card-bg)',
+                    color:filterMode===f.id&&!activeHashtag?'white':'var(--text-muted)',
+                    border:'1px solid var(--border)'}}>
+                  {f.label}
+                </button>
+              ))}
+              {activeHashtag && (
+                <button onClick={()=>setActiveHashtag(null)}
+                  className="px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1"
+                  style={{background:'rgba(99,102,241,0.15)',color:'#6366f1',border:'1px solid rgba(99,102,241,0.3)'}}>
+                  <Hash className="w-3 h-3"/>{activeHashtag.replace('#','')} <X className="w-3 h-3 ml-0.5"/>
+                </button>
+              )}
+            </div>
+
             <PostComposer user={user} onPost={handlePost} onStory={()=>setCreating(true)}/>
 
             {loading ? (
@@ -1227,17 +1542,22 @@ export default function Social() {
                   </div>
                 ))}
               </div>
-            ) : posts.filter(p=>p.post_type!=='story').length===0 ? (
+            ) : feedPosts.length===0 ? (
               <div className="card p-12 text-center">
                 <div className="text-6xl mb-4">🌊</div>
-                <h3 className="font-black text-lg mb-1" style={{color:'var(--text)'}}>Nothing here yet</h3>
-                <p className="text-sm" style={{color:'var(--text-muted)'}}>Be the first to share something!</p>
+                <h3 className="font-black text-lg mb-1" style={{color:'var(--text)'}}>
+                  {filterMode==='saved'?'No saved posts yet':'Nothing here yet'}
+                </h3>
+                <p className="text-sm" style={{color:'var(--text-muted)'}}>
+                  {filterMode==='saved'?'Bookmark posts to save them here':'Be the first to share something!'}
+                </p>
               </div>
             ) : (
               <div>
-                {posts.filter(p=>p.post_type!=='story').map((p,i)=>(
+                {feedPosts.map((p,i)=>(
                   <PostCard key={p.id} post={p} currentUser={user}
-                    onDelete={handleDelete} onPin={handlePin} animDelay={i*40}/>
+                    onDelete={handleDelete} onPin={handlePin}
+                    animDelay={i*40} onHashtagClick={handleHashtagClick}/>
                 ))}
               </div>
             )}
@@ -1245,7 +1565,7 @@ export default function Social() {
 
           {/* Right sidebar */}
           <div className="hidden lg:flex flex-col gap-4 w-[260px] flex-shrink-0">
-            <TrendingCard posts={posts}/>
+            <TrendingCard posts={posts} activeTag={activeHashtag} onTagClick={handleHashtagClick}/>
             <LeaderboardCard currentUserId={user?.id} onShowFull={()=>setActiveTab('leaderboard')}/>
             <div className="card p-4">
               <div className="flex items-center gap-2 mb-3">
@@ -1254,8 +1574,8 @@ export default function Social() {
               </div>
               <div className="space-y-2.5 text-sm">
                 {[
-                  ['Posts today', posts.filter(p=>Date.now()-new Date(p.created_at)<86400000).length],
-                  ['Total posts',  posts.length],
+                  ['Posts today', posts.filter(p=>Date.now()-new Date(p.created_at)<86400000&&p.post_type!=='story').length],
+                  ['Total posts',  posts.filter(p=>p.post_type!=='story').length],
                   ['Stories live', storyGroups.length],
                   ['My pts (month)', myMonthPts!==null?myMonthPts+'pts':'—'],
                 ].map(([label,val])=>(
@@ -1270,16 +1590,13 @@ export default function Social() {
         </div>
       )}
 
-      {/* DM Panel */}
       {showDM && <DMPanel onClose={()=>setShowDM(false)}/>}
 
-      {/* Story viewer */}
       {viewingStory!==null && storyGroups.length>0 && (
         <StoryViewer groups={storyGroups} startGroupIdx={viewingStory}
           onClose={()=>setViewingStory(null)}/>
       )}
 
-      {/* Story creator */}
       {creatingStory && (
         <StoryCreator user={user} onClose={()=>setCreating(false)}
           onCreated={p=>{ if(p)setPosts(prev=>[p,...prev]); setCreating(false) }}/>
