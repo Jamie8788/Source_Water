@@ -41,10 +41,11 @@ export default function Onboarding() {
     setLoading(true)
     try {
       await api.put('/users/me', { ...form, onboarding_completed: 1 })
-      updateUser({ onboarding_completed: 1, ...form })
-      navigate('/dashboard')
-    } catch { navigate('/dashboard') }
-    finally { setLoading(false) }
+    } catch (_) {}
+    // Always mark complete locally so ProtectedLayout lets us through
+    updateUser({ onboarding_completed: 1, ...form })
+    navigate('/dashboard')
+    setLoading(false)
   }
 
   const name = user?.display_name || user?.username || 'there'
