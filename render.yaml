@@ -29,7 +29,7 @@ services:
       VITE_API_URL=/api
       VITE_ANALYSIS_URL=/ml
       VITE_SUPABASE_URL=https://qnshfvxsvqulwywiiepd.supabase.co
-      VITE_SUPABASE_ANON_KEY=sb_publishable_H0jTgJvTnvBGN1xd8_X-ag_aK3Nk80s
+      VITE_SUPABASE_ANON_KEY=sb_publishable_O0mfgnIeVmfzaKty19L81Q_H2PZI8te
       VITE_CLOUDINARY_CLOUD_NAME=ds85lrhbs
       npm run build &&
       cd ../server && npm install
@@ -51,10 +51,10 @@ services:
       - key: SUPABASE_URL
         value: https://qnshfvxsvqulwywiiepd.supabase.co
       - key: SUPABASE_ANON_KEY
-        value: sb_publishable_H0jTgJvTnvBGN1xd8_X-ag_aK3Nk80s
+        value: sb_publishable_O0mfgnIeVmfzaKty19L81Q_H2PZI8te
       - key: CLOUDINARY_CLOUD_NAME
         value: ds85lrhbs
       - key: CLOUDINARY_API_KEY
-        value: "264342763949696"
+        value: "726465494812695"
       - key: CLOUDINARY_API_SECRET
         sync: false
