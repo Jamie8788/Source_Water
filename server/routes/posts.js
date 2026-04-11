@@ -3,13 +3,13 @@ const db = require('../db/connection')
 const { requireAuth } = require('../middleware/auth')
 const upload = require('../middleware/upload')
 
-const enrichPost = (post) => {
+async function enrichPost(post) {
   if (!post) return null
-  const user = db.prepare('SELECT id,username,display_name,avatar_emoji,avatar_bg_color,avatar_url,role FROM users WHERE id=?').get(post.user_id)
-  const reactions = db.prepare('SELECT reaction_type, COUNT(*) as count FROM post_reactions WHERE post_id=? GROUP BY reaction_type').all(post.id)
-  const commentCount = db.prepare('SELECT COUNT(*) as c FROM comments WHERE post_id=?').get(post.id).c
+  const user = await db.get('SELECT id,username,display_name,avatar_emoji,avatar_bg_color,avatar_url,role FROM users WHERE id=?', [post.user_id])
+  const reactions = await db.all('SELECT reaction_type, COUNT(*) as count FROM post_reactions WHERE post_id=? GROUP BY reaction_type', [post.id])
+  const commentRow = await db.get('SELECT COUNT(*) as c FROM comments WHERE post_id=?', [post.id])
   const reactionMap = {}
-  reactions.forEach(r => reactionMap[r.reaction_type] = r.count)
+  reactions.forEach(r => { reactionMap[r.reaction_type] = parseInt(r.count) })
   return {
     ...post,
     media: post.media ? JSON.parse(post.media) : [],
@@ -17,27 +17,33 @@ const enrichPost = (post) => {
     poll_options: post.poll_options ? JSON.parse(post.poll_options) : null,
     user,
     reactions: reactionMap,
-    comment_count: commentCount,
+    comment_count: parseInt(commentRow?.c ?? 0),
   }
 }
 
 // GET /api/posts
-router.get('/', requireAuth, (req, res) => {
-  const { limit = 20, offset = 0, user_id } = req.query
-  let query = 'SELECT * FROM posts'
-  const params = []
-  if (user_id) { query += ' WHERE user_id=?'; params.push(user_id) }
-  query += ' ORDER BY pinned DESC, created_at DESC LIMIT ? OFFSET ?'
-  params.push(parseInt(limit), parseInt(offset))
-  const posts = db.prepare(query).all(...params).map(enrichPost)
-  const total = user_id
-    ? db.prepare('SELECT COUNT(*) as c FROM posts WHERE user_id=?').get(user_id)
-    : db.prepare('SELECT COUNT(*) as c FROM posts').get()
-  res.json({ posts, total: total.c })
+router.get('/', requireAuth, async (req, res) => {
+  try {
+    const { limit = 20, offset = 0, user_id } = req.query
+    let query = 'SELECT * FROM posts'
+    const params = []
+    if (user_id) { query += ' WHERE user_id=?'; params.push(user_id) }
+    query += ' ORDER BY pinned DESC, created_at DESC LIMIT ? OFFSET ?'
+    params.push(parseInt(limit), parseInt(offset))
+    const rows = await db.all(query, params)
+    const posts = await Promise.all(rows.map(enrichPost))
+    const totalRow = user_id
+      ? await db.get('SELECT COUNT(*) as c FROM posts WHERE user_id=?', [user_id])
+      : await db.get('SELECT COUNT(*) as c FROM posts', [])
+    res.json({ posts, total: parseInt(totalRow?.c ?? 0) })
+  } catch (err) {
+    console.error('GET /posts error:', err)
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // POST /api/posts
-router.post('/', requireAuth, upload.array('media', 10), (req, res) => {
+router.post('/', requireAuth, upload.array('media', 10), async (req, res) => {
   try {
     const { content, post_type = 'text', hashtags, location_tag, poll_options, poll_question, media: mediaJson } = req.body
 
@@ -45,19 +51,15 @@ router.post('/', requireAuth, upload.array('media', 10), (req, res) => {
       return res.status(400).json({ error: 'Content or media required' })
     }
 
-    // Build media array: prefer Cloudinary URLs passed as JSON, then uploaded files
     let mediaFiles = []
     if (mediaJson) {
       try { mediaFiles = JSON.parse(mediaJson) } catch (_) {}
-    } else if (req.files && req.files.length > 0) {
+    } else if (req.files?.length > 0) {
       req.files.forEach(f => {
         let relPath = f.path.replace(/\\/g, '/')
         const uploadsIndex = relPath.indexOf('/uploads/')
-        if (uploadsIndex !== -1) {
-          relPath = relPath.substring(uploadsIndex + 1)
-        } else {
-          relPath = `uploads/images/${f.filename || f.originalname}`
-        }
+        if (uploadsIndex !== -1) relPath = relPath.substring(uploadsIndex + 1)
+        else relPath = `uploads/images/${f.filename || f.originalname}`
         if (!relPath.startsWith('uploads/')) relPath = `uploads/${relPath}`
         mediaFiles.push('/' + relPath)
       })
@@ -65,22 +67,17 @@ router.post('/', requireAuth, upload.array('media', 10), (req, res) => {
 
     const tags = hashtags ? (Array.isArray(hashtags) ? hashtags : [hashtags]) : []
 
-    const result = db.prepare(`
+    const { lastInsertRowid } = await db.run(`
       INSERT INTO posts (user_id,content,post_type,media,hashtags,location_tag,poll_options,poll_question)
       VALUES (?,?,?,?,?,?,?,?)
-    `).run(req.user.id, content, post_type, JSON.stringify(mediaFiles), JSON.stringify(tags),
-      location_tag || null, poll_options ? JSON.stringify(poll_options) : null, poll_question || null)
+    `, [req.user.id, content, post_type, JSON.stringify(mediaFiles), JSON.stringify(tags),
+      location_tag || null, poll_options ? JSON.stringify(poll_options) : null, poll_question || null])
 
-    // Award points
-    db.prepare('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)').run(req.user.id,5,'post',new Date().toISOString().slice(0,7))
-    
-    // Notification to followers (simplified)
-    const post = db.prepare('SELECT * FROM posts WHERE id=?').get(result.lastInsertRowid)
-    
-    // Log success
-    console.log('Post created successfully:', result.lastInsertRowid, 'media count:', mediaFiles.length)
-    
-    res.json(enrichPost(post))
+    await db.run('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)',
+      [req.user.id, 5, 'post', new Date().toISOString().slice(0, 7)])
+
+    const post = await db.get('SELECT * FROM posts WHERE id=?', [lastInsertRowid])
+    res.json(await enrichPost(post))
   } catch (err) {
     console.error('Post creation error:', err)
     res.status(500).json({ error: err.message })
@@ -88,91 +85,98 @@ router.post('/', requireAuth, upload.array('media', 10), (req, res) => {
 })
 
 // DELETE /api/posts/:id
-router.delete('/:id', requireAuth, (req, res) => {
-  const post = db.prepare('SELECT * FROM posts WHERE id=?').get(req.params.id)
+router.delete('/:id', requireAuth, async (req, res) => {
+  const post = await db.get('SELECT * FROM posts WHERE id=?', [req.params.id])
   if (!post) return res.status(404).json({ error: 'Not found' })
   if (post.user_id !== req.user.id && !req.user.is_admin) return res.status(403).json({ error: 'Forbidden' })
-  db.prepare('DELETE FROM posts WHERE id=?').run(req.params.id)
+  await db.run('DELETE FROM posts WHERE id=?', [req.params.id])
   res.json({ success: true })
 })
 
 // PUT /api/posts/:id/pin (admin)
-router.put('/:id/pin', requireAuth, (req, res) => {
+router.put('/:id/pin', requireAuth, async (req, res) => {
   if (!req.user.is_admin) return res.status(403).json({ error: 'Admin only' })
-  const post = db.prepare('SELECT pinned FROM posts WHERE id=?').get(req.params.id)
-  db.prepare('UPDATE posts SET pinned=? WHERE id=?').run(post.pinned ? 0 : 1, req.params.id)
+  const post = await db.get('SELECT pinned FROM posts WHERE id=?', [req.params.id])
+  await db.run('UPDATE posts SET pinned=? WHERE id=?', [post.pinned ? 0 : 1, req.params.id])
   res.json({ success: true })
 })
 
 // POST /api/posts/:id/react
-router.post('/:id/react', requireAuth, (req, res) => {
+router.post('/:id/react', requireAuth, async (req, res) => {
   const { reaction_type } = req.body
-  const valid = ['drop','bubble','wave','curious','great_work']
+  const valid = ['drop', 'bubble', 'wave', 'curious', 'great_work']
   if (!valid.includes(reaction_type)) return res.status(400).json({ error: 'Invalid reaction' })
   try {
-    db.prepare('INSERT OR IGNORE INTO post_reactions (post_id,user_id,reaction_type) VALUES (?,?,?)').run(req.params.id, req.user.id, reaction_type)
-    db.prepare('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)').run(req.user.id,1,'reaction',new Date().toISOString().slice(0,7))
-    const reactions = db.prepare('SELECT reaction_type, COUNT(*) as count FROM post_reactions WHERE post_id=? GROUP BY reaction_type').all(req.params.id)
+    await db.run('INSERT OR IGNORE INTO post_reactions (post_id,user_id,reaction_type) VALUES (?,?,?)',
+      [req.params.id, req.user.id, reaction_type])
+    await db.run('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)',
+      [req.user.id, 1, 'reaction', new Date().toISOString().slice(0, 7)])
+    const reactions = await db.all('SELECT reaction_type, COUNT(*) as count FROM post_reactions WHERE post_id=? GROUP BY reaction_type', [req.params.id])
     const reactionMap = {}
-    reactions.forEach(r => reactionMap[r.reaction_type] = r.count)
+    reactions.forEach(r => { reactionMap[r.reaction_type] = parseInt(r.count) })
     res.json(reactionMap)
   } catch { res.json({}) }
 })
 
 // DELETE /api/posts/:id/react
-router.delete('/:id/react', requireAuth, (req, res) => {
+router.delete('/:id/react', requireAuth, async (req, res) => {
   const { reaction_type } = req.body
-  db.prepare('DELETE FROM post_reactions WHERE post_id=? AND user_id=? AND reaction_type=?').run(req.params.id, req.user.id, reaction_type)
-  const reactions = db.prepare('SELECT reaction_type, COUNT(*) as count FROM post_reactions WHERE post_id=? GROUP BY reaction_type').all(req.params.id)
+  await db.run('DELETE FROM post_reactions WHERE post_id=? AND user_id=? AND reaction_type=?',
+    [req.params.id, req.user.id, reaction_type])
+  const reactions = await db.all('SELECT reaction_type, COUNT(*) as count FROM post_reactions WHERE post_id=? GROUP BY reaction_type', [req.params.id])
   const reactionMap = {}
-  reactions.forEach(r => reactionMap[r.reaction_type] = r.count)
+  reactions.forEach(r => { reactionMap[r.reaction_type] = parseInt(r.count) })
   res.json(reactionMap)
 })
 
 // GET /api/posts/:id/comments
-router.get('/:id/comments', requireAuth, (req, res) => {
-  const comments = db.prepare(`
+router.get('/:id/comments', requireAuth, async (req, res) => {
+  const comments = await db.all(`
     SELECT c.*, u.username, u.display_name, u.avatar_emoji, u.avatar_bg_color
     FROM comments c JOIN users u ON c.user_id=u.id
     WHERE c.post_id=? ORDER BY c.created_at ASC
-  `).all(req.params.id)
+  `, [req.params.id])
   res.json(comments)
 })
 
 // POST /api/posts/:id/comments
-router.post('/:id/comments', requireAuth, (req, res) => {
+router.post('/:id/comments', requireAuth, async (req, res) => {
   const { content, parent_comment_id } = req.body
   if (!content) return res.status(400).json({ error: 'Content required' })
-  const result = db.prepare('INSERT INTO comments (post_id,user_id,parent_comment_id,content) VALUES (?,?,?,?)').run(req.params.id, req.user.id, parent_comment_id || null, content)
-  db.prepare('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)').run(req.user.id,2,'comment',new Date().toISOString().slice(0,7))
-  const comment = db.prepare(`SELECT c.*, u.username, u.display_name, u.avatar_emoji, u.avatar_bg_color FROM comments c JOIN users u ON c.user_id=u.id WHERE c.id=?`).get(result.lastInsertRowid)
+  const { lastInsertRowid } = await db.run(
+    'INSERT INTO comments (post_id,user_id,parent_comment_id,content) VALUES (?,?,?,?)',
+    [req.params.id, req.user.id, parent_comment_id || null, content])
+  await db.run('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)',
+    [req.user.id, 2, 'comment', new Date().toISOString().slice(0, 7)])
+  const comment = await db.get(
+    `SELECT c.*, u.username, u.display_name, u.avatar_emoji, u.avatar_bg_color FROM comments c JOIN users u ON c.user_id=u.id WHERE c.id=?`,
+    [lastInsertRowid])
   res.json(comment)
 })
 
 // DELETE /api/posts/:id/comments/:cid
-router.delete('/:id/comments/:cid', requireAuth, (req, res) => {
-  const c = db.prepare('SELECT * FROM comments WHERE id=?').get(req.params.cid)
+router.delete('/:id/comments/:cid', requireAuth, async (req, res) => {
+  const c = await db.get('SELECT * FROM comments WHERE id=?', [req.params.cid])
   if (!c) return res.status(404).json({ error: 'Not found' })
   if (c.user_id !== req.user.id && !req.user.is_admin) return res.status(403).json({ error: 'Forbidden' })
-  db.prepare('DELETE FROM comments WHERE id=?').run(req.params.cid)
+  await db.run('DELETE FROM comments WHERE id=?', [req.params.cid])
   res.json({ success: true })
 })
 
-// Vote on poll
-router.post('/:id/poll/vote', requireAuth, (req, res) => {
+// POST /api/posts/:id/poll/vote
+router.post('/:id/poll/vote', requireAuth, async (req, res) => {
   const { option_index } = req.body
-  const post = db.prepare('SELECT * FROM posts WHERE id=?').get(req.params.id)
+  const post = await db.get('SELECT * FROM posts WHERE id=?', [req.params.id])
   if (!post?.poll_options) return res.status(400).json({ error: 'Not a poll' })
   let poll = JSON.parse(post.poll_options)
   if (!poll.votes) poll.votes = {}
-  // One vote per user
-  const prevVote = Object.entries(poll.votes).find(([,voters]) => (voters||[]).includes(req.user.id))
+  const prevVote = Object.entries(poll.votes).find(([, voters]) => (voters || []).includes(req.user.id))
   if (prevVote) {
     poll.votes[prevVote[0]] = (poll.votes[prevVote[0]] || []).filter(id => id !== req.user.id)
   }
   if (!poll.votes[option_index]) poll.votes[option_index] = []
   poll.votes[option_index].push(req.user.id)
-  db.prepare('UPDATE posts SET poll_options=? WHERE id=?').run(JSON.stringify(poll), req.params.id)
+  await db.run('UPDATE posts SET poll_options=? WHERE id=?', [JSON.stringify(poll), req.params.id])
   res.json(poll)
 })
 

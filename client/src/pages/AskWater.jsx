@@ -219,7 +219,11 @@ export default function AskWater() {
       })
       const reply=data.reply?.trim()||"Hmm, I had a brain bubble! Try again?"
       setMessages(p=>[...p,{role:'assistant',content:reply,model:data.model}])
-      speakText(reply)
+      if (voiceRef.current) {
+        speakText(reply)
+      } else {
+        setStatus('idle')
+      }
     } catch {
       const err="Oops! My water pipes got clogged. Please try again!"
       setMessages(p=>[...p,{role:'assistant',content:err}])

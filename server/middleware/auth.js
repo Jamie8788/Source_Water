@@ -15,16 +15,14 @@ const requireAuth = async (req, res, next) => {
     try {
       const { data: { user }, error } = await supabase.auth.getUser(token)
       if (user && !error) {
-        // Look up or create local user record by email
-        let localUser = db.prepare('SELECT * FROM users WHERE email = ? AND is_active = 1').get(user.email)
+        let localUser = await db.get('SELECT * FROM users WHERE email = ? AND is_active = 1', [user.email])
         if (!localUser) {
-          // Auto-create local profile for Supabase auth users
           const username = user.email.split('@')[0].replace(/[^a-z0-9_]/gi, '') + '_' + Math.random().toString(36).slice(2, 6)
-          const result = db.prepare(`
-            INSERT OR IGNORE INTO users (username, email, password_hash, display_name, role, avatar_emoji, avatar_bg_color)
-            VALUES (?, ?, 'supabase_auth', ?, 'Community member', '💧', '#3B82F6')
-          `).run(username, user.email, user.user_metadata?.display_name || username)
-          localUser = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid)
+          await db.run(
+            `INSERT INTO users (username, email, password_hash, display_name, role, avatar_emoji, avatar_bg_color) VALUES (?, ?, 'supabase_auth', ?, 'Community member', '💧', '#3B82F6') ON CONFLICT DO NOTHING`,
+            [username, user.email, user.user_metadata?.display_name || username]
+          )
+          localUser = await db.get('SELECT * FROM users WHERE email = ? AND is_active = 1', [user.email])
         }
         if (localUser) {
           req.user = localUser
@@ -38,7 +36,7 @@ const requireAuth = async (req, res, next) => {
   // Fallback: legacy JWT
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
-    const user = db.prepare('SELECT * FROM users WHERE id = ? AND is_active = 1').get(decoded.id)
+    const user = await db.get('SELECT * FROM users WHERE id = ? AND is_active = 1', [decoded.id])
     if (!user) return res.status(401).json({ error: 'User not found' })
     req.user = user
     next()
@@ -65,8 +63,9 @@ const logActivity = (action, targetType) => (req, res, next) => {
   res.json = (body) => {
     if (res.statusCode < 400 && req.user) {
       const targetId = body?.id || req.params?.id || null
-      db.prepare('INSERT INTO activity_log (user_id,action,target_type,target_id,details) VALUES (?,?,?,?,?)')
-        .run(req.user.id, action, targetType, targetId, JSON.stringify({ method: req.method, path: req.path }))
+      db.run('INSERT INTO activity_log (user_id,action,target_type,target_id,details) VALUES (?,?,?,?,?)',
+        [req.user.id, action, targetType, targetId, JSON.stringify({ method: req.method, path: req.path })]
+      ).catch(() => {})
     }
     return orig(body)
   }

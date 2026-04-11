@@ -20,9 +20,11 @@ const server = http.createServer(app)
 const PORT = process.env.PORT || 3001
 const ANALYSIS_URL = process.env.ANALYSIS_SERVICE_URL || 'http://localhost:8001'
 
-// Init DB
-initSchema()
-seed().catch(console.error)
+// Init DB (async — schema runs before requests are served)
+initSchema().then(() => seed().catch(console.error)).catch(err => {
+  console.error('[schema] FATAL: could not initialize database:', err.message)
+  process.exit(1)
+})
 
 // Initialize WebSocket Chat Service
 const chatService = new ChatService(server)
@@ -97,7 +99,7 @@ app.get('/api/streetview', async (req, res) => {
 
 // Communities
 const db = require('./db/connection')
-app.get('/api/communities', (req, res) => res.json(db.prepare('SELECT * FROM communities ORDER BY name').all()))
+app.get('/api/communities', async (_req, res) => res.json(await db.all('SELECT * FROM communities ORDER BY name', [])))
 
 // Serve React build in production
 const clientBuild = path.join(__dirname, '..', 'client', 'dist')

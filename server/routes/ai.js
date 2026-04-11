@@ -7,11 +7,11 @@ const crypto = require('crypto')
 // Uses the same TTS engine as the Edge browser internally.
 // Voice: en-US-AnaNeural = natural young female, sounds like a kid/teenager.
 async function edgeTTS(text) {
-  if (typeof WebSocket === 'undefined') throw new Error('no WebSocket')
+  const WS = typeof WebSocket !== 'undefined' ? WebSocket : require('ws')
   const voice = 'en-US-AnaNeural'
   const url = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&ConnectionId=${crypto.randomUUID().replace(/-/g,'')}`
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url)
+    const ws = new WS(url)
     ws.binaryType = 'arraybuffer'
     const chunks = []
     const timer = setTimeout(() => { ws.close(); reject(new Error('timeout')) }, 14000)
