@@ -42,7 +42,7 @@ export function CMSProvider({ children }) {
   useEffect(() => {
     supabase.from('cms_overrides').select('*').then(({ data }) => {
       const map = {}
-      ;(data || []).forEach(r => { map[r.element_key] = { text: r.text_content, styles: r.styles || {} } })
+      ;(data || []).forEach(r => { map[r.element_key] = { text: r.text_content, styles: r.styles || {}, html: r.html_content } })
       setOverrides(map)
       applyOverrideStyles(map)
     })
@@ -72,7 +72,7 @@ export function CMSProvider({ children }) {
         setOverrides(prev => {
           const n = { ...prev }
           if (payload.eventType === 'DELETE') delete n[r.element_key]
-          else n[r.element_key] = { text: r.text_content, styles: r.styles || {} }
+          else n[r.element_key] = { text: r.text_content, styles: r.styles || {}, html: r.html_content }
           applyOverrideStyles(n)
           return n
         })
@@ -125,11 +125,12 @@ export function CMSProvider({ children }) {
       counters[tag] = (counters[tag] || 0) + 1
       el.setAttribute('data-cms-id', `${page}/${tag}/${counters[tag]}`)
     })
-    // Apply text overrides
-    Object.entries(ovrs).forEach(([key, { text }]) => {
-      if (text == null) return
+    // Apply text/html overrides
+    Object.entries(ovrs).forEach(([key, { text, html }]) => {
       const el = document.querySelector(`[data-cms-id="${key}"]`)
-      if (el && el.innerText !== text) el.innerText = text
+      if (!el) return
+      if (html != null) { if (el.innerHTML !== html) el.innerHTML = html }
+      else if (text != null) { if (el.innerText !== text) el.innerText = text }
     })
     applyOverrideStyles(ovrs)
   }, [])
@@ -244,24 +245,20 @@ export function CMSProvider({ children }) {
   }, [])
 
   // ── Element override save/delete ──────────────────────────────────────────
-  const saveOverride = useCallback(async (key, text, styles) => {
+  // html param: rich HTML from WYSIWYG editor (optional, falls back to text)
+  const saveOverride = useCallback(async (key, text, styles, html) => {
     setSaving(true)
-    // Apply immediately to DOM element for instant feedback
     const el = document.querySelector(`[data-cms-id="${key}"]`)
     if (el) {
-      if (text != null) el.innerText = text
-      // Apply styles directly so they're visible instantly
-      if (styles) {
-        Object.entries(styles).forEach(([k, v]) => {
-          el.style[k] = v
-        })
-      }
+      if (html != null) el.innerHTML = html
+      else if (text != null) el.innerText = text
+      if (styles) Object.entries(styles).forEach(([k, v]) => { el.style[k] = v })
     }
-    const newOverrides = { ...overrides, [key]: { text, styles } }
+    const newOverrides = { ...overrides, [key]: { text, styles, html } }
     setOverrides(newOverrides)
     applyOverrideStyles(newOverrides)
     await supabase.from('cms_overrides').upsert(
-      { element_key: key, text_content: text, styles, updated_at: new Date().toISOString() },
+      { element_key: key, text_content: text, styles, html_content: html, updated_at: new Date().toISOString() },
       { onConflict: 'element_key' }
     )
     setSaving(false)

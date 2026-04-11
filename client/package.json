@@ -11,6 +11,13 @@
   "dependencies": {
     "@fontsource/dm-sans": "^5.2.8",
     "@supabase/supabase-js": "^2.103.0",
+    "@tiptap/extension-color": "^3.22.3",
+    "@tiptap/extension-highlight": "^3.22.3",
+    "@tiptap/extension-text-align": "^3.22.3",
+    "@tiptap/extension-text-style": "^3.22.3",
+    "@tiptap/extension-underline": "^3.22.3",
+    "@tiptap/react": "^3.22.3",
+    "@tiptap/starter-kit": "^3.22.3",
     "axios": "^1.6.8",
     "cesium": "^1.140.0",
     "clsx": "^2.1.0",
