@@ -106,7 +106,35 @@ export function CMSProvider({ children }) {
     styleTagRef.current = tag
   }
 
-  // Apply text overrides to DOM elements
+  // ── Tag elements and apply overrides (runs for ALL users on every page load) ─
+  const tagAndApply = useCallback((ovrs) => {
+    const page = window.location.pathname.replace(/\//g, '') || 'home'
+    const tags = ['h1','h2','h3','h4','h5','h6','p','span','li','td','th','button','a','div','label']
+    const counters = {}
+    document.querySelectorAll(tags.join(',')).forEach(el => {
+      if (el.closest('[data-cms-ui]')) return
+      if (el.closest('script,style,noscript,[data-no-cms]')) return
+      const text = el.innerText?.trim()
+      if (!text || text.length < 1) return
+      const directText = Array.from(el.childNodes)
+        .filter(n => n.nodeType === Node.TEXT_NODE)
+        .map(n => n.textContent.trim())
+        .join('')
+      if (!directText && el.children.length > 0) return
+      const tag = el.tagName.toLowerCase()
+      counters[tag] = (counters[tag] || 0) + 1
+      el.setAttribute('data-cms-id', `${page}/${tag}/${counters[tag]}`)
+    })
+    // Apply text overrides
+    Object.entries(ovrs).forEach(([key, { text }]) => {
+      if (text == null) return
+      const el = document.querySelector(`[data-cms-id="${key}"]`)
+      if (el && el.innerText !== text) el.innerText = text
+    })
+    applyOverrideStyles(ovrs)
+  }, [])
+
+  // Apply text overrides to DOM elements (alias used in CMS mode)
   const applyOverrideTexts = useCallback((ovrs) => {
     Object.entries(ovrs).forEach(([key, { text }]) => {
       if (text == null) return
@@ -115,11 +143,17 @@ export function CMSProvider({ children }) {
     })
   }, [])
 
-  // ── Tag all text elements when CMS mode activates ──────────────────────────
+  // ── Always tag + apply on page load for ALL users ─────────────────────────
+  useEffect(() => {
+    const timer = setTimeout(() => tagAndApply(overrides), 400)
+    return () => clearTimeout(timer)
+  }, [overrides, tagAndApply])
+
+  // ── Extra CMS edit-mode UI (hover outlines, click to select) ─────────────
   useEffect(() => {
     if (!cmsMode) {
+      // Remove edit-mode styling but keep data-cms-id tags (needed for style overrides)
       document.querySelectorAll('[data-cms-id]').forEach(el => {
-        el.removeAttribute('data-cms-id')
         el.style.outline = ''
         el.style.outlineOffset = ''
         el.style.cursor = ''
@@ -127,38 +161,10 @@ export function CMSProvider({ children }) {
       setSelectedEl(null)
       return
     }
-
-    // Wait a tick for page to render
-    const timer = setTimeout(() => {
-      const page = window.location.pathname.replace(/\//g, '') || 'home'
-      const tags = ['h1','h2','h3','h4','h5','h6','p','span','li','td','th','button','a','div','label']
-      const counters = {}
-
-      document.querySelectorAll(tags.join(',')).forEach(el => {
-        if (el.closest('[data-cms-ui]')) return
-        if (el.closest('script,style,noscript,[data-no-cms]')) return
-        const text = el.innerText?.trim()
-        if (!text || text.length < 1) return
-        // Skip elements that are just wrappers (have child elements with same text)
-        const directText = Array.from(el.childNodes)
-          .filter(n => n.nodeType === Node.TEXT_NODE)
-          .map(n => n.textContent.trim())
-          .join('')
-        if (!directText && el.children.length > 0) return
-
-        const tag = el.tagName.toLowerCase()
-        counters[tag] = (counters[tag] || 0) + 1
-        const key = `${page}/${tag}/${counters[tag]}`
-        el.setAttribute('data-cms-id', key)
-      })
-
-      // Apply saved overrides to newly tagged elements
-      applyOverrideTexts(overrides)
-      applyOverrideStyles(overrides)
-    }, 200)
-
+    // Re-tag in case new elements rendered
+    const timer = setTimeout(() => tagAndApply(overrides), 200)
     return () => clearTimeout(timer)
-  }, [cmsMode, overrides, applyOverrideTexts])
+  }, [cmsMode, overrides, tagAndApply])
 
   // ── Global hover + click handlers in CMS mode ──────────────────────────────
   useEffect(() => {
@@ -240,10 +246,16 @@ export function CMSProvider({ children }) {
   // ── Element override save/delete ──────────────────────────────────────────
   const saveOverride = useCallback(async (key, text, styles) => {
     setSaving(true)
-    // Apply immediately to DOM
+    // Apply immediately to DOM element for instant feedback
     const el = document.querySelector(`[data-cms-id="${key}"]`)
     if (el) {
       if (text != null) el.innerText = text
+      // Apply styles directly so they're visible instantly
+      if (styles) {
+        Object.entries(styles).forEach(([k, v]) => {
+          el.style[k] = v
+        })
+      }
     }
     const newOverrides = { ...overrides, [key]: { text, styles } }
     setOverrides(newOverrides)
@@ -257,7 +269,12 @@ export function CMSProvider({ children }) {
 
   const deleteOverride = useCallback(async (key) => {
     const el = document.querySelector(`[data-cms-id="${key}"]`)
-    if (el) { el.style.fontSize = ''; el.style.color = ''; el.style.fontWeight = '' }
+    if (el) {
+      el.removeAttribute('style')
+      // Restore original text if override exists
+      const orig = overrides[key]
+      if (orig) el.innerText = orig.text ?? el.innerText
+    }
     const newOverrides = { ...overrides }
     delete newOverrides[key]
     setOverrides(newOverrides)

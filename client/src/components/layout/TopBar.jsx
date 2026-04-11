@@ -5,11 +5,11 @@ import { useSound } from '../../context/SoundContext'
 import { useTheme } from '../../context/ThemeContext'
 import { useCMS } from '../../context/CMSContext'
 import CMSField from '../cms/CMSField'
-import { Bell, Search, ChevronDown, Volume2, VolumeX, Accessibility, Edit3 } from 'lucide-react'
+import { Bell, Search, ChevronDown, Volume2, VolumeX, Accessibility, Edit3, LogOut } from 'lucide-react'
 import api from '../../utils/api'
 
 export default function TopBar({ sidebarWidth, onA11yClick, onOpenDM }) {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const { play, enabled, toggle: toggleSound } = useSound()
   const { isDark, toggleMode } = useTheme()
   const { cmsMode, toggleCmsMode } = useCMS()
@@ -142,6 +142,12 @@ export default function TopBar({ sidebarWidth, onA11yClick, onOpenDM }) {
                   🛡️ Admin Panel
                 </button>
               )}
+              <div style={{ height: 1, background: 'var(--border)', margin: '4px 8px' }} />
+              <button onClick={async () => { setShowUserMenu(false); await logout(); navigate('/') }}
+                className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-red-50 transition-colors"
+                style={{ color: '#ef4444' }}>
+                <LogOut className="w-3.5 h-3.5"/> Sign Out
+              </button>
             </div>
           )}
         </div>
