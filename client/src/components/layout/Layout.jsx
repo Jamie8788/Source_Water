@@ -5,6 +5,7 @@ import WaterMascot from '../mascot/WaterMascot'
 import AccessibilityPanel from '../ui/AccessibilityPanel'
 import CMSToolbar from '../cms/CMSToolbar'
 import CMSField from '../cms/CMSField'
+import NotificationBar from '../cms/NotificationBar'
 import { useCMS } from '../../context/CMSContext'
 import GlobalDMPanel from '../chat/GlobalDMPanel'
 
@@ -72,10 +73,13 @@ export default function Layout({ children }) {
   return (
     <div className="min-h-screen relative" style={{ background: 'var(--page-bg)' }}>
 
+      {/* Site-wide notification bar — all users, managed by admin via CMS */}
+      <NotificationBar />
+
       {/* Ambient animated background — visible on all pages */}
       <AmbientBackground />
 
-      {/* CMS toolbar — floats at top center, admin only */}
+      {/* CMS toolbar — draggable floating sidebar, admin only */}
       <CMSToolbar />
 
       <Sidebar collapsed={sidebarCollapsed} onToggle={handleToggleSidebar} />

@@ -26,6 +26,7 @@ export function CMSProvider({ children }) {
   const [overrides, setOverrides]   = useState({})      // element overrides by key
   const [saving, setSaving]         = useState(false)
   const [selectedEl, setSelectedEl] = useState(null)    // { element, key, rect, currentText, currentStyles }
+  const [notification, setNotification] = useState(null) // site-wide notification bar settings
   const styleTagRef = useRef(null)
 
   // ── Load CMS field content ────────────────────────────────────────────────
@@ -45,6 +46,12 @@ export function CMSProvider({ children }) {
       setOverrides(map)
       applyOverrideStyles(map)
     })
+  }, [])
+
+  // ── Load site-wide notification bar ──────────────────────────────────────
+  useEffect(() => {
+    supabase.from('cms_site_settings').select('value').eq('key', 'notification_bar').single()
+      .then(({ data }) => { if (data?.value) setNotification(data.value) })
   }, [])
 
   // ── Real-time subscriptions ───────────────────────────────────────────────
@@ -69,6 +76,10 @@ export function CMSProvider({ children }) {
           applyOverrideStyles(n)
           return n
         })
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_site_settings' }, payload => {
+        const r = payload.new
+        if (r?.key === 'notification_bar') setNotification(r.value || null)
       })
       .subscribe()
     return () => supabase.removeChannel(ch)
@@ -254,6 +265,15 @@ export function CMSProvider({ children }) {
     await supabase.from('cms_overrides').delete().eq('element_key', key)
   }, [overrides])
 
+  // ── Save / clear site notification ───────────────────────────────────────
+  const saveNotification = useCallback(async (data) => {
+    setNotification(data)
+    await supabase.from('cms_site_settings').upsert(
+      { key: 'notification_bar', value: data, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    )
+  }, [])
+
   const toggleCmsMode = useCallback(() => {
     if (!isAdmin) return
     setCmsMode(m => !m)
@@ -265,6 +285,7 @@ export function CMSProvider({ children }) {
     <CMSContext.Provider value={{
       cmsMode, toggleCmsMode, get, save, loadPage, saving, isAdmin,
       selectedEl, setSelectedEl, overrides, saveOverride, deleteOverride,
+      notification, saveNotification,
     }}>
       {children}
     </CMSContext.Provider>
