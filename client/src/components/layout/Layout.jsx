@@ -6,6 +6,8 @@ import AccessibilityPanel from '../ui/AccessibilityPanel'
 import CMSToolbar from '../cms/CMSToolbar'
 import CMSField from '../cms/CMSField'
 import NotificationBar from '../cms/NotificationBar'
+import CMSComponentLayer from '../cms/CMSComponentLayer'
+import CMSPageBlocks from '../cms/CMSPageBlocks'
 import { useCMS } from '../../context/CMSContext'
 import GlobalDMPanel from '../chat/GlobalDMPanel'
 
@@ -82,6 +84,9 @@ export default function Layout({ children }) {
       {/* CMS toolbar — draggable floating sidebar, admin only */}
       <CMSToolbar />
 
+      {/* CMS component overlays — shows hide button on each section in edit mode */}
+      <CMSComponentLayer />
+
       <Sidebar collapsed={sidebarCollapsed} onToggle={handleToggleSidebar} />
 
       <TopBar sidebarWidth={sidebarW} onA11yClick={() => setA11yOpen(o => !o)} onOpenDM={openDM} />
@@ -97,6 +102,7 @@ export default function Layout({ children }) {
       >
         <div className="p-6 max-w-[1400px] mx-auto" data-outlet style={{ animation: 'pageSlideIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
           {children}
+          <CMSPageBlocks />
         </div>
 
         <footer className="border-t mt-8 px-6 py-4"

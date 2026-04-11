@@ -7,6 +7,7 @@
  * All users see changes instantly via real-time subscription.
  */
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './AuthContext'
 
@@ -21,12 +22,15 @@ function rgbToHex(rgb) {
 
 export function CMSProvider({ children }) {
   const { isAdmin } = useAuth()
+  const location = useLocation()
   const [cmsMode, setCmsMode]       = useState(false)
   const [content, setContent]       = useState({})      // CMSField values
   const [overrides, setOverrides]   = useState({})      // element overrides by key
   const [saving, setSaving]         = useState(false)
   const [selectedEl, setSelectedEl] = useState(null)    // { element, key, rect, currentText, currentStyles }
   const [notification, setNotification] = useState(null) // site-wide notification bar settings
+  const [hiddenComponents, setHiddenComponents] = useState([]) // list of hidden component keys
+  const [pageBlocks, setPageBlocks] = useState([]) // custom blocks inserted by admin per page
   const styleTagRef = useRef(null)
 
   // ── Load CMS field content ────────────────────────────────────────────────
@@ -54,6 +58,19 @@ export function CMSProvider({ children }) {
       .then(({ data }) => { if (data?.value) setNotification(data.value) })
   }, [])
 
+  // ── Load hidden components ────────────────────────────────────────────────
+  useEffect(() => {
+    supabase.from('cms_site_settings').select('value').eq('key', 'hidden_components').single()
+      .then(({ data }) => { if (data?.value) setHiddenComponents(data.value) })
+  }, [])
+
+  // ── Load page blocks for current page ─────────────────────────────────────
+  useEffect(() => {
+    const page = location.pathname.replace(/\//g, '') || 'home'
+    supabase.from('cms_page_blocks').select('*').eq('page_key', page).order('order_index')
+      .then(({ data }) => setPageBlocks(data || []))
+  }, [location.pathname])
+
   // ── Real-time subscriptions ───────────────────────────────────────────────
   useEffect(() => {
     const ch = supabase.channel('cms_realtime_all')
@@ -79,7 +96,23 @@ export function CMSProvider({ children }) {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_site_settings' }, payload => {
         const r = payload.new
-        if (r?.key === 'notification_bar') setNotification(r.value || null)
+        if (!r) return
+        if (r.key === 'notification_bar') setNotification(r.value || null)
+        if (r.key === 'hidden_components') {
+          setHiddenComponents(r.value || [])
+          applyHiddenComponents(r.value || [])
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_page_blocks' }, payload => {
+        const r = payload.new || payload.old
+        if (!r) return
+        const page = window.location.pathname.replace(/\//g, '') || 'home'
+        if (r.page_key !== page) return
+        setPageBlocks(prev => {
+          if (payload.eventType === 'DELETE') return prev.filter(b => b.id !== r.id)
+          if (payload.eventType === 'INSERT') return [...prev, r].sort((a, b) => a.order_index - b.order_index)
+          return prev.map(b => b.id === r.id ? r : b).sort((a, b) => a.order_index - b.order_index)
+        })
       })
       .subscribe()
     return () => supabase.removeChannel(ch)
@@ -105,6 +138,52 @@ export function CMSProvider({ children }) {
     document.head.appendChild(tag)
     styleTagRef.current = tag
   }
+
+  // ── Apply hidden components (hide/show sections for all users) ───────────
+  const applyHiddenComponents = useCallback((hidden) => {
+    ;(hidden || []).forEach(key => {
+      const el = document.querySelector(`[data-cms-component="${key}"]`)
+      if (el) el.style.display = 'none'
+    })
+  }, [])
+
+  // Tag major sections with component IDs
+  const tagComponents = useCallback(() => {
+    const page = window.location.pathname.replace(/\//g, '') || 'home'
+    // Find the main outlet
+    const outlet = document.querySelector('[data-outlet]') || document.querySelector('main')
+    if (!outlet) return []
+    const tagged = []
+    let idx = 0
+    // Tag direct children + major sections inside
+    const candidates = [
+      ...Array.from(outlet.children),
+      ...Array.from(outlet.querySelectorAll('section, article, [class*="rounded"], [class*="card"]'))
+    ]
+    const seen = new Set()
+    candidates.forEach(el => {
+      if (seen.has(el)) return
+      if (el.closest('[data-cms-ui]')) return
+      if (el.closest('[data-no-cms]')) return
+      const rect = el.getBoundingClientRect()
+      if (rect.height < 60 || rect.width < 100) return
+      seen.add(el)
+      idx++
+      const key = `${page}/section/${idx}`
+      el.setAttribute('data-cms-component', key)
+      // Get a label for this component
+      const heading = el.querySelector('h1,h2,h3,h4,h5,h6')
+      const label = heading?.innerText?.trim()?.slice(0, 40) || el.className?.split(' ')[0] || `Section ${idx}`
+      tagged.push({ key, label, el })
+    })
+    return tagged
+  }, [])
+
+  // Apply hidden + tag on every page load
+  useEffect(() => {
+    const timer = setTimeout(() => applyHiddenComponents(hiddenComponents), 500)
+    return () => clearTimeout(timer)
+  }, [hiddenComponents, applyHiddenComponents])
 
   // ── Tag elements and apply overrides (runs for ALL users on every page load) ─
   const tagAndApply = useCallback((ovrs) => {
@@ -279,6 +358,53 @@ export function CMSProvider({ children }) {
     await supabase.from('cms_overrides').delete().eq('element_key', key)
   }, [overrides])
 
+  // ── Hide / show / restore components ─────────────────────────────────────
+  const hideComponent = useCallback(async (key) => {
+    const el = document.querySelector(`[data-cms-component="${key}"]`)
+    if (el) el.style.display = 'none'
+    const next = [...new Set([...hiddenComponents, key])]
+    setHiddenComponents(next)
+    await supabase.from('cms_site_settings').upsert(
+      { key: 'hidden_components', value: next, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    )
+  }, [hiddenComponents])
+
+  const showComponent = useCallback(async (key) => {
+    const el = document.querySelector(`[data-cms-component="${key}"]`)
+    if (el) el.style.display = ''
+    const next = hiddenComponents.filter(k => k !== key)
+    setHiddenComponents(next)
+    await supabase.from('cms_site_settings').upsert(
+      { key: 'hidden_components', value: next, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    )
+  }, [hiddenComponents])
+
+  // ── Page block CRUD ──────────────────────────────────────────────────────
+  const addPageBlock = useCallback(async (type, content) => {
+    const page = window.location.pathname.replace(/\//g, '') || 'home'
+    const maxOrder = pageBlocks.reduce((m, b) => Math.max(m, b.order_index), 0)
+    setSaving(true)
+    const { data } = await supabase.from('cms_page_blocks')
+      .insert({ page_key: page, block_type: type, content, order_index: maxOrder + 1 })
+      .select().single()
+    if (data) setPageBlocks(prev => [...prev, data])
+    setSaving(false)
+  }, [pageBlocks])
+
+  const deletePageBlock = useCallback(async (id) => {
+    setPageBlocks(prev => prev.filter(b => b.id !== id))
+    await supabase.from('cms_page_blocks').delete().eq('id', id)
+  }, [])
+
+  const updatePageBlock = useCallback(async (id, content) => {
+    setPageBlocks(prev => prev.map(b => b.id === id ? { ...b, content } : b))
+    setSaving(true)
+    await supabase.from('cms_page_blocks').update({ content, updated_at: new Date().toISOString() }).eq('id', id)
+    setSaving(false)
+  }, [])
+
   // ── Save / clear site notification ───────────────────────────────────────
   const saveNotification = useCallback(async (data) => {
     setNotification(data)
@@ -300,6 +426,8 @@ export function CMSProvider({ children }) {
       cmsMode, toggleCmsMode, get, save, loadPage, saving, isAdmin,
       selectedEl, setSelectedEl, overrides, saveOverride, deleteOverride,
       notification, saveNotification,
+      hiddenComponents, hideComponent, showComponent, tagComponents,
+      pageBlocks, addPageBlock, deletePageBlock, updatePageBlock,
     }}>
       {children}
     </CMSContext.Provider>
