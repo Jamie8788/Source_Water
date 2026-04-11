@@ -146,11 +146,12 @@ export function AuthProvider({ children }) {
   }, [fetchProfile])
 
   const logout = useCallback(async () => {
-    await supabase.auth.signOut()
+    // Clear localStorage BEFORE signOut so onAuthStateChange doesn't see a stale sw_token
     localStorage.removeItem('sw_token')
     localStorage.removeItem('sw_user')
     localStorage.removeItem('sb_access_token')
     setUser(null)
+    await supabase.auth.signOut()
   }, [])
 
   const updateUser = useCallback((updates) => {

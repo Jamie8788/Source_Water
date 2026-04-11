@@ -179,11 +179,12 @@ export function CMSProvider({ children }) {
     return tagged
   }, [])
 
-  // Apply hidden + tag on every page load
+  // Apply hidden + tag on every page load and navigation
   useEffect(() => {
-    const timer = setTimeout(() => applyHiddenComponents(hiddenComponents), 500)
-    return () => clearTimeout(timer)
-  }, [hiddenComponents, applyHiddenComponents])
+    const t1 = setTimeout(() => applyHiddenComponents(hiddenComponents), 500)
+    const t2 = setTimeout(() => applyHiddenComponents(hiddenComponents), 1500)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [hiddenComponents, applyHiddenComponents, location.pathname])
 
   // ── Tag elements and apply overrides (runs for ALL users on every page load) ─
   const tagAndApply = useCallback((ovrs) => {
@@ -224,10 +225,14 @@ export function CMSProvider({ children }) {
   }, [])
 
   // ── Always tag + apply on page load for ALL users ─────────────────────────
+  // Runs on: overrides load from Supabase, AND on every SPA navigation (location.pathname)
+  // Triple-retry catches lazy-loaded React pages that render after the first timeout
   useEffect(() => {
-    const timer = setTimeout(() => tagAndApply(overrides), 400)
-    return () => clearTimeout(timer)
-  }, [overrides, tagAndApply])
+    const t1 = setTimeout(() => tagAndApply(overrides), 400)
+    const t2 = setTimeout(() => tagAndApply(overrides), 1100)
+    const t3 = setTimeout(() => tagAndApply(overrides), 2400)
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
+  }, [overrides, tagAndApply, location.pathname])
 
   // ── Extra CMS edit-mode UI (hover outlines, click to select) ─────────────
   useEffect(() => {
