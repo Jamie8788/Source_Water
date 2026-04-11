@@ -187,10 +187,15 @@ export function CMSProvider({ children }) {
   }, [hiddenComponents, applyHiddenComponents, location.pathname])
 
   // ── Tag elements and apply overrides (runs for ALL users on every page load) ─
+  // Uses CONTENT-BASED stable keys so IDs don't shift on re-render:
+  //   Elements outside [data-outlet] (navbar, sidebar, footer) → global/tag/slug
+  //   Elements inside  [data-outlet] (page content)            → page/tag/slug
+  //   Duplicate slugs get a numeric suffix: global/span/water2
   const tagAndApply = useCallback((ovrs) => {
     const page = window.location.pathname.replace(/\//g, '') || 'home'
     const tags = ['h1','h2','h3','h4','h5','h6','p','span','li','td','th','button','a','div','label']
-    const counters = {}
+    const slugCounters = {}
+    const outlet = document.querySelector('[data-outlet]') || document.querySelector('main')
     document.querySelectorAll(tags.join(',')).forEach(el => {
       if (el.closest('[data-cms-ui]')) return
       if (el.closest('script,style,noscript,[data-no-cms]')) return
@@ -202,8 +207,16 @@ export function CMSProvider({ children }) {
         .join('')
       if (!directText && el.children.length > 0) return
       const tag = el.tagName.toLowerCase()
-      counters[tag] = (counters[tag] || 0) + 1
-      el.setAttribute('data-cms-id', `${page}/${tag}/${counters[tag]}`)
+      // Stable namespace: elements outside the main outlet are "global" (navbar, sidebar, footer)
+      const isInPage = outlet ? outlet.contains(el) : true
+      const ns = isInPage ? page : 'global'
+      // Stable slug from text content (first 22 chars, alphanumeric only)
+      const slug = directText.slice(0, 22).replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'el'
+      const baseKey = `${ns}/${tag}/${slug}`
+      slugCounters[baseKey] = (slugCounters[baseKey] || 0) + 1
+      const count = slugCounters[baseKey]
+      const key = count === 1 ? baseKey : `${baseKey}${count}`
+      el.setAttribute('data-cms-id', key)
     })
     // Apply text/html overrides
     Object.entries(ovrs).forEach(([key, { text, html }]) => {
