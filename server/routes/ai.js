@@ -63,50 +63,33 @@ async function callAI(messages) {
   return null
 }
 
-// POST /api/ai/tts — Text-to-speech proxy (no auth, no CORS issues for client)
-// Primary: ElevenLabs "Charlie" kid voice (set ELEVENLABS_API_KEY in Render env)
-// Fallback: StreamElements "Ivy" (Amazon Polly child voice, free, no key)
+// POST /api/ai/tts — Text-to-speech proxy (free, no API key, scales to 10k users)
+// Uses StreamElements → Amazon Polly "Ivy" (child voice, free, no limits documented)
+// Proxied through backend to avoid browser CORS restrictions
+// Fallback: tells client to use browser TTS (also free, runs on user device)
 router.post('/tts', async (req, res) => {
   const { text } = req.body
   if (!text?.trim()) return res.status(400).json({ error: 'text required' })
   const clean = text.replace(/[*_`#[\]()\u200B-\uFEFF]/g, '').replace(/https?:\/\/\S+/g, '').trim().slice(0, 500)
 
-  // ── ElevenLabs (set ELEVENLABS_API_KEY in Render) ──────────────────────────
-  const ELEVEN_KEY = process.env.ELEVENLABS_API_KEY
-  if (ELEVEN_KEY) {
-    // Charlie = young British boy voice (IKne3meq5aSn9XLyUdCD)
-    // Aria kid-like = 9BWtsMINqrJLrRacOk9x  — try either
-    const VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'IKne3meq5aSn9XLyUdCD'
-    try {
-      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}?output_format=mp3_22050_32`, {
-        method: 'POST',
-        headers: { 'xi-api-key': ELEVEN_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: clean,
-          model_id: 'eleven_flash_v2_5',
-          voice_settings: { stability: 0.42, similarity_boost: 0.82, style: 0.5, use_speaker_boost: true },
-        }),
-      })
-      if (r.ok) {
-        const buf = await r.arrayBuffer()
-        res.set({ 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-cache' })
-        return res.send(Buffer.from(buf))
-      }
-      console.log('[TTS] ElevenLabs', r.status)
-    } catch (e) { console.log('[TTS] ElevenLabs error:', e.message) }
-  }
-
-  // ── StreamElements Ivy fallback (Amazon Polly child voice, free) ───────────
+  // ── StreamElements → Amazon Polly Ivy (child voice, free, no key needed) ──
+  // "Ivy" = US English child female voice. "Justin" = US English child male.
   try {
-    const r = await fetch(`https://api.streamelements.com/kappa/v2/speech?voice=Ivy&text=${encodeURIComponent(clean)}`)
+    const ctrl = new AbortController()
+    setTimeout(() => ctrl.abort(), 8000)
+    const r = await fetch(
+      `https://api.streamelements.com/kappa/v2/speech?voice=Ivy&text=${encodeURIComponent(clean)}`,
+      { signal: ctrl.signal }
+    )
     if (r.ok) {
       const buf = await r.arrayBuffer()
-      res.set({ 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-cache' })
+      res.set({ 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' })
       return res.send(Buffer.from(buf))
     }
+    console.log('[TTS] StreamElements status:', r.status)
   } catch (e) { console.log('[TTS] StreamElements error:', e.message) }
 
-  // ── Signal client to use browser TTS ──────────────────────────────────────
+  // ── Tell client to fall back to browser TTS ────────────────────────────────
   res.status(503).json({ error: 'tts_unavailable' })
 })
 
