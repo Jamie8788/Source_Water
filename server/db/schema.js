@@ -374,6 +374,15 @@ async function initSchema() {
       `ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS voice_note TEXT`,
       `ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS embed_url TEXT`,
       `ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS grading_status TEXT DEFAULT 'auto'`,
+      // CMS tables: patch columns that may be missing from old Supabase-created tables
+      `ALTER TABLE cms_overrides ADD COLUMN IF NOT EXISTS html_content TEXT`,
+      `ALTER TABLE cms_overrides ADD COLUMN IF NOT EXISTS text_content TEXT`,
+      `ALTER TABLE cms_overrides ADD COLUMN IF NOT EXISTS styles TEXT DEFAULT '{}'`,
+      `ALTER TABLE cms_overrides ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+      `ALTER TABLE cms_content ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+      `ALTER TABLE cms_site_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+      `ALTER TABLE cms_page_blocks ADD COLUMN IF NOT EXISTS content TEXT DEFAULT '{}'`,
+      `ALTER TABLE cms_page_blocks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
     ]
     for (const m of migrations) {
       await db.exec(m).catch(() => {}) // ignore if already exists
