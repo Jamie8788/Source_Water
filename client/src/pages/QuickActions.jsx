@@ -175,25 +175,49 @@ function Ocean() {
   )
 }
 
-/* ─── Terrain with sandy shores ─────────────────────────────────── */
-function Terrain() {
+/* ─── Ancient parchment map platform ────────────────────────────── */
+function MapPlatform() {
   return (
     <group>
-      {/* Base dark land — night/dusk tones */}
-      <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.32,0]} receiveShadow>
-        <planeGeometry args={[80,80]}/>
-        <meshStandardMaterial color="#141c08" roughness={0.95} metalness={0}/>
+      {/* Ocean floor — dark deep water base */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.5,0]} receiveShadow>
+        <planeGeometry args={[120,120]}/>
+        <meshStandardMaterial color="#050d1a" roughness={1} metalness={0}/>
       </mesh>
-      {/* Dark shore */}
-      <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.18,0]}>
-        <planeGeometry args={[30,30]}/>
-        <meshStandardMaterial color="#2a1e0a" roughness={0.92} metalness={0} transparent opacity={0.85}/>
+      {/* Map slab — raised stone/parchment island */}
+      <mesh position={[0,-0.28,0]} receiveShadow castShadow>
+        <boxGeometry args={[28,0.55,28]}/>
+        <meshStandardMaterial color="#7a5c38" roughness={0.98} metalness={0}/>
       </mesh>
-      {/* Inner shore */}
-      <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.10,0]}>
-        <planeGeometry args={[18,18]}/>
-        <meshStandardMaterial color="#241a08" roughness={0.88} metalness={0} transparent opacity={0.6}/>
+      {/* Parchment surface top */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.0,0]} receiveShadow>
+        <planeGeometry args={[28,28,48,48]}/>
+        <meshStandardMaterial color="#c9a86c" roughness={0.90} metalness={0}/>
       </mesh>
+      {/* Inner aged parchment overlay */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.005,0]}>
+        <planeGeometry args={[24,24]}/>
+        <meshStandardMaterial color="#d4b878" roughness={0.88} metalness={0} transparent opacity={0.7}/>
+      </mesh>
+      {/* Map border frame — dark ink lines */}
+      {[[-13,0,0],[13,0,0],[0,0,-13],[0,0,13]].map(([x,y,z],i)=>(
+        <mesh key={i} position={[x,0.008,z]} rotation={[-Math.PI/2,i<2?0:Math.PI/2,0]}>
+          <planeGeometry args={[0.18,26]}/>
+          <meshStandardMaterial color="#5a3d1a" roughness={0.95} transparent opacity={0.55}/>
+        </mesh>
+      ))}
+      {/* Compass rose centre */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.012,9]}>
+        <circleGeometry args={[1.4,32]}/>
+        <meshStandardMaterial color="#8a6030" roughness={0.9} transparent opacity={0.45}/>
+      </mesh>
+      {/* Compass spokes */}
+      {[0,1,2,3,4,5,6,7].map(i=>(
+        <mesh key={i} rotation={[-Math.PI/2, i*Math.PI/4, 0]} position={[0, 0.013, 9]}>
+          <planeGeometry args={[0.06,2.8]}/>
+          <meshStandardMaterial color="#5a3d1a" transparent opacity={0.5}/>
+        </mesh>
+      ))}
     </group>
   )
 }
@@ -282,77 +306,82 @@ function GreatLake({ lake }) {
   )
 }
 
-/* ─── Holographic beacon — clean floating orb, no ground rings ───── */
+/* ─── Ancient map location pin ───────────────────────────────────── */
 function MapBeacon({ portal, idx, onNav }) {
   const [hov, setHov] = useState(false)
-  const beam = useRef(), orb = useRef(), glow = useRef(), ring = useRef()
-  const isHub = idx === 0
-  const orbR  = isHub ? 0.34 : 0.24
-  const baseY = portal.pos[1]  // use portal's Y directly
+  const pinHead = useRef(), beam = useRef(), ring = useRef()
+  const isHub   = idx === 0
+  const pinH    = isHub ? 2.8 : 2.0
+  const headR   = isHub ? 0.28 : 0.20
 
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime()
-    // Orb float
-    if(orb.current) orb.current.position.y = baseY + Math.sin(t*1.2+idx*0.55)*0.22
-    // Beam breathe
-    if(beam.current) beam.current.material.opacity = (hov?0.55:0.30)+Math.sin(t*1.8+idx)*0.10
-    // Outer glow pulse
-    if(glow.current) glow.current.material.opacity = (hov?0.18:0.06)+Math.sin(t*1.0+idx*0.4)*0.04
-    // Equator ring spin
-    if(ring.current) ring.current.rotation.y += 0.012
+    // Pin head gentle float
+    if(pinHead.current) pinHead.current.position.y = pinH + headR + Math.sin(t*1.4+idx*0.7)*0.12
+    // Pulse beam
+    if(beam.current) beam.current.material.opacity = (hov?0.50:0.22)+Math.sin(t*2+idx)*0.08
+    // Ripple ring on map surface
+    if(ring.current){ ring.current.scale.x = ring.current.scale.z = 1+Math.sin(t*1.2+idx*0.5)*0.08; ring.current.material.opacity = (hov?0.7:0.35)+Math.sin(t*1.2+idx*0.5)*0.1 }
   })
 
   return (
-    <group position={[portal.pos[0], 0, portal.pos[2]]}
+    <group position={[portal.pos[0], 0.01, portal.pos[2]]}
       onPointerOver={()=>{setHov(true);document.body.style.cursor='pointer'}}
       onPointerOut={()=>{setHov(false);document.body.style.cursor=''}}
       onClick={()=>onNav(portal.path, portal.pos, portal.label)}>
 
-      {/* Vertical light beam — goes high into sky */}
-      <mesh ref={beam} position={[0, 6, 0]}>
-        <cylinderGeometry args={[isHub?0.04:0.028, isHub?0.08:0.055, 20, 6, 1, true]}/>
-        <meshBasicMaterial color={portal.glow} transparent opacity={0.32}
-          depthWrite={false} side={THREE.DoubleSide} blending={THREE.AdditiveBlending}/>
+      {/* Ripple circle on map surface */}
+      <mesh ref={ring} rotation={[-Math.PI/2,0,0]} position={[0,0.01,0]}>
+        <ringGeometry args={[headR*1.1, headR*1.6, 32]}/>
+        <meshBasicMaterial color={portal.glow} transparent opacity={0.35} depthWrite={false} blending={THREE.AdditiveBlending}/>
+      </mesh>
+      {/* Base dot on map */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.02,0]}>
+        <circleGeometry args={[headR*0.55,16]}/>
+        <meshBasicMaterial color={portal.glow} transparent opacity={0.9}/>
       </mesh>
 
-      {/* Floating orb */}
-      <group ref={orb} position={[0, baseY, 0]}>
-        {/* Wide ambient glow */}
-        <mesh ref={glow}>
-          <sphereGeometry args={[orbR*2.8,16,16]}/>
-          <meshBasicMaterial color={portal.glow} transparent opacity={0.07} depthWrite={false} blending={THREE.AdditiveBlending}/>
-        </mesh>
-        {/* Core sphere */}
-        <mesh>
-          <sphereGeometry args={[orbR,24,24]}/>
-          <meshStandardMaterial color={portal.color} emissive={portal.glow}
-            emissiveIntensity={hov?2.8:1.4} metalness={0.35} roughness={0.06}
-            envMapIntensity={1.2}/>
-        </mesh>
-        {/* Single thin equator ring */}
-        <mesh ref={ring} rotation={[Math.PI*0.32, 0, 0]}>
-          <torusGeometry args={[orbR*1.6, 0.014, 6, 60]}/>
-          <meshBasicMaterial color={portal.glow} transparent opacity={hov?0.95:0.6} blending={THREE.AdditiveBlending}/>
-        </mesh>
-        <pointLight color={portal.glow} intensity={hov?5:2} distance={6} decay={2}/>
+      {/* Pin stick */}
+      <mesh position={[0, pinH*0.5, 0]}>
+        <cylinderGeometry args={[0.025, 0.04, pinH, 6]}/>
+        <meshStandardMaterial color={portal.color} metalness={0.5} roughness={0.4}/>
+      </mesh>
 
-        {/* Clean label */}
-        <Billboard position={[0, orbR+0.5, 0]}>
-          <Html center distanceFactor={11}>
+      {/* Pin head — glowing sphere */}
+      <group ref={pinHead} position={[0, pinH+headR, 0]}>
+        <mesh>
+          <sphereGeometry args={[headR*1.3,16,16]}/>
+          <meshBasicMaterial color={portal.glow} transparent opacity={0.18} depthWrite={false} blending={THREE.AdditiveBlending}/>
+        </mesh>
+        <mesh>
+          <sphereGeometry args={[headR,16,16]}/>
+          <meshStandardMaterial color={portal.color} emissive={portal.glow} emissiveIntensity={hov?3:1.6} metalness={0.4} roughness={0.1}/>
+        </mesh>
+        <pointLight color={portal.glow} intensity={hov?4:1.5} distance={5} decay={2}/>
+
+        {/* Light beam upward */}
+        <mesh ref={beam} position={[0,5,0]}>
+          <cylinderGeometry args={[0.018,0.04,10,5,1,true]}/>
+          <meshBasicMaterial color={portal.glow} transparent opacity={0.22} depthWrite={false} side={THREE.DoubleSide} blending={THREE.AdditiveBlending}/>
+        </mesh>
+
+        {/* Label */}
+        <Billboard position={[0, headR+0.45, 0]}>
+          <Html center distanceFactor={13}>
             <div onClick={()=>onNav(portal.path, portal.pos, portal.label)} style={{
-              background:'rgba(2,8,20,0.88)',
-              border:`1px solid ${portal.glow}70`,
-              borderRadius:6, padding:'4px 12px',
-              color:'#f0f6ff', fontSize:11, fontWeight:800,
+              background:'rgba(20,10,5,0.90)',
+              border:`1px solid ${portal.glow}80`,
+              borderRadius:4, padding:'3px 10px',
+              color:'#f5ead5', fontSize:10, fontWeight:800,
               whiteSpace:'nowrap', textAlign:'center',
-              backdropFilter:'blur(10px)',
-              boxShadow:`0 0 18px ${portal.glow}60, 0 2px 8px rgba(0,0,0,0.5)`,
-              cursor:'pointer', letterSpacing:'0.04em',
-              transition:'all 0.15s',
-              textShadow:`0 0 8px ${portal.glow}`,
+              backdropFilter:'blur(8px)',
+              boxShadow:`0 0 14px ${portal.glow}50`,
+              cursor:'pointer', letterSpacing:'0.06em',
+              fontFamily:'Georgia, serif',
+              textShadow:`0 0 6px ${portal.glow}`,
             }}>
               {portal.label}
-              <div style={{fontSize:9,color:portal.glow,fontWeight:600,marginTop:1}}>{portal.sub}</div>
+              <div style={{fontSize:8,color:portal.glow,fontWeight:600,marginTop:1,letterSpacing:'0.08em'}}>{portal.sub}</div>
             </div>
           </Html>
         </Billboard>
@@ -568,13 +597,13 @@ function CameraRig({ shipRef }) {
     const ox = Math.sin(orbitT.current) * 2.5
     const oz = Math.cos(orbitT.current) * 1.2
 
-    // Behind ship + high enough to see the whole map
-    const sway  = Math.sin(t*0.28)*0.25 + Math.cos(t*0.19)*0.12
-    const camH  = 9 + sway
-    const camD  = 14
+    // Cinematic map view — high angle, see entire map + ocean edges
+    const sway  = Math.sin(t*0.22)*0.3 + Math.cos(t*0.16)*0.15
+    const camH  = 18 + sway
+    const camD  = 16
 
-    smooth.current.lerp(new THREE.Vector3(s.x+ox, camH, s.z+camD+oz), 0.035)
-    look.current.lerp(new THREE.Vector3(s.x, 0.5, s.z - 4), 0.055)
+    smooth.current.lerp(new THREE.Vector3(s.x + ox, camH, s.z + camD + oz), 0.032)
+    look.current.lerp(new THREE.Vector3(s.x, 0.5, s.z - 3), 0.050)
     camera.position.copy(smooth.current)
     camera.lookAt(look.current)
   })
@@ -606,31 +635,29 @@ function ConnectionLines() {
 function Scene({ shipRef, navigate }) {
   return (
     <>
-      {/* Explicit dark background so no white bleed */}
-      <color attach="background" args={['#060c1a']}/>
+      <color attach="background" args={['#0a0a14']}/>
 
-      {/* Dark stormy horizon sky — sun far left, low */}
-      <Sky sunPosition={[-60, 3, -40]} turbidity={18} rayleigh={0.6}
-           mieCoefficient={0.003} mieDirectionalG={0.98}
-           inclination={0.52} azimuth={0.08}/>
+      {/* Dusk sky — warm golden from left */}
+      <Sky sunPosition={[-50, 8, -40]} turbidity={14} rayleigh={1.0}
+           mieCoefficient={0.005} mieDirectionalG={0.96}
+           inclination={0.50} azimuth={0.10}/>
 
-      <Environment preset="night" background={false}/>
+      <Environment preset="sunset" background={false}/>
 
-      {/* Warm side sun — left of camera, low angle */}
-      <directionalLight position={[-55, 8, -35]} intensity={2.8} color="#ff8820" castShadow
-        shadow-mapSize={[2048,2048]} shadow-camera-far={80}
-        shadow-camera-left={-30} shadow-camera-right={30}
-        shadow-camera-top={30} shadow-camera-bottom={-30}/>
-      {/* Cold moonlight from opposite side */}
-      <directionalLight position={[40, 25, 20]} intensity={1.4} color="#5580cc"/>
-      <ambientLight intensity={0.14} color="#0d1f44"/>
-      <hemisphereLight skyColor="#060e28" groundColor="#050804" intensity={0.45}/>
+      {/* Warm overhead light — illuminates parchment map */}
+      <directionalLight position={[-30, 30, -20]} intensity={2.5} color="#ffd090" castShadow
+        shadow-mapSize={[2048,2048]} shadow-camera-far={60}
+        shadow-camera-left={-20} shadow-camera-right={20}
+        shadow-camera-top={20} shadow-camera-bottom={-20}/>
+      {/* Blue fill from opposite side */}
+      <directionalLight position={[30, 20, 20]} intensity={0.8} color="#6090cc"/>
+      <ambientLight intensity={0.35} color="#c8902a"/>
+      <hemisphereLight skyColor="#3a2a10" groundColor="#1a0e04" intensity={0.5}/>
       <LensFlare/>
 
-      {/* Tight fog for AC horizon haze */}
-      <fog attach="fog" args={['#060c1a', 35, 95]}/>
+      <fog attach="fog" args={['#0a0a14', 40, 100]}/>
 
-      <Terrain/>
+      <MapPlatform/>
       <Ocean/>
       <CloudLayer/>
       <SunShafts/>
@@ -785,7 +812,7 @@ export default function QuickActions() {
       )}
 
       <Canvas dpr={[1,1.8]}
-        camera={{ position:[0,3,8], fov:72, near:0.1, far:300 }}
+        camera={{ position:[0,18,16], fov:65, near:0.1, far:300 }}
         gl={{ antialias:true, alpha:false, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:0.80 }}
         shadows style={{ position:'absolute', inset:0 }}>
         <Suspense fallback={null}>
