@@ -6,7 +6,7 @@
  * Saves to Supabase cms_overrides table. Applied via injected <style> tag.
  * All users see changes instantly via real-time subscription.
  */
-import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './AuthContext'
@@ -31,7 +31,8 @@ export function CMSProvider({ children }) {
   const [notification, setNotification] = useState(null) // site-wide notification bar settings
   const [hiddenComponents, setHiddenComponents] = useState([]) // list of hidden component keys
   const [pageBlocks, setPageBlocks] = useState([]) // custom blocks inserted by admin per page
-  const styleTagRef = useRef(null)
+  const styleTagRef  = useRef(null)
+  const applyingRef  = useRef(false)   // guard against MutationObserver re-entry
 
   // ── Load CMS field content ────────────────────────────────────────────────
   useEffect(() => {
@@ -246,6 +247,34 @@ export function CMSProvider({ children }) {
     const t3 = setTimeout(() => tagAndApply(overrides), 2400)
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
   }, [overrides, tagAndApply, location.pathname])
+
+  // ── MutationObserver: re-apply text overrides after every React re-render ──
+  // React re-renders reset DOM text back to JSX values, undoing CMS overrides.
+  // We watch for DOM mutations and re-apply overrides (debounced, guarded against
+  // our own mutations to prevent infinite loops).
+  useEffect(() => {
+    if (!Object.keys(overrides).length) return
+    let debounce = null
+    const reApply = () => {
+      if (applyingRef.current) return
+      applyingRef.current = true
+      Object.entries(overrides).forEach(([key, { text, html }]) => {
+        if (text == null && html == null) return
+        const el = document.querySelector(`[data-cms-id="${key}"]`)
+        if (!el) return
+        if (html != null) { if (el.innerHTML !== html) el.innerHTML = html }
+        else if (text != null) { if (el.innerText !== text) el.innerText = text }
+      })
+      applyingRef.current = false
+    }
+    const observer = new MutationObserver(() => {
+      if (applyingRef.current) return
+      clearTimeout(debounce)
+      debounce = setTimeout(reApply, 90)
+    })
+    observer.observe(document.body, { childList: true, subtree: true, characterData: false })
+    return () => { observer.disconnect(); clearTimeout(debounce) }
+  }, [overrides])
 
   // ── Extra CMS edit-mode UI (hover outlines, click to select) ─────────────
   useEffect(() => {
