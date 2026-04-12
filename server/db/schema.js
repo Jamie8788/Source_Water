@@ -360,6 +360,12 @@ async function initSchema() {
       console.log('[schema] added unique email constraint + deduped users')
     }
 
+    // Remove ghost rows: auto-created rows that lost their email during dedup.
+    // These have no real email and were never properly registered.
+    await db.pool.query(
+      `DELETE FROM users WHERE email IS NULL AND password_hash = 'supabase_auth'`
+    ).catch(() => {})
+
     // Ensure admin@sourcewater.app always has admin privileges
     await db.pool.query(
       `UPDATE users SET is_admin=1 WHERE email='admin@sourcewater.app' AND is_admin=0`
