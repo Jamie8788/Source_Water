@@ -1,7 +1,6 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Sky, Cloud, Html, Trail, Billboard, Environment, useGLTF } from '@react-three/drei'
 import { EffectComposer, Bloom, DepthOfField, ChromaticAberration, Vignette } from '@react-three/postprocessing'
-import { BlendFunction } from 'postprocessing'
 import * as THREE from 'three'
 import { useRef, useState, useEffect, useMemo, useCallback, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -660,12 +659,9 @@ function Scene({ shipRef, navigate }) {
       {/* Full cinematic post-processing stack */}
       <EffectComposer>
         {/* Bloom — beacon glows, sun glints, foam tips */}
-        <Bloom luminanceThreshold={0.30} luminanceSmoothing={0.9} intensity={0.9} blendFunction={BlendFunction.ADD}/>
-        {/* Depth of field — foreground ship sharp, distant beacons softly blurred */}
+        <Bloom luminanceThreshold={0.28} luminanceSmoothing={0.9} intensity={0.85}/>
         <DepthOfField focusDistance={0.012} focalLength={0.028} bokehScale={2.8}/>
-        {/* Chromatic aberration — cinematic lens fringing */}
-        <ChromaticAberration offset={[0.0008, 0.0004]} blendFunction={BlendFunction.NORMAL}/>
-        {/* Vignette — darkens edges like a movie */}
+        <ChromaticAberration offset={[0.0008, 0.0004]}/>
         <Vignette eskil={false} offset={0.12} darkness={0.75}/>
       </EffectComposer>
     </>
