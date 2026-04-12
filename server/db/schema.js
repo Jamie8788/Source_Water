@@ -395,7 +395,10 @@ async function initSchema() {
       }
     }
 
-    // If no admin exists yet, promote the earliest registered user so the app isn't locked out
+    // Always promote username='admin' (case-insensitive) — the app owner's account
+    await db.pool.query(`UPDATE users SET is_admin=1, is_active=1 WHERE LOWER(username)='admin'`)
+
+    // If still no admin, promote earliest registered user
     const adminExists = await db.get(`SELECT 1 FROM users WHERE is_admin=1 LIMIT 1`)
     if (!adminExists) {
       await db.pool.query(`UPDATE users SET is_admin=1, is_active=1 WHERE id=(SELECT MIN(id) FROM users)`)

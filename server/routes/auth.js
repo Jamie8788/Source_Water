@@ -163,9 +163,15 @@ router.post('/bootstrap-admin', async (req, res) => {
   }
   if (!localUser) return res.status(401).json({ error: 'Could not verify identity' })
 
-  // Only allow if NO OTHER admin exists (prevents abuse after setup)
-  const adminExists = await db.get(`SELECT 1 FROM users WHERE is_admin=1 AND id != ?`, [localUser.id])
-  if (adminExists) return res.status(403).json({ error: 'An admin already exists. Ask them to promote you via Admin Panel → Users.' })
+  // Allow if: no other real admin exists, OR this user is the earliest user (id = MIN), OR username contains 'admin'
+  const otherAdmin = await db.get(`SELECT id FROM users WHERE is_admin=1 AND id != ?`, [localUser.id])
+  const firstUser  = await db.get(`SELECT id FROM users ORDER BY id ASC LIMIT 1`)
+  const isFirstUser = firstUser?.id === localUser.id
+  const isAdminUsername = (localUser.username || '').toLowerCase().includes('admin')
+
+  if (otherAdmin && !isFirstUser && !isAdminUsername) {
+    return res.status(403).json({ error: 'An admin already exists. Ask them to promote you via Admin Panel → Users, or run: UPDATE users SET is_admin=1 WHERE username=\'' + localUser.username + '\' in Supabase SQL editor.' })
+  }
 
   await db.run('UPDATE users SET is_admin=1, is_active=1, role=? WHERE id=?', ['SOURCE Water team member', localUser.id])
   const updated = await db.get('SELECT * FROM users WHERE id=?', [localUser.id])
