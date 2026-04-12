@@ -406,6 +406,55 @@ async function initSchema() {
       console.log(`[schema] No admin found — auto-promoted first user: ${firstAdmin?.email || firstAdmin?.username}`)
     }
 
+    // ── Seed starter resources (only if table is empty) ──────────────────────
+    const resCount = await db.get(`SELECT COUNT(*) AS n FROM resources`)
+    if (!resCount || resCount.n == 0) {
+      const adminUser = await db.get(`SELECT id FROM users WHERE is_admin=1 LIMIT 1`)
+      const aid = adminUser?.id || null
+      const seedResources = [
+        // ── Water Rangers (real partner) ─────────────────────────────────────
+        { title: 'Water Rangers — Open Data Portal', description: 'Explore thousands of water quality readings collected by citizen scientists across Canada. Filter by location, date, and parameter. Free and open access.', type: 'dataset', category: 'Community Science', url: 'https://data.waterrangers.ca/', featured: true },
+        { title: 'Water Rangers — Interactive Data Map', description: 'Visual map of all Water Rangers monitoring sites across Canada. See real community water quality data plotted geographically in real time.', type: 'link', category: 'Community Science', url: 'https://www.waterrangers.ca/map', featured: true },
+        { title: 'Water Rangers — Water Testing Equipment Guide', description: 'Detailed guide to Water Rangers field testing kits: how to use them, what each test measures (pH, turbidity, dissolved oxygen, E. coli, nitrates), and how to log results.', type: 'guide', category: 'Field Work', url: 'https://www.waterrangers.ca/equipment' },
+        { title: 'Water Rangers — Learning Hub', description: 'Educational resources and training materials for community water monitors. Covers sampling protocols, parameter interpretation, and data quality.', type: 'guide', category: 'Data Literacy', url: 'https://www.waterrangers.ca/learn' },
+        { title: 'Water Rangers Blog — Water Quality Stories', description: 'Frontline stories, science explainers, and community updates from Water Rangers citizen scientists monitoring waters across Canada.', type: 'link', category: 'Community Science', url: 'https://www.waterrangers.ca/blog' },
+        { title: 'Water Rangers — About the Program', description: 'Learn how Water Rangers empowers communities to protect water through citizen science, open data, and advocacy. Background on the organization and mission.', type: 'link', category: 'Community Science', url: 'https://www.waterrangers.ca/about' },
+        // ── Water Quality Standards ───────────────────────────────────────────
+        { title: 'WHO Drinking-water Quality Guidelines (4th Ed.)', description: 'The definitive international reference for drinking-water safety. Covers chemical, microbial, and radiological hazards with evidence-based guideline values.', type: 'guide', category: 'Water Quality', url: 'https://www.who.int/publications/i/item/9789241549950', featured: true },
+        { title: 'Health Canada — Drinking Water Quality Guidelines', description: 'Federal guidelines for maximum acceptable concentrations of contaminants in Canadian drinking water, updated regularly with peer-reviewed science.', type: 'guide', category: 'Water Quality', url: 'https://www.canada.ca/en/health-canada/services/environmental-workplace-health/water-quality/drinking-water/drinking-water-quality-guidelines-supporting-documents.html' },
+        { title: 'Ontario Drinking Water Standards & Objectives', description: 'Ontario-specific parameters regulated under the Safe Drinking Water Act — the legal reference for municipal water treatment in the province.', type: 'document', category: 'Water Quality', url: 'https://www.ontario.ca/document/ontario-drinking-water-quality-standards' },
+        { title: 'Health Canada — Blue-Green Algae (Cyanobacteria)', description: 'Federal guidance on detecting, monitoring, and responding to harmful algal blooms in recreational and drinking water sources. Includes health thresholds.', type: 'guide', category: 'Safety', url: 'https://www.canada.ca/en/health-canada/services/publications/healthy-living/blue-green-algae.html' },
+        // ── Field Methods ─────────────────────────────────────────────────────
+        { title: 'Standard Methods for Water & Wastewater Examination', description: 'APHA/AWWA/WEF standard methods — the gold-standard laboratory procedures for water and wastewater analysis used by certified labs worldwide.', type: 'document', category: 'Field Work', url: 'https://www.standardmethods.org/' },
+        { title: 'USGS National Field Manual — Water-Quality Sampling', description: 'Comprehensive USGS procedures for collecting surface-water and groundwater samples for chemical analysis in the field.', type: 'guide', category: 'Field Work', url: 'https://water.usgs.gov/owq/FieldManual/' },
+        { title: 'Lake Pulse — Field Sampling Protocols', description: 'Canadian Lake Pulse Network\'s standardized protocols for physical, chemical, and biological lake surveys — designed for reproducible national-scale monitoring.', type: 'document', category: 'Field Work', url: 'https://lakepulse.ca/sampling-protocols/' },
+        // ── Datasets ─────────────────────────────────────────────────────────
+        { title: 'GEMS/Water — Global Freshwater Quality Database', description: 'UN Environment Programme global database with water quality monitoring data from rivers, lakes, reservoirs, and groundwater across 100+ countries.', type: 'dataset', category: 'Datasets', url: 'https://gemstat.org/', featured: true },
+        { title: 'Water Survey of Canada — Hydrometric Data', description: 'Real-time and historical streamflow, water level, and water quality data from thousands of monitoring stations across Canada (Environment & Climate Change Canada).', type: 'dataset', category: 'Datasets', url: 'https://wateroffice.ec.gc.ca/mainmenu/real_time_data_index_e.html' },
+        { title: 'EPA Water Quality Portal (STORET)', description: 'US EPA and USGS combined data portal with 400+ million water quality monitoring records from federal, state, and local agencies across North America.', type: 'dataset', category: 'Datasets', url: 'https://www.waterqualitydata.us/' },
+        { title: 'Ontario Provincial Water Quality Monitoring', description: 'Ontario government\'s open dataset with Provincial Water Quality Monitoring Network results spanning decades — rivers, streams, and lakes.', type: 'dataset', category: 'Datasets', url: 'https://data.ontario.ca/dataset/provincial-stream-flow-monitoring' },
+        // ── Data Literacy ─────────────────────────────────────────────────────
+        { title: 'CCME Water Quality Index (WQI) Calculator', description: 'The standardized Canadian tool for aggregating multiple water quality parameters into a single communicable index score — used by provinces and municipalities.', type: 'link', category: 'Data Literacy', url: 'https://ccme.ca/en/resources/canadian_water_quality_guidelines_for_the_protection_of_aquatic_life/water_quality_index_calculator.html' },
+        { title: 'Environmental Computing — Data Analysis for Scientists', description: 'Open-access course covering exploratory data analysis, visualisation, and statistical methods specifically for environmental and water quality datasets in R.', type: 'link', category: 'Data Literacy', url: 'https://www.environmentalcomputing.net/' },
+        // ── Ecology ──────────────────────────────────────────────────────────
+        { title: 'Freshwater Ecoregions of the World (FEOW)', description: 'The definitive biogeographic classification of the world\'s freshwater habitats — essential context for ecological water quality interpretation and basin-level assessments.', type: 'report', category: 'Ecology', url: 'https://www.feow.org/' },
+        // ── Indigenous / First Nations Water ─────────────────────────────────
+        { title: 'First Nations Safe Drinking Water — SAC Canada', description: 'Federal framework and resources addressing long-term boil water advisories and infrastructure investment for safe drinking water on First Nations reserves.', type: 'report', category: 'Indigenous Water Rights', url: 'https://www.sac-isc.gc.ca/eng/1506514143353/1533317537227' },
+        // ── International ─────────────────────────────────────────────────────
+        { title: 'International Lake Environment Committee (ILEC)', description: 'Global knowledge base on the management and restoration of lakes and reservoirs, including international case studies and best management practices.', type: 'link', category: 'Community Science', url: 'https://www.ilec.or.jp/en/' },
+      ]
+      // Ensure featured column exists
+      await db.pool.query(`ALTER TABLE resources ADD COLUMN IF NOT EXISTS featured INTEGER DEFAULT 0`).catch(() => {})
+      await db.pool.query(`ALTER TABLE resources ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0`).catch(() => {})
+      for (const r of seedResources) {
+        await db.pool.query(
+          `INSERT INTO resources (title,description,resource_type,external_url,category,visibility,featured,created_by) VALUES ($1,$2,$3,$4,$5,'public',$6,$7) ON CONFLICT DO NOTHING`,
+          [r.title, r.description, r.type, r.url, r.category, r.featured ? 1 : 0, aid]
+        )
+      }
+      console.log(`[schema] Seeded ${seedResources.length} starter resources`)
+    }
+
     console.log('[schema] PostgreSQL schema ready')
   } else {
     // ── SQLite schema (local dev only) ───────────────────────────────────────
