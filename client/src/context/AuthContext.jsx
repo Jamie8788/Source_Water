@@ -44,7 +44,16 @@ export function AuthProvider({ children }) {
       setUser(merged)
       localStorage.setItem('sw_user', JSON.stringify(merged))
       return merged
-    } catch {
+    } catch (err) {
+      // 403 = suspended — force logout immediately
+      if (err?.response?.status === 403) {
+        setUser(null)
+        localStorage.removeItem('sw_user')
+        localStorage.removeItem('sw_token')
+        localStorage.removeItem('sb_access_token')
+        await supabase.auth.signOut().catch(() => {})
+        return null
+      }
       const fallback = toLocalUser(sbUser, {
         onboarding_completed: cached.onboarding_completed ?? sbOnboarded,
       })
@@ -56,12 +65,27 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
-        fetchProfile(session.user, session.access_token).finally(() => setLoading(false))
+        await fetchProfile(session.user, session.access_token)
       } else {
-        setLoading(false)
+        // Check legacy JWT users (password login)
+        const legacyToken = localStorage.getItem('sw_token')
+        if (legacyToken) {
+          try {
+            const r = await api.get('/auth/me', { headers: { Authorization: `Bearer ${legacyToken}` } })
+            const profile = r.data?.user || r.data
+            setUser(profile)
+            localStorage.setItem('sw_user', JSON.stringify(profile))
+          } catch (err) {
+            // 403 = suspended, any error = bad token → clear everything
+            setUser(null)
+            localStorage.removeItem('sw_token')
+            localStorage.removeItem('sw_user')
+          }
+        }
       }
+      setLoading(false)
     })
 
     // Listen for auth changes
