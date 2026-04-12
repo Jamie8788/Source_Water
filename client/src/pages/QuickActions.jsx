@@ -1,4 +1,4 @@
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Canvas, useFrame, useThree, useLoader } from '@react-three/fiber'
 import { Sky, Cloud, Html, Trail, Billboard, Environment, OrbitControls } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
@@ -176,25 +176,18 @@ function Ocean() {
   )
 }
 
-/* ─── Real geographic map platform ──────────────────────────────── */
+/* ─── Geographic map surface — loads worldmap.jpg via R3F useLoader ─ */
+function MapSurface() {
+  const tex = useLoader(THREE.TextureLoader, '/textures/worldmap.jpg')
+  return (
+    <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.04,0]} receiveShadow>
+      <planeGeometry args={[29,29,2,2]}/>
+      <meshStandardMaterial map={tex} roughness={0.78} metalness={0} color="#ffffff"/>
+    </mesh>
+  )
+}
+
 function MapPlatform() {
-  const [mapTex, setMapTex] = useState(null)
-
-  useEffect(() => {
-    // Load with plain TextureLoader — no Suspense, never crashes
-    new THREE.TextureLoader().load(
-      '/textures/worldmap.jpg',
-      (t) => {
-        t.wrapS = THREE.ClampToEdgeWrapping
-        t.wrapT = THREE.ClampToEdgeWrapping
-        t.needsUpdate = true
-        setMapTex(t)
-      },
-      undefined,
-      (e) => console.warn('[map] texture failed', e)
-    )
-  }, [])
-
   return (
     <group>
       {/* Deep ocean base */}
@@ -214,16 +207,15 @@ function MapPlatform() {
         <meshStandardMaterial color="#2a1804" roughness={0.97} metalness={0}/>
       </mesh>
 
-      {/* Geographic map surface — worldmap.jpg loaded via TextureLoader */}
-      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.04,0]} receiveShadow>
-        <planeGeometry args={[29,29,2,2]}/>
-        <meshStandardMaterial
-          map={mapTex}
-          color={mapTex ? '#ffffff' : '#1e3a5a'}
-          roughness={0.78}
-          metalness={0}
-        />
-      </mesh>
+      {/* Map surface — Suspense only around this one mesh */}
+      <Suspense fallback={
+        <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.04,0]}>
+          <planeGeometry args={[29,29,2,2]}/>
+          <meshStandardMaterial color="#1e3a5a" roughness={0.78} metalness={0}/>
+        </mesh>
+      }>
+        <MapSurface/>
+      </Suspense>
     </group>
   )
 }
