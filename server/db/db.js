@@ -15,9 +15,18 @@ const USE_PG = !!process.env.DATABASE_URL
 let pool
 if (USE_PG) {
   const { Pool } = require('pg')
+  // If DB_PASSWORD is set separately, inject it into the URL so special chars don't break parsing
+  let connString = process.env.DATABASE_URL
+  if (process.env.DB_PASSWORD) {
+    try {
+      const u = new URL(connString)
+      u.password = process.env.DB_PASSWORD
+      connString = u.toString()
+    } catch {}
+  }
   pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false },
+    connectionString: connString,
+    ssl: connString.includes('localhost') ? false : { rejectUnauthorized: false },
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
