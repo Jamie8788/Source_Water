@@ -335,6 +335,8 @@ async function initSchema() {
       `ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS message_type TEXT DEFAULT 'text'`,
       `ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS media TEXT`,
       `ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS voice_note TEXT`,
+      `ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS embed_url TEXT`,
+      `ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS grading_status TEXT DEFAULT 'auto'`,
     ]
     for (const m of migrations) {
       await db.exec(m).catch(() => {}) // ignore if already exists
@@ -384,6 +386,23 @@ async function initSchema() {
       `UPDATE users SET is_admin=1, is_active=1 WHERE email='admin@sourcewater.app'`
     )
 
+    // Also auto-promote any email listed in ADMIN_EMAILS env var (comma-separated)
+    if (process.env.ADMIN_EMAILS) {
+      const emails = process.env.ADMIN_EMAILS.split(',').map(e => e.trim()).filter(Boolean)
+      for (const email of emails) {
+        await db.pool.query(`UPDATE users SET is_admin=1, is_active=1 WHERE email=$1`, [email])
+        console.log(`[schema] Granted admin to ${email}`)
+      }
+    }
+
+    // If no admin exists yet, promote the earliest registered user so the app isn't locked out
+    const adminExists = await db.get(`SELECT 1 FROM users WHERE is_admin=1 LIMIT 1`)
+    if (!adminExists) {
+      await db.pool.query(`UPDATE users SET is_admin=1, is_active=1 WHERE id=(SELECT MIN(id) FROM users)`)
+      const firstAdmin = await db.get(`SELECT email, username FROM users WHERE is_admin=1 LIMIT 1`)
+      console.log(`[schema] No admin found — auto-promoted first user: ${firstAdmin?.email || firstAdmin?.username}`)
+    }
+
     console.log('[schema] PostgreSQL schema ready')
   } else {
     // ── SQLite schema (local dev only) ───────────────────────────────────────
@@ -422,6 +441,7 @@ async function initSchema() {
         show_answers_after INTEGER DEFAULT 1,
         certificate_enabled INTEGER DEFAULT 0,
         negative_marking REAL DEFAULT 0,
+        embed_url TEXT,
         status TEXT DEFAULT 'draft',
         created_by INTEGER REFERENCES users(id),
         created_at TEXT DEFAULT (datetime('now'))
@@ -638,6 +658,19 @@ async function initSchema() {
       CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_log(user_id);
       CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, read);
     `)
+    // SQLite migrations: add columns that may be missing from older local DBs
+    const sqliteMigrations = [
+      `ALTER TABLE direct_messages ADD COLUMN deleted INTEGER DEFAULT 0`,
+      `ALTER TABLE direct_messages ADD COLUMN edited INTEGER DEFAULT 0`,
+      `ALTER TABLE direct_messages ADD COLUMN message_type TEXT DEFAULT 'text'`,
+      `ALTER TABLE direct_messages ADD COLUMN media TEXT`,
+      `ALTER TABLE direct_messages ADD COLUMN voice_note TEXT`,
+      `ALTER TABLE quizzes ADD COLUMN embed_url TEXT`,
+      `ALTER TABLE quiz_attempts ADD COLUMN grading_status TEXT DEFAULT 'auto'`,
+    ]
+    for (const m of sqliteMigrations) {
+      try { db.sqlite.exec(m) } catch (_) {} // ignore "duplicate column" errors
+    }
     console.log('[schema] SQLite schema ready')
   }
 }

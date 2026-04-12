@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import api from '../../utils/api'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useSound } from '../../context/SoundContext'
@@ -38,6 +39,48 @@ function NavSection({ label }) {
         {label}
       </span>
       <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.04)' }}/>
+    </div>
+  )
+}
+
+// Shows only when logged-in user is NOT admin; lets first user claim admin if no admin exists
+function ClaimAdminButton({ collapsed }) {
+  const [claiming, setClaiming] = useState(false)
+  const [hidden, setHidden] = useState(false)
+  if (hidden) return null
+
+  const claim = async () => {
+    if (!confirm('Claim admin access? This only works if no admin exists yet in the system.')) return
+    setClaiming(true)
+    try {
+      const r = await api.post('/auth/bootstrap-admin')
+      alert(r.data.message || 'You are now admin! Refreshing…')
+      window.location.reload()
+    } catch (e) {
+      const msg = e.response?.data?.error || 'Failed'
+      if (msg.includes('already exists')) {
+        alert('An admin already exists. Ask them to promote you via Admin Panel → Users.')
+        setHidden(true)
+      } else {
+        alert(msg)
+      }
+    }
+    setClaiming(false)
+  }
+
+  return (
+    <div style={{ padding: collapsed ? '4px 0' : '4px 12px', marginBottom: 4 }}>
+      <button onClick={claim} disabled={claiming} title="Claim admin (only works if no admin exists yet)"
+        style={{
+          width: '100%', padding: collapsed ? '8px 0' : '8px 12px',
+          borderRadius: 8, border: '1px dashed rgba(99,102,241,0.4)',
+          background: 'rgba(99,102,241,0.06)', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start',
+          gap: 8, fontSize: 12, color: '#818cf8', fontWeight: 600,
+        }}>
+        <ShieldCheck style={{ width: 14, height: 14, flexShrink: 0 }}/>
+        {!collapsed && (claiming ? 'Claiming…' : 'Claim Admin')}
+      </button>
     </div>
   )
 }
@@ -213,6 +256,11 @@ export default function Sidebar({ collapsed, onToggle }) {
               </span>
             )}
           </button>
+        )}
+
+        {/* Claim admin — shown only to logged-in non-admins; disappears once admin exists */}
+        {!isAdmin && user && (
+          <ClaimAdminButton/>
         )}
 
         {/* Admin */}

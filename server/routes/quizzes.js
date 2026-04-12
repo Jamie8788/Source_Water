@@ -177,15 +177,15 @@ router.get('/:id', requireAuth, async (req, res) => {
 router.post('/', requireAuth, requireQuizCreator, async (req, res) => {
   try {
     const { title, description, category, difficulty, time_per_question, time_limit, pass_score,
-            status, shuffle_questions, shuffle_answers, show_answers_after, negative_marking } = req.body
+            status, shuffle_questions, shuffle_answers, show_answers_after, negative_marking, embed_url } = req.body
     const { lastInsertRowid } = await db.run(
       `INSERT INTO quizzes (title,description,category,difficulty,time_per_question,time_limit,pass_score,
-        status,shuffle_questions,shuffle_answers,show_answers_after,negative_marking,created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        status,shuffle_questions,shuffle_answers,show_answers_after,negative_marking,embed_url,created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [title, description||'', category||'general', difficulty||'Beginner',
        +time_per_question||60, +time_limit||0, +pass_score||70,
        status||'draft', shuffle_questions?1:0, shuffle_answers?1:0,
-       show_answers_after!==false?1:0, +negative_marking||0, req.user.id]
+       show_answers_after!==false?1:0, +negative_marking||0, embed_url||null, req.user.id]
     )
     res.json(await db.get('SELECT * FROM quizzes WHERE id=?', [lastInsertRowid]))
   } catch (e) { res.status(500).json({ error: e.message }) }
@@ -200,13 +200,13 @@ router.put('/:id', requireAuth, requireQuizCreator, async (req, res) => {
     if (!req.user.is_admin && quiz.created_by !== req.user.id) return res.status(403).json({ error: 'You can only edit your own quizzes' })
 
     const { title, description, category, difficulty, time_per_question, time_limit, pass_score,
-            status, shuffle_questions, shuffle_answers, show_answers_after, negative_marking } = req.body
+            status, shuffle_questions, shuffle_answers, show_answers_after, negative_marking, embed_url } = req.body
     await db.run(
       `UPDATE quizzes SET title=?,description=?,category=?,difficulty=?,time_per_question=?,time_limit=?,
-        pass_score=?,status=?,shuffle_questions=?,shuffle_answers=?,show_answers_after=?,negative_marking=? WHERE id=?`,
+        pass_score=?,status=?,shuffle_questions=?,shuffle_answers=?,show_answers_after=?,negative_marking=?,embed_url=? WHERE id=?`,
       [title, description||'', category||'general', difficulty||'Beginner',
        +time_per_question||60, +time_limit||0, +pass_score||70, status||'draft',
-       shuffle_questions?1:0, shuffle_answers?1:0, show_answers_after?1:0, +negative_marking||0, req.params.id]
+       shuffle_questions?1:0, shuffle_answers?1:0, show_answers_after?1:0, +negative_marking||0, embed_url||null, req.params.id]
     )
     res.json(await db.get('SELECT * FROM quizzes WHERE id=?', [req.params.id]))
   } catch (e) { res.status(500).json({ error: e.message }) }
@@ -218,6 +218,8 @@ router.delete('/:id', requireAuth, requireQuizCreator, async (req, res) => {
     const quiz = await db.get('SELECT * FROM quizzes WHERE id=?', [req.params.id])
     if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
     if (!req.user.is_admin && quiz.created_by !== req.user.id) return res.status(403).json({ error: 'You can only delete your own quizzes' })
+    // Delete attempts first (no CASCADE on this FK), then the quiz
+    await db.run('DELETE FROM quiz_attempts WHERE quiz_id=?', [req.params.id])
     await db.run('DELETE FROM quizzes WHERE id=?', [req.params.id])
     res.json({ success: true })
   } catch (e) { res.status(500).json({ error: e.message }) }
@@ -351,30 +353,43 @@ router.post('/:id/submit', requireAuth, async (req, res) => {
 
     let earned = 0
     const total = questions.reduce((s, q) => s + (+q.points || 1), 0)
+    let hasNeedsGrading = false
 
     const results = questions.map(q => {
       const correct = parseOptions(q.correct_answers)
-      const userAnswer = answers?.[q.id]
-      let isCorrect = false
+      // Normalize answer key: JSON keys are always strings, but q.id may be number
+      const userAnswer = answers?.[q.id] ?? answers?.[String(q.id)]
+      const skipped = userAnswer === undefined || userAnswer === null || userAnswer === ''
 
-      if (q.question_type === 'mcq' || q.question_type === 'true_false') {
-        isCorrect = correct.includes(+userAnswer) || correct.includes(userAnswer)
-      } else if (q.question_type === 'multiple_select') {
-        const ua = (Array.isArray(userAnswer) ? userAnswer : []).map(Number)
-        isCorrect = correct.length === ua.length && correct.every(c => ua.includes(+c))
-      } else if (q.question_type === 'short_answer' || q.question_type === 'fill_blank') {
-        const ans = String(userAnswer || '').toLowerCase().trim()
-        isCorrect = ans.length > 0 && correct.some(c =>
-          String(c).toLowerCase().includes(ans) || ans.includes(String(c).toLowerCase())
-        )
-      } else if (q.question_type === 'numeric') {
-        const tolerance = parseFloat(correct[1] ?? 0)
-        isCorrect = !isNaN(parseFloat(userAnswer)) &&
-          Math.abs(parseFloat(userAnswer) - parseFloat(correct[0])) <= Math.max(tolerance, 0.001)
+      let isCorrect = false
+      let needsGrading = false
+
+      if (!skipped) {
+        if (q.question_type === 'mcq' || q.question_type === 'true_false') {
+          isCorrect = correct.length > 0 && (correct.includes(+userAnswer) || correct.map(String).includes(String(userAnswer)))
+        } else if (q.question_type === 'multiple_select') {
+          const ua = (Array.isArray(userAnswer) ? userAnswer : []).map(Number)
+          isCorrect = correct.length > 0 && correct.length === ua.length && correct.every(c => ua.includes(+c))
+        } else if (q.question_type === 'short_answer' || q.question_type === 'fill_blank') {
+          if (correct.length === 0) {
+            // No model answer defined — teacher must grade manually
+            needsGrading = true
+            hasNeedsGrading = true
+          } else {
+            const ans = String(userAnswer).toLowerCase().trim()
+            isCorrect = ans.length > 0 && correct.some(c =>
+              String(c).toLowerCase().includes(ans) || ans.includes(String(c).toLowerCase())
+            )
+          }
+        } else if (q.question_type === 'numeric') {
+          const tolerance = parseFloat(correct[1] ?? 0)
+          isCorrect = !isNaN(parseFloat(userAnswer)) &&
+            Math.abs(parseFloat(userAnswer) - parseFloat(correct[0])) <= Math.max(tolerance, 0.001)
+        }
       }
 
       if (isCorrect) earned += +q.points || 1
-      else if (userAnswer !== undefined && userAnswer !== null && userAnswer !== '') {
+      else if (!skipped && !needsGrading) {
         earned -= +q.negative_points > 0 ? +q.negative_points : (+quiz.negative_marking || 0)
       }
 
@@ -386,20 +401,24 @@ router.post('/:id/submit', requireAuth, async (req, res) => {
         user_answer: userAnswer,
         correct_answers: correct,
         is_correct: isCorrect,
+        needs_grading: needsGrading,
+        skipped,
         explanation: q.explanation,
-        points_earned: isCorrect ? (+q.points || 1) : -(+q.negative_points || 0),
+        points_earned: isCorrect ? (+q.points || 1) : needsGrading ? 0 : -(+q.negative_points || 0),
         max_points: +q.points || 1,
       }
     })
 
     earned = Math.max(0, earned)
     const score  = total > 0 ? Math.round((earned / total) * 100) : 0
-    const passed = score >= (+quiz.pass_score || 70)
+    // If there are questions needing manual grading, mark as pending, not passed/failed yet
+    const passed = !hasNeedsGrading && score >= (+quiz.pass_score || 70)
+    const gradingStatus = hasNeedsGrading ? 'pending' : 'auto'
 
     if (attempt_id) {
       await db.run(
-        `UPDATE quiz_attempts SET score=?,total_points=?,passed=?,time_taken=?,answers=?,completed_at=NOW() WHERE id=?`,
-        [score, total, passed?1:0, +time_taken||0, JSON.stringify({ results, raw: answers }), attempt_id]
+        `UPDATE quiz_attempts SET score=?,total_points=?,passed=?,time_taken=?,answers=?,grading_status=?,completed_at=NOW() WHERE id=?`,
+        [score, total, passed?1:0, +time_taken||0, JSON.stringify({ results, raw: answers, needs_grading: hasNeedsGrading }), gradingStatus, attempt_id]
       )
     }
     const xp = Math.max(0, Math.round(earned * 2))
@@ -410,7 +429,73 @@ router.post('/:id/submit', requireAuth, async (req, res) => {
         [req.user.id, 10, 'quiz_pass', new Date().toISOString().slice(0,7)]
       ).catch(() => {})
     }
-    res.json({ score, passed, earned, total, xp_earned: xp, results, quiz_title: quiz.title, time_taken: +time_taken||0 })
+    res.json({ score, passed, earned, total, xp_earned: xp, results, quiz_title: quiz.title, time_taken: +time_taken||0, needs_grading: hasNeedsGrading })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ── Get attempts needing grading ─────────────────────────────────────────────
+router.get('/:id/needs-grading', requireAuth, requireQuizCreator, async (req, res) => {
+  try {
+    const quiz = await db.get('SELECT * FROM quizzes WHERE id=?', [req.params.id])
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
+    if (!req.user.is_admin && quiz.created_by !== req.user.id) return res.status(403).json({ error: 'Access denied' })
+    const attempts = await db.all(
+      `SELECT qa.*, u.username, u.display_name, u.avatar_emoji, u.avatar_bg_color
+       FROM quiz_attempts qa JOIN users u ON qa.user_id=u.id
+       WHERE qa.quiz_id=? AND qa.grading_status='pending' AND qa.completed_at IS NOT NULL
+       ORDER BY qa.completed_at DESC`,
+      [req.params.id]
+    )
+    res.json({ attempts: attempts.map(a => ({
+      ...a,
+      answers_parsed: (() => { try { return JSON.parse(a.answers || '{}') } catch { return {} } })()
+    })) })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ── Teacher: grade a short-answer attempt ────────────────────────────────────
+router.patch('/attempts/:attemptId/grade', requireAuth, requireQuizCreator, async (req, res) => {
+  try {
+    const { grades } = req.body  // [{ question_id, is_correct }]
+    if (!Array.isArray(grades) || grades.length === 0) return res.status(400).json({ error: 'grades array required' })
+
+    const attempt = await db.get('SELECT * FROM quiz_attempts WHERE id=?', [req.params.attemptId])
+    if (!attempt) return res.status(404).json({ error: 'Attempt not found' })
+
+    // Verify teacher owns the quiz
+    const quiz = await db.get('SELECT * FROM quizzes WHERE id=?', [attempt.quiz_id])
+    if (!req.user.is_admin && quiz.created_by !== req.user.id) return res.status(403).json({ error: 'Access denied' })
+
+    let parsed = {}
+    try { parsed = JSON.parse(attempt.answers || '{}') } catch {}
+    const results = parsed.results || []
+
+    let earned = 0
+    const gradeMap = {}
+    grades.forEach(g => { gradeMap[g.question_id] = g.is_correct })
+
+    const updated = results.map(r => {
+      if (gradeMap[r.question_id] !== undefined) {
+        r.is_correct    = !!gradeMap[r.question_id]
+        r.needs_grading = false
+        r.points_earned = r.is_correct ? (r.max_points || 1) : 0
+      }
+      if (r.is_correct) earned += r.points_earned || r.max_points || 1
+      else if (r.points_earned < 0) earned += r.points_earned
+      return r
+    })
+
+    const total   = results.reduce((s, r) => s + (r.max_points || 1), 0)
+    earned        = Math.max(0, earned)
+    const score   = total > 0 ? Math.round((earned / total) * 100) : 0
+    const passed  = score >= (+quiz.pass_score || 70)
+    const stillPending = updated.some(r => r.needs_grading)
+
+    await db.run(
+      `UPDATE quiz_attempts SET score=?,passed=?,answers=?,grading_status=? WHERE id=?`,
+      [score, passed?1:0, JSON.stringify({ ...parsed, results: updated, needs_grading: stillPending }), stillPending?'pending':'graded', req.params.attemptId]
+    )
+    res.json({ success: true, score, passed, still_pending: stillPending })
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 

@@ -139,4 +139,37 @@ router.get('/check-username', async (req, res) => {
   res.json({ available: !existing })
 })
 
+// POST /api/auth/bootstrap-admin
+// Promotes the calling user to admin IF no admin exists yet (first-run safety net)
+router.post('/bootstrap-admin', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1]
+  if (!token) return res.status(401).json({ error: 'Not authenticated' })
+
+  // Verify token and get local user
+  let localUser = null
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
+    try {
+      const { createClient } = require('@supabase/supabase-js')
+      const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)
+      const { data: { user: sbUser }, error } = await sb.auth.getUser(token)
+      if (sbUser && !error) localUser = await db.get('SELECT * FROM users WHERE email = ?', [sbUser.email])
+    } catch (_) {}
+  }
+  if (!localUser) {
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET)
+      localUser = await db.get('SELECT * FROM users WHERE id = ?', [decoded.id])
+    } catch (_) {}
+  }
+  if (!localUser) return res.status(401).json({ error: 'Could not verify identity' })
+
+  // Only allow if NO OTHER admin exists (prevents abuse after setup)
+  const adminExists = await db.get(`SELECT 1 FROM users WHERE is_admin=1 AND id != ?`, [localUser.id])
+  if (adminExists) return res.status(403).json({ error: 'An admin already exists. Ask them to promote you via Admin Panel → Users.' })
+
+  await db.run('UPDATE users SET is_admin=1, is_active=1, role=? WHERE id=?', ['SOURCE Water team member', localUser.id])
+  const updated = await db.get('SELECT * FROM users WHERE id=?', [localUser.id])
+  res.json({ success: true, message: 'You are now admin. Page will reload.', user: safeUser(updated) })
+})
+
 module.exports = router

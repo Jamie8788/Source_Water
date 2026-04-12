@@ -27,7 +27,7 @@ import api from '../utils/api'
 import {
   Plus, Trash2, Edit2, Save, ArrowUp, ArrowDown,
   BarChart2, ChevronLeft, Eye, Upload, AlertCircle,
-  CheckCircle, RefreshCw, Sparkles, Zap
+  CheckCircle, RefreshCw, Sparkles, Zap, Clock
 } from 'lucide-react'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -161,9 +161,13 @@ function QuizList({ onEdit, onAnalytics, onNew }) {
   useEffect(() => { reload() }, [reload])
 
   const del = async (q) => {
-    if (!confirm(`Delete "${q.title}" and all its questions? This cannot be undone.`)) return
-    await api.delete(`/quizzes/${q.id}`).catch(() => {})
-    reload()
+    if (!confirm(`Delete "${q.title}" and all its data? This cannot be undone.`)) return
+    try {
+      await api.delete(`/quizzes/${q.id}`)
+      reload()
+    } catch (e) {
+      alert('Delete failed: ' + (e.response?.data?.error || e.message))
+    }
   }
 
   const toggle = async (q) => {
@@ -256,6 +260,7 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
     shuffle_answers:    !!initQuiz?.shuffle_answers,
     show_answers_after: initQuiz?.show_answers_after !== 0,
     status:             initQuiz?.status || 'published',
+    embed_url:          initQuiz?.embed_url || '',
   })
   const [questions, setQs]       = useState([])
   const [editQ, setEditQ]        = useState(null)
@@ -304,7 +309,15 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
     explanation: '', points: 1, negative_points: 0, image: null,
   })
 
-  const openNewQ  = () => { if (!quiz?.id) { alert('Save quiz settings first.'); return } setQF(blankQ()); setEditQ('new'); setImgPrev(null) }
+  const openNewQ  = () => {
+    if (!quiz?.id) { alert('Save quiz settings first, then add questions.'); return }
+    if (editQ && qForm?.question_text?.trim()) {
+      if (!confirm('You have an unsaved question open. Discard it and start a new one?')) return
+    }
+    setQF(blankQ()); setEditQ('new'); setImgPrev(null)
+    // Scroll to editor
+    setTimeout(() => document.getElementById('q-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
   const openEditQ = (q) => { setQF({ ...q, image: null }); setImgPrev(q.question_image || null); setEditQ(q) }
 
   const saveQ = async () => {
@@ -431,6 +444,24 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
               <option value="published">Published</option>
               <option value="archived">Archived</option>
             </select>
+          </div>
+
+          {/* External embed (Google Forms, Typeform, etc.) */}
+          <div style={{ paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>🔗</span> External Embed <span style={{ fontWeight: 400, fontSize: 10 }}>(optional)</span>
+            </div>
+            <D2LText
+              label="Google Form / Typeform URL"
+              value={form.embed_url}
+              onChange={v => inp('embed_url', v)}
+              placeholder="https://docs.google.com/forms/d/…"
+            />
+            {form.embed_url && (
+              <div style={{ marginTop: 6, padding: '6px 10px', borderRadius: 6, background: 'rgba(0,111,191,0.06)', border: '1px solid rgba(0,111,191,0.2)', fontSize: 11, color: '#006fbf' }}>
+                ✓ Students will complete this form inside the quiz player instead of built-in questions.
+              </div>
+            )}
           </div>
 
           {quiz?.id && (
@@ -643,7 +674,7 @@ function QuestionEditor({ qForm, setQF, imgPreview, setImgPrev, imgRef, isNew, o
   }
 
   return (
-    <div className="card" style={{ padding: 20, border: '2px solid rgba(0,111,191,0.25)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div id="q-editor" className="card" style={{ padding: 20, border: '2px solid rgba(0,111,191,0.25)', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ fontWeight: 800, fontSize: 14, color: '#006fbf' }}>{isNew ? '+ New Question' : 'Edit Question'}</div>
 
       {/* Type selector */}
@@ -681,17 +712,25 @@ function QuestionEditor({ qForm, setQF, imgPreview, setImgPrev, imgRef, isNew, o
       {/* Image upload */}
       <div>
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Question Image (optional)</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <input ref={imgRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {/* Use label+htmlFor — works 100% reliably; d2l web components swallow programmatic clicks */}
+          <label htmlFor="q-img-file" style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+            fontSize: 13, fontWeight: 600, color: '#006fbf',
+            padding: '6px 14px', borderRadius: 6,
+            border: '1px solid #006fbf', background: 'rgba(0,111,191,0.06)',
+          }}>
+            📎 {imgPreview ? 'Change Image' : 'Upload Image'}
+          </label>
+          <input id="q-img-file" ref={imgRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
             const f = e.target.files?.[0]; if (!f) return
             setQF(prev => ({ ...prev, image: f })); setImgPrev(URL.createObjectURL(f))
           }} />
-          <d2l-button-subtle text={imgPreview ? 'Change Image' : 'Upload Image'} onClick={() => imgRef.current?.click()} />
           {imgPreview && (
             <>
               <img src={imgPreview} alt="preview" style={{ height: 56, width: 80, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
-              <button onClick={() => { setImgPrev(null); setQF(f => ({ ...f, image: null })) }}
-                style={{ fontSize: 12, padding: '3px 8px', borderRadius: 6, background: 'rgba(204,51,51,0.1)', color: '#cc3333', border: 'none', cursor: 'pointer' }}>✕</button>
+              <button onClick={() => { setImgPrev(null); setQF(f => ({ ...f, image: null })); if (imgRef.current) imgRef.current.value = '' }}
+                style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, background: 'rgba(204,51,51,0.1)', color: '#cc3333', border: '1px solid rgba(204,51,51,0.2)', cursor: 'pointer' }}>✕ Remove</button>
             </>
           )}
         </div>
@@ -798,6 +837,141 @@ function QuestionEditor({ qForm, setQF, imgPreview, setImgPrev, imgRef, isNew, o
           {saving ? 'Saving…' : isNew ? 'Add Question' : 'Save Changes'}
         </d2l-button>
       </div>
+    </div>
+  )
+}
+
+// ── Needs-Grading panel (inside Analytics tabs) ──────────────────────────────
+function NeedsGradingPanel({ quizId, passScore }) {
+  const [attempts, setAttempts] = useState(null)
+  const [grades, setGrades]     = useState({})   // { attemptId: { questionId: bool } }
+  const [saving, setSaving]     = useState({})
+  const [expand, setExpand]     = useState({})
+
+  useEffect(() => {
+    api.get(`/quizzes/${quizId}/needs-grading`)
+      .then(r => setAttempts(r.data.attempts || []))
+      .catch(() => setAttempts([]))
+  }, [quizId])
+
+  const setGrade = (attemptId, questionId, isCorrect) => {
+    setGrades(g => ({ ...g, [attemptId]: { ...(g[attemptId] || {}), [questionId]: isCorrect } }))
+  }
+
+  const submit = async (attemptId) => {
+    const g = grades[attemptId] || {}
+    const payload = Object.entries(g).map(([question_id, is_correct]) => ({ question_id: +question_id, is_correct }))
+    if (!payload.length) return
+    setSaving(s => ({ ...s, [attemptId]: true }))
+    try {
+      const r = await api.patch(`/quizzes/attempts/${attemptId}/grade`, { grades: payload })
+      if (!r.data.still_pending) {
+        setAttempts(prev => prev.filter(a => a.id !== attemptId))
+        alert(`Graded! New score: ${r.data.score}% — ${r.data.passed ? 'PASSED ✓' : 'FAILED'}`)
+      }
+    } catch (e) { alert(e.response?.data?.error || 'Failed to save grades') }
+    setSaving(s => ({ ...s, [attemptId]: false }))
+  }
+
+  if (!attempts) return (
+    <div style={{ padding: '2rem', display: 'flex', justifyContent: 'center' }}>
+      <d2l-loading-spinner size="60"/>
+    </div>
+  )
+  if (attempts.length === 0) return (
+    <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
+      <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>All caught up!</div>
+      <div style={{ fontSize: 13 }}>No submissions awaiting manual grading.</div>
+    </div>
+  )
+
+  return (
+    <div style={{ padding: '1.5rem 0', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ padding: '10px 16px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', fontSize: 13, color: '#92400e' }}>
+        ⏳ <strong>{attempts.length}</strong> submission{attempts.length !== 1 ? 's' : ''} awaiting evaluation. Short-answer questions must be graded manually.
+      </div>
+
+      {attempts.map(a => {
+        const parsed = a.answers_parsed || {}
+        const pendingQs = (parsed.results || []).filter(r => r.needs_grading)
+        const myGrades  = grades[a.id] || {}
+        const allGraded = pendingQs.every(r => myGrades[r.question_id] !== undefined)
+
+        return (
+          <div key={a.id} className="card" style={{ overflow: 'hidden' }}>
+            {/* Header row */}
+            <button onClick={() => setExpand(e => ({ ...e, [a.id]: !e[a.id] }))}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: a.avatar_bg_color || '#3B82F6',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>
+                {a.avatar_emoji || a.display_name?.[0]?.toUpperCase() || '?'}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 14 }}>{a.display_name || a.username}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  @{a.username} · Submitted {a.completed_at ? new Date(a.completed_at).toLocaleString() : '—'} · Auto-score: <strong>{a.score ?? 0}%</strong>
+                </div>
+              </div>
+              <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: 'rgba(245,158,11,0.12)', color: '#d97706', fontWeight: 700, flexShrink: 0 }}>
+                {pendingQs.length} to grade
+              </span>
+              {expand[a.id] ? <ChevronLeft size={16} style={{ transform: 'rotate(-90deg)', color: 'var(--text-muted)' }}/> : <ArrowDown size={16} style={{ color: 'var(--text-muted)' }}/>}
+            </button>
+
+            {/* Questions to grade */}
+            {expand[a.id] && (
+              <div style={{ borderTop: '1px solid var(--border)', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {pendingQs.map(r => {
+                  const grade = myGrades[r.question_id]
+                  return (
+                    <div key={r.question_id} style={{ padding: 16, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--page-bg)' }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 10 }}>{r.question_text}</div>
+                      <div style={{ padding: '10px 14px', borderRadius: 6, background: 'var(--card-bg)', border: '1px solid var(--border)', fontSize: 13, marginBottom: 12 }}>
+                        <span style={{ fontWeight: 600, color: 'var(--text-muted)', marginRight: 8 }}>Student's answer:</span>
+                        <span style={{ color: 'var(--text)' }}>{r.user_answer || <em style={{ color: 'var(--text-muted)' }}>no answer</em>}</span>
+                      </div>
+                      {r.correct_answers?.length > 0 && (
+                        <div style={{ padding: '8px 14px', borderRadius: 6, background: 'rgba(26,122,60,0.06)', border: '1px solid rgba(26,122,60,0.2)', fontSize: 12, color: '#1a7a3c', marginBottom: 12 }}>
+                          <strong>Suggested answers:</strong> {r.correct_answers.join(' / ')}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => setGrade(a.id, r.question_id, true)}
+                          style={{ flex: 1, padding: '8px', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer', border: '2px solid',
+                            borderColor: grade === true ? '#1a7a3c' : 'var(--border)',
+                            background: grade === true ? 'rgba(26,122,60,0.1)' : 'transparent',
+                            color: grade === true ? '#1a7a3c' : 'var(--text-muted)',
+                          }}>
+                          ✓ Correct (+{r.max_points || 1} pt{(r.max_points||1) !== 1 ? 's' : ''})
+                        </button>
+                        <button onClick={() => setGrade(a.id, r.question_id, false)}
+                          style={{ flex: 1, padding: '8px', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer', border: '2px solid',
+                            borderColor: grade === false ? '#cc3333' : 'var(--border)',
+                            background: grade === false ? 'rgba(204,51,51,0.08)' : 'transparent',
+                            color: grade === false ? '#cc3333' : 'var(--text-muted)',
+                          }}>
+                          ✗ Incorrect (0 pts)
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                  <d2l-button
+                    primary
+                    disabled={!allGraded || saving[a.id] || undefined}
+                    onClick={() => submit(a.id)}
+                  >
+                    {saving[a.id] ? 'Saving…' : `Submit Grades for ${a.display_name || a.username}`}
+                  </d2l-button>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -989,7 +1163,7 @@ function Analytics({ quiz, onBack }) {
                 <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ background: 'var(--page-bg)', borderBottom: '1px solid var(--border)' }}>
-                      {['User','Score','Status','Time','Date'].map(h => (
+                      {['User','Score','Status','Grading','Time','Date'].map(h => (
                         <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>{h}</th>
                       ))}
                     </tr>
@@ -1005,7 +1179,18 @@ function Analytics({ quiz, onBack }) {
                           <span style={{ fontWeight: 900, fontSize: 14, color: a.score >= 70 ? '#1a7a3c' : a.score >= 50 ? '#c45f00' : '#cc3333' }}>{a.score ?? '—'}%</span>
                         </td>
                         <td style={{ padding: '10px 16px' }}>
-                          <d2l-status-indicator state={a.passed ? 'success' : 'error'} text={a.passed ? 'Passed' : 'Failed'} />
+                          <d2l-status-indicator
+                            state={a.grading_status === 'pending' ? 'default' : a.passed ? 'success' : 'error'}
+                            text={a.grading_status === 'pending' ? 'Pending' : a.passed ? 'Passed' : 'Failed'}
+                          />
+                        </td>
+                        <td style={{ padding: '10px 16px' }}>
+                          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, fontWeight: 600,
+                            background: a.grading_status === 'pending' ? 'rgba(245,158,11,0.12)' : a.grading_status === 'graded' ? 'rgba(26,122,60,0.1)' : 'var(--border)',
+                            color: a.grading_status === 'pending' ? '#d97706' : a.grading_status === 'graded' ? '#1a7a3c' : 'var(--text-muted)',
+                          }}>
+                            {a.grading_status === 'pending' ? '⏳ Needs grading' : a.grading_status === 'graded' ? '✓ Graded' : '✓ Auto-graded'}
+                          </span>
                         </td>
                         <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-muted)' }}>
                           {a.time_taken ? `${Math.floor(a.time_taken / 60)}m ${a.time_taken % 60}s` : '—'}
@@ -1020,6 +1205,11 @@ function Analytics({ quiz, onBack }) {
               </div>
             </div>
           </div>
+        </d2l-tab-panel>
+
+        {/* ── Needs Grading tab ── */}
+        <d2l-tab-panel text="Needs Grading">
+          <NeedsGradingPanel quizId={quiz.id} passScore={quiz.pass_score || 70}/>
         </d2l-tab-panel>
       </d2l-tabs>
     </div>

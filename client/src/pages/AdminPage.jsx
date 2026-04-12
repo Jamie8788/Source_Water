@@ -203,17 +203,42 @@ function ActivityChart() {
 }
 
 /* ── USERS PANEL ── */
-const ROLE_COLORS = {
-  admin: { bg: 'rgba(99,102,241,0.15)', color: '#818cf8' },
-  researcher: { bg: 'rgba(20,184,166,0.15)', color: '#2dd4bf' },
-  student: { bg: 'rgba(245,158,11,0.15)', color: '#fbbf24' },
-  community_member: { bg: 'rgba(16,185,129,0.15)', color: '#34d399' },
+// These must match AuthContext isQuizCreator check exactly
+const ALL_ROLES = ['Community member', 'Teacher', 'Professor', 'Researcher', 'SOURCE Water team member']
+const QUIZ_CREATOR_ROLES = new Set(['Teacher', 'Professor', 'Researcher', 'SOURCE Water team member'])
+
+const ROLE_META = {
+  'Community member':        { bg: 'rgba(100,116,139,0.12)', color: '#64748b',  icon: '👤' },
+  'Teacher':                 { bg: 'rgba(249,115,22,0.12)',  color: '#f97316',  icon: '🏫' },
+  'Professor':               { bg: 'rgba(168,85,247,0.12)', color: '#a855f7',  icon: '🎓' },
+  'Researcher':              { bg: 'rgba(20,184,166,0.12)', color: '#14b8a6',  icon: '🔬' },
+  'SOURCE Water team member':{ bg: 'rgba(99,102,241,0.12)', color: '#6366f1',  icon: '💧' },
+}
+const roleMeta = (r) => ROLE_META[r] || ROLE_META['Community member']
+
+// What each role unlocks — shown as permission chips in the table
+function PermChips({ role, is_admin }) {
+  const chips = []
+  if (is_admin) chips.push({ label: 'Admin Panel', color: '#ef4444' })
+  if (QUIZ_CREATOR_ROLES.has(role)) chips.push({ label: 'Quiz Manager', color: '#f97316' })
+  if (chips.length === 0) chips.push({ label: 'Standard access', color: '#64748b' })
+  return (
+    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+      {chips.map(c => (
+        <span key={c.label} style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
+          background: `${c.color}18`, color: c.color, whiteSpace: 'nowrap' }}>
+          {c.label}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 function UsersPanel() {
-  const [users, setUsers] = useState([])
-  const [search, setSearch] = useState('')
+  const [users, setUsers]       = useState([])
+  const [search, setSearch]     = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
+  const [saving, setSaving]     = useState({})  // {userId: true} while saving
 
   useEffect(() => {
     api.get('/users').then(r => {
@@ -222,18 +247,22 @@ function UsersPanel() {
     }).catch(() => {})
   }, [])
 
-  const changeRole = async (userId, role) => {
-    await api.put(`/users/${userId}`, { role }).catch(() => {})
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, role } : u))
+  const updateUser = async (userId, patch) => {
+    setSaving(s => ({ ...s, [userId]: true }))
+    try {
+      await api.put(`/users/${userId}`, patch)
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, ...patch } : u))
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to update user')
+    }
+    setSaving(s => ({ ...s, [userId]: false }))
   }
 
-  const toggleActive = async (u) => {
-    await api.put(`/users/${u.id}`, { is_active: u.is_active ? 0 : 1 }).catch(() => {})
-    setUsers(prev => prev.map(x => x.id === u.id ? { ...x, is_active: x.is_active ? 0 : 1 } : x))
-  }
+  const toggleAdmin = (u) => updateUser(u.id, { is_admin: u.is_admin ? 0 : 1 })
+  const toggleActive = (u) => updateUser(u.id, { is_active: u.is_active ? 0 : 1 })
 
   const deleteUser = async (u) => {
-    if (!confirm(`Permanently delete @${u.username}? All their posts, observations and data will be removed. This cannot be undone.`)) return
+    if (!confirm(`Permanently delete @${u.username}? All their data will be removed. This cannot be undone.`)) return
     const r = await api.delete(`/users/${u.id}`).catch(e => { alert(e.response?.data?.error || 'Failed'); return null })
     if (r) setUsers(prev => prev.filter(x => x.id !== u.id))
   }
@@ -241,64 +270,97 @@ function UsersPanel() {
   const filtered = users.filter(u => {
     const q = search.toLowerCase()
     const match = !search || u.display_name?.toLowerCase().includes(q) || u.username?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q)
-    const roleMatch = roleFilter === 'all' || u.role === roleFilter
+    const roleMatch = roleFilter === 'all'
+      || (roleFilter === 'admin' && u.is_admin)
+      || (roleFilter === 'quiz_creator' && QUIZ_CREATOR_ROLES.has(u.role))
+      || u.role === roleFilter
     return match && roleMatch
   })
 
+  const adminCount   = users.filter(u => u.is_admin).length
+  const creatorCount = users.filter(u => QUIZ_CREATOR_ROLES.has(u.role)).length
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* Role legend */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', padding: '12px 16px',
+        background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12 }}>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, alignSelf: 'center', marginRight: 4 }}>ROLE ACCESS:</span>
+        {[
+          { label: 'Community member', desc: 'Standard — read/post/quiz', color: '#64748b' },
+          { label: 'Teacher / Professor', desc: '+ Quiz Manager tab', color: '#f97316' },
+          { label: 'Researcher', desc: '+ Quiz Manager tab', color: '#14b8a6' },
+          { label: 'SOURCE Water team', desc: '+ Quiz Manager tab', color: '#6366f1' },
+          { label: 'is_admin ✓', desc: '+ Full Admin Panel', color: '#ef4444' },
+        ].map(r => (
+          <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: r.color, flexShrink: 0 }}/>
+            <span style={{ fontSize: 11, color: 'var(--text)' }}><strong>{r.label}</strong> — {r.desc}</span>
+          </div>
+        ))}
+      </div>
+
       {/* Controls */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
           <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: 'var(--text-light)' }}/>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search users…"
-            style={{ paddingLeft: 32, width: '100%', background: 'var(--card-bg)', border: '1.5px solid var(--border)', borderRadius: 9, padding: '8px 12px 8px 32px', fontSize: 13, color: 'var(--text)', outline: 'none' }}/>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, username, email…"
+            style={{ width: '100%', background: 'var(--card-bg)', border: '1.5px solid var(--border)', borderRadius: 9, padding: '8px 12px 8px 32px', fontSize: 13, color: 'var(--text)', outline: 'none' }}/>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {['all','admin','researcher','student','community_member'].map(r => (
-            <button key={r} onClick={() => setRoleFilter(r)}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {[
+            { key: 'all',          label: `All (${users.length})` },
+            { key: 'admin',        label: `Admins (${adminCount})` },
+            { key: 'quiz_creator', label: `Quiz Creators (${creatorCount})` },
+            ...ALL_ROLES.map(r => ({ key: r, label: r === 'Community member' ? 'Community' : r === 'SOURCE Water team member' ? 'SW Team' : r })),
+          ].map(f => (
+            <button key={f.key} onClick={() => setRoleFilter(f.key)}
               style={{
                 padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                background: roleFilter === r ? 'rgba(99,102,241,0.15)' : 'var(--border)',
-                color: roleFilter === r ? '#818cf8' : 'var(--text-muted)',
+                background: roleFilter === f.key ? 'rgba(99,102,241,0.15)' : 'var(--border)',
+                color: roleFilter === f.key ? '#818cf8' : 'var(--text-muted)',
               }}>
-              {r === 'community_member' ? 'Community' : r.charAt(0).toUpperCase() + r.slice(1)}
+              {f.label}
             </button>
           ))}
         </div>
-        <button style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 9, background: 'rgba(99,102,241,0.12)', color: '#818cf8', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-          <Plus style={{ width: 14, height: 14 }}/> Invite User
-        </button>
       </div>
 
       {/* Table */}
       <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden' }}>
         <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{filtered.length} users</span>
-          <button style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer' }}>
-            <Download style={{ width: 12, height: 12 }}/> Export CSV
-          </button>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            Role changes take effect on the user's next page refresh.
+          </span>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: 'rgba(0,0,0,0.02)' }}>
-                {['User', 'Email', 'Role', 'Points', 'Last Active', 'Status', ''].map(h => (
+                {['User', 'Email', 'Role', 'Permissions', 'Admin', 'Status', 'Actions'].map(h => (
                   <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: 'var(--text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
+              {filtered.length === 0 && (
+                <tr><td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>No users match.</td></tr>
+              )}
               {filtered.map(u => {
-                const rc = ROLE_COLORS[u.role] || ROLE_COLORS.community_member
+                const rm = roleMeta(u.role)
+                const isSaving = saving[u.id]
                 return (
-                  <tr key={u.id} style={{ borderTop: '1px solid var(--border)', transition: 'background 0.12s' }}
+                  <tr key={u.id} style={{ borderTop: '1px solid var(--border)', transition: 'background 0.12s', opacity: isSaving ? 0.6 : 1 }}
                     onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.03)'}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <td style={{ padding: '12px 16px' }}>
+
+                    {/* User */}
+                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#14b8a6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
-                          {u.display_name?.[0]?.toUpperCase() || '?'}
+                        <div style={{ width: 34, height: 34, borderRadius: '50%', background: u.avatar_bg_color || 'linear-gradient(135deg,#6366f1,#14b8a6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+                          {u.avatar_emoji || u.display_name?.[0]?.toUpperCase() || '?'}
                         </div>
                         <div>
                           <div style={{ fontWeight: 600, color: 'var(--text)' }}>{u.display_name || u.username}</div>
@@ -306,39 +368,73 @@ function UsersPanel() {
                         </div>
                       </div>
                     </td>
-                    <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{u.email}</td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <select value={u.role} onChange={e => changeRole(u.id, e.target.value)}
-                        style={{ background: rc.bg, color: rc.color, border: 'none', borderRadius: 7, padding: '4px 8px', fontWeight: 600, fontSize: 12, cursor: 'pointer', outline: 'none' }}>
-                        {['community_member','student','researcher','admin'].map(r => <option key={r} value={r}>{r}</option>)}
+
+                    {/* Email */}
+                    <td style={{ padding: '10px 16px', color: 'var(--text-muted)', fontSize: 12, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</td>
+
+                    {/* Role dropdown */}
+                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
+                      <select
+                        value={u.role || 'Community member'}
+                        disabled={isSaving}
+                        onChange={e => updateUser(u.id, { role: e.target.value })}
+                        style={{
+                          background: rm.bg, color: rm.color, border: `1.5px solid ${rm.color}40`,
+                          borderRadius: 8, padding: '5px 10px', fontWeight: 700, fontSize: 12,
+                          cursor: 'pointer', outline: 'none', appearance: 'none',
+                          backgroundImage: `url("data:image/svg+xml,%3Csvg width='10' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0l5 6 5-6' fill='none' stroke='%23888' stroke-width='1.5'/%3E%3C/svg%3E")`,
+                          backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center', paddingRight: 24,
+                        }}>
+                        {ALL_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                       </select>
                     </td>
-                    <td style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text)' }}>{(u.total_points || 0).toLocaleString()}</td>
-                    <td style={{ padding: '12px 16px', color: 'var(--text-muted)', fontSize: 12 }}>{u.last_active || new Date(u.created_at).toLocaleDateString()}</td>
-                    <td style={{ padding: '12px 16px' }}>
+
+                    {/* Permission chips */}
+                    <td style={{ padding: '10px 16px' }}>
+                      <PermChips role={u.role} is_admin={u.is_admin}/>
+                    </td>
+
+                    {/* Admin toggle */}
+                    <td style={{ padding: '10px 16px', textAlign: 'center' }}>
+                      <button
+                        title={u.is_admin ? 'Remove admin' : 'Make admin'}
+                        disabled={isSaving}
+                        onClick={() => toggleAdmin(u)}
+                        style={{
+                          width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', position: 'relative',
+                          background: u.is_admin ? '#6366f1' : '#e2e8f0',
+                          transition: 'background 0.2s',
+                        }}>
+                        <span style={{
+                          position: 'absolute', top: 2, width: 18, height: 18, borderRadius: '50%',
+                          background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                          left: u.is_admin ? 20 : 2,
+                        }}/>
+                      </button>
+                    </td>
+
+                    {/* Status */}
+                    <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
                       <span style={{
                         display: 'inline-flex', alignItems: 'center', gap: 5,
                         padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
                         background: u.is_active ? 'rgba(16,185,129,0.12)' : 'rgba(100,116,139,0.12)',
                         color: u.is_active ? '#10b981' : '#64748b',
                       }}>
-                        {u.is_active ? <><PulseDot color="#10b981"/> Active</> : 'Inactive'}
+                        {u.is_active ? <><PulseDot color="#10b981"/> Active</> : 'Suspended'}
                       </span>
                     </td>
-                    <td style={{ padding: '12px 16px' }}>
+
+                    {/* Actions */}
+                    <td style={{ padding: '10px 16px' }}>
                       <div style={{ display: 'flex', gap: 4 }}>
-                        <button title="View profile" style={{ padding: 6, borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
-                          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.1)'; e.currentTarget.style.color = '#818cf8' }}
-                          onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)' }}>
-                          <Eye style={{ width: 14, height: 14 }}/>
-                        </button>
-                        <button title={u.is_active ? 'Suspend user' : 'Reactivate user'} onClick={() => toggleActive(u)}
+                        <button title={u.is_active ? 'Suspend' : 'Reactivate'} onClick={() => toggleActive(u)} disabled={isSaving}
                           style={{ padding: 6, borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
-                          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; e.currentTarget.style.color = '#ef4444' }}
+                          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.1)'; e.currentTarget.style.color = '#f59e0b' }}
                           onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)' }}>
                           {u.is_active ? <Lock style={{ width: 14, height: 14 }}/> : <Unlock style={{ width: 14, height: 14 }}/>}
                         </button>
-                        <button title="Delete user" onClick={() => deleteUser(u)}
+                        <button title="Delete user" onClick={() => deleteUser(u)} disabled={isSaving}
                           style={{ padding: 6, borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
                           onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; e.currentTarget.style.color = '#ef4444' }}
                           onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)' }}>

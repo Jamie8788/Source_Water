@@ -282,6 +282,7 @@ function QuizBrowser({ onSelect }) {
                     <span style={{fontWeight:600, fontSize:15, color:'var(--text)'}}>{q.title}</span>
                     <Chip label={cat} bg={`${cc}18`} color={cc}/>
                     <Chip label={diff} bg={ds.bg} color={ds.color}/>
+                    {q.embed_url && <Chip label="🔗 Form" bg='rgba(0,111,191,0.08)' color='#006fbf'/>}
                     {(q.status === 'draft' || q.status === 'archived') && (
                       <Chip label={q.status.toUpperCase()} bg='#fef9e7' color='#976500'/>
                     )}
@@ -313,7 +314,7 @@ function QuizBrowser({ onSelect }) {
                 {/* Action button */}
                 <div slot="actions" style={{display:'flex',gap:8,alignItems:'center',flexShrink:0}}>
                   <d2l-button primary={!my || undefined} onClick={() => onSelect(q)}>
-                    {my ? 'Retake' : 'Start Quiz'}
+                    {q.embed_url ? (my ? 'Redo Form' : '🔗 Open Form') : (my ? 'Retake' : 'Start Quiz')}
                   </d2l-button>
                 </div>
               </d2l-list-item>
@@ -361,65 +362,85 @@ function QuizConfirm({ quiz, onStart, onBack }) {
             {quiz.description && <p style={{fontSize:14, color:'var(--text-muted)', margin:0}}>{quiz.description}</p>}
           </div>
 
-          {/* Stats grid */}
-          <div style={{
-            display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:24,
-            padding:'16px', background:'var(--page-bg)', borderRadius:8, border:'1px solid var(--border)'
-          }}>
-            {[
-              {icon:'📋', l:'Questions', v:quiz.question_count||'?'},
-              {icon:'⏱',  l:'Time',      v:timeLabel},
-              {icon:'🎯',  l:'Pass Score',v:`${quiz.pass_score||70}%`},
-            ].map(s => (
-              <div key={s.l} style={{textAlign:'center'}}>
-                <div style={{fontSize:22, marginBottom:4}}>{s.icon}</div>
-                <div style={{fontSize:16, fontWeight:700, color:'var(--text)'}}>{s.v}</div>
-                <div style={{fontSize:12, color:'var(--text-muted)'}}>{s.l}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Study mode toggle */}
-          <div style={{
-            padding:'16px', borderRadius:8, marginBottom:24,
-            border:`2px solid ${studyMode?'#006fbf':'var(--border)'}`,
-            background:studyMode?'rgba(0,111,191,0.04)':'var(--page-bg)',
-            transition:'border-color .2s, background .2s',
-          }}>
-            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
-              <div style={{display:'flex',alignItems:'center',gap:12}}>
-                <div style={{fontSize:24}}>📖</div>
-                <div>
-                  <div style={{fontWeight:600, fontSize:14, color:'var(--text)'}}>Study Mode</div>
-                  <div style={{fontSize:12, color:'var(--text-muted)'}}>
-                    See correct answers immediately. No timer. Attempt is still recorded.
-                  </div>
+          {/* External form badge */}
+          {quiz.embed_url && (
+            <div style={{
+              display:'flex', alignItems:'center', gap:10, padding:'12px 16px', marginBottom:16,
+              borderRadius:8, background:'rgba(0,111,191,0.06)', border:'1px solid rgba(0,111,191,0.2)',
+            }}>
+              <span style={{fontSize:20}}>🔗</span>
+              <div>
+                <div style={{fontSize:13, fontWeight:600, color:'#006fbf'}}>External Form</div>
+                <div style={{fontSize:12, color:'var(--text-muted)'}}>
+                  This quiz uses an embedded form. Complete it and click "Mark Complete" to record your attempt.
                 </div>
               </div>
-              <button onClick={() => setStudyMode(v=>!v)} style={{
-                width:44, height:24, borderRadius:12, border:'none', cursor:'pointer',
-                background:studyMode?'#006fbf':'#cdd5dc', position:'relative', flexShrink:0,
-                transition:'background .2s',
-              }}>
-                <span style={{
-                  position:'absolute', top:2, left:studyMode?22:2, width:20, height:20,
-                  borderRadius:10, background:'white', transition:'left .2s',
-                  boxShadow:'0 1px 3px rgba(0,0,0,0.2)',
-                }}/>
-              </button>
             </div>
-            {studyMode && (
-              <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid rgba(0,111,191,0.15)', fontSize:12, color:'#006fbf'}}>
-                ✓ Immediate feedback · ✓ Explanations shown · ✓ No time pressure
+          )}
+
+          {/* Stats grid */}
+          {!quiz.embed_url && (
+            <div style={{
+              display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:24,
+              padding:'16px', background:'var(--page-bg)', borderRadius:8, border:'1px solid var(--border)'
+            }}>
+              {[
+                {icon:'📋', l:'Questions', v:quiz.question_count||'?'},
+                {icon:'⏱',  l:'Time',      v:timeLabel},
+                {icon:'🎯',  l:'Pass Score',v:`${quiz.pass_score||70}%`},
+              ].map(s => (
+                <div key={s.l} style={{textAlign:'center'}}>
+                  <div style={{fontSize:22, marginBottom:4}}>{s.icon}</div>
+                  <div style={{fontSize:16, fontWeight:700, color:'var(--text)'}}>{s.v}</div>
+                  <div style={{fontSize:12, color:'var(--text-muted)'}}>{s.l}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Study mode toggle — only for built-in quizzes */}
+          {!quiz.embed_url && (
+            <div style={{
+              padding:'16px', borderRadius:8, marginBottom:24,
+              border:`2px solid ${studyMode?'#006fbf':'var(--border)'}`,
+              background:studyMode?'rgba(0,111,191,0.04)':'var(--page-bg)',
+              transition:'border-color .2s, background .2s',
+            }}>
+              <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+                <div style={{display:'flex',alignItems:'center',gap:12}}>
+                  <div style={{fontSize:24}}>📖</div>
+                  <div>
+                    <div style={{fontWeight:600, fontSize:14, color:'var(--text)'}}>Study Mode</div>
+                    <div style={{fontSize:12, color:'var(--text-muted)'}}>
+                      See correct answers immediately. No timer. Attempt is still recorded.
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => setStudyMode(v=>!v)} style={{
+                  width:44, height:24, borderRadius:12, border:'none', cursor:'pointer',
+                  background:studyMode?'#006fbf':'#cdd5dc', position:'relative', flexShrink:0,
+                  transition:'background .2s',
+                }}>
+                  <span style={{
+                    position:'absolute', top:2, left:studyMode?22:2, width:20, height:20,
+                    borderRadius:10, background:'white', transition:'left .2s',
+                    boxShadow:'0 1px 3px rgba(0,0,0,0.2)',
+                  }}/>
+                </button>
               </div>
-            )}
-          </div>
+              {studyMode && (
+                <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid rgba(0,111,191,0.15)', fontSize:12, color:'#006fbf'}}>
+                  ✓ Immediate feedback · ✓ Explanations shown · ✓ No time pressure
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Action buttons */}
           <div style={{display:'flex', gap:12}}>
             <d2l-button onClick={onBack}>Back</d2l-button>
             <d2l-button primary onClick={() => onStart(studyMode)} style={{flex:1}}>
-              {studyMode ? '📖 Start Study Session' : '▶ Start Quiz'}
+              {quiz.embed_url ? '🔗 Open Form' : studyMode ? '📖 Start Study Session' : '▶ Start Quiz'}
             </d2l-button>
           </div>
         </div>
@@ -513,6 +534,90 @@ function SubmitModal({ questions, answers, flagged, onConfirm, onCancel, submitt
           </d2l-button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Normalize embed URL (adds ?embedded=true for Google Forms) ────────────────
+function normalizeEmbedUrl(url) {
+  if (!url) return ''
+  try {
+    const u = new URL(url)
+    // Google Forms: replace /viewform with /viewform?embedded=true
+    if (u.hostname === 'docs.google.com' && u.pathname.includes('/forms/')) {
+      if (!u.pathname.endsWith('/viewform')) {
+        // strip any trailing path segment that isn't viewform
+        u.pathname = u.pathname.replace(/\/(edit|closedform|preview)$/, '') + '/viewform'
+      }
+      u.searchParams.set('embedded', 'true')
+      return u.toString()
+    }
+    return url
+  } catch {
+    return url
+  }
+}
+
+// ── Embedded Form Player (Google Forms, Typeform, etc.) ───────────────────────
+function EmbedPlayer({ quiz, onFinish }) {
+  const [done, setDone] = useState(false)
+  const [submitting, setSub] = useState(false)
+  const src = normalizeEmbedUrl(quiz.embed_url)
+
+  const markComplete = async () => {
+    setSub(true)
+    try {
+      // Record a completed attempt with full score (we can't grade Google Forms)
+      await api.post(`/quizzes/${quiz.id}/start`, { study_mode: false })
+      const r = await api.post(`/quizzes/${quiz.id}/submit`, {
+        answers: {}, time_taken: 0,
+      })
+      setDone(true)
+      setTimeout(() => onFinish({ ...r.data, quiz }), 800)
+    } catch {
+      setDone(true)
+      setTimeout(() => onFinish({ score: 100, passed: true, earned: 1, total: 1, xp_earned: 10, results: [], quiz }), 800)
+    }
+    setSub(false)
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: '#0a1628', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px',
+        background: '#0f1f3d', borderBottom: '1px solid rgba(255,255,255,0.1)',
+        flexShrink: 0,
+      }}>
+        <button onClick={() => onFinish(null)} style={{
+          background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8',
+          display: 'flex', alignItems: 'center', gap: 6, fontSize: 13,
+        }}>
+          <X size={16}/> Exit
+        </button>
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: '#f1f5f9' }}>{quiz.title}</span>
+          <span style={{ marginLeft: 10, fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(0,111,191,0.25)', color: '#60a5fa' }}>
+            External Form
+          </span>
+        </div>
+        <d2l-button
+          primary
+          disabled={submitting || done || undefined}
+          onClick={markComplete}
+          style={{ flexShrink: 0 }}
+        >
+          {done ? '✓ Recorded' : submitting ? 'Saving…' : 'Mark Complete'}
+        </d2l-button>
+      </div>
+
+      {/* Iframe */}
+      <iframe
+        src={src}
+        title={quiz.title}
+        style={{ flex: 1, border: 'none', width: '100%', background: '#fff' }}
+        allow="camera; microphone; autoplay"
+      />
     </div>
   )
 }
@@ -886,61 +991,130 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
 // ── Quiz Result ───────────────────────────────────────────────────────────────
 function QuizResult({ result, quiz, onRetake, onBrowse }) {
   const [expand, setExpand] = useState({})
+  // Animate score ring from 0 → actual score
+  const [animScore, setAnimScore] = useState(0)
+  const [visible, setVisible]     = useState(false)
+
+  useEffect(() => {
+    // Slight delay so the card entrance animation plays first
+    const t1 = setTimeout(() => setVisible(true), 80)
+    const t2 = setTimeout(() => {
+      if (!result) return
+      const target = result.score || 0
+      let current = 0
+      const step = Math.ceil(target / 40)
+      const iv = setInterval(() => {
+        current = Math.min(target, current + step)
+        setAnimScore(current)
+        if (current >= target) clearInterval(iv)
+      }, 28)
+      return () => clearInterval(iv)
+    }, 300)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [result?.score])
+
   if (!result) return (
     <div style={{textAlign:'center',padding:'80px 20px'}}>
       <d2l-button primary onClick={onBrowse}>Back to Quizzes</d2l-button>
     </div>
   )
-  const { score=0, passed=false, earned=0, total=1, xp_earned=0, results=[], time_taken=0 } = result
-  const circ = 2 * Math.PI * 54
-  const dash  = (score / 100) * circ
+
+  const { score=0, passed=false, earned=0, total=1, xp_earned=0, results=[], time_taken=0, needs_grading=false } = result
+  const circ       = 2 * Math.PI * 54
+  const animDash   = (animScore / 100) * circ
   const scoreColor = score >= 80 ? '#1a7a3c' : score >= 60 ? '#d97706' : '#cc3333'
+  const pendingCount  = results.filter(r => r.needs_grading).length
+  const skippedCount  = results.filter(r => r.skipped && !r.needs_grading).length
+  const correctCount  = results.filter(r => r.is_correct).length
+  const wrongCount    = results.filter(r => !r.is_correct && !r.needs_grading && !r.skipped).length
+  const negativeTotal = results.reduce((s,r) => s + (r.points_earned < 0 ? r.points_earned : 0), 0)
 
   return (
-    <div style={{maxWidth:720, margin:'0 auto', paddingBottom:40}}>
-      {passed && <Confetti/>}
+    <div style={{maxWidth:720, margin:'0 auto', paddingBottom:40,
+      opacity: visible ? 1 : 0, transform: visible ? 'translateY(0)' : 'translateY(16px)',
+      transition: 'opacity 0.4s ease, transform 0.4s ease',
+    }}>
+      {passed && !needs_grading && <Confetti/>}
+
+      {/* Pending grading banner */}
+      {needs_grading && (
+        <div style={{
+          display:'flex', alignItems:'center', gap:12, padding:'14px 20px', marginBottom:16,
+          borderRadius:8, background:'rgba(245,158,11,0.08)', border:'1.5px solid rgba(245,158,11,0.3)',
+        }}>
+          <Clock style={{width:20,height:20,color:'#d97706',flexShrink:0}}/>
+          <div>
+            <div style={{fontSize:14,fontWeight:700,color:'#92400e'}}>Awaiting Teacher Evaluation</div>
+            <div style={{fontSize:12,color:'#b45309'}}>
+              {pendingCount} short-answer question{pendingCount>1?'s':''} need{pendingCount===1?'s':''} manual grading by your instructor. Your final score will update once graded.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Score card */}
-      <div style={{background:'var(--card-bg)',border:'1px solid var(--border)',borderRadius:8,overflow:'hidden',marginBottom:20,boxShadow:'0 2px 12px rgba(0,0,0,0.06)'}}>
-        <div style={{height:6,background:passed?'#1a7a3c':'#d97706'}}/>
+      <div style={{
+        background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:10,
+        overflow:'hidden', marginBottom:20, boxShadow:'0 4px 20px rgba(0,0,0,0.08)',
+      }}>
+        <div style={{height:5, background: needs_grading ? '#d97706' : passed ? '#1a7a3c' : '#cc3333',
+          transition:'background 0.5s ease'}}/>
         <div style={{padding:32,textAlign:'center'}}>
-          {/* Score ring */}
-          <div style={{display:'flex',justifyContent:'center',marginBottom:20}}>
-            <svg width={140} height={140} style={{transform:'rotate(-90deg)'}}>
+
+          {/* Score ring — animates from 0 */}
+          <div style={{display:'flex',justifyContent:'center',marginBottom:20,position:'relative',width:140,margin:'0 auto 20px'}}>
+            <svg width={140} height={140} style={{transform:'rotate(-90deg)',display:'block'}}>
               <circle cx={70} cy={70} r={54} fill="none" stroke="var(--border)" strokeWidth={10}/>
               <circle cx={70} cy={70} r={54} fill="none" stroke={scoreColor} strokeWidth={10}
-                strokeDasharray={`${dash} ${circ-dash}`} strokeLinecap="round"
-                style={{transition:'stroke-dasharray 1.2s ease'}}/>
+                strokeDasharray={`${animDash} ${circ - animDash}`} strokeLinecap="round"/>
             </svg>
-            <div style={{position:'absolute',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',width:140,height:140,marginLeft:-140}}>
-              <span style={{fontSize:36,fontWeight:700,color:scoreColor}}>{score}%</span>
+            <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>
+              <span style={{fontSize:34,fontWeight:900,color:scoreColor,lineHeight:1,fontVariantNumeric:'tabular-nums'}}>
+                {animScore}%
+              </span>
               <span style={{
-                fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:99,marginTop:4,
-                background:passed?'#edfcf1':'#fef0f0',color:passed?'#1a7a3c':'#cc3333'
-              }}>{passed?'PASS':'FAIL'}</span>
+                fontSize:10,fontWeight:800,padding:'2px 8px',borderRadius:99,marginTop:5,letterSpacing:'0.05em',
+                background: needs_grading ? 'rgba(245,158,11,0.15)' : passed ? '#edfcf1' : '#fef0f0',
+                color:      needs_grading ? '#d97706' : passed ? '#1a7a3c' : '#cc3333',
+              }}>
+                {needs_grading ? 'PENDING' : passed ? 'PASS' : 'FAIL'}
+              </span>
             </div>
           </div>
 
-          <h2 style={{fontSize:22,fontWeight:600,color:'var(--text)',margin:'0 0 8px'}}>
-            {passed ? (score>=90?'Outstanding!':'Well Done!') : 'Keep Practising'}
+          <h2 style={{fontSize:22,fontWeight:700,color:'var(--text)',margin:'0 0 6px'}}>
+            {needs_grading ? 'Submitted for Grading' : passed ? (score>=90?'Outstanding!':score>=80?'Excellent!':'Well Done!') : 'Keep Practising'}
           </h2>
           <p style={{fontSize:14,color:'var(--text-muted)',margin:'0 0 24px'}}>
-            {passed ? `Passed with ${score-(quiz.pass_score||70)}% above the pass mark` : `${(quiz.pass_score||70)-score}% below the pass mark of ${quiz.pass_score||70}%`}
+            {needs_grading
+              ? 'Your auto-graded score is shown. Short answers will be evaluated by your instructor.'
+              : passed
+                ? `Passed with ${score-(quiz?.pass_score||70)}% above the pass mark`
+                : `${(quiz?.pass_score||70)-score}% below the pass mark of ${quiz?.pass_score||70}%`}
           </p>
 
-          {/* Stats */}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:24}}>
+          {/* Stats row */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:24}}>
             {[
-              {l:'Points', v:`${earned}/${total}`, c:'#006fbf'},
-              {l:'XP Earned', v:`+${xp_earned}`, c:'#d97706'},
-              {l:'Correct', v:`${results.filter(r=>r.is_correct).length}/${results.length}`, c:'#1a7a3c'},
-              {l:'Time', v:time_taken>0?fmtTime(time_taken):'—', c:'#494c4e'},
+              {l:'Points',   v:`${earned}/${total}`,    c:'#006fbf'},
+              {l:'XP Earned',v:`+${xp_earned}`,         c:'#d97706'},
+              {l:'Correct',  v:`${correctCount}/${results.length}`, c:'#1a7a3c'},
+              {l:'Time',     v:time_taken>0?fmtTime(time_taken):'—', c:'#494c4e'},
             ].map(s => (
               <div key={s.l} style={{padding:12,borderRadius:8,textAlign:'center',background:'var(--page-bg)',border:'1px solid var(--border)'}}>
-                <div style={{fontSize:20,fontWeight:700,color:s.c}}>{s.v}</div>
+                <div style={{fontSize:20,fontWeight:900,color:s.c}}>{s.v}</div>
                 <div style={{fontSize:11,color:'var(--text-muted)',marginTop:2}}>{s.l}</div>
               </div>
             ))}
+          </div>
+
+          {/* Breakdown badges */}
+          <div style={{display:'flex',justifyContent:'center',gap:8,flexWrap:'wrap',marginBottom:24}}>
+            {correctCount > 0  && <span style={{fontSize:12,padding:'4px 12px',borderRadius:20,background:'#edfcf1',color:'#1a7a3c',fontWeight:600}}>✓ {correctCount} correct</span>}
+            {wrongCount > 0    && <span style={{fontSize:12,padding:'4px 12px',borderRadius:20,background:'#fef0f0',color:'#cc3333',fontWeight:600}}>✗ {wrongCount} wrong</span>}
+            {skippedCount > 0  && <span style={{fontSize:12,padding:'4px 12px',borderRadius:20,background:'var(--page-bg)',color:'var(--text-muted)',fontWeight:600,border:'1px solid var(--border)'}}>— {skippedCount} skipped</span>}
+            {pendingCount > 0  && <span style={{fontSize:12,padding:'4px 12px',borderRadius:20,background:'rgba(245,158,11,0.12)',color:'#d97706',fontWeight:600}}>⏳ {pendingCount} pending</span>}
+            {negativeTotal < 0 && <span style={{fontSize:12,padding:'4px 12px',borderRadius:20,background:'rgba(204,51,51,0.08)',color:'#cc3333',fontWeight:600}}>−{Math.abs(negativeTotal)} pts deducted</span>}
           </div>
 
           <div style={{display:'flex',gap:12,justifyContent:'center',flexWrap:'wrap'}}>
@@ -952,61 +1126,107 @@ function QuizResult({ result, quiz, onRetake, onBrowse }) {
 
       {/* Per-question review */}
       {results.length > 0 && (
-        <div style={{background:'var(--card-bg)',border:'1px solid var(--border)',borderRadius:8,overflow:'hidden'}}>
-          <div style={{padding:'16px 20px',borderBottom:'1px solid var(--border)'}}>
-            <h3 style={{margin:0,fontSize:16,fontWeight:600,color:'var(--text)'}}>Question Review</h3>
+        <div style={{background:'var(--card-bg)',border:'1px solid var(--border)',borderRadius:10,overflow:'hidden'}}>
+          <div style={{padding:'16px 20px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+            <h3 style={{margin:0,fontSize:15,fontWeight:700,color:'var(--text)'}}>Question Review</h3>
+            <span style={{fontSize:12,color:'var(--text-muted)'}}>{results.length} questions</span>
           </div>
-          {results.map((r, i) => (
-            <div key={i} style={{borderBottom:'1px solid var(--border)'}}>
-              <button onClick={() => setExpand(prev=>({...prev,[i]:!prev[i]}))} style={{
-                width:'100%',display:'flex',alignItems:'center',gap:12,padding:'12px 20px',
-                background:'transparent',border:'none',cursor:'pointer',textAlign:'left',
-              }}>
-                <div style={{
-                  width:28,height:28,borderRadius:99,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',
-                  background:r.is_correct?'#edfcf1':'#fef0f0'
+          {results.map((r, i) => {
+            const isPending = r.needs_grading
+            const isSkipped = r.skipped && !isPending
+            const bg  = isPending ? 'rgba(245,158,11,0.06)' : isSkipped ? 'transparent' : r.is_correct ? 'rgba(26,122,60,0.03)' : 'rgba(204,51,51,0.03)'
+            const dot = isPending ? '#d97706' : isSkipped ? '#94a3b8' : r.is_correct ? '#1a7a3c' : '#cc3333'
+            return (
+              <div key={i} style={{borderBottom:'1px solid var(--border)',background:expand[i]?'var(--page-bg)':bg,transition:'background 0.15s'}}>
+                <button onClick={() => setExpand(prev=>({...prev,[i]:!prev[i]}))} style={{
+                  width:'100%',display:'flex',alignItems:'center',gap:12,padding:'13px 20px',
+                  background:'transparent',border:'none',cursor:'pointer',textAlign:'left',
                 }}>
-                  {r.is_correct
-                    ? <CheckCircle style={{width:16,height:16,color:'#1a7a3c'}}/>
-                    : <XCircle style={{width:16,height:16,color:'#cc3333'}}/>}
-                </div>
-                <div style={{flex:1,minWidth:0}}>
-                  <p style={{margin:0,fontSize:14,fontWeight:500,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.question_text}</p>
-                  <p style={{margin:'2px 0 0',fontSize:12,color:r.is_correct?'#1a7a3c':'#cc3333'}}>{r.is_correct?`+${r.points_earned} pts`:`${r.points_earned} pts`}</p>
-                </div>
-                {expand[i] ? <ChevronUp style={{width:16,height:16,flexShrink:0,color:'var(--text-muted)'}}/> : <ChevronDown style={{width:16,height:16,flexShrink:0,color:'var(--text-muted)'}}/>}
-              </button>
-              {expand[i] && (
-                <div style={{padding:'4px 20px 16px 60px',borderTop:'1px solid var(--border)'}}>
-                  {r.options?.length > 0 && (
-                    <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:10}}>
-                      {r.options.map((opt, oi) => {
-                        const isCorrect = r.correct_answers?.includes(oi)||r.correct_answers?.includes(String(oi))
-                        const isUser    = r.user_answer===oi||r.user_answer===String(oi)
-                        return (
-                          <div key={oi} style={{
-                            display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:6,fontSize:13,
-                            background:isCorrect?'#edfcf1':isUser&&!isCorrect?'#fef0f0':'var(--page-bg)',
-                            border:`1px solid ${isCorrect?'#bbf7d0':isUser&&!isCorrect?'#fecaca':'var(--border)'}`,
-                          }}>
-                            <span style={{width:18,height:18,borderRadius:99,display:'flex',alignItems:'center',justifyContent:'center',background:isCorrect?'#1a7a3c':isUser&&!isCorrect?'#cc3333':'#cdd5dc',color:'white',fontSize:9,fontWeight:700,flexShrink:0}}>{String.fromCharCode(65+oi)}</span>
-                            <span style={{flex:1,color:'var(--text)'}}>{opt}</span>
-                            {isCorrect && <span style={{fontSize:11,fontWeight:700,color:'#1a7a3c'}}>✓ Correct</span>}
-                            {isUser&&!isCorrect && <span style={{fontSize:11,fontWeight:700,color:'#cc3333'}}>Your answer</span>}
+                  {/* Status icon */}
+                  <div style={{width:28,height:28,borderRadius:99,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',
+                    background:`${dot}18`,border:`1.5px solid ${dot}40`}}>
+                    {isPending
+                      ? <Clock style={{width:14,height:14,color:dot}}/>
+                      : isSkipped
+                        ? <span style={{fontSize:14,color:dot}}>—</span>
+                        : r.is_correct
+                          ? <CheckCircle style={{width:14,height:14,color:dot}}/>
+                          : <XCircle style={{width:14,height:14,color:dot}}/>}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <p style={{margin:0,fontSize:14,fontWeight:500,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                      <span style={{fontSize:11,fontWeight:700,color:'var(--text-muted)',marginRight:6}}>Q{i+1}.</span>
+                      {r.question_text}
+                    </p>
+                    <p style={{margin:'2px 0 0',fontSize:12,color:dot}}>
+                      {isPending ? '⏳ Awaiting teacher grading'
+                        : isSkipped ? '— Not answered (0 pts)'
+                        : r.is_correct ? `+${r.points_earned} pts`
+                        : r.points_earned < 0 ? `${r.points_earned} pts (negative marking)`
+                        : '0 pts'}
+                    </p>
+                  </div>
+                  {expand[i]
+                    ? <ChevronUp style={{width:15,height:15,flexShrink:0,color:'var(--text-muted)'}}/>
+                    : <ChevronDown style={{width:15,height:15,flexShrink:0,color:'var(--text-muted)'}}/>}
+                </button>
+
+                {expand[i] && (
+                  <div style={{padding:'4px 20px 16px 60px',borderTop:'1px solid var(--border)'}}>
+                    {/* Short/fill answer display */}
+                    {(r.question_type==='short_answer'||r.question_type==='fill_blank') && (
+                      <div style={{marginBottom:10}}>
+                        {r.user_answer ? (
+                          <div style={{padding:'8px 12px',borderRadius:6,background:'var(--page-bg)',border:'1px solid var(--border)',fontSize:13,color:'var(--text)'}}>
+                            <span style={{fontWeight:600,color:'var(--text-muted)',marginRight:8}}>Your answer:</span>{r.user_answer}
                           </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                  {r.explanation && (
-                    <div style={{fontSize:13,padding:'10px 12px',borderRadius:6,background:'rgba(0,111,191,0.06)',color:'var(--text-muted)',border:'1px solid rgba(0,111,191,0.12)'}}>
-                      💡 {r.explanation}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+                        ) : (
+                          <div style={{padding:'8px 12px',borderRadius:6,background:'var(--page-bg)',fontSize:13,color:'var(--text-muted)',fontStyle:'italic'}}>Not answered</div>
+                        )}
+                        {r.correct_answers?.length > 0 && (
+                          <div style={{marginTop:6,padding:'8px 12px',borderRadius:6,background:'#edfcf1',border:'1px solid #bbf7d0',fontSize:13,color:'#1a7a3c'}}>
+                            <span style={{fontWeight:600,marginRight:8}}>Accepted answers:</span>{r.correct_answers.join(' / ')}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {/* MCQ / true-false options */}
+                    {r.options?.length > 0 && (
+                      <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:10}}>
+                        {r.options.map((opt, oi) => {
+                          const isCorr = r.correct_answers?.includes(oi)||r.correct_answers?.map?.(Number).includes(oi)
+                          const isUser = r.user_answer===oi||+r.user_answer===oi
+                          return (
+                            <div key={oi} style={{
+                              display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:6,fontSize:13,
+                              background:isCorr?'#edfcf1':isUser&&!isCorr?'#fef0f0':'var(--page-bg)',
+                              border:`1px solid ${isCorr?'#bbf7d0':isUser&&!isCorr?'#fecaca':'var(--border)'}`,
+                            }}>
+                              <span style={{width:20,height:20,borderRadius:99,display:'flex',alignItems:'center',justifyContent:'center',
+                                background:isCorr?'#1a7a3c':isUser&&!isCorr?'#cc3333':'#cdd5dc',
+                                color:'white',fontSize:10,fontWeight:700,flexShrink:0}}>
+                                {String.fromCharCode(65+oi)}
+                              </span>
+                              <span style={{flex:1,color:'var(--text)'}}>{opt}</span>
+                              {isCorr  && <span style={{fontSize:11,fontWeight:700,color:'#1a7a3c'}}>✓ Correct answer</span>}
+                              {isUser&&!isCorr && <span style={{fontSize:11,fontWeight:700,color:'#cc3333'}}>✗ Your answer</span>}
+                              {isUser&&isCorr  && <span style={{fontSize:11,fontWeight:700,color:'#1a7a3c'}}>✓ Your answer (correct)</span>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                    {r.explanation && (
+                      <div style={{fontSize:13,padding:'10px 12px',borderRadius:6,background:'rgba(0,111,191,0.06)',color:'var(--text)',border:'1px solid rgba(0,111,191,0.15)',display:'flex',gap:8}}>
+                        <span style={{flexShrink:0}}>💡</span>
+                        <span>{r.explanation}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
@@ -1024,7 +1244,10 @@ export default function QuizMe() {
     <div>
       {phase === 'browse'  && <QuizBrowser onSelect={q => { setQuiz(q); setPhase('confirm') }}/>}
       {phase === 'confirm' && <QuizConfirm quiz={quiz} onStart={sm => { setStudy(sm); setPhase('play') }} onBack={() => setPhase('browse')}/>}
-      {phase === 'play'    && <QuizPlayer quiz={quiz} studyMode={studyMode} onFinish={r => { setResult(r); setPhase(r ? 'result' : 'browse') }}/>}
+      {phase === 'play'    && (quiz?.embed_url
+        ? <EmbedPlayer quiz={quiz} onFinish={r => { setResult(r); setPhase(r ? 'result' : 'browse') }}/>
+        : <QuizPlayer quiz={quiz} studyMode={studyMode} onFinish={r => { setResult(r); setPhase(r ? 'result' : 'browse') }}/>
+      )}
       {phase === 'result'  && <QuizResult result={result} quiz={quiz} onRetake={() => setPhase('confirm')} onBrowse={() => setPhase('browse')}/>}
     </div>
   )
