@@ -1,8 +1,8 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Sky, Cloud, Html, Trail, Billboard, Environment, useTexture } from '@react-three/drei'
-import { EffectComposer, Bloom, Vignette, DepthOfField } from '@react-three/postprocessing'
+import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
-import { useRef, useState, useEffect, useMemo, useCallback, Suspense } from 'react'
+import { useRef, useState, useEffect, useMemo, useCallback, Suspense, Component } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Sparkles as SparklesIcon, Map, BellRing, FileBarChart2,
@@ -178,7 +178,13 @@ function Ocean() {
 
 /* ─── Real geographic map platform ──────────────────────────────── */
 // Natural Earth II equirectangular — Wikipedia Commons (public domain)
-const MAP_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Equirectangular_projection_SW.jpg/2560px-Equirectangular_projection_SW.jpg'
+const MAP_URL = '/textures/worldmap.jpg'
+
+class MapErrorBoundary extends Component {
+  constructor(p) { super(p); this.state = { err: false } }
+  static getDerivedStateFromError() { return { err: true } }
+  render() { return this.state.err ? <MapPlatformFallback/> : this.props.children }
+}
 
 function MapPlatformContent() {
   const mapTex = useTexture(MAP_URL)
@@ -227,11 +233,33 @@ function MapPlatformContent() {
   )
 }
 
+// Fallback if external texture fails to load
+function MapPlatformFallback() {
+  return (
+    <group>
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.55,0]} receiveShadow>
+        <planeGeometry args={[160,160]}/>
+        <meshStandardMaterial color="#05121e" roughness={1} metalness={0}/>
+      </mesh>
+      <mesh position={[0,-0.35,0]} receiveShadow castShadow>
+        <boxGeometry args={[29.2,0.75,29.2]}/>
+        <meshStandardMaterial color="#3a2508" roughness={0.96} metalness={0}/>
+      </mesh>
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.04,0]} receiveShadow>
+        <planeGeometry args={[29,29,2,2]}/>
+        <meshStandardMaterial color="#1a4a6a" roughness={0.82} metalness={0}/>
+      </mesh>
+    </group>
+  )
+}
+
 function MapPlatform() {
   return (
-    <Suspense fallback={null}>
-      <MapPlatformContent/>
-    </Suspense>
+    <MapErrorBoundary>
+      <Suspense fallback={<MapPlatformFallback/>}>
+        <MapPlatformContent/>
+      </Suspense>
+    </MapErrorBoundary>
   )
 }
 
@@ -849,7 +877,6 @@ function Scene({ shipRef, navigate }) {
       <CameraRig shipRef={shipRef}/>
 
       <EffectComposer>
-        <DepthOfField focusDistance={0.012} focalLength={0.028} bokehScale={3.5} height={480}/>
         <Bloom luminanceThreshold={0.28} luminanceSmoothing={0.80} intensity={0.65}/>
         <Vignette eskil={false} offset={0.18} darkness={0.65}/>
       </EffectComposer>
