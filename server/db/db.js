@@ -73,12 +73,8 @@ function pgify(sql) {
   // date(col) = date('now') → col::date = CURRENT_DATE
   sql = sql.replace(/date\s*\(([^)]+)\)\s*=\s*date\s*\(\s*'now'\s*\)/gi, '$1::date = CURRENT_DATE')
 
-  // Boolean columns: only convert = 0/1 to = false/true for columns that are
-  // BOOLEAN type in PostgreSQL (pre-existing Supabase tables).
-  // Do NOT include columns in our own new tables (users, quizzes, etc.) which use INTEGER.
-  const boolCols = 'is_read|read|deleted|edited|pinned'
-  sql = sql.replace(new RegExp(`\\b(${boolCols})\\s*=\\s*0\\b`, 'gi'), '$1 = false')
-  sql = sql.replace(new RegExp(`\\b(${boolCols})\\s*=\\s*1\\b`, 'gi'), '$1 = true')
+  // All app tables (direct_messages, notifications, posts, etc.) have been
+  // rebuilt with INTEGER columns — no BOOLEAN conversion needed anymore.
 
   // ? → $1, $2, ...
   let i = 0
