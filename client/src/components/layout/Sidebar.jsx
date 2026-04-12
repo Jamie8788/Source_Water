@@ -43,7 +43,7 @@ function NavSection({ label }) {
 }
 
 export default function Sidebar({ collapsed, onToggle }) {
-  const { user, logout, isAdmin } = useAuth()
+  const { user, logout, isAdmin, isQuizCreator } = useAuth()
   const { play } = useSound()
   const { colorKey, setColorKey, mode, toggleMode, themes } = useTheme()
   const location = useLocation()
@@ -183,6 +183,37 @@ export default function Sidebar({ collapsed, onToggle }) {
             </button>
           )
         })}
+
+        {/* Quiz Manager (for all creator roles) */}
+        {isQuizCreator && (
+          <button onClick={() => go('/quiz-admin')}
+            title={collapsed ? 'Quiz Manager' : undefined}
+            className="flex items-center gap-3 w-full text-left transition-all duration-150"
+            style={{
+              padding: collapsed ? '10px 0' : '9px 12px',
+              justifyContent: collapsed ? 'center' : 'flex-start',
+              margin: '1px 8px',
+              width: 'calc(100% - 16px)',
+              borderRadius: 10,
+              background: location.pathname === '/quiz-admin' ? 'rgba(249,115,22,0.14)' : 'transparent',
+            }}
+            onMouseEnter={e => { if (location.pathname !== '/quiz-admin') e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+            onMouseLeave={e => { if (location.pathname !== '/quiz-admin') e.currentTarget.style.background = 'transparent' }}>
+            <div className="flex items-center justify-center flex-shrink-0 rounded-lg"
+              style={{
+                width: 32, height: 32,
+                background: location.pathname === '/quiz-admin' ? 'rgba(249,115,22,0.22)' : 'transparent',
+                color: location.pathname === '/quiz-admin' ? '#fb923c' : '#3d5273',
+              }}>
+              <GraduationCap className="w-[17px] h-[17px]"/>
+            </div>
+            {!collapsed && (
+              <span className="text-sm font-medium" style={{ color: location.pathname === '/quiz-admin' ? '#e2e8f0' : '#64748b' }}>
+                Quiz Manager
+              </span>
+            )}
+          </button>
+        )}
 
         {/* Admin */}
         {isAdmin && (

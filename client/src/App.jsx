@@ -45,6 +45,12 @@ function AdminGuard() {
   return <Outlet />
 }
 
+function QuizCreatorGuard() {
+  const { user, isQuizCreator } = useAuth()
+  if (!user || !isQuizCreator) return <Navigate to="/quiz" replace />
+  return <Outlet />
+}
+
 function AppRoutes() {
   const { user } = useAuth()
   return (
@@ -70,7 +76,9 @@ function AppRoutes() {
           <Route path="/research"   element={<ResearchHub />} />
           <Route path="/profile"    element={<Profile />} />
           <Route element={<AdminGuard />}>
-            <Route path="/admin"      element={<AdminPage />} />
+            <Route path="/admin" element={<AdminPage />} />
+          </Route>
+          <Route element={<QuizCreatorGuard />}>
             <Route path="/quiz-admin" element={<QuizAdmin />} />
           </Route>
         </Route>

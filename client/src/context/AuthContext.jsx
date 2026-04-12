@@ -174,6 +174,7 @@ export function AuthProvider({ children }) {
       updateUser,
       isAdmin: !!user?.is_admin,
       isResearcher: !!user?.is_admin || user?.role === 'Researcher',
+      isQuizCreator: !!user?.is_admin || ['Teacher','Professor','Researcher','SOURCE Water team member'].includes(user?.role),
     }}>
       {children}
     </AuthContext.Provider>

@@ -1,14 +1,15 @@
 /**
  * QuizAdmin — full-screen quiz creator + research-level analytics
- * Route: /quiz-admin (AdminGuard protected)
+ * Route: /quiz-admin (QuizCreatorGuard: admin, teacher, professor, researcher)
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import api from '../utils/api'
 import {
   Plus, Trash2, Edit2, Save, X, ArrowUp, ArrowDown,
   BarChart2, ChevronLeft, Eye, Upload, AlertCircle,
-  CheckCircle, XCircle, RefreshCw, Download
+  CheckCircle, XCircle, RefreshCw, Download, Sparkles, Zap
 } from 'lucide-react'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -167,8 +168,14 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
   const [imgPreview, setImgPrev]= useState(null)
   const [saving, setSaving]     = useState(false)
   const [savingQ, setSavingQ]   = useState(false)
-  const [importJson, setImpJson]= useState('')
-  const [showImport, setShowImp]= useState(false)
+  const [importJson, setImpJson]  = useState('')
+  const [showImport, setShowImp]  = useState(false)
+  const [showAI, setShowAI]       = useState(false)
+  const [aiText, setAiText]       = useState('')
+  const [aiCount, setAiCount]     = useState(5)
+  const [aiGenerating, setAiGen]  = useState(false)
+  const [aiPreview, setAiPreview] = useState([])
+  const [aiError, setAiErr]       = useState('')
   const imgRef = useRef(null)
 
   const inp = (k, v) => setForm(f => ({...f,[k]:v}))
@@ -272,6 +279,34 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
     } catch (e) { alert('Import failed: ' + e.message) }
   }
 
+  const doAiGenerate = async () => {
+    if (!aiText.trim()) return
+    setAiGen(true); setAiErr(''); setAiPreview([])
+    try {
+      const r = await api.post('/quizzes/ai-generate', {
+        text: aiText,
+        count: aiCount,
+        difficulty: form.difficulty,
+        category: form.category,
+      })
+      setAiPreview(r.data.questions || [])
+    } catch (e) {
+      setAiErr(e.response?.data?.error || 'AI generation failed. Check GEMINI_API_KEY is set.')
+    }
+    setAiGen(false)
+  }
+
+  const doImportAiQuestions = async (selected) => {
+    if (!quiz?.id) { alert('Save quiz settings first.'); return }
+    try {
+      const r = await api.post(`/quizzes/${quiz.id}/import`, { questions: selected })
+      alert(`Added ${r.data.imported} AI-generated questions!`)
+      setShowAI(false); setAiText(''); setAiPreview([])
+      const r2 = await api.get(`/quizzes/${quiz.id}`)
+      setQs(r2.data.questions?.map(q => ({...q,options:parseOpts(q.options),correct_answers:parseOpts(q.correct_answers)}))||[])
+    } catch (e) { alert('Failed: ' + (e.response?.data?.error || e.message)) }
+  }
+
   const totalPoints = questions.reduce((s,q)=>s+(+q.points||1),0)
 
   return (
@@ -371,7 +406,12 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
                 <div className="font-bold text-sm" style={{color:'var(--text)'}}>
                   📋 Questions ({questions.length})
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
+                  <button onClick={() => setShowAI(v=>!v)}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                    style={{background:showAI?'rgba(139,92,246,0.2)':'rgba(139,92,246,0.1)',color:'#a78bfa',border:'1px dashed rgba(139,92,246,0.4)'}}>
+                    <Sparkles className="w-3 h-3"/> AI Generate
+                  </button>
                   <button onClick={() => setShowImp(v=>!v)}
                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold"
                     style={{background:'rgba(20,184,166,0.1)',color:'#14b8a6',border:'1px dashed rgba(20,184,166,0.3)'}}>
@@ -384,6 +424,75 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
                   </button>
                 </div>
               </div>
+
+              {/* AI Generate panel */}
+              {showAI && (
+                <div className="card p-5 space-y-4" style={{border:'1px solid rgba(139,92,246,0.3)',background:'rgba(139,92,246,0.04)'}}>
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" style={{color:'#a78bfa'}}/>
+                    <span className="font-bold text-sm" style={{color:'var(--text)'}}>AI Question Generator</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full ml-auto" style={{background:'rgba(139,92,246,0.1)',color:'#a78bfa'}}>Gemini 1.5 Flash · Free</span>
+                  </div>
+                  <div className="text-xs" style={{color:'var(--text-muted)'}}>
+                    Paste any text (lecture notes, articles, textbook excerpts) and AI will generate quiz questions from it. Requires GEMINI_API_KEY in server environment.
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto] gap-3">
+                    <div>
+                      <label style={lS}>Source Text</label>
+                      <textarea rows={5} value={aiText} onChange={e=>setAiText(e.target.value)}
+                        placeholder="Paste text here... (e.g. 'Water hardness refers to the concentration of dissolved minerals, primarily calcium and magnesium ions. Hard water...')"
+                        style={{...iS(),resize:'vertical'}}/>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      <div>
+                        <label style={lS}>Questions</label>
+                        <input type="number" min={1} max={20} value={aiCount} onChange={e=>setAiCount(+e.target.value)} style={{...iS(),width:70}}/>
+                      </div>
+                    </div>
+                  </div>
+                  {aiError && <div className="text-xs px-3 py-2 rounded-lg" style={{background:'rgba(239,68,68,0.1)',color:'#ef4444'}}>{aiError}</div>}
+                  <button onClick={doAiGenerate} disabled={!aiText.trim()||aiGenerating}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40"
+                    style={{background:'linear-gradient(135deg,#8b5cf6,#6366f1)'}}>
+                    <Zap className="w-4 h-4"/>{aiGenerating?'Generating…':'Generate Questions'}
+                  </button>
+
+                  {/* Preview generated questions */}
+                  {aiPreview.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold" style={{color:'var(--text)'}}>Generated {aiPreview.length} questions — review before adding:</span>
+                        <button onClick={() => doImportAiQuestions(aiPreview)}
+                          className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold text-white"
+                          style={{background:'#8b5cf6'}}>
+                          <Plus className="w-3 h-3"/> Add All to Quiz
+                        </button>
+                      </div>
+                      <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                        {aiPreview.map((q, i) => (
+                          <div key={i} className="card p-3 text-xs space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-sm" style={{color:'var(--text)'}}>{i+1}. {q.question_text}</span>
+                              <span className="px-2 py-0.5 rounded-full flex-shrink-0" style={{background:'rgba(139,92,246,0.1)',color:'#a78bfa'}}>{q.question_type}</span>
+                            </div>
+                            {q.options?.length > 0 && (
+                              <div className="grid grid-cols-2 gap-1 mt-1">
+                                {q.options.map((o, oi) => (
+                                  <span key={oi} className="px-2 py-1 rounded-lg"
+                                    style={{background:(q.correct_answers||[]).includes(oi)?'rgba(16,185,129,0.1)':'var(--page-bg)',color:(q.correct_answers||[]).includes(oi)?'#10b981':'var(--text-muted)'}}>
+                                    {String.fromCharCode(65+oi)}) {o}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {q.explanation && <div style={{color:'#64748b'}}>💡 {q.explanation}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* JSON import panel */}
               {showImport && (
@@ -923,22 +1032,28 @@ function Analytics({ quiz, onBack }) {
 // ── Page root ─────────────────────────────────────────────────────────────────
 export default function QuizAdmin() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [view, setView] = useState('list')    // list | build | analytics
   const [editQuiz, setEditQuiz]   = useState(null)
   const [analyticsQuiz, setAnalyticsQuiz] = useState(null)
 
+  const roleLabel = user?.is_admin ? 'Admin' : user?.role || 'Creator'
+
   return (
     <div className="max-w-5xl mx-auto space-y-4 pb-10">
       {/* Page header */}
-      <div className="flex items-center justify-between pt-2">
+      <div className="flex items-center justify-between pt-2 flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-black" style={{color:'var(--text)'}}>🎓 Quiz Manager</h1>
-          <p className="text-sm" style={{color:'var(--text-muted)'}}>Create, manage, and analyze quizzes</p>
+          <div className="flex items-center gap-3 mb-1">
+            <h1 className="text-2xl font-black" style={{color:'var(--text)'}}>🎓 Quiz Manager</h1>
+            <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{background:'rgba(99,102,241,0.1)',color:'#818cf8'}}>{roleLabel}</span>
+          </div>
+          <p className="text-sm" style={{color:'var(--text-muted)'}}>Create quizzes, add questions, generate with AI, view research analytics</p>
         </div>
         <button onClick={() => navigate('/quiz')}
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold"
           style={{background:'var(--card-bg)',color:'var(--text-muted)',border:'1px solid var(--border)'}}>
-          <Eye className="w-4 h-4"/> Preview (Student View)
+          <Eye className="w-4 h-4"/> Student View
         </button>
       </div>
 
