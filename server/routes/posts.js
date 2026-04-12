@@ -76,6 +76,7 @@ router.post('/', requireAuth, upload.array('media', 10), async (req, res) => {
 
     await db.run('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)',
       [req.user.id, 5, 'post', new Date().toISOString().slice(0, 7)])
+    await db.run('UPDATE users SET xp=xp+5 WHERE id=?', [req.user.id])
 
     const post = await db.get('SELECT * FROM posts WHERE id=?', [lastInsertRowid])
     res.json(await enrichPost(post))
@@ -112,6 +113,7 @@ router.post('/:id/react', requireAuth, async (req, res) => {
       [req.params.id, req.user.id, reaction_type])
     await db.run('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)',
       [req.user.id, 1, 'reaction', new Date().toISOString().slice(0, 7)])
+    await db.run('UPDATE users SET xp=xp+1 WHERE id=?', [req.user.id])
     const reactions = await db.all('SELECT reaction_type, COUNT(*) as count FROM post_reactions WHERE post_id=? GROUP BY reaction_type', [req.params.id])
     const reactionMap = {}
     reactions.forEach(r => { reactionMap[r.reaction_type] = parseInt(r.count) })
@@ -149,6 +151,7 @@ router.post('/:id/comments', requireAuth, async (req, res) => {
     [req.params.id, req.user.id, parent_comment_id || null, content])
   await db.run('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)',
     [req.user.id, 2, 'comment', new Date().toISOString().slice(0, 7)])
+  await db.run('UPDATE users SET xp=xp+2 WHERE id=?', [req.user.id])
   const comment = await db.get(
     `SELECT c.*, u.username, u.display_name, u.avatar_emoji, u.avatar_bg_color FROM comments c JOIN users u ON c.user_id=u.id WHERE c.id=?`,
     [lastInsertRowid])

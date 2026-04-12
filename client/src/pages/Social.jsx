@@ -1431,7 +1431,7 @@ function TrendingCard({ posts, activeTag, onTagClick }) {
 
 /* ─── Main Social Page ───────────────────────────────────────── */
 export default function Social() {
-  const { user } = useAuth()
+  const { user, updateUser } = useAuth()
   const { play } = useSound()
   const [searchParams] = useSearchParams()
   const { posts, loading, setPosts, refresh: refreshFeed } = useFeed()
@@ -1515,6 +1515,7 @@ export default function Social() {
     if (newPost) {
       setPosts(p=>[newPost,...p])
       setMyMonthPts(p=>(p||0)+5)
+      updateUser({ xp: (user?.xp||0) + 5 })
       setPointFlash(true); setTimeout(()=>setPointFlash(false),1200)
     }
     play('success')
@@ -1601,7 +1602,7 @@ export default function Social() {
                 <div className="flex gap-6 mt-4 pt-3 border-t w-full justify-center" style={{borderColor:'var(--border)'}}>
                   <div className="text-center">
                     <div className="font-black text-base relative" style={{color:pointFlash?'#10b981':'var(--text)',transition:'color 0.4s',transform:pointFlash?'scale(1.2)':'scale(1)'}}>
-                      {myMonthPts!==null?myMonthPts:(user?.xp||0)}
+                      {myMonthPts??0}
                       {pointFlash&&<span className="absolute -top-5 left-1/2 -translate-x-1/2 text-xs font-black text-green-500" style={{animation:'floatUp 1.1s ease both'}}>+5</span>}
                     </div>
                     <div className="text-xs" style={{color:'var(--text-muted)'}}>Pts/month</div>
@@ -1716,7 +1717,7 @@ export default function Social() {
                   ['Posts today', posts.filter(p=>Date.now()-new Date(p.created_at)<86400000&&p.post_type!=='story').length],
                   ['Total posts',  posts.filter(p=>p.post_type!=='story').length],
                   ['Stories live', storyGroups.length],
-                  ['My pts (month)', myMonthPts!==null?myMonthPts+'pts':'—'],
+                  ['My pts (month)', (myMonthPts??0)+'pts'],
                 ].map(([label,val])=>(
                   <div key={label} className="flex justify-between">
                     <span style={{color:'var(--text-muted)'}}>{label}</span>

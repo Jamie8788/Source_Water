@@ -127,14 +127,66 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   const uid = parseInt(req.params.id)
   if (uid === req.user.id) return res.status(400).json({ error: 'Cannot delete yourself' })
-  // Save their email to banned_emails so Supabase-auth users can't auto-recreate their account
   const target = await db.get('SELECT email FROM users WHERE id=?', [uid])
-  if (target?.email) {
+  if (!target) return res.status(404).json({ error: 'User not found' })
+
+  // Ban email so Supabase-auth users can't auto-recreate
+  if (target.email) {
     await db.run(
       `INSERT INTO banned_emails (email, reason) VALUES (?, 'deleted by admin') ON CONFLICT DO NOTHING`,
       [target.email]
     ).catch(() => {})
   }
+
+  // Delete quiz questions before quizzes (FK chain)
+  const userQuizIds = (await db.all('SELECT id FROM quizzes WHERE created_by=?', [uid])).map(q => q.id)
+  if (userQuizIds.length) {
+    const ph = userQuizIds.map(() => '?').join(',')
+    await db.run(`DELETE FROM quiz_questions WHERE quiz_id IN (${ph})`, userQuizIds).catch(() => {})
+    await db.run(`DELETE FROM quiz_attempts WHERE quiz_id IN (${ph})`, userQuizIds).catch(() => {})
+  }
+
+  // Delete observations for user's sites before deleting sites
+  const userSiteIds = (await db.all('SELECT id FROM sites WHERE created_by=?', [uid])).map(s => s.id)
+  if (userSiteIds.length) {
+    const ph = userSiteIds.map(() => '?').join(',')
+    await db.run(`DELETE FROM observations WHERE site_id IN (${ph})`, userSiteIds).catch(() => {})
+  }
+
+  // Delete reactions/comments on the user's own posts before deleting posts
+  const userPostIds = (await db.all('SELECT id FROM posts WHERE user_id=?', [uid])).map(p => p.id)
+  if (userPostIds.length) {
+    const ph = userPostIds.map(() => '?').join(',')
+    await db.run(`DELETE FROM post_reactions WHERE post_id IN (${ph})`, userPostIds).catch(() => {})
+    await db.run(`DELETE FROM comments WHERE post_id IN (${ph})`, userPostIds).catch(() => {})
+  }
+
+  // Delete everything owned by the user
+  const deletes = [
+    'DELETE FROM observations WHERE observer_id=?',
+    'DELETE FROM quizzes WHERE created_by=?',
+    'DELETE FROM sites WHERE created_by=?',
+    'DELETE FROM resources WHERE created_by=?',
+    'DELETE FROM alerts WHERE created_by=?',
+    'DELETE FROM project_datasets WHERE uploaded_by=?',
+    'DELETE FROM research_projects WHERE created_by=?',
+    'DELETE FROM post_reactions WHERE user_id=?',
+    'DELETE FROM comments WHERE user_id=?',
+    'DELETE FROM posts WHERE user_id=?',
+    'DELETE FROM leaderboard_points WHERE user_id=?',
+    'DELETE FROM activity_log WHERE user_id=?',
+    'DELETE FROM notifications WHERE user_id=?',
+    'DELETE FROM quiz_attempts WHERE user_id=?',
+    'DELETE FROM game_scores WHERE user_id=?',
+    'DELETE FROM resource_bookmarks WHERE user_id=?',
+    'DELETE FROM direct_messages WHERE sender_id=? OR receiver_id=?',
+    'DELETE FROM follows WHERE follower_id=? OR following_id=?',
+  ]
+  for (const sql of deletes) {
+    const params = sql.includes('OR') ? [uid, uid] : [uid]
+    await db.run(sql, params).catch(() => {})
+  }
+
   await db.run('DELETE FROM users WHERE id=?', [uid])
   res.json({ success: true })
 })
