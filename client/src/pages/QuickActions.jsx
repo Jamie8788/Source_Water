@@ -179,24 +179,24 @@ function Ocean() {
 /* ─── Ancient parchment map texture (canvas-drawn) ──────────────── */
 function useMapTexture() {
   return useMemo(() => {
-    const S = 1024
+    const S = 2048
     const cv = document.createElement('canvas')
     cv.width = S; cv.height = S
     const c = cv.getContext('2d')
 
-    // Base parchment radial gradient
+    // Rich parchment base — warm tan with aged variation
     const bg = c.createRadialGradient(S/2,S/2,0, S/2,S/2,S*0.72)
-    bg.addColorStop(0,   '#eddea8')
-    bg.addColorStop(0.38,'#d8bc7a')
-    bg.addColorStop(0.72,'#c4a05a')
-    bg.addColorStop(1.0, '#8a6020')
+    bg.addColorStop(0,   '#f0dfa5')
+    bg.addColorStop(0.35,'#e2c57c')
+    bg.addColorStop(0.68,'#cca558')
+    bg.addColorStop(1.0, '#7a5215')
     c.fillStyle = bg; c.fillRect(0,0,S,S)
 
     // Grain / fibres
-    for(let i=0;i<10000;i++){
+    for(let i=0;i<14000;i++){
       const x=Math.random()*S, y=Math.random()*S
-      c.fillStyle=`rgba(${Math.random()>0.5?'90,60,15':'210,180,110'},${Math.random()*0.07})`
-      c.beginPath(); c.arc(x,y,Math.random()*1.4,0,Math.PI*2); c.fill()
+      c.fillStyle=`rgba(${Math.random()>0.5?'80,50,10':'215,185,115'},${Math.random()*0.09})`
+      c.beginPath(); c.arc(x,y,Math.random()*2,0,Math.PI*2); c.fill()
     }
 
     // Age stains
@@ -216,51 +216,55 @@ function useMapTexture() {
       c.fillStyle=gr; c.fillRect(0,0,S,S)
     })
 
-    // Outer double-line ink border
-    c.strokeStyle='#2e1804'; c.lineWidth=10
-    c.strokeRect(24,24,S-48,S-48)
+    // Outer double-line ink border — thick and visible
+    c.strokeStyle='#1e0e02'; c.lineWidth=20
+    c.strokeRect(30,30,S-60,S-60)
+    c.lineWidth=6
+    c.strokeRect(52,52,S-104,S-104)
     c.lineWidth=3
-    c.strokeRect(36,36,S-72,S-72)
-    c.lineWidth=1.5
-    c.strokeRect(44,44,S-88,S-88)
+    c.strokeRect(64,64,S-128,S-128)
 
-    // Corner ornaments (cross-hatch diamonds)
-    const pts=[[46,46],[S-46,46],[46,S-46],[S-46,S-46]]
+    // Corner ornaments (bold fleur-de-lis style)
+    const pts=[[68,68],[S-68,68],[68,S-68],[S-68,S-68]]
     pts.forEach(([px,py])=>{
-      c.fillStyle='#2e1804'
+      c.fillStyle='#1e0e02'
       for(let a=0;a<4;a++){
         const ag=a*Math.PI/2+Math.PI/4
         c.beginPath()
         c.moveTo(px,py)
-        c.lineTo(px+Math.cos(ag)*26,py+Math.sin(ag)*26)
-        c.lineTo(px+Math.cos(ag+0.28)*20,py+Math.sin(ag+0.28)*20)
+        c.lineTo(px+Math.cos(ag)*42,py+Math.sin(ag)*42)
+        c.lineTo(px+Math.cos(ag+0.28)*32,py+Math.sin(ag+0.28)*32)
+        c.closePath(); c.fill()
+        c.beginPath()
+        c.moveTo(px,py)
+        c.lineTo(px+Math.cos(ag)*42,py+Math.sin(ag)*42)
+        c.lineTo(px+Math.cos(ag-0.28)*32,py+Math.sin(ag-0.28)*32)
         c.closePath(); c.fill()
       }
-      c.beginPath(); c.arc(px,py,6,0,Math.PI*2); c.fill()
+      c.beginPath(); c.arc(px,py,10,0,Math.PI*2); c.fill()
     })
 
-    // Ocean wave fill marks (the hand-drawn squiggle style on old maps)
-    c.strokeStyle='rgba(46,24,4,0.28)'; c.lineWidth=1.2
-    for(let row=0;row<10;row++){
-      for(let col=0;col<11;col++){
-        const wx=55+col*88, wy=130+row*80
-        if(wx>S-50||wy>S-55) continue
+    // Ocean wave fill marks — bold, classic cartographic style
+    c.strokeStyle='rgba(30,14,2,0.52)'; c.lineWidth=2.8
+    for(let row=0;row<14;row++){
+      for(let col=0;col<12;col++){
+        const wx=80+col*160, wy=180+row*130
+        if(wx>S-80||wy>S-80) continue
         c.beginPath()
         c.moveTo(wx,wy)
-        c.quadraticCurveTo(wx+12,wy-7,wx+24,wy)
-        c.quadraticCurveTo(wx+36,wy+7,wx+48,wy)
+        c.quadraticCurveTo(wx+20,wy-14,wx+40,wy)
+        c.quadraticCurveTo(wx+60,wy+14,wx+80,wy)
         c.stroke()
-        // second smaller wave
         c.beginPath()
-        c.moveTo(wx+4,wy+10)
-        c.quadraticCurveTo(wx+16,wy+3,wx+28,wy+10)
-        c.quadraticCurveTo(wx+40,wy+17,wx+52,wy+10)
+        c.moveTo(wx+8,wy+20)
+        c.quadraticCurveTo(wx+28,wy+6,wx+48,wy+20)
+        c.quadraticCurveTo(wx+68,wy+34,wx+88,wy+20)
         c.stroke()
       }
     }
 
-    // Latitude / longitude grid lines (faint)
-    c.strokeStyle='rgba(46,24,4,0.15)'; c.lineWidth=0.8
+    // Latitude / longitude grid lines
+    c.strokeStyle='rgba(30,14,2,0.25)'; c.lineWidth=1.5
     for(let i=1;i<8;i++){
       const x=i*(S/8)
       c.beginPath(); c.moveTo(x,44); c.lineTo(x,S-44); c.stroke()
@@ -268,33 +272,33 @@ function useMapTexture() {
       c.beginPath(); c.moveTo(44,y); c.lineTo(S-44,y); c.stroke()
     }
 
-    // Map title cartouche (top centre)
-    c.save()
-    c.font='italic bold 20px serif'
-    c.fillStyle='rgba(46,24,4,0.72)'
-    c.textAlign='center'
-    c.fillText('NOVA TABULA LACUUM MAGNORUM', S/2, 68)
-    c.font='italic 13px serif'
-    c.fillStyle='rgba(46,24,4,0.55)'
-    c.fillText('The Great Lakes — Northern Ontario, Canada', S/2, 86)
-    c.restore()
-
     // Faint "HERE BE DRAGONS" rotated watermark
+    // "HERE BE DRAGONS" diagonal watermark
     c.save()
-    c.globalAlpha=0.07
-    c.font='bold 52px serif'
-    c.fillStyle='#2e1804'
+    c.globalAlpha=0.09
+    c.font='bold 96px serif'
+    c.fillStyle='#1e0e02'
     c.textAlign='center'
     c.translate(S/2,S/2); c.rotate(-0.18)
     c.fillText('HERE BE DRAGONS', 0, 0)
     c.restore()
 
-    // Compass rose (bottom-right area)
-    const rosX=S*0.84, rosY=S*0.8, rosR=68
-    // 8 points
-    c.fillStyle='#2e1804'
+    // Map title at top — large, bold cartouche
+    c.save()
+    c.font='italic bold 52px serif'
+    c.fillStyle='rgba(30,14,2,0.88)'
+    c.textAlign='center'
+    c.fillText('NOVA TABULA LACUUM MAGNORUM', S/2, 100)
+    c.font='italic 32px serif'
+    c.fillStyle='rgba(30,14,2,0.70)'
+    c.fillText('The Great Lakes — Northern Ontario, Canada', S/2, 148)
+    c.restore()
+
+    // Compass rose — large and prominent, bottom-right
+    const rosX=S*0.82, rosY=S*0.78, rosR=120
+    c.fillStyle='#1e0e02'
     for(let i=0;i<8;i++){
-      const a=i*Math.PI/4
+      const a=i*Math.PI/4 - Math.PI/2  // N at top
       const inner=i%2===0 ? rosR*0.42 : rosR*0.26
       const outer=i%2===0 ? rosR : rosR*0.62
       c.beginPath()
@@ -303,45 +307,44 @@ function useMapTexture() {
       c.lineTo(rosX+Math.cos(a+0.11)*inner, rosY+Math.sin(a+0.11)*inner)
       c.closePath(); c.fill()
     }
-    // Alternating fill for cardinal vs intercardinal
-    c.fillStyle='#c8a040'
+    // Gold intercardinal points
+    c.fillStyle='#c8a020'
     for(let i=0;i<4;i++){
-      const a=i*Math.PI/2+Math.PI/4
+      const a=i*Math.PI/2+Math.PI/4 - Math.PI/2
       c.beginPath()
       c.moveTo(rosX+Math.cos(a-0.09)*rosR*0.26, rosY+Math.sin(a-0.09)*rosR*0.26)
       c.lineTo(rosX+Math.cos(a)*rosR*0.62, rosY+Math.sin(a)*rosR*0.62)
       c.lineTo(rosX+Math.cos(a+0.09)*rosR*0.26, rosY+Math.sin(a+0.09)*rosR*0.26)
       c.closePath(); c.fill()
     }
-    // Centre circle
-    c.beginPath(); c.arc(rosX,rosY,13,0,Math.PI*2)
-    c.fillStyle='#e8d090'; c.fill()
-    c.strokeStyle='#2e1804'; c.lineWidth=2; c.stroke()
-    c.beginPath(); c.arc(rosX,rosY,6,0,Math.PI*2)
-    c.fillStyle='#2e1804'; c.fill()
-    // Cardinal labels
-    c.font='bold 20px serif'; c.fillStyle='#2e1804'; c.textAlign='center'
-    c.fillText('N',rosX,   rosY-rosR-10)
-    c.fillText('S',rosX,   rosY+rosR+22)
-    c.fillText('E',rosX+rosR+14, rosY+7)
-    c.fillText('W',rosX-rosR-14, rosY+7)
-    // Subtitle under compass
-    c.font='italic 11px serif'; c.fillStyle='rgba(46,24,4,0.65)'
-    c.fillText('SEPTENTRIO', rosX, rosY-rosR-24)
+    // Rings
+    c.beginPath(); c.arc(rosX,rosY,rosR*0.22,0,Math.PI*2)
+    c.fillStyle='#f0d898'; c.fill()
+    c.strokeStyle='#1e0e02'; c.lineWidth=4; c.stroke()
+    c.beginPath(); c.arc(rosX,rosY,rosR*0.1,0,Math.PI*2)
+    c.fillStyle='#1e0e02'; c.fill()
+    // Bold N/S/E/W labels
+    c.font='bold 42px serif'; c.fillStyle='#1e0e02'; c.textAlign='center'
+    c.fillText('N', rosX,        rosY-rosR-18)
+    c.fillText('S', rosX,        rosY+rosR+44)
+    c.fillText('E', rosX+rosR+22, rosY+14)
+    c.fillText('W', rosX-rosR-22, rosY+14)
+    c.font='italic bold 22px serif'; c.fillStyle='rgba(30,14,2,0.75)'
+    c.fillText('SEPTENTRIO', rosX, rosY-rosR-52)
 
-    // Scale bar (bottom-left)
-    const sbX=70, sbY=S-60
-    c.fillStyle='#2e1804'; c.font='11px serif'; c.textAlign='left'
-    c.fillText('SCALA MILIARIUM', sbX, sbY-12)
+    // Scale bar — larger, readable
+    const sbX=90, sbY=S-90
+    c.fillStyle='#1e0e02'; c.font='bold 26px serif'; c.textAlign='left'
+    c.fillText('SCALA MILIARIUM', sbX, sbY-22)
     for(let i=0;i<5;i++){
-      c.fillStyle=i%2===0?'#2e1804':'#e8d090'
-      c.fillRect(sbX+i*36,sbY,36,10)
+      c.fillStyle=i%2===0?'#1e0e02':'#e8d090'
+      c.fillRect(sbX+i*64,sbY,64,18)
     }
-    c.strokeStyle='#2e1804'; c.lineWidth=1.5
-    c.strokeRect(sbX,sbY,180,10)
-    c.fillStyle='#2e1804'
-    c.fillText('0',sbX,sbY+24)
-    c.fillText('50 km',sbX+170,sbY+24)
+    c.strokeStyle='#1e0e02'; c.lineWidth=3
+    c.strokeRect(sbX,sbY,320,18)
+    c.fillStyle='#1e0e02'; c.font='22px serif'
+    c.fillText('0', sbX, sbY+42)
+    c.fillText('50 km', sbX+300, sbY+42)
 
     const tex=new THREE.CanvasTexture(cv)
     tex.needsUpdate=true
@@ -394,14 +397,14 @@ function SunShafts() {
   useFrame(({clock})=>{
     if(!g.current) return
     const t=clock.getElapsedTime()
-    g.current.children.forEach((m,i)=>{ if(m.material) m.material.opacity=0.055+Math.sin(t*0.35+i*1.2)*0.022 })
+    g.current.children.forEach((m,i)=>{ if(m.material) m.material.opacity=0.018+Math.sin(t*0.35+i*1.2)*0.007 })
   })
   return (
     <group ref={g} position={[-40,18,-48]} rotation={[0.18,-0.55,-0.04]}>
-      {[0,1,2,3,4,5,6].map(i=>(
-        <mesh key={i} rotation={[0,(i/7)*Math.PI*0.45,0]}>
-          <coneGeometry args={[9+i*3.5,65,5,1,true]}/>
-          <meshBasicMaterial color="#ff7020" transparent opacity={0.028} depthWrite={false} side={THREE.BackSide} blending={THREE.AdditiveBlending}/>
+      {[0,1,2,3,4].map(i=>(
+        <mesh key={i} rotation={[0,(i/5)*Math.PI*0.35,0]}>
+          <coneGeometry args={[8+i*3,55,4,1,true]}/>
+          <meshBasicMaterial color="#ff8030" transparent opacity={0.015} depthWrite={false} side={THREE.BackSide} blending={THREE.AdditiveBlending}/>
         </mesh>
       ))}
     </group>
@@ -892,32 +895,39 @@ function Ship({ shipRef }) {
   )
 }
 
-/* ─── Cinematic GTA5-style camera ───────────────────────────────── */
+/* ─── Cinematic close-follow camera ─────────────────────────────── */
 function CameraRig({ shipRef }) {
   const { camera } = useThree()
-  const smooth = useRef(new THREE.Vector3(0, 7, 16))
-  const look   = useRef(new THREE.Vector3(0, 1, 0))
+  const smooth = useRef(new THREE.Vector3(0, 8, 14))
+  const look   = useRef(new THREE.Vector3(0, 0.5, 0))
   const orbitT = useRef(0)
 
-  useFrame(({clock}, dt) => {
+  useFrame(({ clock }, dt) => {
     const t   = clock.getElapsedTime()
-    const s   = shipRef.current ?? { x:0, z:0, speed:0 }
+    const s   = shipRef.current ?? { x:0, z:0, angle:0, speed:0 }
     const spd = Math.abs(s.speed ?? 0)
 
-    // Idle: slow cinematic side-drift like a floating camera
-    if(spd < 0.05) orbitT.current += dt * 0.06
-    else           orbitT.current *= 0.95
+    // Idle: very slow cinematic drift around the ship
+    if (spd < 0.04) orbitT.current += dt * 0.045
+    else            orbitT.current *= 0.92
 
-    const ox = Math.sin(orbitT.current) * 2.5
-    const oz = Math.cos(orbitT.current) * 1.2
+    const ox = Math.sin(orbitT.current) * 1.8
+    const oz = Math.cos(orbitT.current) * 0.8
 
-    // Cinematic map view — high angle, see entire map + ocean edges
-    const sway  = Math.sin(t*0.22)*0.3 + Math.cos(t*0.16)*0.15
-    const camH  = 18 + sway
-    const camD  = 16
+    // Close follow: low enough to see the ship clearly and the map beneath
+    // y=7 gives a nice 3/4 view — see sails, map surface, and ocean edge
+    const sway  = Math.sin(t * 0.18) * 0.2
+    const camH  = 7.5 + sway
+    const camD  = 10   // close behind the ship
 
-    smooth.current.lerp(new THREE.Vector3(s.x + ox, camH, s.z + camD + oz), 0.032)
-    look.current.lerp(new THREE.Vector3(s.x, 0.5, s.z - 3), 0.050)
+    smooth.current.lerp(
+      new THREE.Vector3(s.x + ox, camH, s.z + camD + oz),
+      0.038
+    )
+    look.current.lerp(
+      new THREE.Vector3(s.x, 1.2, s.z - 1),
+      0.055
+    )
     camera.position.copy(smooth.current)
     camera.lookAt(look.current)
   })
@@ -1128,7 +1138,7 @@ export default function QuickActions() {
       )}
 
       <Canvas dpr={[1,1.8]}
-        camera={{ position:[0,18,16], fov:65, near:0.1, far:300 }}
+        camera={{ position:[0,8,14], fov:68, near:0.1, far:300 }}
         gl={{ antialias:true, alpha:false, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:0.80 }}
         shadows style={{ position:'absolute', inset:0 }}>
         <Suspense fallback={null}>
