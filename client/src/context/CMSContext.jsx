@@ -32,7 +32,7 @@ export function CMSProvider({ children }) {
   const [hiddenComponents, setHiddenComponents] = useState([]) // list of hidden component keys
   const [pageBlocks, setPageBlocks] = useState([]) // custom blocks inserted by admin per page
   const styleTagRef  = useRef(null)
-  const applyingRef  = useRef(false)   // guard against MutationObserver re-entry
+  const observersRef = useRef(new Map()) // key → MutationObserver (per-element re-apply guards)
 
   // ── Load CMS field content ────────────────────────────────────────────────
   useEffect(() => {
@@ -242,33 +242,46 @@ export function CMSProvider({ children }) {
     })
   }, [])
 
+  // ── Attach MutationObservers so React re-renders can't permanently wipe overrides ──
+  // When React reconciles and resets innerHTML/innerText, the observer fires as a
+  // microtask and immediately re-applies the override — imperceptible to the user.
+  const attachObservers = useCallback((ovrs) => {
+    // Disconnect all previous observers before re-attaching
+    observersRef.current.forEach(obs => obs.disconnect())
+    observersRef.current.clear()
+    Object.entries(ovrs).forEach(([key, { text, html }]) => {
+      if (text == null && html == null) return
+      const el = document.querySelector(`[data-cms-id="${key}"]`)
+      if (!el) return
+      let guard = false
+      const apply = () => {
+        if (guard) return
+        guard = true
+        if (html != null) { if (el.innerHTML !== html) el.innerHTML = html }
+        else if (text != null) { if (el.innerText !== text) el.innerText = text }
+        // Reset guard after current microtask batch so future React renders are caught
+        Promise.resolve().then(() => { guard = false })
+      }
+      const obs = new MutationObserver(apply)
+      obs.observe(el, { childList: true, characterData: true, subtree: true })
+      observersRef.current.set(key, obs)
+    })
+  }, [])
+
   // ── Always tag + apply on page load for ALL users ─────────────────────────
   // Runs on: overrides load from Supabase, AND on every SPA navigation (location.pathname)
   // Triple-retry catches lazy-loaded React pages that render after the first timeout
   useEffect(() => {
-    const t1 = setTimeout(() => tagAndApply(overrides), 400)
-    const t2 = setTimeout(() => tagAndApply(overrides), 1100)
-    const t3 = setTimeout(() => tagAndApply(overrides), 2400)
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
-  }, [overrides, tagAndApply, location.pathname])
-
-  // ── Interval: keep re-applying text overrides so React re-renders can't wipe them ──
-  // React reconciliation resets innerText to JSX values on every component re-render.
-  // A setInterval that checks + re-applies every 150ms is the simplest reliable fix.
-  useEffect(() => {
-    if (!Object.keys(overrides).length) return
-    const reApply = () => {
-      Object.entries(overrides).forEach(([key, { text, html }]) => {
-        if (text == null && html == null) return
-        const el = document.querySelector(`[data-cms-id="${key}"]`)
-        if (!el) return
-        if (html != null) { if (el.innerHTML !== html) el.innerHTML = html }
-        else if (text != null) { if (el.innerText !== text) el.innerText = text }
-      })
+    const run = () => { tagAndApply(overrides); attachObservers(overrides) }
+    const t1 = setTimeout(run, 400)
+    const t2 = setTimeout(run, 1100)
+    const t3 = setTimeout(run, 2400)
+    return () => {
+      clearTimeout(t1); clearTimeout(t2); clearTimeout(t3)
+      observersRef.current.forEach(obs => obs.disconnect())
+      observersRef.current.clear()
     }
-    const iv = setInterval(reApply, 150)
-    return () => clearInterval(iv)
-  }, [overrides])
+  }, [overrides, tagAndApply, attachObservers, location.pathname])
 
   // ── Extra CMS edit-mode UI (hover outlines, click to select) ─────────────
   useEffect(() => {
@@ -377,12 +390,17 @@ export function CMSProvider({ children }) {
     const newOverrides = { ...overrides, [key]: { text, styles, html } }
     setOverrides(newOverrides)
     applyOverrideStyles(newOverrides)
-    await supabase.from('cms_overrides').upsert(
+    attachObservers(newOverrides)
+    const { error } = await supabase.from('cms_overrides').upsert(
       { element_key: key, text_content: text, styles, html_content: html, updated_at: new Date().toISOString() },
       { onConflict: 'element_key' }
     )
     setSaving(false)
-  }, [overrides])
+    if (error) {
+      console.error('[CMS] saveOverride failed:', error)
+      alert(`CMS save error: ${error.message}\n\nThis override was NOT saved to the database and will reset on refresh.\n\nCheck Supabase → cms_overrides table and RLS policies.`)
+    }
+  }, [overrides, attachObservers])
 
   const deleteOverride = useCallback(async (key) => {
     const el = document.querySelector(`[data-cms-id="${key}"]`)
