@@ -9,11 +9,12 @@ import {
   Users, BookOpen, GraduationCap, LineChart, FlaskConical,
   CloudSun, Joystick, ShieldCheck, LogOut, ChevronDown,
   ChevronLeft, ChevronRight, Droplets, Building2, Circle,
-  UserCircle, Microscope
+  UserCircle, Microscope, Compass
 } from 'lucide-react'
 
 const NAV = [
   { section: 'OVERVIEW' },
+  { label: 'Quick Actions',   icon: Compass,         path: '/quick-actions', color: '#f59e0b' },
   { label: 'Dashboard',       icon: LayoutDashboard, path: '/dashboard',  color: '#006fbf' },
   { label: 'Ask Water AI',    icon: Sparkles,        path: '/ask-water',  color: '#8b5cf6' },
   { label: 'Live Map',        icon: Map,             path: '/map',        color: '#14b8a6' },

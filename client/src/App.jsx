@@ -25,6 +25,7 @@ const Alerts     = lazy(() => import('./pages/Alerts'))
 const Weather    = lazy(() => import('./pages/Weather3D'))
 const Games        = lazy(() => import('./pages/Games'))
 const ResearchHub  = lazy(() => import('./pages/ResearchHub'))
+const QuickActions = lazy(() => import('./pages/QuickActions'))
 
 // Persistent layout — stays mounted between page navigations (fixes sidebar collapse)
 function ProtectedLayout() {
@@ -73,7 +74,8 @@ function AppRoutes() {
           <Route path="/alerts"     element={<Alerts />} />
           <Route path="/weather"    element={<Weather />} />
           <Route path="/games"      element={<Games />} />
-          <Route path="/research"   element={<ResearchHub />} />
+          <Route path="/research"      element={<ResearchHub />} />
+          <Route path="/quick-actions" element={<QuickActions />} />
           <Route path="/profile"    element={<Profile />} />
           <Route element={<AdminGuard />}>
             <Route path="/admin" element={<AdminPage />} />
