@@ -1,5 +1,5 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Sky, Cloud, Html, Trail, Billboard, Environment, useTexture } from '@react-three/drei'
+import { Sky, Cloud, Html, Trail, Billboard, Environment, useTexture, OrbitControls } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useRef, useState, useEffect, useMemo, useCallback, Suspense, Component } from 'react'
@@ -75,13 +75,13 @@ const WATER_VERT = `
     vec3 tan = vec3(1,0,0);
     vec3 bin = vec3(0,0,1);
 
-    // 5 wave trains — dramatic ocean swell
+    // 5 wave trains — gentle swells around the map island
     vec3 disp = vec3(0);
-    disp += gerstner(vec4( 1.0,  0.0,  0.38, 16.0), p, tan, bin);
-    disp += gerstner(vec4( 0.0,  1.0,  0.28, 10.0), p, tan, bin);
-    disp += gerstner(vec4( 0.7,  0.7,  0.18,  6.0), p, tan, bin);
-    disp += gerstner(vec4(-0.5,  1.0,  0.13,  3.5), p, tan, bin);
-    disp += gerstner(vec4( 0.3, -0.8,  0.09,  2.2), p, tan, bin);
+    disp += gerstner(vec4( 1.0,  0.0,  0.14, 16.0), p, tan, bin);
+    disp += gerstner(vec4( 0.0,  1.0,  0.10, 10.0), p, tan, bin);
+    disp += gerstner(vec4( 0.7,  0.7,  0.07,  6.0), p, tan, bin);
+    disp += gerstner(vec4(-0.5,  1.0,  0.05,  3.5), p, tan, bin);
+    disp += gerstner(vec4( 0.3, -0.8,  0.03,  2.2), p, tan, bin);
 
     p += disp;
     vWave  = disp.y;
@@ -169,7 +169,7 @@ function Ocean() {
   const uni = useMemo(()=>({ uTime:{value:0}, uSunDir:{value:SUN_DIR}, uSunCol:{value:SUN_COL} }),[])
   useFrame(({clock})=>{ if(mat.current) mat.current.uniforms.uTime.value=clock.getElapsedTime() })
   return (
-    <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.05,0]}>
+    <mesh rotation={[-Math.PI/2,0,0]} position={[0,-1.1,0]}>
       <planeGeometry args={[80,80,80,80]}/>
       <shaderMaterial ref={mat} uniforms={uni} vertexShader={WATER_VERT} fragmentShader={WATER_FRAG} transparent side={THREE.DoubleSide}/>
     </mesh>
@@ -208,9 +208,9 @@ function MapPlatformContent() {
         <meshStandardMaterial color="#05121e" roughness={1} metalness={0}/>
       </mesh>
 
-      {/* Map board sides — thick, like a physical map book or atlas */}
-      <mesh position={[0,-0.35,0]} receiveShadow castShadow>
-        <boxGeometry args={[29.2,0.75,29.2]}/>
+      {/* Map board sides — tall enough to show clearly above ocean (ocean at y=-1.1) */}
+      <mesh position={[0,-0.65,0]} receiveShadow castShadow>
+        <boxGeometry args={[29.2,1.45,29.2]}/>
         <meshStandardMaterial color="#3a2508" roughness={0.96} metalness={0}/>
       </mesh>
       {/* Beveled top edge */}
@@ -767,42 +767,32 @@ function Ship({ shipRef }) {
   )
 }
 
-/* ─── Miniature tilt-shift camera — low angle, close ────────────── */
+/* ─── Camera: OrbitControls + soft ship follow ───────────────────── */
 function CameraRig({ shipRef }) {
-  const { camera } = useThree()
-  const smooth = useRef(new THREE.Vector3(0, 5, 9))
-  const look   = useRef(new THREE.Vector3(0, 0, 0))
-  const orbitT = useRef(0)
+  const orbitRef = useRef()
+  const targetV  = useRef(new THREE.Vector3(0, 0.5, 0))
 
-  useFrame(({ clock }, dt) => {
-    const t   = clock.getElapsedTime()
-    const s   = shipRef.current ?? { x:0, z:0, angle:0, speed:0 }
-    const spd = Math.abs(s.speed ?? 0)
-
-    // Idle: very slow drift so map rotates into view slowly
-    if (spd < 0.04) orbitT.current += dt * 0.03
-    else            orbitT.current *= 0.90
-
-    const ox = Math.sin(orbitT.current) * 1.2
-    const oz = Math.cos(orbitT.current) * 0.5
-
-    // Low angle: y=4.5 to see sails + map surface like a miniature diorama
-    const sway = Math.sin(t * 0.14) * 0.12
-    const camH = 4.8 + sway
-    const camD = 8   // close behind
-
-    smooth.current.lerp(
-      new THREE.Vector3(s.x + ox, camH, s.z + camD + oz),
-      0.042
-    )
-    look.current.lerp(
-      new THREE.Vector3(s.x, 0.8, s.z - 0.5),
-      0.06
-    )
-    camera.position.copy(smooth.current)
-    camera.lookAt(look.current)
+  useFrame(() => {
+    if (!orbitRef.current || !shipRef.current) return
+    const s = shipRef.current
+    targetV.current.lerp(new THREE.Vector3(s.x, 0.5, s.z), 0.04)
+    orbitRef.current.target.copy(targetV.current)
+    orbitRef.current.update()
   })
-  return null
+
+  return (
+    <OrbitControls
+      ref={orbitRef}
+      makeDefault
+      target={[0, 0.5, 0]}
+      minDistance={4}
+      maxDistance={32}
+      maxPolarAngle={Math.PI / 2.05}
+      enablePan={false}
+      rotateSpeed={0.55}
+      zoomSpeed={0.9}
+    />
+  )
 }
 
 /* ─── Connection lines ──────────────────────────────────────────── */
@@ -955,9 +945,10 @@ function useShipControls() {
         else          s.speed*=0.94
       }
 
-      const rad=(s.angle-90)*Math.PI/180
-      s.x=Math.max(-18,Math.min(18,s.x+Math.cos(rad)*s.speed))
-      s.z=Math.max(-18,Math.min(18,s.z+Math.sin(rad)*s.speed))
+      // facing direction = (cos(angle), 0, -sin(angle)) — matches rotation.y=(90-angle)*PI/180
+      const rad = s.angle * Math.PI / 180
+      s.x = Math.max(-18, Math.min(18, s.x + Math.cos(rad) * s.speed))
+      s.z = Math.max(-18, Math.min(18, s.z - Math.sin(rad) * s.speed))
       shipRef.current={...s}; setRender({...s})
       raf=requestAnimationFrame(loop)
     }
