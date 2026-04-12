@@ -75,15 +75,12 @@ const WATER_VERT = `
     vec3 tan = vec3(1,0,0);
     vec3 bin = vec3(0,0,1);
 
-    // 7 wave trains — large swells + mid chop + detail ripple
+    // 4 wave trains — good quality, GPU-friendly
     vec3 disp = vec3(0);
-    disp += gerstner(vec4( 1.0, 0.0,  0.30, 14.0), p, tan, bin); // main swell
-    disp += gerstner(vec4( 0.0, 1.0,  0.24, 10.0), p, tan, bin); // cross swell
-    disp += gerstner(vec4( 0.7, 0.7,  0.18,  7.0), p, tan, bin); // diagonal
-    disp += gerstner(vec4(-0.5, 1.0,  0.15,  5.0), p, tan, bin); // counter
-    disp += gerstner(vec4( 1.0,-0.5,  0.12,  3.5), p, tan, bin); // chop
-    disp += gerstner(vec4( 0.3, 0.9,  0.08,  2.0), p, tan, bin); // ripple
-    disp += gerstner(vec4(-0.8, 0.3,  0.05,  1.2), p, tan, bin); // micro
+    disp += gerstner(vec4( 1.0, 0.0,  0.28, 14.0), p, tan, bin);
+    disp += gerstner(vec4( 0.0, 1.0,  0.20, 9.0),  p, tan, bin);
+    disp += gerstner(vec4( 0.7, 0.7,  0.14, 5.5),  p, tan, bin);
+    disp += gerstner(vec4(-0.5, 1.0,  0.10, 3.0),  p, tan, bin);
 
     p += disp;
     vWave  = disp.y;
@@ -172,7 +169,7 @@ function Ocean() {
   useFrame(({clock})=>{ if(mat.current) mat.current.uniforms.uTime.value=clock.getElapsedTime() })
   return (
     <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.05,0]}>
-      <planeGeometry args={[80,80,128,128]}/>
+      <planeGeometry args={[80,80,80,80]}/>
       <shaderMaterial ref={mat} uniforms={uni} vertexShader={WATER_VERT} fragmentShader={WATER_FRAG} transparent side={THREE.DoubleSide}/>
     </mesh>
   )
@@ -459,7 +456,7 @@ function Seagull({ offset=0 }) {
 }
 
 /* ─── Spray particles — bow wake + hull foam ─────────────────────── */
-const SPRAY_COUNT = 320
+const SPRAY_COUNT = 80
 function ShipSpray({ shipRef }) {
   const pts  = useRef()
   const pos  = useMemo(() => new Float32Array(SPRAY_COUNT * 3), [])
@@ -537,7 +534,7 @@ function Ship({ shipRef }) {
         <object3D ref={trailTarget} />
       </Trail>
       {/* Scale up — GLB is in meters, scene units are small */}
-      <primitive object={model} scale={[0.10, 0.10, 0.10]} rotation={[0, Math.PI, 0]}/>
+      <primitive object={model} scale={[1.2, 1.2, 1.2]} rotation={[0, Math.PI, 0]}/>
       {/* Ship key light — always illuminates the hull */}
       <pointLight color="#ffaa44" intensity={6} distance={12} position={[0, 3, 3]}/>
       {/* Bow lantern glow */}
@@ -571,14 +568,13 @@ function CameraRig({ shipRef }) {
     const ox = Math.sin(orbitT.current) * 2.5
     const oz = Math.cos(orbitT.current) * 1.2
 
-    // AC Black Flag: camera low, right behind ship, at wave height
-    const sway  = Math.sin(t*0.28)*0.18 + Math.cos(t*0.19)*0.10  // sea sway
-    const camH  = 2.8 + sway   // almost at water level
-    const camD  = 7.5           // close behind ship
+    // Behind ship + high enough to see the whole map
+    const sway  = Math.sin(t*0.28)*0.25 + Math.cos(t*0.19)*0.12
+    const camH  = 9 + sway
+    const camD  = 14
 
-    smooth.current.lerp(new THREE.Vector3(s.x+ox, camH, s.z+camD+oz), 0.040)
-    // Look forward across ocean — ship fills lower frame, horizon above
-    look.current.lerp(new THREE.Vector3(s.x, 1.2, s.z - 10), 0.065)
+    smooth.current.lerp(new THREE.Vector3(s.x+ox, camH, s.z+camD+oz), 0.035)
+    look.current.lerp(new THREE.Vector3(s.x, 0.5, s.z - 4), 0.055)
     camera.position.copy(smooth.current)
     camera.lookAt(look.current)
   })
@@ -657,10 +653,8 @@ function Scene({ shipRef, navigate }) {
       <CameraRig shipRef={shipRef}/>
 
       <EffectComposer>
-        <Bloom luminanceThreshold={0.28} luminanceSmoothing={0.9} intensity={0.85}/>
-        <DepthOfField focusDistance={0.012} focalLength={0.028} bokehScale={2.8}/>
-        <ChromaticAberration offset={[0.0008, 0.0004]}/>
-        <Vignette eskil={false} offset={0.12} darkness={0.75}/>
+        <Bloom luminanceThreshold={0.26} luminanceSmoothing={0.85} intensity={0.80}/>
+        <Vignette eskil={false} offset={0.14} darkness={0.70}/>
       </EffectComposer>
     </>
   )
