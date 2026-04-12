@@ -217,9 +217,13 @@ router.delete('/:id', requireAuth, requireQuizCreator, async (req, res) => {
   try {
     const quiz = await db.get('SELECT * FROM quizzes WHERE id=?', [req.params.id])
     if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
-    if (!req.user.is_admin && quiz.created_by !== req.user.id) return res.status(403).json({ error: 'You can only delete your own quizzes' })
-    // Delete attempts first (no CASCADE on this FK), then the quiz
+    // Admins can delete any quiz; quiz creators can only delete their own
+    if (!req.user.is_admin && !CREATOR_ROLES.includes(req.user.role) && quiz.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'You can only delete your own quizzes' })
+    }
+    // Delete related data first (no CASCADE on quiz_attempts FK)
     await db.run('DELETE FROM quiz_attempts WHERE quiz_id=?', [req.params.id])
+    await db.run('DELETE FROM quiz_questions WHERE quiz_id=?', [req.params.id])
     await db.run('DELETE FROM quizzes WHERE id=?', [req.params.id])
     res.json({ success: true })
   } catch (e) { res.status(500).json({ error: e.message }) }

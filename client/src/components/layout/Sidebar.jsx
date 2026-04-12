@@ -14,7 +14,7 @@ import {
 
 const NAV = [
   { section: 'OVERVIEW' },
-  { label: 'Dashboard',       icon: LayoutDashboard, path: '/dashboard',  color: '#6366f1' },
+  { label: 'Dashboard',       icon: LayoutDashboard, path: '/dashboard',  color: '#006fbf' },
   { label: 'Ask Water AI',    icon: Sparkles,        path: '/ask-water',  color: '#8b5cf6' },
   { label: 'Live Map',        icon: Map,             path: '/map',        color: '#14b8a6' },
   { label: 'Alerts',          icon: BellRing,        path: '/alerts',     color: '#f59e0b' },
@@ -24,7 +24,7 @@ const NAV = [
   { label: 'Resources',       icon: BookOpen,        path: '/resources',  color: '#10b981' },
   { label: 'Quiz & Learn',    icon: GraduationCap,   path: '/quiz',       color: '#f97316' },
   { section: 'RESEARCH' },
-  { label: 'Data Analysis',   icon: LineChart,       path: '/analysis',   color: '#6366f1' },
+  { label: 'Data Analysis',   icon: LineChart,       path: '/analysis',   color: '#006fbf' },
   { label: 'Research Hub',    icon: Microscope,      path: '/research',   color: '#a855f7' },
   { label: 'Projects',        icon: FlaskConical,    path: '/projects',   color: '#14b8a6' },
   { label: 'Weather',         icon: CloudSun,        path: '/weather',    color: '#0ea5e9' },
@@ -73,10 +73,10 @@ function ClaimAdminButton({ collapsed }) {
       <button onClick={claim} disabled={claiming} title="Claim admin (only works if no admin exists yet)"
         style={{
           width: '100%', padding: collapsed ? '8px 0' : '8px 12px',
-          borderRadius: 8, border: '1px dashed rgba(99,102,241,0.4)',
-          background: 'rgba(99,102,241,0.06)', cursor: 'pointer',
+          borderRadius: 8, border: '1px dashed rgba(0,111,191,0.4)',
+          background: 'rgba(0,111,191,0.06)', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start',
-          gap: 8, fontSize: 12, color: '#818cf8', fontWeight: 600,
+          gap: 8, fontSize: 12, color: '#4db6f5', fontWeight: 600,
         }}>
         <ShieldCheck style={{ width: 14, height: 14, flexShrink: 0 }}/>
         {!collapsed && (claiming ? 'Claiming…' : 'Claim Admin')}
@@ -110,7 +110,7 @@ export default function Sidebar({ collapsed, onToggle }) {
       {/* Subtle top glow */}
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0, height: 120,
-        background: 'radial-gradient(ellipse 80% 100% at 50% 0%, rgba(99,102,241,0.12) 0%, transparent 100%)',
+        background: 'radial-gradient(ellipse 80% 100% at 50% 0%, rgba(0,111,191,0.12) 0%, transparent 100%)',
         pointerEvents: 'none',
       }}/>
 
@@ -123,7 +123,7 @@ export default function Sidebar({ collapsed, onToggle }) {
           minHeight: 60,
         }}>
         <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: 'linear-gradient(135deg, #6366f1, #14b8a6)', boxShadow: '0 4px 12px rgba(99,102,241,0.4)' }}>
+          style={{ background: 'linear-gradient(135deg, #006fbf, #14b8a6)', boxShadow: '0 4px 12px rgba(0,111,191,0.4)' }}>
           <Droplets className="w-5 h-5 text-white"/>
         </div>
         {!collapsed && (
@@ -147,7 +147,7 @@ export default function Sidebar({ collapsed, onToggle }) {
             className="p-2 rounded-md transition-all hover:scale-110 expand-hint"
             style={{ 
               color: '#64748b',
-              background: 'rgba(99,102,241,0.15)',
+              background: 'rgba(0,111,191,0.15)',
             }}
             onMouseEnter={e => {
               e.currentTarget.style.color = '#00d9ff'
@@ -182,7 +182,7 @@ export default function Sidebar({ collapsed, onToggle }) {
                 margin: '1px 8px',
                 width: 'calc(100% - 16px)',
                 borderRadius: 10,
-                background: active ? 'rgba(99,102,241,0.14)' : 'transparent',
+                background: active ? 'rgba(0,111,191,0.14)' : 'transparent',
               }}
               onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}>
@@ -192,7 +192,7 @@ export default function Sidebar({ collapsed, onToggle }) {
                 <div style={{
                   position: 'absolute', left: 0, top: '20%', bottom: '20%',
                   width: 3, borderRadius: '0 3px 3px 0',
-                  background: item.color || '#6366f1',
+                  background: item.color || '#006fbf',
                 }}/>
               )}
 
@@ -277,15 +277,15 @@ export default function Sidebar({ collapsed, onToggle }) {
                 margin: '1px 8px',
                 width: 'calc(100% - 16px)',
                 borderRadius: 10,
-                background: location.pathname === '/admin' ? 'rgba(99,102,241,0.14)' : 'transparent',
+                background: location.pathname === '/admin' ? 'rgba(0,111,191,0.14)' : 'transparent',
               }}
               onMouseEnter={e => { if (location.pathname !== '/admin') e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
               onMouseLeave={e => { if (location.pathname !== '/admin') e.currentTarget.style.background = 'transparent' }}>
               <div className="flex items-center justify-center flex-shrink-0 rounded-lg"
                 style={{
                   width: 32, height: 32,
-                  background: location.pathname === '/admin' ? 'rgba(99,102,241,0.22)' : 'transparent',
-                  color: location.pathname === '/admin' ? '#818cf8' : '#3d5273',
+                  background: location.pathname === '/admin' ? 'rgba(0,111,191,0.22)' : 'transparent',
+                  color: location.pathname === '/admin' ? '#4db6f5' : '#3d5273',
                 }}>
                 <ShieldCheck className="w-[17px] h-[17px]"/>
               </div>
@@ -311,7 +311,7 @@ export default function Sidebar({ collapsed, onToggle }) {
             onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
             onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}>
             <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg, #6366f1, #14b8a6)', boxShadow: '0 2px 8px rgba(99,102,241,0.3)' }}>
+              style={{ background: 'linear-gradient(135deg, #006fbf, #14b8a6)', boxShadow: '0 2px 8px rgba(0,111,191,0.3)' }}>
               {user?.display_name?.[0]?.toUpperCase() || user?.username?.[0]?.toUpperCase() || '?'}
             </div>
             <div className="flex-1 min-w-0">
@@ -388,7 +388,7 @@ export default function Sidebar({ collapsed, onToggle }) {
         <div className="p-3 flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
           <button onClick={() => go('/profile')}
             className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm mx-auto"
-            style={{ background: 'linear-gradient(135deg, #6366f1, #14b8a6)' }}>
+            style={{ background: 'linear-gradient(135deg, #006fbf, #14b8a6)' }}>
             {user?.display_name?.[0]?.toUpperCase() || '?'}
           </button>
         </div>

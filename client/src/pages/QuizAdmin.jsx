@@ -1239,6 +1239,15 @@ export default function QuizAdmin() {
             Create quizzes, add questions, generate with AI, view research-grade analytics
           </p>
         </div>
+        {user?.is_admin && (
+          <button onClick={() => navigate('/admin')} style={{
+            display:'flex', alignItems:'center', gap:6, padding:'8px 14px', borderRadius:6,
+            background:'rgba(99,102,241,0.1)', border:'1px solid rgba(99,102,241,0.25)',
+            color:'#818cf8', fontSize:13, fontWeight:700, cursor:'pointer',
+          }}>
+            🛡 Users &amp; RBAC
+          </button>
+        )}
         <d2l-button onClick={() => navigate('/quiz')}>Student View</d2l-button>
       </div>
 
