@@ -35,40 +35,39 @@ class ChatService {
       socket.on('send_message', async (data) => {
         try {
           const { receiverId, content, messageType = 'text', mediaPath, voicePath } = data
-          
+
           if (!socket.userId) {
             socket.emit('error', { message: 'Authentication required' })
             return
           }
 
-          // Save message to database
-          const result = db.prepare(`
-            INSERT INTO direct_messages (sender_id, receiver_id, content, media, voice_note, message_type, read)
-            VALUES (?,?,?,?,?,?,0)
-          `).run(socket.userId, receiverId, content || null, mediaPath || null, voicePath || null, messageType)
+          const { lastInsertRowid } = await db.run(
+            `INSERT INTO direct_messages (sender_id, receiver_id, content, media, voice_note, message_type, read)
+             VALUES (?,?,?,?,?,?,0)`,
+            [socket.userId, receiverId, content || null, mediaPath || null, voicePath || null, messageType]
+          )
 
-          const message = db.prepare(`
-            SELECT dm.*, u.username, u.display_name, u.avatar_emoji 
-            FROM direct_messages dm 
-            JOIN users u ON dm.sender_id = u.id 
-            WHERE dm.id = ?
-          `).get(result.lastInsertRowid)
+          const message = await db.get(
+            `SELECT dm.*, u.username, u.display_name, u.avatar_emoji
+             FROM direct_messages dm
+             JOIN users u ON dm.sender_id = u.id
+             WHERE dm.id = ?`,
+            [lastInsertRowid]
+          )
 
-          // Send to receiver
           socket.to(`user_${receiverId}`).emit('new_message', message)
-          
-          // Send back to sender
           socket.emit('message_sent', message)
 
-          // Award points for sending message
-          db.prepare('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)')
-            .run(socket.userId, 1, 'dm_sent', new Date().toISOString().slice(0,7))
+          db.run('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)',
+            [socket.userId, 1, 'dm_sent', new Date().toISOString().slice(0, 7)]).catch(() => {})
 
-          // Create notification for receiver
-          const sender = db.prepare('SELECT display_name, username FROM users WHERE id=?').get(socket.userId)
-          db.prepare('INSERT INTO notifications (user_id,type,title,message,link) VALUES (?,?,?,?,?)')
-            .run(receiverId, 'dm', 'New Message', `${sender.display_name || sender.username} sent you a message`, `/messages/${socket.userId}`)
-
+          const sender = await db.get('SELECT display_name, username FROM users WHERE id=?', [socket.userId])
+          if (sender) {
+            db.run('INSERT INTO notifications (user_id,type,title,message,link) VALUES (?,?,?,?,?)',
+              [receiverId, 'dm', 'New Message',
+               `${sender.display_name || sender.username} sent you a message`,
+               `/messages/${socket.userId}`]).catch(() => {})
+          }
         } catch (error) {
           console.error('Error sending message:', error)
           socket.emit('error', { message: 'Failed to send message' })
@@ -78,7 +77,7 @@ class ChatService {
       // Mark message as read
       socket.on('mark_read', async (messageId) => {
         try {
-          db.prepare('UPDATE direct_messages SET read = 1 WHERE id = ?').run(messageId)
+          await db.run('UPDATE direct_messages SET read = 1 WHERE id = ?', [messageId])
           socket.emit('message_read', { messageId })
         } catch (error) {
           console.error('Error marking message as read:', error)

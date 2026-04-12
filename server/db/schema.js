@@ -339,6 +339,28 @@ async function initSchema() {
     for (const m of migrations) {
       await db.exec(m).catch(() => {}) // ignore if already exists
     }
+
+    // Ensure email is unique so auto-creation doesn't make a new row every page load.
+    // First deduplicate (keep lowest id per email), then add the constraint.
+    const emailConstraint = await db.get(
+      `SELECT 1 FROM information_schema.table_constraints
+       WHERE table_schema='public' AND table_name='users' AND constraint_name='users_email_unique'`
+    )
+    if (!emailConstraint) {
+      await db.pool.query(
+        `DELETE FROM users WHERE id NOT IN (
+           SELECT MIN(id) FROM users WHERE email IS NOT NULL GROUP BY email
+         )`
+      )
+      await db.pool.query(`ALTER TABLE users ADD CONSTRAINT users_email_unique UNIQUE (email)`)
+      console.log('[schema] added unique email constraint + deduped users')
+    }
+
+    // Ensure admin@sourcewater.app always has admin privileges
+    await db.pool.query(
+      `UPDATE users SET is_admin=1 WHERE email='admin@sourcewater.app' AND is_admin=0`
+    )
+
     console.log('[schema] PostgreSQL schema ready')
   } else {
     // ── SQLite schema (local dev only) ───────────────────────────────────────
