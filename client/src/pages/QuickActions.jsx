@@ -1,7 +1,8 @@
-import { Canvas, useFrame, extend, useThree } from '@react-three/fiber'
-import { Sky, Cloud, Html, Trail, Effects, Billboard, Environment, useGLTF } from '@react-three/drei'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Sky, Cloud, Html, Trail, Billboard, Environment, useGLTF } from '@react-three/drei'
+import { EffectComposer, Bloom, DepthOfField, ChromaticAberration, Vignette } from '@react-three/postprocessing'
+import { BlendFunction } from 'postprocessing'
 import * as THREE from 'three'
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { useRef, useState, useEffect, useMemo, useCallback, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -9,8 +10,6 @@ import {
   Users, BookOpen, GraduationCap, LineChart, Microscope,
   FlaskConical, CloudSun, Joystick,
 } from 'lucide-react'
-
-extend({ UnrealBloomPass })
 
 const SUN_POS  = [-45, 12, -55]
 const SUN_DIR  = new THREE.Vector3(-45, 12, -55).normalize()
@@ -47,7 +46,7 @@ const LAKES = [
     pts:[[3.6,0.2],[5.2,0],[6.8,0.6],[7.4,1.4],[7.2,2.8],[6.2,3.2],[4.6,3.2],[3.6,2.4],[3.2,1.4]] },
 ]
 
-/* ─── Caribbean water shader ────────────────────────────────────── */
+/* ─── Gerstner wave ocean shader (military-grade simulation) ────── */
 const WATER_VERT = `
   uniform float uTime;
   varying vec2  vUv;
@@ -55,26 +54,45 @@ const WATER_VERT = `
   varying vec3  vNormal;
   varying vec3  vViewDir;
   varying vec3  vWorldPos;
+
+  #define PI 3.14159265358979
+
+  // Gerstner wave: circular orbit motion — used in Sea of Thieves, AC Black Flag
+  vec3 gerstner(vec4 w, vec3 p, inout vec3 tan, inout vec3 bin) {
+    float k  = 2.0 * PI / w.w;
+    float c  = sqrt(9.81 / k);
+    vec2  d  = normalize(w.xy);
+    float f  = k * (dot(d, p.xz) - c * uTime);
+    float a  = w.z / k;
+    float sf = sin(f); float cf = cos(f);
+    tan += vec3(-d.x*d.x*w.z*sf,  d.x*w.z*cf, -d.x*d.y*w.z*sf);
+    bin += vec3(-d.x*d.y*w.z*sf,  d.y*w.z*cf, -d.y*d.y*w.z*sf);
+    return vec3(d.x*(a*cf), a*sf, d.y*(a*cf));
+  }
+
   void main(){
     vUv = uv;
-    vec3 p = position;
-    // Big cinematic ocean swells like AC Black Flag
-    float w = sin(p.x*0.22+uTime*0.55)*0.65
-            + sin(p.z*0.30+uTime*0.82)*0.50
-            + sin((p.x+p.z)*0.18+uTime*0.42)*0.30
-            + cos(p.x*0.10+p.z*0.14+uTime*0.28)*0.20
-            + sin(p.x*0.80+p.z*0.65+uTime*1.6)*0.08
-            + sin(p.x*1.6 +p.z*1.2 +uTime*2.4)*0.04;
-    vWave = w;
-    float e=0.08;
-    float wx=sin((p.x+e)*0.22+uTime*0.55)*0.65+sin(p.z*0.30+uTime*0.82)*0.50+sin(((p.x+e)+p.z)*0.18+uTime*0.42)*0.30;
-    float wz=sin(p.x*0.22+uTime*0.55)*0.65+sin((p.z+e)*0.30+uTime*0.82)*0.50+sin((p.x+(p.z+e))*0.18+uTime*0.42)*0.30;
-    vNormal = normalize(cross(normalize(vec3(0.,wz-w,e)),normalize(vec3(e,wx-w,0.))));
-    p.y += w;
-    vec4 wPos = modelMatrix*vec4(p,1.);
+    vec3 p   = position;
+    vec3 tan = vec3(1,0,0);
+    vec3 bin = vec3(0,0,1);
+
+    // 7 wave trains — large swells + mid chop + detail ripple
+    vec3 disp = vec3(0);
+    disp += gerstner(vec4( 1.0, 0.0,  0.30, 14.0), p, tan, bin); // main swell
+    disp += gerstner(vec4( 0.0, 1.0,  0.24, 10.0), p, tan, bin); // cross swell
+    disp += gerstner(vec4( 0.7, 0.7,  0.18,  7.0), p, tan, bin); // diagonal
+    disp += gerstner(vec4(-0.5, 1.0,  0.15,  5.0), p, tan, bin); // counter
+    disp += gerstner(vec4( 1.0,-0.5,  0.12,  3.5), p, tan, bin); // chop
+    disp += gerstner(vec4( 0.3, 0.9,  0.08,  2.0), p, tan, bin); // ripple
+    disp += gerstner(vec4(-0.8, 0.3,  0.05,  1.2), p, tan, bin); // micro
+
+    p += disp;
+    vWave  = disp.y;
+    vNormal = normalize(cross(bin, tan));
+    vec4 wPos = modelMatrix * vec4(p, 1.0);
     vWorldPos = wPos.xyz;
-    vViewDir = normalize(cameraPosition-wPos.xyz);
-    gl_Position = projectionMatrix*viewMatrix*wPos;
+    vViewDir  = normalize(cameraPosition - wPos.xyz);
+    gl_Position = projectionMatrix * viewMatrix * wPos;
   }
 `
 const WATER_FRAG = `
@@ -86,42 +104,66 @@ const WATER_FRAG = `
   varying vec3  vNormal;
   varying vec3  vViewDir;
   varying vec3  vWorldPos;
+
   void main(){
-    vec3 N=normalize(vNormal);
-    vec3 V=normalize(vViewDir);
-    vec3 L=uSunDir;
-    // Fresnel
-    float fr=0.04+0.96*pow(1.-max(dot(N,V),0.),5.);
-    // Diffuse + specular
-    float diff=max(dot(N,L),0.12);
-    vec3  H=normalize(L+V);
-    float sp=pow(max(dot(N,H),0.),640.)*2.2;
-    float sp2=pow(max(dot(N,H),0.),55.)*0.4;
-    // Caustic shimmer
-    float cau=sin(vWorldPos.x*2.4+uTime*1.6)*sin(vWorldPos.z*2.8+uTime*1.2)*0.5+0.5;
-    cau=cau*cau*0.14;
-    // AC Black Flag deep ocean palette
-    vec3 abyss =vec3(0.00,0.02,0.10);
-    vec3 deep  =vec3(0.01,0.07,0.22);
-    vec3 mid   =vec3(0.02,0.20,0.38);
-    vec3 crest =vec3(0.05,0.38,0.52);
-    float depth=clamp(vWave*0.85+diff*0.35+cau,0.,1.);
-    vec3 col=mix(abyss,deep,clamp(depth*2.,0.,1.));
-    col=mix(col,mid, clamp((depth-0.3)*2.,0.,1.));
-    col=mix(col,crest,clamp((depth-0.6)*2.5,0.,1.));
-    // Whitecaps — heavy foam on big waves
-    col=mix(col,vec3(0.90,0.97,1.0),smoothstep(0.28,0.55,vWave)*0.80);
-    // Spray haze at tips
-    col=mix(col,vec3(0.75,0.88,0.95),smoothstep(0.50,0.70,vWave)*0.35);
-    // Dramatic sun glint
-    col+=uSunCol*(sp*2.4+sp2*0.8);
-    // Sky reflection Fresnel
-    col=mix(col,vec3(0.04,0.10,0.30),fr*0.60);
-    col*=(0.45+diff*0.55);
-    // Horizon fade
-    vec2 ed=abs(vUv-0.5)*2.;
-    float fade=1.-smoothstep(0.68,1.,max(ed.x,ed.y));
-    gl_FragColor=vec4(col,fade*0.97);
+    vec3 N = normalize(vNormal);
+    vec3 V = normalize(vViewDir);
+    vec3 L = normalize(uSunDir);
+
+    // ── Fresnel (Schlick) ─────────────────────────────────────────
+    float NdotV = max(dot(N, V), 0.0);
+    float fr = 0.02 + 0.98 * pow(1.0 - NdotV, 5.0);
+
+    // ── PBR lighting ─────────────────────────────────────────────
+    float diff = max(dot(N, L), 0.0);
+    vec3  H    = normalize(L + V);
+    float NdotH = max(dot(N, H), 0.0);
+    // Blinn-Phong with two lobes: tight highlight + broad sheen
+    float sp1  = pow(NdotH, 1200.0) * 3.5;   // pinpoint sun glint
+    float sp2  = pow(NdotH, 80.0)  * 0.55;   // broad sheen
+    float sp3  = pow(NdotH, 12.0)  * 0.12;   // very wide diffuse sheen
+
+    // ── Subsurface scatter approximation (depth glow) ─────────────
+    float sss  = pow(max(dot(-V, L), 0.0), 4.0) * 0.35;
+
+    // ── Caustic shimmer in shallows ───────────────────────────────
+    float cau  = sin(vWorldPos.x*3.0+uTime*2.2)*sin(vWorldPos.z*3.5+uTime*1.8)*0.5+0.5;
+    cau        = cau * cau * 0.10;
+
+    // ── Deep ocean PBR palette ────────────────────────────────────
+    vec3 abyss = vec3(0.00, 0.015, 0.08);
+    vec3 deep  = vec3(0.005,0.06,  0.20);
+    vec3 mid   = vec3(0.01, 0.18,  0.36);
+    vec3 crest = vec3(0.04, 0.34,  0.50);
+
+    float d    = clamp(vWave * 0.75 + diff * 0.40 + cau, 0.0, 1.0);
+    vec3 col   = mix(abyss, deep,  clamp(d * 2.5,       0.0, 1.0));
+    col        = mix(col,   mid,   clamp((d-0.28)*2.8,  0.0, 1.0));
+    col        = mix(col,   crest, clamp((d-0.58)*3.0,  0.0, 1.0));
+
+    // ── Subsurface teal glow ──────────────────────────────────────
+    col       += vec3(0.0, 0.12, 0.18) * sss;
+
+    // ── Whitecaps — Gerstner peaks ────────────────────────────────
+    float foam = smoothstep(0.25, 0.55, vWave);
+    col        = mix(col, vec3(0.92, 0.98, 1.00), foam * 0.88);
+    // Spray gloss
+    col        = mix(col, vec3(0.78, 0.90, 0.96), smoothstep(0.48, 0.68, vWave) * 0.40);
+
+    // ── Sun glint (all three lobes) ───────────────────────────────
+    col       += uSunCol * (sp1 + sp2 + sp3);
+
+    // ── Sky / environment reflection via Fresnel ──────────────────
+    vec3 skyCol = vec3(0.04, 0.09, 0.28);   // dark stormy sky
+    col         = mix(col, skyCol, fr * 0.65);
+
+    // ── Final brightness ──────────────────────────────────────────
+    col        *= (0.40 + diff * 0.60);
+
+    // ── Edge fade ─────────────────────────────────────────────────
+    vec2 ed    = abs(vUv - 0.5) * 2.0;
+    float fade = 1.0 - smoothstep(0.70, 1.0, max(ed.x, ed.y));
+    gl_FragColor = vec4(col, fade * 0.98);
   }
 `
 
@@ -417,6 +459,54 @@ function Seagull({ offset=0 }) {
   )
 }
 
+/* ─── Spray particles — bow wake + hull foam ─────────────────────── */
+const SPRAY_COUNT = 320
+function ShipSpray({ shipRef }) {
+  const pts  = useRef()
+  const pos  = useMemo(() => new Float32Array(SPRAY_COUNT * 3), [])
+  const vel  = useRef(Array.from({ length: SPRAY_COUNT }, (_, i) => ({
+    x:0, y:0, z:0, life: Math.random(), maxLife: 0.5 + Math.random() * 0.8
+  })))
+
+  useFrame(() => {
+    if (!shipRef.current || !pts.current) return
+    const s   = shipRef.current
+    const spd = Math.abs(s.speed ?? 0)
+    if (spd < 0.01) return
+    const rad = (s.angle - 90) * Math.PI / 180
+    const bx  = s.x - Math.cos(rad) * 0.8   // bow position
+    const bz  = s.z - Math.sin(rad) * 0.8
+
+    vel.current.forEach((v, i) => {
+      v.life -= 0.025 * spd * 6
+      if (v.life <= 0) {
+        // Reset at bow
+        pos[i*3]   = bx + (Math.random()-0.5)*0.5
+        pos[i*3+1] = 0.7 + Math.random()*0.4
+        pos[i*3+2] = bz + (Math.random()-0.5)*0.5
+        v.x = (Math.random()-0.5)*0.06 - Math.cos(rad)*0.04*spd
+        v.y = 0.04 + Math.random()*0.08
+        v.z = (Math.random()-0.5)*0.06 - Math.sin(rad)*0.04*spd
+        v.life = v.maxLife
+      }
+      pos[i*3]   += v.x
+      pos[i*3+1] += v.y; v.y -= 0.003  // gravity
+      pos[i*3+2] += v.z
+    })
+    pts.current.geometry.attributes.position.needsUpdate = true
+  })
+
+  return (
+    <points ref={pts}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" count={SPRAY_COUNT} array={pos} itemSize={3}/>
+      </bufferGeometry>
+      <pointsMaterial color="#c8eeff" size={0.055} transparent opacity={0.55}
+        depthWrite={false} blending={THREE.AdditiveBlending}/>
+    </points>
+  )
+}
+
 /* ─── Ship (real GLB model) ─────────────────────────────────────── */
 useGLTF.preload('/models/boat.glb')
 
@@ -448,7 +538,7 @@ function Ship({ shipRef }) {
         <object3D ref={trailTarget} />
       </Trail>
       {/* Scale up — GLB is in meters, scene units are small */}
-      <primitive object={model} scale={[0.055, 0.055, 0.055]} rotation={[0, Math.PI, 0]}/>
+      <primitive object={model} scale={[0.10, 0.10, 0.10]} rotation={[0, Math.PI, 0]}/>
       {/* Ship key light — always illuminates the hull */}
       <pointLight color="#ffaa44" intensity={6} distance={12} position={[0, 3, 3]}/>
       {/* Bow lantern glow */}
@@ -564,11 +654,20 @@ function Scene({ shipRef, navigate }) {
       <Seagull offset={5.1}/>
 
       <Ship shipRef={shipRef}/>
+      <ShipSpray shipRef={shipRef}/>
       <CameraRig shipRef={shipRef}/>
 
-      <Effects disableGamma>
-        <unrealBloomPass threshold={0.32} strength={0.45} radius={0.65}/>
-      </Effects>
+      {/* Full cinematic post-processing stack */}
+      <EffectComposer>
+        {/* Bloom — beacon glows, sun glints, foam tips */}
+        <Bloom luminanceThreshold={0.30} luminanceSmoothing={0.9} intensity={0.9} blendFunction={BlendFunction.ADD}/>
+        {/* Depth of field — foreground ship sharp, distant beacons softly blurred */}
+        <DepthOfField focusDistance={0.012} focalLength={0.028} bokehScale={2.8}/>
+        {/* Chromatic aberration — cinematic lens fringing */}
+        <ChromaticAberration offset={[0.0008, 0.0004]} blendFunction={BlendFunction.NORMAL}/>
+        {/* Vignette — darkens edges like a movie */}
+        <Vignette eskil={false} offset={0.12} darkness={0.75}/>
+      </EffectComposer>
     </>
   )
 }
