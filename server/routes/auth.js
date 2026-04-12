@@ -78,6 +78,21 @@ router.post('/login', limiter, async (req, res) => {
 router.get('/me', async (req, res) => {
   const token = req.headers.authorization?.split(' ')[1]
   if (!token) return res.status(401).json({ error: 'Not authenticated' })
+
+  // Try Supabase JWT first (used by frontend after Supabase login)
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
+    try {
+      const { createClient } = require('@supabase/supabase-js')
+      const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)
+      const { data: { user: sbUser }, error } = await sb.auth.getUser(token)
+      if (sbUser && !error) {
+        let localUser = await db.get('SELECT * FROM users WHERE email = ?', [sbUser.email])
+        if (localUser) return res.json(safeUser(localUser))
+      }
+    } catch (_) {}
+  }
+
+  // Fallback: legacy JWT
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
     const user = await db.get('SELECT * FROM users WHERE id = ?', [decoded.id])

@@ -306,6 +306,17 @@ async function initSchema() {
     for (const idx of indexes) {
       await db.exec(idx)
     }
+    // Migrations: add columns that may be missing from pre-existing Supabase tables
+    const migrations = [
+      `ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS deleted INTEGER DEFAULT 0`,
+      `ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS edited INTEGER DEFAULT 0`,
+      `ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS message_type TEXT DEFAULT 'text'`,
+      `ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS media TEXT`,
+      `ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS voice_note TEXT`,
+    ]
+    for (const m of migrations) {
+      await db.exec(m).catch(() => {}) // ignore if already exists
+    }
     console.log('[schema] PostgreSQL schema ready')
   } else {
     // ── SQLite schema (local dev only) ───────────────────────────────────────
