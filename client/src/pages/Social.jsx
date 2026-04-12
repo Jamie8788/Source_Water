@@ -20,28 +20,40 @@ import {
 /*  CSS Animations                                                  */
 /* ─────────────────────────────────────────────────────────────── */
 const STYLES = `
-@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
-@keyframes popIn{from{opacity:0;transform:scale(0.85)}to{opacity:1;transform:scale(1)}}
-@keyframes floatUp{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-40px) scale(1.4)}}
+@keyframes slideUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+@keyframes popIn{from{opacity:0;transform:scale(0.7)}to{opacity:1;transform:scale(1)}}
+@keyframes floatUp{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-52px) scale(1.6)}}
 @keyframes shimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
-@keyframes heartBurst{0%{transform:scale(1)}50%{transform:scale(1.6)}100%{transform:scale(1)}}
-@keyframes storyPulse{0%,100%{opacity:1}50%{opacity:0.6}}
+@keyframes heartBurst{0%{transform:scale(1) rotate(0deg)}30%{transform:scale(1.8) rotate(-8deg)}60%{transform:scale(1.4) rotate(5deg)}100%{transform:scale(1) rotate(0deg)}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-@keyframes slideRight{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
-@keyframes notifDrop{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
-.anim-slide-up{animation:slideUp 0.35s cubic-bezier(.34,1.3,.64,1) both}
-.anim-pop-in{animation:popIn 0.25s cubic-bezier(.34,1.4,.64,1) both}
+@keyframes notifDrop{from{opacity:0;transform:translateY(-10px) scale(0.95)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes reactPop{0%{transform:scale(1)}40%{transform:scale(1.5) translateY(-4px)}70%{transform:scale(0.9)}100%{transform:scale(1)}}
+@keyframes reactBounce{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-6px) scale(1.15)}}
+@keyframes storyRingRotate{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes storyGlow{0%,100%{box-shadow:0 0 0 2px rgba(240,148,51,0.6),0 0 12px rgba(220,39,67,0.3)}50%{box-shadow:0 0 0 3px rgba(240,148,51,0.9),0 0 20px rgba(220,39,67,0.5)}}
+@keyframes commentSlide{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+@keyframes pinBounce{0%,100%{transform:rotate(-10deg)}50%{transform:rotate(10deg)}}
+@keyframes postGlow{0%,100%{box-shadow:0 1px 3px rgba(0,0,0,0.08)}50%{box-shadow:0 4px 20px rgba(99,102,241,0.15)}}
+@keyframes countUp{from{transform:translateY(8px);opacity:0}to{transform:translateY(0);opacity:1}}
+.anim-slide-up{animation:slideUp 0.4s cubic-bezier(.34,1.3,.64,1) both}
+.anim-pop-in{animation:popIn 0.2s cubic-bezier(.34,1.5,.64,1) both}
 .anim-fade{animation:fadeIn 0.2s ease both}
-.anim-notif{animation:notifDrop 0.2s ease both}
+.anim-notif{animation:notifDrop 0.22s cubic-bezier(.34,1.4,.64,1) both}
+.anim-comment{animation:commentSlide 0.25s cubic-bezier(.34,1.3,.64,1) both}
 .skeleton-pulse{background:linear-gradient(90deg,var(--page-bg) 25%,rgba(99,102,241,0.07) 50%,var(--page-bg) 75%);background-size:400px 100%;animation:shimmer 1.4s infinite}
 .dm-bubble-out{background:linear-gradient(135deg,#6366f1,#8b5cf6)!important;color:#fff!important}
 .dm-bubble-in{background:var(--card-bg)!important;color:var(--text)!important}
 .msg-hover:hover .msg-actions{opacity:1!important}
 .msg-actions{opacity:0;transition:opacity 0.15s}
-.story-ring{background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);padding:2px;border-radius:50%}
+.story-ring{padding:2.5px;border-radius:50%;background:conic-gradient(#f09433,#e6683c,#dc2743,#cc2366,#bc1888,#f09433);animation:storyGlow 2.5s ease-in-out infinite}
 .story-ring-seen{background:var(--border);padding:2px;border-radius:50%}
-.notif-dot{position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#ef4444;border:2px solid var(--card-bg)}
-.poll-bar{transition:width 0.6s cubic-bezier(.34,1.56,.64,1)}
+.notif-dot{position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#ef4444;border:2px solid var(--card-bg);animation:reactPop 0.4s ease both}
+.poll-bar{transition:width 0.7s cubic-bezier(.34,1.56,.64,1)}
+.react-btn:hover{transform:scale(1.12) translateY(-2px)!important}
+.react-btn{transition:transform 0.15s cubic-bezier(.34,1.56,.64,1)!important}
+.react-picked{animation:reactPop 0.35s cubic-bezier(.34,1.6,.64,1) both}
+.post-card-hover:hover{transform:translateY(-1px);box-shadow:0 8px 32px rgba(99,102,241,0.1)!important}
+.post-card-hover{transition:transform 0.2s ease,box-shadow 0.2s ease}
 `
 
 const STORY_GRADIENTS = [
@@ -56,11 +68,14 @@ const STORY_GRADIENTS = [
 ]
 
 const REACTIONS = [
-  { type:'drop',      emoji:'💧', label:'Drop',     color:'#0ea5e9' },
-  { type:'wave',      emoji:'🌊', label:'Wave',     color:'#14b8a6' },
-  { type:'bubble',    emoji:'🫧', label:'Bubble',   color:'#8b5cf6' },
-  { type:'curious',   emoji:'🔬', label:'Curious',  color:'#f59e0b' },
-  { type:'great_work',emoji:'⭐', label:'Star',     color:'#f97316' },
+  { type:'drop',       emoji:'💧', label:'Drop',      color:'#0ea5e9' },
+  { type:'wave',       emoji:'🌊', label:'Wave',      color:'#14b8a6' },
+  { type:'fire',       emoji:'🔥', label:'Fire',      color:'#ef4444' },
+  { type:'bubble',     emoji:'🫧', label:'Bubble',    color:'#8b5cf6' },
+  { type:'curious',    emoji:'🔬', label:'Curious',   color:'#f59e0b' },
+  { type:'great_work', emoji:'⭐', label:'Star',      color:'#f97316' },
+  { type:'love',       emoji:'❤️', label:'Love',      color:'#ec4899' },
+  { type:'clap',       emoji:'👏', label:'Clap',      color:'#10b981' },
 ]
 
 // Water parameter patterns for auto-detection in post content
@@ -303,28 +318,69 @@ function StoryCreator({ user, onClose, onCreated }) {
 }
 
 /* ─── Stories Bar ────────────────────────────────────────────── */
+function StoryTimeLeft({ createdAt }) {
+  const ms = 86400000 - (Date.now() - new Date(createdAt))
+  const h  = Math.floor(ms / 3600000)
+  const m  = Math.floor((ms % 3600000) / 60000)
+  if (h > 0) return <span>{h}h left</span>
+  return <span style={{color:'#ef4444'}}>{m}m left</span>
+}
+
 function StoriesBar({ groups, currentUser, onView, onAdd }) {
   return (
-    <div className="card mb-4 overflow-hidden">
-      <div className="flex gap-3 px-4 py-3 overflow-x-auto" style={{scrollbarWidth:'none'}}>
-        <div className="flex flex-col items-center gap-1 flex-shrink-0 cursor-pointer" onClick={onAdd}>
+    <div className="card mb-4 overflow-hidden" style={{background:'var(--card-bg)'}}>
+      <div className="px-4 pt-3 pb-1 flex items-center justify-between">
+        <span className="text-xs font-black uppercase tracking-wider" style={{color:'var(--text-muted)',letterSpacing:'0.1em'}}>Stories · 24h</span>
+        <span className="text-xs" style={{color:'var(--text-muted)'}}>{groups.length} active</span>
+      </div>
+      <div className="flex gap-4 px-4 pb-4 pt-2 overflow-x-auto" style={{scrollbarWidth:'none'}}>
+        {/* Add story button */}
+        <button onClick={onAdd} className="flex flex-col items-center gap-1.5 flex-shrink-0 group">
           <div className="relative">
-            <Avatar user={currentUser} size={56}/>
-            <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-black"
-              style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)'}}>+</div>
+            <div className="rounded-full p-0.5" style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)'}}>
+              <div style={{padding:2,borderRadius:'50%',background:'var(--card-bg)'}}>
+                <Avatar user={currentUser} size={60}/>
+              </div>
+            </div>
+            <div className="absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full flex items-center justify-center text-white text-sm font-black shadow-lg"
+              style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',border:'2px solid var(--card-bg)'}}>+</div>
           </div>
-          <span className="text-xs font-semibold truncate w-14 text-center" style={{color:'var(--text-muted)'}}>Your story</span>
-        </div>
-        {groups.map((g,i)=>(
-          <div key={g.user?.id||i} className="flex flex-col items-center gap-1 flex-shrink-0 cursor-pointer" onClick={()=>onView(i)}>
-            <Avatar user={g.user} size={56} story seen={g.seen}/>
-            <span className="text-xs font-semibold truncate w-14 text-center" style={{color:'var(--text)'}}>
-              {g.user?.display_name?.split(' ')[0] || g.user?.username}
-            </span>
-          </div>
-        ))}
+          <span className="text-xs font-bold truncate w-16 text-center" style={{color:'#6366f1'}}>Your story</span>
+        </button>
+
+        {groups.map((g, i) => {
+          const latestStory = g.stories[g.stories.length - 1]
+          return (
+            <button key={g.user?.id||i} onClick={()=>onView(i)}
+              className="flex flex-col items-center gap-1.5 flex-shrink-0 group">
+              <div className="relative">
+                <div className={g.seen ? 'story-ring-seen' : 'story-ring'} style={{borderRadius:'50%'}}>
+                  <div style={{padding:2,borderRadius:'50%',background:'var(--card-bg)'}}>
+                    <Avatar user={g.user} size={60}/>
+                  </div>
+                </div>
+                {!g.seen && (
+                  <div className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
+                    style={{background:'#ef4444',border:'2px solid var(--card-bg)'}}>
+                    <span style={{fontSize:8,color:'white',fontWeight:900}}>{g.stories.length}</span>
+                  </div>
+                )}
+              </div>
+              <span className="text-xs font-bold truncate w-16 text-center" style={{color:g.seen?'var(--text-muted)':'var(--text)'}}>
+                {g.user?.display_name?.split(' ')[0] || g.user?.username}
+              </span>
+              <span className="text-xs truncate w-16 text-center" style={{fontSize:9,color:'var(--text-muted)'}}>
+                <StoryTimeLeft createdAt={latestStory?.created_at}/>
+              </span>
+            </button>
+          )
+        })}
+
         {groups.length === 0 && (
-          <p className="text-xs self-center py-1" style={{color:'var(--text-muted)'}}>No stories yet — be the first!</p>
+          <div className="flex items-center gap-2 py-2 px-1" style={{color:'var(--text-muted)'}}>
+            <span className="text-2xl">✨</span>
+            <span className="text-xs">Be the first to share a story today!</span>
+          </div>
         )}
       </div>
     </div>
@@ -521,8 +577,8 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0, onHashtagCl
   )
 
   return (
-    <div className="card overflow-visible relative anim-slide-up"
-      style={{marginBottom:16, animationDelay:`${animDelay}ms`}}>
+    <div className="card overflow-visible relative anim-slide-up post-card-hover"
+      style={{marginBottom:16, animationDelay:`${animDelay}ms`, borderRadius:20}}>
       {post.pinned===1 && (
         <div className="px-4 pt-3 flex items-center gap-1.5 text-xs font-bold" style={{color:'#f59e0b'}}>
           <Pin className="w-3 h-3"/> Pinned
@@ -631,26 +687,54 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0, onHashtagCl
           </div>
         )}
 
+        {/* Reaction summary pills */}
+        {totalReacts > 0 && (
+          <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+            {REACTIONS.filter(r => reactCounts[r.type] > 0).map(r => (
+              <button key={r.type} onClick={e=>{e.stopPropagation();handleReact(r.type)}}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold transition-all hover:scale-105 active:scale-95"
+                style={{
+                  background: myReaction===r.type ? r.color+'28' : 'var(--page-bg)',
+                  border: `1.5px solid ${myReaction===r.type ? r.color : 'var(--border)'}`,
+                  color: myReaction===r.type ? r.color : 'var(--text-muted)',
+                }}>
+                <span style={{fontSize:13}}>{r.emoji}</span>
+                <span style={{animation: myReaction===r.type ? 'countUp 0.25s ease both' : 'none'}}>{reactCounts[r.type]}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Action bar */}
-        <div className="flex items-center gap-1 pt-3 border-t relative" style={{borderColor:'var(--border)'}}>
+        <div className="flex items-center gap-1 pt-2.5 border-t relative" style={{borderColor:'var(--border)'}}>
           {/* React */}
           <div className="relative"
             onMouseEnter={()=>{clearTimeout(reactTimer.current);setShowReact(true)}}
-            onMouseLeave={()=>{reactTimer.current=setTimeout(()=>setShowReact(false),350)}}>
-            <button className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all hover:bg-gray-50 active:scale-95"
-              style={{color:myReaction?REACTIONS.find(r=>r.type===myReaction)?.color:'var(--text-muted)'}}>
-              <span className="text-base">{myReaction?REACTIONS.find(r=>r.type===myReaction)?.emoji:'😊'}</span>
-              <span className="text-xs">{myReaction?REACTIONS.find(r=>r.type===myReaction)?.label:'React'}</span>
+            onMouseLeave={()=>{reactTimer.current=setTimeout(()=>setShowReact(false),400)}}>
+            <button className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all active:scale-90"
+              style={{
+                color: myReaction ? REACTIONS.find(r=>r.type===myReaction)?.color : 'var(--text-muted)',
+                background: myReaction ? REACTIONS.find(r=>r.type===myReaction)?.color+'12' : 'transparent',
+              }}>
+              <span className="text-lg" style={{lineHeight:1}}>{myReaction ? REACTIONS.find(r=>r.type===myReaction)?.emoji : '🫧'}</span>
+              <span className="text-xs font-bold">{myReaction ? REACTIONS.find(r=>r.type===myReaction)?.label : 'React'}</span>
             </button>
+
             {showReact && (
-              <div className="absolute bottom-full left-0 mb-2 rounded-2xl shadow-2xl border flex gap-1 p-2 z-30 anim-pop-in"
-                style={{background:'var(--card-bg)',borderColor:'var(--border)'}}>
-                {REACTIONS.map(r=>(
+              <div className="absolute bottom-full left-0 mb-3 rounded-2xl shadow-2xl border flex gap-0.5 px-2 py-2.5 z-30 anim-pop-in"
+                style={{background:'var(--card-bg)',borderColor:'var(--border)',backdropFilter:'blur(12px)'}}>
+                {REACTIONS.map((r, ri) => (
                   <button key={r.type} onClick={e=>{e.stopPropagation();handleReact(r.type)}} title={r.label}
-                    className="flex flex-col items-center gap-0.5 p-2 rounded-xl transition-all hover:scale-125 active:scale-110"
-                    style={{background:myReaction===r.type?r.color+'22':'transparent'}}>
-                    <span className="text-xl">{r.emoji}</span>
-                    <span style={{fontSize:9,color:r.color,fontWeight:700}}>{r.label}</span>
+                    className={`react-btn flex flex-col items-center gap-0.5 p-2 rounded-xl ${myReaction===r.type?'react-picked':''}`}
+                    style={{
+                      background: myReaction===r.type ? r.color+'22' : 'transparent',
+                      animationDelay: `${ri*0.03}s`,
+                    }}>
+                    <span style={{fontSize:26,lineHeight:1,display:'block'}}>{r.emoji}</span>
+                    <span style={{fontSize:9,color:r.color,fontWeight:800,letterSpacing:'0.02em'}}>{r.label}</span>
+                    {reactCounts[r.type] > 0 && (
+                      <span style={{fontSize:9,color:'var(--text-muted)',fontWeight:700,marginTop:-1}}>{reactCounts[r.type]}</span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -658,24 +742,28 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0, onHashtagCl
           </div>
 
           <button onClick={e=>{e.stopPropagation();loadComments()}}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all hover:bg-gray-50 active:scale-95"
-            style={{color:'var(--text-muted)'}}>
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all active:scale-90"
+            style={{
+              color: showComments ? '#6366f1' : 'var(--text-muted)',
+              background: showComments ? 'rgba(99,102,241,0.08)' : 'transparent',
+            }}>
             <MessageCircle className="w-4 h-4"/>
-            <span className="text-xs">{showComments?'Hide':post.comment_count||0}</span>
+            <span className="text-xs font-bold">{post.comment_count > 0 ? post.comment_count : ''} {showComments ? 'Hide' : 'Comment'}</span>
           </button>
 
           {/* Bookmark */}
           <button onClick={handleBookmark}
-            className="flex items-center gap-1 px-3 py-2 rounded-xl text-sm transition-all hover:bg-gray-50 active:scale-95"
-            style={{color: bookmarked ? '#6366f1' : 'var(--text-muted)'}}>
+            className="flex items-center gap-1 px-3 py-2 rounded-xl transition-all active:scale-90"
+            style={{color: bookmarked ? '#6366f1' : 'var(--text-muted)', background: bookmarked ? 'rgba(99,102,241,0.08)' : 'transparent'}}>
             {bookmarked ? <BookmarkCheck className="w-4 h-4"/> : <Bookmark className="w-4 h-4"/>}
           </button>
 
           {/* +pts float */}
           <div className="relative ml-auto">
             {pointAnim && (
-              <span className="absolute -top-6 left-0 text-xs font-black text-green-500"
-                style={{animation:'floatUp 1.1s ease both',whiteSpace:'nowrap'}}>+1 pt</span>
+              <span className="absolute -top-7 right-0 text-xs font-black"
+                style={{animation:'floatUp 1.1s ease both', whiteSpace:'nowrap', color:'#10b981',
+                  background:'rgba(16,185,129,0.12)', padding:'2px 8px', borderRadius:8}}>+1 pt 🌊</span>
             )}
           </div>
         </div>
@@ -683,26 +771,45 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0, onHashtagCl
 
       {/* Comments */}
       {showComments && (
-        <div className="border-t px-4 py-3 space-y-2 anim-fade" style={{background:'var(--page-bg)',borderColor:'var(--border)'}}>
-          {comments.map((c,i)=>(
-            <div key={c.id||i} className="flex gap-2 anim-slide-up" style={{animationDelay:`${i*40}ms`}}>
-              <Avatar user={{display_name:c.display_name,username:c.username}} size={28}/>
-              <div className="rounded-2xl rounded-tl-sm px-3 py-2 flex-1" style={{background:'var(--card-bg)'}}>
-                <span className="font-bold text-xs mr-2" style={{color:'#6366f1'}}>{c.display_name||c.username}</span>
-                <span className="text-sm" style={{color:'var(--text)'}}>{c.content}</span>
+        <div className="border-t anim-fade" style={{background:'var(--page-bg)',borderColor:'var(--border)',borderRadius:'0 0 20px 20px'}}>
+          <div className="px-4 pt-3 space-y-2.5">
+            {comments.length === 0 && (
+              <div className="text-center py-3 text-xs" style={{color:'var(--text-muted)'}}>
+                💬 No comments yet — start the conversation!
               </div>
-            </div>
-          ))}
-          <div className="flex gap-2">
-            <Avatar user={currentUser} size={28}/>
+            )}
+            {comments.map((c,i)=>(
+              <div key={c.id||i} className="flex gap-2.5 anim-comment" style={{animationDelay:`${i*35}ms`}}>
+                <Avatar user={{display_name:c.display_name,username:c.username,avatar_emoji:c.avatar_emoji,avatar_bg_color:c.avatar_bg_color}} size={30}/>
+                <div className="flex-1 min-w-0">
+                  <div className="rounded-2xl rounded-tl-sm px-3.5 py-2.5" style={{background:'var(--card-bg)',border:'1px solid var(--border)'}}>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="font-black text-xs" style={{color:'#6366f1'}}>{c.display_name||c.username}</span>
+                      <span className="text-xs" style={{color:'var(--text-muted)',fontSize:10}}>{timeAgo(c.created_at)}</span>
+                    </div>
+                    <span className="text-sm leading-snug" style={{color:'var(--text)'}}>{c.content}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2.5 px-4 py-3">
+            <Avatar user={currentUser} size={30}/>
             <div className="flex-1 flex gap-2">
               <input value={comment} onChange={e=>setComment(e.target.value)}
                 onKeyDown={e=>e.key==='Enter'&&submitComment()}
-                placeholder="Add a comment…"
-                className="flex-1 text-sm py-1.5 px-3 rounded-full"
-                style={{background:'var(--card-bg)',border:'1px solid var(--border)',color:'var(--text)'}}/>
-              <button onClick={submitComment}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white flex-shrink-0"
+                placeholder="Write a comment…"
+                className="flex-1 text-sm py-2 px-4 rounded-2xl outline-none transition-all"
+                style={{
+                  background:'var(--card-bg)',
+                  border:'1.5px solid var(--border)',
+                  color:'var(--text)',
+                }}
+                onFocus={e=>e.target.style.borderColor='#6366f1'}
+                onBlur={e=>e.target.style.borderColor='var(--border)'}
+              />
+              <button onClick={submitComment} disabled={!comment.trim()}
+                className="w-9 h-9 rounded-full flex items-center justify-center text-white flex-shrink-0 disabled:opacity-40 transition-all active:scale-90"
                 style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)'}}>
                 <Send className="w-3.5 h-3.5"/>
               </button>
@@ -755,14 +862,21 @@ function PostComposer({ user, onPost, onStory }) {
   }
 
   return (
-    <div className="card p-4 mb-4">
+    <div className="card p-4 mb-4" style={{borderRadius:20}}>
       <div className="flex gap-3">
-        <Avatar user={user} size={42}/>
+        <Avatar user={user} size={44}/>
         <div className="flex-1">
           {!expanded ? (
             <button onClick={()=>setExpanded(true)}
-              className="w-full text-left px-4 py-2.5 rounded-full text-sm transition-all hover:border-indigo-300"
-              style={{background:'var(--page-bg)',color:'var(--text-muted)',border:'1.5px solid var(--border)'}}>
+              className="w-full text-left px-4 py-3 rounded-2xl text-sm transition-all"
+              style={{
+                background:'var(--page-bg)',
+                color:'var(--text-muted)',
+                border:'1.5px solid var(--border)',
+                fontWeight:500,
+              }}
+              onMouseEnter={e=>{e.target.style.borderColor='#6366f1';e.target.style.color='var(--text)'}}
+              onMouseLeave={e=>{e.target.style.borderColor='var(--border)';e.target.style.color='var(--text-muted)'}}>
               What's happening with water today? 💧
             </button>
           ) : (
