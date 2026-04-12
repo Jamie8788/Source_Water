@@ -1,6 +1,6 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Sky, Cloud, Html, Trail, Billboard, Environment, useGLTF } from '@react-three/drei'
-import { EffectComposer, Bloom, DepthOfField, ChromaticAberration, Vignette } from '@react-three/postprocessing'
+import { Sky, Cloud, Html, Trail, Billboard, Environment } from '@react-three/drei'
+import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useRef, useState, useEffect, useMemo, useCallback, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -75,12 +75,13 @@ const WATER_VERT = `
     vec3 tan = vec3(1,0,0);
     vec3 bin = vec3(0,0,1);
 
-    // 4 wave trains — good quality, GPU-friendly
+    // 5 wave trains — dramatic ocean swell
     vec3 disp = vec3(0);
-    disp += gerstner(vec4( 1.0, 0.0,  0.28, 14.0), p, tan, bin);
-    disp += gerstner(vec4( 0.0, 1.0,  0.20, 9.0),  p, tan, bin);
-    disp += gerstner(vec4( 0.7, 0.7,  0.14, 5.5),  p, tan, bin);
-    disp += gerstner(vec4(-0.5, 1.0,  0.10, 3.0),  p, tan, bin);
+    disp += gerstner(vec4( 1.0,  0.0,  0.38, 16.0), p, tan, bin);
+    disp += gerstner(vec4( 0.0,  1.0,  0.28, 10.0), p, tan, bin);
+    disp += gerstner(vec4( 0.7,  0.7,  0.18,  6.0), p, tan, bin);
+    disp += gerstner(vec4(-0.5,  1.0,  0.13,  3.5), p, tan, bin);
+    disp += gerstner(vec4( 0.3, -0.8,  0.09,  2.2), p, tan, bin);
 
     p += disp;
     vWave  = disp.y;
@@ -126,11 +127,11 @@ const WATER_FRAG = `
     float cau  = sin(vWorldPos.x*3.0+uTime*2.2)*sin(vWorldPos.z*3.5+uTime*1.8)*0.5+0.5;
     cau        = cau * cau * 0.10;
 
-    // ── Deep ocean PBR palette ────────────────────────────────────
-    vec3 abyss = vec3(0.00, 0.015, 0.08);
-    vec3 deep  = vec3(0.005,0.06,  0.20);
-    vec3 mid   = vec3(0.01, 0.18,  0.36);
-    vec3 crest = vec3(0.04, 0.34,  0.50);
+    // ── Deep ocean PBR palette (AC Black Flag style) ──────────────
+    vec3 abyss = vec3(0.00,  0.01,  0.06);
+    vec3 deep  = vec3(0.003, 0.045, 0.18);
+    vec3 mid   = vec3(0.008, 0.15,  0.32);
+    vec3 crest = vec3(0.03,  0.30,  0.46);
 
     float d    = clamp(vWave * 0.75 + diff * 0.40 + cau, 0.0, 1.0);
     vec3 col   = mix(abyss, deep,  clamp(d * 2.5,       0.0, 1.0));
@@ -175,8 +176,184 @@ function Ocean() {
   )
 }
 
+/* ─── Ancient parchment map texture (canvas-drawn) ──────────────── */
+function useMapTexture() {
+  return useMemo(() => {
+    const S = 1024
+    const cv = document.createElement('canvas')
+    cv.width = S; cv.height = S
+    const c = cv.getContext('2d')
+
+    // Base parchment radial gradient
+    const bg = c.createRadialGradient(S/2,S/2,0, S/2,S/2,S*0.72)
+    bg.addColorStop(0,   '#eddea8')
+    bg.addColorStop(0.38,'#d8bc7a')
+    bg.addColorStop(0.72,'#c4a05a')
+    bg.addColorStop(1.0, '#8a6020')
+    c.fillStyle = bg; c.fillRect(0,0,S,S)
+
+    // Grain / fibres
+    for(let i=0;i<10000;i++){
+      const x=Math.random()*S, y=Math.random()*S
+      c.fillStyle=`rgba(${Math.random()>0.5?'90,60,15':'210,180,110'},${Math.random()*0.07})`
+      c.beginPath(); c.arc(x,y,Math.random()*1.4,0,Math.PI*2); c.fill()
+    }
+
+    // Age stains
+    for(let i=0;i<10;i++){
+      const sx=Math.random()*S, sy=Math.random()*S
+      const gr=c.createRadialGradient(sx,sy,0,sx,sy,70+Math.random()*140)
+      gr.addColorStop(0,`rgba(70,42,8,${0.07+Math.random()*0.14})`)
+      gr.addColorStop(1,'rgba(70,42,8,0)')
+      c.fillStyle=gr; c.fillRect(0,0,S,S)
+    }
+
+    // Dark burned corners
+    [[0,0],[S,0],[0,S],[S,S]].forEach(([cx,cy])=>{
+      const gr=c.createRadialGradient(cx,cy,0,cx,cy,S*0.6)
+      gr.addColorStop(0,'rgba(40,20,4,0.52)')
+      gr.addColorStop(1,'rgba(40,20,4,0)')
+      c.fillStyle=gr; c.fillRect(0,0,S,S)
+    })
+
+    // Outer double-line ink border
+    c.strokeStyle='#2e1804'; c.lineWidth=10
+    c.strokeRect(24,24,S-48,S-48)
+    c.lineWidth=3
+    c.strokeRect(36,36,S-72,S-72)
+    c.lineWidth=1.5
+    c.strokeRect(44,44,S-88,S-88)
+
+    // Corner ornaments (cross-hatch diamonds)
+    const pts=[[46,46],[S-46,46],[46,S-46],[S-46,S-46]]
+    pts.forEach(([px,py])=>{
+      c.fillStyle='#2e1804'
+      for(let a=0;a<4;a++){
+        const ag=a*Math.PI/2+Math.PI/4
+        c.beginPath()
+        c.moveTo(px,py)
+        c.lineTo(px+Math.cos(ag)*26,py+Math.sin(ag)*26)
+        c.lineTo(px+Math.cos(ag+0.28)*20,py+Math.sin(ag+0.28)*20)
+        c.closePath(); c.fill()
+      }
+      c.beginPath(); c.arc(px,py,6,0,Math.PI*2); c.fill()
+    })
+
+    // Ocean wave fill marks (the hand-drawn squiggle style on old maps)
+    c.strokeStyle='rgba(46,24,4,0.28)'; c.lineWidth=1.2
+    for(let row=0;row<10;row++){
+      for(let col=0;col<11;col++){
+        const wx=55+col*88, wy=130+row*80
+        if(wx>S-50||wy>S-55) continue
+        c.beginPath()
+        c.moveTo(wx,wy)
+        c.quadraticCurveTo(wx+12,wy-7,wx+24,wy)
+        c.quadraticCurveTo(wx+36,wy+7,wx+48,wy)
+        c.stroke()
+        // second smaller wave
+        c.beginPath()
+        c.moveTo(wx+4,wy+10)
+        c.quadraticCurveTo(wx+16,wy+3,wx+28,wy+10)
+        c.quadraticCurveTo(wx+40,wy+17,wx+52,wy+10)
+        c.stroke()
+      }
+    }
+
+    // Latitude / longitude grid lines (faint)
+    c.strokeStyle='rgba(46,24,4,0.15)'; c.lineWidth=0.8
+    for(let i=1;i<8;i++){
+      const x=i*(S/8)
+      c.beginPath(); c.moveTo(x,44); c.lineTo(x,S-44); c.stroke()
+      const y=i*(S/8)
+      c.beginPath(); c.moveTo(44,y); c.lineTo(S-44,y); c.stroke()
+    }
+
+    // Map title cartouche (top centre)
+    c.save()
+    c.font='italic bold 20px serif'
+    c.fillStyle='rgba(46,24,4,0.72)'
+    c.textAlign='center'
+    c.fillText('NOVA TABULA LACUUM MAGNORUM', S/2, 68)
+    c.font='italic 13px serif'
+    c.fillStyle='rgba(46,24,4,0.55)'
+    c.fillText('The Great Lakes — Northern Ontario, Canada', S/2, 86)
+    c.restore()
+
+    // Faint "HERE BE DRAGONS" rotated watermark
+    c.save()
+    c.globalAlpha=0.07
+    c.font='bold 52px serif'
+    c.fillStyle='#2e1804'
+    c.textAlign='center'
+    c.translate(S/2,S/2); c.rotate(-0.18)
+    c.fillText('HERE BE DRAGONS', 0, 0)
+    c.restore()
+
+    // Compass rose (bottom-right area)
+    const rosX=S*0.84, rosY=S*0.8, rosR=68
+    // 8 points
+    c.fillStyle='#2e1804'
+    for(let i=0;i<8;i++){
+      const a=i*Math.PI/4
+      const inner=i%2===0 ? rosR*0.42 : rosR*0.26
+      const outer=i%2===0 ? rosR : rosR*0.62
+      c.beginPath()
+      c.moveTo(rosX+Math.cos(a-0.11)*inner, rosY+Math.sin(a-0.11)*inner)
+      c.lineTo(rosX+Math.cos(a)*outer, rosY+Math.sin(a)*outer)
+      c.lineTo(rosX+Math.cos(a+0.11)*inner, rosY+Math.sin(a+0.11)*inner)
+      c.closePath(); c.fill()
+    }
+    // Alternating fill for cardinal vs intercardinal
+    c.fillStyle='#c8a040'
+    for(let i=0;i<4;i++){
+      const a=i*Math.PI/2+Math.PI/4
+      c.beginPath()
+      c.moveTo(rosX+Math.cos(a-0.09)*rosR*0.26, rosY+Math.sin(a-0.09)*rosR*0.26)
+      c.lineTo(rosX+Math.cos(a)*rosR*0.62, rosY+Math.sin(a)*rosR*0.62)
+      c.lineTo(rosX+Math.cos(a+0.09)*rosR*0.26, rosY+Math.sin(a+0.09)*rosR*0.26)
+      c.closePath(); c.fill()
+    }
+    // Centre circle
+    c.beginPath(); c.arc(rosX,rosY,13,0,Math.PI*2)
+    c.fillStyle='#e8d090'; c.fill()
+    c.strokeStyle='#2e1804'; c.lineWidth=2; c.stroke()
+    c.beginPath(); c.arc(rosX,rosY,6,0,Math.PI*2)
+    c.fillStyle='#2e1804'; c.fill()
+    // Cardinal labels
+    c.font='bold 20px serif'; c.fillStyle='#2e1804'; c.textAlign='center'
+    c.fillText('N',rosX,   rosY-rosR-10)
+    c.fillText('S',rosX,   rosY+rosR+22)
+    c.fillText('E',rosX+rosR+14, rosY+7)
+    c.fillText('W',rosX-rosR-14, rosY+7)
+    // Subtitle under compass
+    c.font='italic 11px serif'; c.fillStyle='rgba(46,24,4,0.65)'
+    c.fillText('SEPTENTRIO', rosX, rosY-rosR-24)
+
+    // Scale bar (bottom-left)
+    const sbX=70, sbY=S-60
+    c.fillStyle='#2e1804'; c.font='11px serif'; c.textAlign='left'
+    c.fillText('SCALA MILIARIUM', sbX, sbY-12)
+    for(let i=0;i<5;i++){
+      c.fillStyle=i%2===0?'#2e1804':'#e8d090'
+      c.fillRect(sbX+i*36,sbY,36,10)
+    }
+    c.strokeStyle='#2e1804'; c.lineWidth=1.5
+    c.strokeRect(sbX,sbY,180,10)
+    c.fillStyle='#2e1804'
+    c.fillText('0',sbX,sbY+24)
+    c.fillText('50 km',sbX+170,sbY+24)
+
+    const tex=new THREE.CanvasTexture(cv)
+    tex.needsUpdate=true
+    return tex
+  },[])
+}
+
 /* ─── Ancient parchment map platform ────────────────────────────── */
 function MapPlatform() {
+  const mapTex = useMapTexture()
+
+  // Slight elevation variation on the slab edges (rolled parchment feel)
   return (
     <group>
       {/* Ocean floor — dark deep water base */}
@@ -184,40 +361,29 @@ function MapPlatform() {
         <planeGeometry args={[120,120]}/>
         <meshStandardMaterial color="#050d1a" roughness={1} metalness={0}/>
       </mesh>
-      {/* Map slab — raised stone/parchment island */}
-      <mesh position={[0,-0.28,0]} receiveShadow castShadow>
-        <boxGeometry args={[28,0.55,28]}/>
-        <meshStandardMaterial color="#7a5c38" roughness={0.98} metalness={0}/>
+
+      {/* Map slab sides — aged dark wood / stone */}
+      <mesh position={[0,-0.3,0]} receiveShadow castShadow>
+        <boxGeometry args={[28.6,0.65,28.6]}/>
+        <meshStandardMaterial color="#6a4820" roughness={0.98} metalness={0}/>
       </mesh>
-      {/* Parchment surface top */}
-      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.0,0]} receiveShadow>
-        <planeGeometry args={[28,28,48,48]}/>
-        <meshStandardMaterial color="#c9a86c" roughness={0.90} metalness={0}/>
+      {/* Stone edge lip */}
+      <mesh position={[0,-0.02,0]} receiveShadow castShadow>
+        <boxGeometry args={[28.8,0.1,28.8]}/>
+        <meshStandardMaterial color="#5a3c15" roughness={0.97} metalness={0}/>
       </mesh>
-      {/* Inner aged parchment overlay */}
-      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.005,0]}>
-        <planeGeometry args={[24,24]}/>
-        <meshStandardMaterial color="#d4b878" roughness={0.88} metalness={0} transparent opacity={0.7}/>
+
+      {/* Main parchment surface — canvas texture */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.02,0]} receiveShadow>
+        <planeGeometry args={[28,28,64,64]}/>
+        <meshStandardMaterial map={mapTex} roughness={0.88} metalness={0} color="#ffffff"/>
       </mesh>
-      {/* Map border frame — dark ink lines */}
-      {[[-13,0,0],[13,0,0],[0,0,-13],[0,0,13]].map(([x,y,z],i)=>(
-        <mesh key={i} position={[x,0.008,z]} rotation={[-Math.PI/2,i<2?0:Math.PI/2,0]}>
-          <planeGeometry args={[0.18,26]}/>
-          <meshStandardMaterial color="#5a3d1a" roughness={0.95} transparent opacity={0.55}/>
-        </mesh>
-      ))}
-      {/* Compass rose centre */}
-      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.012,9]}>
-        <circleGeometry args={[1.4,32]}/>
-        <meshStandardMaterial color="#8a6030" roughness={0.9} transparent opacity={0.45}/>
+
+      {/* Subtle bump layer — parchment worn centre depression */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.025,0]}>
+        <planeGeometry args={[26,26]}/>
+        <meshStandardMaterial color="#d4b878" roughness={0.92} transparent opacity={0.08}/>
       </mesh>
-      {/* Compass spokes */}
-      {[0,1,2,3,4,5,6,7].map(i=>(
-        <mesh key={i} rotation={[-Math.PI/2, i*Math.PI/4, 0]} position={[0, 0.013, 9]}>
-          <planeGeometry args={[0.06,2.8]}/>
-          <meshStandardMaterial color="#5a3d1a" transparent opacity={0.5}/>
-        </mesh>
-      ))}
     </group>
   )
 }
@@ -325,7 +491,7 @@ function MapBeacon({ portal, idx, onNav }) {
   })
 
   return (
-    <group position={[portal.pos[0], 0.01, portal.pos[2]]}
+    <group position={[portal.pos[0], 0.05, portal.pos[2]]}
       onPointerOver={()=>{setHov(true);document.body.style.cursor='pointer'}}
       onPointerOut={()=>{setHov(false);document.body.style.cursor=''}}
       onClick={()=>onNav(portal.path, portal.pos, portal.label)}>
@@ -532,48 +698,196 @@ function ShipSpray({ shipRef }) {
   )
 }
 
-/* ─── Ship (real GLB model) ─────────────────────────────────────── */
-useGLTF.preload('/models/boat.glb')
-
+/* ─── Ship — hand-built tall ship (no GLB needed) ───────────────── */
 function Ship({ shipRef }) {
-  const gRef = useRef()
+  const gRef       = useRef()
   const trailTarget = useRef()
-  const { scene } = useGLTF('/models/boat.glb')
+  const sail1Ref   = useRef()
+  const sail2Ref   = useRef()
+  const sail3Ref   = useRef()
+  const flagRef    = useRef()
 
-  // Clone so multiple instances don't share the same scene graph
-  const model = useMemo(() => {
-    const clone = scene.clone(true)
-    // Make sure all meshes cast/receive shadows and keep their materials
-    clone.traverse(n => {
-      if (n.isMesh) { n.castShadow = true; n.receiveShadow = true }
-    })
-    return clone
-  }, [scene])
-
-  useFrame(() => {
+  useFrame(({ clock }) => {
     if (!gRef.current || !shipRef.current) return
-    const s = shipRef.current
-    gRef.current.position.set(s.x, 0.6, s.z)
+    const s   = shipRef.current
+    const t   = clock.getElapsedTime()
+    const spd = Math.abs(s.speed ?? 0)
+    gRef.current.position.set(s.x, 0.42, s.z)
     gRef.current.rotation.y = -(s.angle - 90) * Math.PI / 180
+    // Realistic ocean roll — more pronounced at speed
+    gRef.current.rotation.z = Math.sin(t * 0.75) * (0.025 + spd * 0.08)
+    gRef.current.rotation.x = Math.sin(t * 0.55 + 1.2) * 0.018
+    // Sail billow — wind effect
+    const billow = Math.sin(t * 0.45) * 0.06
+    if (sail1Ref.current) sail1Ref.current.rotation.y = billow
+    if (sail2Ref.current) sail2Ref.current.rotation.y = billow * 0.8 + 0.04
+    if (sail3Ref.current) sail3Ref.current.rotation.y = billow * 0.6 + 0.03
+    // Flag whip
+    if (flagRef.current) { flagRef.current.rotation.z = Math.sin(t * 4.2) * 0.18 + 0.25 }
   })
 
   return (
     <group ref={gRef}>
-      <Trail width={1.8} length={14} color={new THREE.Color('#60d4f0')} attenuation={t => t * t} target={trailTarget}>
+      <Trail width={2.2} length={18} color={new THREE.Color('#70d8f8')} attenuation={t => t * t}>
         <object3D ref={trailTarget} />
       </Trail>
-      {/* Scale up — GLB is in meters, scene units are small */}
-      <primitive object={model} scale={[1.2, 1.2, 1.2]} rotation={[0, Math.PI, 0]}/>
-      {/* Ship key light — always illuminates the hull */}
-      <pointLight color="#ffaa44" intensity={6} distance={12} position={[0, 3, 3]}/>
-      {/* Bow lantern glow */}
-      <pointLight color="#ffcc66" intensity={3.5} distance={7} position={[0.6, 0.8, 0]}/>
-      <mesh position={[0.6, 0.5, 0]}>
-        <sphereGeometry args={[0.06, 8, 8]}/>
-        <meshStandardMaterial emissive="#ffcc44" emissiveIntensity={4} color="#ffcc44"/>
+
+      {/* ── Hull ── */}
+      {/* Main hull body */}
+      <mesh position={[0, 0, 0]} castShadow receiveShadow>
+        <boxGeometry args={[1.05, 0.55, 3.4]}/>
+        <meshStandardMaterial color="#5c3418" roughness={0.88} metalness={0.04}/>
       </mesh>
+      {/* Hull bottom keel taper */}
+      <mesh position={[0, -0.28, 0]} castShadow>
+        <boxGeometry args={[0.72, 0.22, 3.2]}/>
+        <meshStandardMaterial color="#451e0a" roughness={0.9}/>
+      </mesh>
+      {/* Bow (pointy front) */}
+      <mesh position={[0, 0.04, 1.88]} rotation={[Math.PI/2, 0, 0]} castShadow>
+        <coneGeometry args={[0.54, 0.65, 6]}/>
+        <meshStandardMaterial color="#4a2210" roughness={0.9}/>
+      </mesh>
+      {/* Stern transom */}
+      <mesh position={[0, 0.14, -1.6]} castShadow>
+        <boxGeometry args={[1.04, 0.68, 0.42]}/>
+        <meshStandardMaterial color="#5c3418" roughness={0.88}/>
+      </mesh>
+      {/* Stern castle upper deck */}
+      <mesh position={[0, 0.52, -1.25]} castShadow>
+        <boxGeometry args={[0.92, 0.32, 1.1]}/>
+        <meshStandardMaterial color="#6a3e1e" roughness={0.85}/>
+      </mesh>
+      {/* Forecastle */}
+      <mesh position={[0, 0.48, 1.15]} castShadow>
+        <boxGeometry args={[0.88, 0.28, 0.82]}/>
+        <meshStandardMaterial color="#6a3e1e" roughness={0.85}/>
+      </mesh>
+      {/* Deck planking */}
+      <mesh position={[0, 0.29, -0.1]} castShadow>
+        <boxGeometry args={[0.96, 0.07, 2.65]}/>
+        <meshStandardMaterial color="#8a5230" roughness={0.92}/>
+      </mesh>
+      {/* Hull plank lines (decorative strips) */}
+      {[-0.15, 0, 0.15].map((y, i) => (
+        <mesh key={i} position={[0.535, y, 0]} castShadow>
+          <boxGeometry args={[0.04, 0.04, 3.2]}/>
+          <meshStandardMaterial color="#3a1a08" roughness={0.95}/>
+        </mesh>
+      ))}
+      {[-0.15, 0, 0.15].map((y, i) => (
+        <mesh key={i+3} position={[-0.535, y, 0]} castShadow>
+          <boxGeometry args={[0.04, 0.04, 3.2]}/>
+          <meshStandardMaterial color="#3a1a08" roughness={0.95}/>
+        </mesh>
+      ))}
+
+      {/* ── Masts ── */}
+      {/* Main mast */}
+      <mesh position={[0, 1.62, 0.15]} castShadow>
+        <cylinderGeometry args={[0.04, 0.065, 3.25, 8]}/>
+        <meshStandardMaterial color="#2e1608" roughness={0.92}/>
+      </mesh>
+      {/* Main yard arm */}
+      <mesh position={[0, 2.6, 0.15]} rotation={[0, 0, Math.PI/2]} castShadow>
+        <cylinderGeometry args={[0.025, 0.025, 2.0, 6]}/>
+        <meshStandardMaterial color="#2e1608" roughness={0.92}/>
+      </mesh>
+      {/* Lower yard arm */}
+      <mesh position={[0, 1.82, 0.15]} rotation={[0, 0, Math.PI/2]} castShadow>
+        <cylinderGeometry args={[0.028, 0.028, 1.78, 6]}/>
+        <meshStandardMaterial color="#2e1608" roughness={0.92}/>
+      </mesh>
+      {/* Fore mast */}
+      <mesh position={[0, 1.1, 1.1]} castShadow>
+        <cylinderGeometry args={[0.032, 0.055, 2.2, 8]}/>
+        <meshStandardMaterial color="#2e1608" roughness={0.92}/>
+      </mesh>
+      {/* Fore yard arm */}
+      <mesh position={[0, 2.05, 1.1]} rotation={[0, 0, Math.PI/2]} castShadow>
+        <cylinderGeometry args={[0.022, 0.022, 1.55, 6]}/>
+        <meshStandardMaterial color="#2e1608" roughness={0.92}/>
+      </mesh>
+      {/* Bowsprit — diagonal forward spar */}
+      <mesh position={[0, 0.65, 2.35]} rotation={[0.55, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.025, 0.04, 1.4, 6]}/>
+        <meshStandardMaterial color="#2e1608" roughness={0.92}/>
+      </mesh>
+
+      {/* ── Sails ── */}
+      {/* Main top sail */}
+      <group ref={sail1Ref} position={[0, 2.6, 0.15]}>
+        <mesh>
+          <planeGeometry args={[1.82, 0.95, 4, 4]}/>
+          <meshStandardMaterial color="#f2e8cc" roughness={0.9} side={THREE.DoubleSide} transparent opacity={0.96}/>
+        </mesh>
+      </group>
+      {/* Main lower sail */}
+      <group ref={sail2Ref} position={[0, 1.82, 0.15]}>
+        <mesh>
+          <planeGeometry args={[1.65, 0.88, 4, 4]}/>
+          <meshStandardMaterial color="#ede4c0" roughness={0.92} side={THREE.DoubleSide} transparent opacity={0.97}/>
+        </mesh>
+        {/* Sail seam strips */}
+        {[-0.28, 0, 0.28].map((y, i) => (
+          <mesh key={i} position={[0, y, 0.01]}>
+            <planeGeometry args={[1.62, 0.035]}/>
+            <meshBasicMaterial color="rgba(180,150,90,0.5)" transparent opacity={0.4}/>
+          </mesh>
+        ))}
+      </group>
+      {/* Fore sail */}
+      <group ref={sail3Ref} position={[0, 1.92, 1.1]}>
+        <mesh>
+          <planeGeometry args={[1.38, 0.82, 4, 4]}/>
+          <meshStandardMaterial color="#f0e6c8" roughness={0.92} side={THREE.DoubleSide} transparent opacity={0.95}/>
+        </mesh>
+      </group>
+      {/* Jib stay — diagonal rope from bowsprit to fore-mast */}
+      <mesh position={[0, 0.98, 1.68]} rotation={[0.45, 0, 0]}>
+        <cylinderGeometry args={[0.008, 0.008, 1.6, 4]}/>
+        <meshStandardMaterial color="#1e0e04" roughness={0.95}/>
+      </mesh>
+
+      {/* ── Rigging ropes ── */}
+      {[[-0.9, 1.8, -0.3], [0.9, 1.8, -0.3], [-0.8, 1.0, 0.9], [0.8, 1.0, 0.9]].map(([x,y,z], i) => (
+        <mesh key={i} position={[x*0.5, y*0.5+0.3, z*0.5+0.15]}>
+          <cylinderGeometry args={[0.008, 0.008, Math.sqrt(x*x+(y-3.25)*(y-3.25)+z*z)*0.5, 3]}/>
+          <meshStandardMaterial color="#1e0e04" roughness={0.95}/>
+        </mesh>
+      ))}
+
+      {/* ── Flag ── */}
+      <group ref={flagRef} position={[0, 3.22, 0.15]}>
+        <mesh>
+          <planeGeometry args={[0.45, 0.28]}/>
+          <meshStandardMaterial color="#cc2020" roughness={0.8} side={THREE.DoubleSide}/>
+        </mesh>
+      </group>
+
+      {/* ── Crow's nest ── */}
+      <mesh position={[0, 2.78, 0.15]} castShadow>
+        <cylinderGeometry args={[0.18, 0.16, 0.14, 8, 1, true]}/>
+        <meshStandardMaterial color="#2e1608" roughness={0.9} side={THREE.DoubleSide}/>
+      </mesh>
+
+      {/* ── Lights ── */}
+      {/* Bow lantern */}
+      <pointLight color="#ffcc55" intensity={4.5} distance={9} position={[0, 0.7, 2.0]}/>
+      <mesh position={[0, 0.65, 2.0]}>
+        <sphereGeometry args={[0.06, 8, 8]}/>
+        <meshStandardMaterial emissive="#ffcc44" emissiveIntensity={5} color="#ffcc44"/>
+      </mesh>
+      {/* Stern lantern */}
+      <pointLight color="#ff9922" intensity={2.5} distance={6} position={[0, 0.8, -1.7]}/>
+      <mesh position={[0, 0.75, -1.7]}>
+        <sphereGeometry args={[0.05, 8, 8]}/>
+        <meshStandardMaterial emissive="#ff9922" emissiveIntensity={4} color="#ff9922"/>
+      </mesh>
+      {/* Key fill light */}
+      <pointLight color="#ffb050" intensity={5} distance={12} position={[0, 2.5, 0]}/>
       {/* Wake glow */}
-      <pointLight color="#60d4f0" intensity={1.2} distance={3.5} position={[-0.7, 0, 0]}/>
+      <pointLight color="#60d4f0" intensity={1.4} distance={4} position={[0, -0.1, -2.0]}/>
     </group>
   )
 }
@@ -651,8 +965,10 @@ function Scene({ shipRef, navigate }) {
         shadow-camera-top={20} shadow-camera-bottom={-20}/>
       {/* Blue fill from opposite side */}
       <directionalLight position={[30, 20, 20]} intensity={0.8} color="#6090cc"/>
-      <ambientLight intensity={0.35} color="#c8902a"/>
-      <hemisphereLight skyColor="#3a2a10" groundColor="#1a0e04" intensity={0.5}/>
+      <ambientLight intensity={0.55} color="#d4a850"/>
+      <hemisphereLight skyColor="#5a3a12" groundColor="#1a0e04" intensity={0.6}/>
+      {/* Extra map fill light — ensures parchment texture is clearly visible */}
+      <pointLight position={[0, 22, 4]} intensity={3.5} color="#ffe4a0" distance={45}/>
       <LensFlare/>
 
       <fog attach="fog" args={['#0a0a14', 40, 100]}/>
