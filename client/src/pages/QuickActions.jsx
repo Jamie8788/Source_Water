@@ -1,5 +1,5 @@
 import { Canvas, useFrame, extend, useThree } from '@react-three/fiber'
-import { Sky, Cloud, Html, Trail, Effects, Billboard, Environment } from '@react-three/drei'
+import { Sky, Cloud, Html, Trail, Effects, Billboard, Environment, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { useRef, useState, useEffect, useMemo, useCallback, Suspense } from 'react'
@@ -413,50 +413,46 @@ function Seagull({ offset=0 }) {
   )
 }
 
-/* ─── Ship ──────────────────────────────────────────────────────── */
+/* ─── Ship (real GLB model) ─────────────────────────────────────── */
+useGLTF.preload('/models/boat.glb')
+
 function Ship({ shipRef }) {
   const gRef = useRef()
   const trailTarget = useRef()
-  useFrame(()=>{
-    if(!gRef.current||!shipRef.current) return
-    const s=shipRef.current
-    gRef.current.position.set(s.x,0.22,s.z)
-    gRef.current.rotation.y=-(s.angle-90)*Math.PI/180
+  const { scene } = useGLTF('/models/boat.glb')
+
+  // Clone so multiple instances don't share the same scene graph
+  const model = useMemo(() => {
+    const clone = scene.clone(true)
+    // Make sure all meshes cast/receive shadows and keep their materials
+    clone.traverse(n => {
+      if (n.isMesh) { n.castShadow = true; n.receiveShadow = true }
+    })
+    return clone
+  }, [scene])
+
+  useFrame(() => {
+    if (!gRef.current || !shipRef.current) return
+    const s = shipRef.current
+    gRef.current.position.set(s.x, 0, s.z)
+    gRef.current.rotation.y = -(s.angle - 90) * Math.PI / 180
   })
+
   return (
     <group ref={gRef}>
-      <Trail width={1.0} length={12} color={new THREE.Color('#60d4f0')} attenuation={t=>t*t} target={trailTarget}>
-        <object3D ref={trailTarget}/>
+      <Trail width={1.8} length={14} color={new THREE.Color('#60d4f0')} attenuation={t => t * t} target={trailTarget}>
+        <object3D ref={trailTarget} />
       </Trail>
-      <mesh castShadow>
-        <boxGeometry args={[1.1,0.22,0.38]}/>
-        <meshStandardMaterial color="#7c3a1a" metalness={0.45} roughness={0.55}/>
+      {/* Scale up — GLB is in meters, scene units are small */}
+      <primitive object={model} scale={[0.012, 0.012, 0.012]} rotation={[0, Math.PI, 0]}/>
+      {/* Bow lantern glow */}
+      <pointLight color="#ffcc66" intensity={2.5} distance={5} position={[0.6, 0.5, 0]}/>
+      <mesh position={[0.6, 0.5, 0]}>
+        <sphereGeometry args={[0.06, 8, 8]}/>
+        <meshStandardMaterial emissive="#ffcc44" emissiveIntensity={4} color="#ffcc44"/>
       </mesh>
-      <mesh position={[0,0.14,0]} castShadow>
-        <boxGeometry args={[0.9,0.12,0.28]}/>
-        <meshStandardMaterial color="#9b4a22" metalness={0.3} roughness={0.5}/>
-      </mesh>
-      <mesh position={[0.08,0.65,0]} castShadow>
-        <cylinderGeometry args={[0.018,0.024,0.9,8]}/>
-        <meshStandardMaterial color="#3d2510" roughness={0.8}/>
-      </mesh>
-      <mesh position={[0.22,0.78,0.1]} rotation={[0,0.1,0]} castShadow>
-        <planeGeometry args={[0.36,0.5]}/>
-        <meshStandardMaterial color="#fefce8" side={THREE.DoubleSide} transparent opacity={0.97}/>
-      </mesh>
-      <mesh position={[-0.12,0.48,0]}>
-        <cylinderGeometry args={[0.013,0.018,0.65,8]}/>
-        <meshStandardMaterial color="#3d2510" roughness={0.8}/>
-      </mesh>
-      <mesh position={[-0.04,0.56,0.08]}>
-        <planeGeometry args={[0.28,0.38]}/>
-        <meshStandardMaterial color="#fefce8" side={THREE.DoubleSide} transparent opacity={0.9}/>
-      </mesh>
-      <pointLight color="#60d4f0" intensity={1.4} distance={3.5} position={[-0.55,0,0]}/>
-      <mesh position={[-0.55,0,0]}>
-        <sphereGeometry args={[0.065,8,8]}/>
-        <meshStandardMaterial emissive="#60d4f0" emissiveIntensity={3} color="#60d4f0"/>
-      </mesh>
+      {/* Wake glow */}
+      <pointLight color="#60d4f0" intensity={1.2} distance={3.5} position={[-0.7, 0, 0]}/>
     </group>
   )
 }
