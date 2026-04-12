@@ -200,6 +200,10 @@ export function CMSProvider({ children }) {
     document.querySelectorAll(tags.join(',')).forEach(el => {
       if (el.closest('[data-cms-ui]')) return
       if (el.closest('script,style,noscript,[data-no-cms]')) return
+      // ── STABLE KEY: if this element was already tagged, keep its existing key.
+      // Re-keying after a text override would assign a NEW slug (based on the
+      // overridden text) and orphan the saved override under the original key.
+      if (el.getAttribute('data-cms-id')) return
       const text = el.innerText?.trim()
       if (!text || text.length < 1) return
       const directText = Array.from(el.childNodes)
@@ -272,7 +276,9 @@ export function CMSProvider({ children }) {
       clearTimeout(debounce)
       debounce = setTimeout(reApply, 90)
     })
-    observer.observe(document.body, { childList: true, subtree: true, characterData: false })
+    // characterData:true catches React text-node updates (node.nodeValue changes)
+    // childList:true catches React element replacement
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true })
     return () => { observer.disconnect(); clearTimeout(debounce) }
   }, [overrides])
 
