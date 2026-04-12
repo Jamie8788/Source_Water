@@ -12,9 +12,9 @@ import {
 
 extend({ UnrealBloomPass })
 
-const SUN_POS  = [60, 22, -70]
-const SUN_DIR  = new THREE.Vector3(60, 22, -70).normalize()
-const SUN_COL  = new THREE.Color('#ffe8b0')
+const SUN_POS  = [8, 5, -60]
+const SUN_DIR  = new THREE.Vector3(8, 5, -60).normalize()
+const SUN_COL  = new THREE.Color('#ff9a30')
 
 /* ─── Portals ───────────────────────────────────────────────────── */
 const PORTALS = [
@@ -98,22 +98,22 @@ const WATER_FRAG = `
     // Caustic shimmer
     float cau=sin(vWorldPos.x*2.4+uTime*1.6)*sin(vWorldPos.z*2.8+uTime*1.2)*0.5+0.5;
     cau=cau*cau*0.14;
-    // Caribbean palette: sandy→aquamarine→teal→deep blue
-    vec3 sand  =vec3(0.72,0.65,0.40); // visible sandy bottom
-    vec3 aqua  =vec3(0.04,0.82,0.76); // turquoise shallows
-    vec3 teal  =vec3(0.02,0.52,0.68); // mid water
-    vec3 deep  =vec3(0.01,0.08,0.32); // deep open water
-    float depth=clamp(vWave*1.6+diff*0.3+cau,0.,1.);
-    vec3 col=mix(deep,teal,depth);
-    col=mix(col,aqua,max(0.,depth-0.45)*2.5);
-    col=mix(col,sand,max(0.,depth-0.78)*3.5);
-    // Foam
-    col=mix(col,vec3(0.92,0.97,1.),smoothstep(0.30,0.56,vWave)*0.75);
-    // Sun glint
-    col+=uSunCol*(sp+sp2);
-    // Sky Fresnel
-    col=mix(col,vec3(0.50,0.78,0.96)*1.05,fr*0.42);
-    col*=(0.6+diff*0.4);
+    // Deep cinematic ocean palette
+    vec3 ink   =vec3(0.01,0.03,0.14); // deep black-blue abyss
+    vec3 navy  =vec3(0.01,0.09,0.28); // navy midnight
+    vec3 teal  =vec3(0.02,0.28,0.46); // dark teal
+    vec3 aqua  =vec3(0.04,0.50,0.58); // cyan highlights near foam
+    float depth=clamp(vWave*1.4+diff*0.25+cau,0.,1.);
+    vec3 col=mix(ink,navy,depth);
+    col=mix(col,teal,max(0.,depth-0.40)*2.2);
+    col=mix(col,aqua,max(0.,depth-0.72)*2.8);
+    // Foam — white caps
+    col=mix(col,vec3(0.88,0.96,1.0),smoothstep(0.34,0.60,vWave)*0.55);
+    // Bright specular sun glint on dark water
+    col+=uSunCol*(sp*1.8+sp2*0.6);
+    // Night sky Fresnel — dark blue reflection
+    col=mix(col,vec3(0.06,0.12,0.38),fr*0.55);
+    col*=(0.5+diff*0.5);
     // Horizon fade
     vec2 ed=abs(vUv-0.5)*2.;
     float fade=1.-smoothstep(0.68,1.,max(ed.x,ed.y));
@@ -137,20 +137,20 @@ function Ocean() {
 function Terrain() {
   return (
     <group>
-      {/* Base green land */}
+      {/* Base dark land — night/dusk tones */}
       <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.32,0]} receiveShadow>
         <planeGeometry args={[80,80]}/>
-        <meshStandardMaterial color="#3a5a18" roughness={0.92} metalness={0}/>
+        <meshStandardMaterial color="#141c08" roughness={0.95} metalness={0}/>
       </mesh>
-      {/* Sandy shore band near water edge */}
+      {/* Dark shore */}
       <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.18,0]}>
         <planeGeometry args={[30,30]}/>
-        <meshStandardMaterial color="#c8a660" roughness={0.88} metalness={0} transparent opacity={0.85}/>
+        <meshStandardMaterial color="#2a1e0a" roughness={0.92} metalness={0} transparent opacity={0.85}/>
       </mesh>
-      {/* Inner sandy centre */}
+      {/* Inner shore */}
       <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.10,0]}>
         <planeGeometry args={[18,18]}/>
-        <meshStandardMaterial color="#b89a50" roughness={0.85} metalness={0} transparent opacity={0.6}/>
+        <meshStandardMaterial color="#241a08" roughness={0.88} metalness={0} transparent opacity={0.6}/>
       </mesh>
     </group>
   )
@@ -165,11 +165,11 @@ function SunShafts() {
     g.current.children.forEach((m,i)=>{ if(m.material) m.material.opacity=0.055+Math.sin(t*0.35+i*1.2)*0.022 })
   })
   return (
-    <group ref={g} position={[28,34,-38]} rotation={[0.26,0.42,-0.08]}>
+    <group ref={g} position={[4,18,-55]} rotation={[0.18,0.12,-0.04]}>
       {[0,1,2,3,4,5,6].map(i=>(
         <mesh key={i} rotation={[0,(i/7)*Math.PI*0.45,0]}>
           <coneGeometry args={[9+i*3.5,65,5,1,true]}/>
-          <meshBasicMaterial color="#ffd060" transparent opacity={0.055} depthWrite={false} side={THREE.BackSide} blending={THREE.AdditiveBlending}/>
+          <meshBasicMaterial color="#ff7020" transparent opacity={0.038} depthWrite={false} side={THREE.BackSide} blending={THREE.AdditiveBlending}/>
         </mesh>
       ))}
     </group>
@@ -183,10 +183,10 @@ function LensFlare() {
     if(ref.current) ref.current.material.opacity = 0.55+Math.sin(clock.getElapsedTime()*0.7)*0.15
   })
   return (
-    <Billboard position={[28,22,-38]}>
+    <Billboard position={[6,8,-52]}>
       <mesh ref={ref}>
-        <planeGeometry args={[5,5]}/>
-        <meshBasicMaterial color="#fff5a0" transparent opacity={0.55} depthWrite={false} blending={THREE.AdditiveBlending}/>
+        <planeGeometry args={[8,8]}/>
+        <meshBasicMaterial color="#ff8030" transparent opacity={0.35} depthWrite={false} blending={THREE.AdditiveBlending}/>
       </mesh>
     </Billboard>
   )
@@ -519,25 +519,27 @@ function ConnectionLines() {
 function Scene({ shipRef, navigate }) {
   return (
     <>
-      {/* Dramatic cinematic sky — deep golden sunset */}
-      <Sky sunPosition={SUN_POS} turbidity={10} rayleigh={3.0}
-           mieCoefficient={0.012} mieDirectionalG={0.92}
-           inclination={0.49} azimuth={0.22}/>
+      {/* Deep dramatic dusk sky — low sun, dark horizon */}
+      <Sky sunPosition={[8, 1.2, -80]} turbidity={14} rayleigh={1.0}
+           mieCoefficient={0.006} mieDirectionalG={0.96}
+           inclination={0.51} azimuth={0.25}/>
 
-      {/* PBR environment reflections */}
-      <Environment preset="sunset" background={false}/>
+      {/* PBR — night environment, no background override */}
+      <Environment preset="night" background={false}/>
 
-      {/* Sun */}
-      <directionalLight position={SUN_POS} intensity={5.0} color="#ffb840" castShadow
+      {/* Low sun — warm but not blinding */}
+      <directionalLight position={[8, 5, -60]} intensity={1.8} color="#ff9a30" castShadow
         shadow-mapSize={[2048,2048]} shadow-camera-far={80}
         shadow-camera-left={-30} shadow-camera-right={30}
         shadow-camera-top={30} shadow-camera-bottom={-30}/>
-      <ambientLight intensity={0.30} color="#ffc870"/>
-      <hemisphereLight skyColor="#ff8c30" groundColor="#1a3a08" intensity={0.65}/>
+      {/* Moonlight fill — cold blue from opposite side */}
+      <directionalLight position={[-20, 18, 30]} intensity={0.9} color="#4a80cc"/>
+      <ambientLight intensity={0.12} color="#1a3060"/>
+      <hemisphereLight skyColor="#0a1a40" groundColor="#0a0e06" intensity={0.55}/>
       <LensFlare/>
 
-      {/* Warm cinematic haze */}
-      <fog attach="fog" args={['#e8a050',55,130]}/>
+      {/* Deep ocean haze — dark blue-black */}
+      <fog attach="fog" args={['#050d1e',45,110]}/>
 
       <Terrain/>
       <Ocean/>
@@ -561,7 +563,7 @@ function Scene({ shipRef, navigate }) {
       <CameraRig shipRef={shipRef}/>
 
       <Effects disableGamma>
-        <unrealBloomPass threshold={0.28} strength={0.55} radius={0.70}/>
+        <unrealBloomPass threshold={0.18} strength={1.1} radius={0.85}/>
       </Effects>
     </>
   )
@@ -608,7 +610,7 @@ function useShipControls() {
         const dx = auto.x - s.x
         const dz = auto.z - s.z
         const dist = Math.sqrt(dx*dx + dz*dz)
-        if (dist < 1.8) {
+        if (dist < 2.5) {
           // Arrived — trigger navigation
           autoTargetRef.current = null
           setSailTarget(null)
@@ -616,12 +618,16 @@ function useShipControls() {
         } else {
           // Target heading: angle convention = atan2(dz,dx)*180/PI + 90
           const targetAngleDeg = Math.atan2(dz, dx) * 180 / Math.PI + 90
-          // Shortest angular difference
-          let diff = ((targetAngleDeg - s.angle) % 360 + 540) % 360 - 180
-          // Steer toward target (max 4° per frame)
-          s.angle += Math.sign(diff) * Math.min(Math.abs(diff), 4.0)
-          // Accelerate to full speed
-          s.speed = Math.min(s.speed + 0.022, 0.50)
+          // Shortest angular difference (-180..+180)
+          const diff = ((targetAngleDeg - s.angle) % 360 + 540) % 360 - 180
+          // Steer toward target (max 3.5° per frame)
+          s.angle += Math.sign(diff) * Math.min(Math.abs(diff), 3.5)
+          // Only accelerate when roughly facing target (<50°); crawl otherwise
+          const absDiff = Math.abs(diff)
+          const alignFactor = Math.max(0, 1 - absDiff / 50)
+          const slowFactor  = Math.min(dist / 5, 1)  // slow near target
+          const wantSpeed   = 0.22 * alignFactor * slowFactor
+          s.speed += (wantSpeed - s.speed) * 0.08    // smooth lerp to target speed
         }
       } else {
         // ── Manual controls ──────────────────────────────────────
@@ -688,8 +694,8 @@ export default function QuickActions() {
       )}
 
       <Canvas dpr={[1,1.8]}
-        camera={{ position:[0,4,18], fov:68, near:0.1, far:300 }}
-        gl={{ antialias:true, alpha:false, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:1.4 }}
+        camera={{ position:[0,7,22], fov:62, near:0.1, far:300 }}
+        gl={{ antialias:true, alpha:false, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:0.85 }}
         shadows style={{ position:'absolute', inset:0 }}>
         <Suspense fallback={null}>
           <Scene shipRef={shipRef} navigate={handleNav}/>
