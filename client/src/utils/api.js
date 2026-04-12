@@ -14,10 +14,24 @@ api.interceptors.request.use(config => {
 
 api.interceptors.response.use(
   res => res,
-  err => {
+  async err => {
     if (err.response?.status === 401) {
-      // Only clear legacy token — Supabase handles its own session via onAuthStateChange
       localStorage.removeItem('sw_token')
+      // Try to refresh the Supabase session before giving up
+      try {
+        const { supabase } = await import('../lib/supabase')
+        const { data } = await supabase.auth.refreshSession()
+        if (data?.session?.access_token) {
+          // Got a fresh token — update storage and retry the original request
+          localStorage.setItem('sb_access_token', data.session.access_token)
+          err.config.headers.Authorization = `Bearer ${data.session.access_token}`
+          return api.request(err.config)
+        }
+      } catch (_) {}
+      // Refresh failed — clear everything and redirect to login
+      localStorage.removeItem('sb_access_token')
+      localStorage.removeItem('sw_user')
+      window.location.href = '/'
     }
     return Promise.reject(err)
   }
