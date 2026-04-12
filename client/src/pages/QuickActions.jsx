@@ -1,6 +1,6 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Sky, Cloud, Html, Trail, Billboard, Environment } from '@react-three/drei'
-import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
+import { Sky, Cloud, Html, Trail, Billboard, Environment, useTexture } from '@react-three/drei'
+import { EffectComposer, Bloom, Vignette, DepthOfField } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useRef, useState, useEffect, useMemo, useCallback, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -176,218 +176,62 @@ function Ocean() {
   )
 }
 
-/* ─── Ancient parchment map texture (canvas-drawn) ──────────────── */
-function useMapTexture() {
-  return useMemo(() => {
-    const S = 2048
-    const cv = document.createElement('canvas')
-    cv.width = S; cv.height = S
-    const c = cv.getContext('2d')
+/* ─── Real geographic map platform ──────────────────────────────── */
+// Natural Earth II equirectangular — Wikipedia Commons (public domain)
+const MAP_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Equirectangular_projection_SW.jpg/2560px-Equirectangular_projection_SW.jpg'
 
-    // Rich parchment base — warm tan with aged variation
-    const bg = c.createRadialGradient(S/2,S/2,0, S/2,S/2,S*0.72)
-    bg.addColorStop(0,   '#f0dfa5')
-    bg.addColorStop(0.35,'#e2c57c')
-    bg.addColorStop(0.68,'#cca558')
-    bg.addColorStop(1.0, '#7a5215')
-    c.fillStyle = bg; c.fillRect(0,0,S,S)
+function MapPlatformContent() {
+  const mapTex = useTexture(MAP_URL)
 
-    // Grain / fibres
-    for(let i=0;i<14000;i++){
-      const x=Math.random()*S, y=Math.random()*S
-      c.fillStyle=`rgba(${Math.random()>0.5?'80,50,10':'215,185,115'},${Math.random()*0.09})`
-      c.beginPath(); c.arc(x,y,Math.random()*2,0,Math.PI*2); c.fill()
-    }
+  // Crop to Great Lakes / NE North America
+  // Equirectangular: U=(lon+180)/360, V=(lat+90)/180 (flipY=true default)
+  // Show lon -100W → -50W, lat 35N → 65N
+  useMemo(() => {
+    mapTex.wrapS = THREE.ClampToEdgeWrapping
+    mapTex.wrapT = THREE.ClampToEdgeWrapping
+    mapTex.offset.set(80 / 360, 125 / 180)  // (-100W start, 35N start)
+    mapTex.repeat.set(50 / 360, 30 / 180)   // 50° wide, 30° tall
+    mapTex.needsUpdate = true
+  }, [mapTex])
 
-    // Age stains
-    for(let i=0;i<10;i++){
-      const sx=Math.random()*S, sy=Math.random()*S
-      const gr=c.createRadialGradient(sx,sy,0,sx,sy,70+Math.random()*140)
-      gr.addColorStop(0,`rgba(70,42,8,${0.07+Math.random()*0.14})`)
-      gr.addColorStop(1,'rgba(70,42,8,0)')
-      c.fillStyle=gr; c.fillRect(0,0,S,S)
-    }
-
-    // Dark burned corners
-    [[0,0],[S,0],[0,S],[S,S]].forEach(([cx,cy])=>{
-      const gr=c.createRadialGradient(cx,cy,0,cx,cy,S*0.6)
-      gr.addColorStop(0,'rgba(40,20,4,0.52)')
-      gr.addColorStop(1,'rgba(40,20,4,0)')
-      c.fillStyle=gr; c.fillRect(0,0,S,S)
-    })
-
-    // Outer double-line ink border — thick and visible
-    c.strokeStyle='#1e0e02'; c.lineWidth=20
-    c.strokeRect(30,30,S-60,S-60)
-    c.lineWidth=6
-    c.strokeRect(52,52,S-104,S-104)
-    c.lineWidth=3
-    c.strokeRect(64,64,S-128,S-128)
-
-    // Corner ornaments (bold fleur-de-lis style)
-    const pts=[[68,68],[S-68,68],[68,S-68],[S-68,S-68]]
-    pts.forEach(([px,py])=>{
-      c.fillStyle='#1e0e02'
-      for(let a=0;a<4;a++){
-        const ag=a*Math.PI/2+Math.PI/4
-        c.beginPath()
-        c.moveTo(px,py)
-        c.lineTo(px+Math.cos(ag)*42,py+Math.sin(ag)*42)
-        c.lineTo(px+Math.cos(ag+0.28)*32,py+Math.sin(ag+0.28)*32)
-        c.closePath(); c.fill()
-        c.beginPath()
-        c.moveTo(px,py)
-        c.lineTo(px+Math.cos(ag)*42,py+Math.sin(ag)*42)
-        c.lineTo(px+Math.cos(ag-0.28)*32,py+Math.sin(ag-0.28)*32)
-        c.closePath(); c.fill()
-      }
-      c.beginPath(); c.arc(px,py,10,0,Math.PI*2); c.fill()
-    })
-
-    // Ocean wave fill marks — bold, classic cartographic style
-    c.strokeStyle='rgba(30,14,2,0.52)'; c.lineWidth=2.8
-    for(let row=0;row<14;row++){
-      for(let col=0;col<12;col++){
-        const wx=80+col*160, wy=180+row*130
-        if(wx>S-80||wy>S-80) continue
-        c.beginPath()
-        c.moveTo(wx,wy)
-        c.quadraticCurveTo(wx+20,wy-14,wx+40,wy)
-        c.quadraticCurveTo(wx+60,wy+14,wx+80,wy)
-        c.stroke()
-        c.beginPath()
-        c.moveTo(wx+8,wy+20)
-        c.quadraticCurveTo(wx+28,wy+6,wx+48,wy+20)
-        c.quadraticCurveTo(wx+68,wy+34,wx+88,wy+20)
-        c.stroke()
-      }
-    }
-
-    // Latitude / longitude grid lines
-    c.strokeStyle='rgba(30,14,2,0.25)'; c.lineWidth=1.5
-    for(let i=1;i<8;i++){
-      const x=i*(S/8)
-      c.beginPath(); c.moveTo(x,44); c.lineTo(x,S-44); c.stroke()
-      const y=i*(S/8)
-      c.beginPath(); c.moveTo(44,y); c.lineTo(S-44,y); c.stroke()
-    }
-
-    // Faint "HERE BE DRAGONS" rotated watermark
-    // "HERE BE DRAGONS" diagonal watermark
-    c.save()
-    c.globalAlpha=0.09
-    c.font='bold 96px serif'
-    c.fillStyle='#1e0e02'
-    c.textAlign='center'
-    c.translate(S/2,S/2); c.rotate(-0.18)
-    c.fillText('HERE BE DRAGONS', 0, 0)
-    c.restore()
-
-    // Map title at top — large, bold cartouche
-    c.save()
-    c.font='italic bold 52px serif'
-    c.fillStyle='rgba(30,14,2,0.88)'
-    c.textAlign='center'
-    c.fillText('NOVA TABULA LACUUM MAGNORUM', S/2, 100)
-    c.font='italic 32px serif'
-    c.fillStyle='rgba(30,14,2,0.70)'
-    c.fillText('The Great Lakes — Northern Ontario, Canada', S/2, 148)
-    c.restore()
-
-    // Compass rose — large and prominent, bottom-right
-    const rosX=S*0.82, rosY=S*0.78, rosR=120
-    c.fillStyle='#1e0e02'
-    for(let i=0;i<8;i++){
-      const a=i*Math.PI/4 - Math.PI/2  // N at top
-      const inner=i%2===0 ? rosR*0.42 : rosR*0.26
-      const outer=i%2===0 ? rosR : rosR*0.62
-      c.beginPath()
-      c.moveTo(rosX+Math.cos(a-0.11)*inner, rosY+Math.sin(a-0.11)*inner)
-      c.lineTo(rosX+Math.cos(a)*outer, rosY+Math.sin(a)*outer)
-      c.lineTo(rosX+Math.cos(a+0.11)*inner, rosY+Math.sin(a+0.11)*inner)
-      c.closePath(); c.fill()
-    }
-    // Gold intercardinal points
-    c.fillStyle='#c8a020'
-    for(let i=0;i<4;i++){
-      const a=i*Math.PI/2+Math.PI/4 - Math.PI/2
-      c.beginPath()
-      c.moveTo(rosX+Math.cos(a-0.09)*rosR*0.26, rosY+Math.sin(a-0.09)*rosR*0.26)
-      c.lineTo(rosX+Math.cos(a)*rosR*0.62, rosY+Math.sin(a)*rosR*0.62)
-      c.lineTo(rosX+Math.cos(a+0.09)*rosR*0.26, rosY+Math.sin(a+0.09)*rosR*0.26)
-      c.closePath(); c.fill()
-    }
-    // Rings
-    c.beginPath(); c.arc(rosX,rosY,rosR*0.22,0,Math.PI*2)
-    c.fillStyle='#f0d898'; c.fill()
-    c.strokeStyle='#1e0e02'; c.lineWidth=4; c.stroke()
-    c.beginPath(); c.arc(rosX,rosY,rosR*0.1,0,Math.PI*2)
-    c.fillStyle='#1e0e02'; c.fill()
-    // Bold N/S/E/W labels
-    c.font='bold 42px serif'; c.fillStyle='#1e0e02'; c.textAlign='center'
-    c.fillText('N', rosX,        rosY-rosR-18)
-    c.fillText('S', rosX,        rosY+rosR+44)
-    c.fillText('E', rosX+rosR+22, rosY+14)
-    c.fillText('W', rosX-rosR-22, rosY+14)
-    c.font='italic bold 22px serif'; c.fillStyle='rgba(30,14,2,0.75)'
-    c.fillText('SEPTENTRIO', rosX, rosY-rosR-52)
-
-    // Scale bar — larger, readable
-    const sbX=90, sbY=S-90
-    c.fillStyle='#1e0e02'; c.font='bold 26px serif'; c.textAlign='left'
-    c.fillText('SCALA MILIARIUM', sbX, sbY-22)
-    for(let i=0;i<5;i++){
-      c.fillStyle=i%2===0?'#1e0e02':'#e8d090'
-      c.fillRect(sbX+i*64,sbY,64,18)
-    }
-    c.strokeStyle='#1e0e02'; c.lineWidth=3
-    c.strokeRect(sbX,sbY,320,18)
-    c.fillStyle='#1e0e02'; c.font='22px serif'
-    c.fillText('0', sbX, sbY+42)
-    c.fillText('50 km', sbX+300, sbY+42)
-
-    const tex=new THREE.CanvasTexture(cv)
-    tex.needsUpdate=true
-    return tex
-  },[])
-}
-
-/* ─── Ancient parchment map platform ────────────────────────────── */
-function MapPlatform() {
-  const mapTex = useMapTexture()
-
-  // Slight elevation variation on the slab edges (rolled parchment feel)
   return (
     <group>
-      {/* Ocean floor — dark deep water base */}
-      <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.5,0]} receiveShadow>
-        <planeGeometry args={[120,120]}/>
-        <meshStandardMaterial color="#050d1a" roughness={1} metalness={0}/>
+      {/* Deep water base under map */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.55,0]} receiveShadow>
+        <planeGeometry args={[160,160]}/>
+        <meshStandardMaterial color="#05121e" roughness={1} metalness={0}/>
       </mesh>
 
-      {/* Map slab sides — aged dark wood / stone */}
-      <mesh position={[0,-0.3,0]} receiveShadow castShadow>
-        <boxGeometry args={[28.6,0.65,28.6]}/>
-        <meshStandardMaterial color="#6a4820" roughness={0.98} metalness={0}/>
+      {/* Map board sides — thick, like a physical map book or atlas */}
+      <mesh position={[0,-0.35,0]} receiveShadow castShadow>
+        <boxGeometry args={[29.2,0.75,29.2]}/>
+        <meshStandardMaterial color="#3a2508" roughness={0.96} metalness={0}/>
       </mesh>
-      {/* Stone edge lip */}
-      <mesh position={[0,-0.02,0]} receiveShadow castShadow>
-        <boxGeometry args={[28.8,0.1,28.8]}/>
-        <meshStandardMaterial color="#5a3c15" roughness={0.97} metalness={0}/>
-      </mesh>
-
-      {/* Main parchment surface — canvas texture */}
-      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.02,0]} receiveShadow>
-        <planeGeometry args={[28,28,64,64]}/>
-        <meshStandardMaterial map={mapTex} roughness={0.88} metalness={0} color="#ffffff"/>
+      {/* Beveled top edge */}
+      <mesh position={[0,-0.0,0]} receiveShadow castShadow>
+        <boxGeometry args={[29.4,0.08,29.4]}/>
+        <meshStandardMaterial color="#2a1804" roughness={0.97} metalness={0}/>
       </mesh>
 
-      {/* Subtle bump layer — parchment worn centre depression */}
-      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.025,0]}>
-        <planeGeometry args={[26,26]}/>
-        <meshStandardMaterial color="#d4b878" roughness={0.92} transparent opacity={0.08}/>
+      {/* ─ Real geographic map surface ─ */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.04,0]} receiveShadow>
+        <planeGeometry args={[29,29,2,2]}/>
+        <meshStandardMaterial
+          map={mapTex}
+          roughness={0.82}
+          metalness={0}
+          color="#ffffff"
+        />
       </mesh>
     </group>
+  )
+}
+
+function MapPlatform() {
+  return (
+    <Suspense fallback={null}>
+      <MapPlatformContent/>
+    </Suspense>
   )
 }
 
@@ -715,7 +559,7 @@ function Ship({ shipRef }) {
     const s   = shipRef.current
     const t   = clock.getElapsedTime()
     const spd = Math.abs(s.speed ?? 0)
-    gRef.current.position.set(s.x, 0.42, s.z)
+    gRef.current.position.set(s.x, 0.5, s.z)
     gRef.current.rotation.y = -(s.angle - 90) * Math.PI / 180
     // Realistic ocean roll — more pronounced at speed
     gRef.current.rotation.z = Math.sin(t * 0.75) * (0.025 + spd * 0.08)
@@ -895,11 +739,11 @@ function Ship({ shipRef }) {
   )
 }
 
-/* ─── Cinematic close-follow camera ─────────────────────────────── */
+/* ─── Miniature tilt-shift camera — low angle, close ────────────── */
 function CameraRig({ shipRef }) {
   const { camera } = useThree()
-  const smooth = useRef(new THREE.Vector3(0, 8, 14))
-  const look   = useRef(new THREE.Vector3(0, 0.5, 0))
+  const smooth = useRef(new THREE.Vector3(0, 5, 9))
+  const look   = useRef(new THREE.Vector3(0, 0, 0))
   const orbitT = useRef(0)
 
   useFrame(({ clock }, dt) => {
@@ -907,26 +751,25 @@ function CameraRig({ shipRef }) {
     const s   = shipRef.current ?? { x:0, z:0, angle:0, speed:0 }
     const spd = Math.abs(s.speed ?? 0)
 
-    // Idle: very slow cinematic drift around the ship
-    if (spd < 0.04) orbitT.current += dt * 0.045
-    else            orbitT.current *= 0.92
+    // Idle: very slow drift so map rotates into view slowly
+    if (spd < 0.04) orbitT.current += dt * 0.03
+    else            orbitT.current *= 0.90
 
-    const ox = Math.sin(orbitT.current) * 1.8
-    const oz = Math.cos(orbitT.current) * 0.8
+    const ox = Math.sin(orbitT.current) * 1.2
+    const oz = Math.cos(orbitT.current) * 0.5
 
-    // Close follow: low enough to see the ship clearly and the map beneath
-    // y=7 gives a nice 3/4 view — see sails, map surface, and ocean edge
-    const sway  = Math.sin(t * 0.18) * 0.2
-    const camH  = 7.5 + sway
-    const camD  = 10   // close behind the ship
+    // Low angle: y=4.5 to see sails + map surface like a miniature diorama
+    const sway = Math.sin(t * 0.14) * 0.12
+    const camH = 4.8 + sway
+    const camD = 8   // close behind
 
     smooth.current.lerp(
       new THREE.Vector3(s.x + ox, camH, s.z + camD + oz),
-      0.038
+      0.042
     )
     look.current.lerp(
-      new THREE.Vector3(s.x, 1.2, s.z - 1),
-      0.055
+      new THREE.Vector3(s.x, 0.8, s.z - 0.5),
+      0.06
     )
     camera.position.copy(smooth.current)
     camera.lookAt(look.current)
@@ -1006,8 +849,9 @@ function Scene({ shipRef, navigate }) {
       <CameraRig shipRef={shipRef}/>
 
       <EffectComposer>
-        <Bloom luminanceThreshold={0.26} luminanceSmoothing={0.85} intensity={0.80}/>
-        <Vignette eskil={false} offset={0.14} darkness={0.70}/>
+        <DepthOfField focusDistance={0.012} focalLength={0.028} bokehScale={3.5} height={480}/>
+        <Bloom luminanceThreshold={0.28} luminanceSmoothing={0.80} intensity={0.65}/>
+        <Vignette eskil={false} offset={0.18} darkness={0.65}/>
       </EffectComposer>
     </>
   )
@@ -1138,7 +982,7 @@ export default function QuickActions() {
       )}
 
       <Canvas dpr={[1,1.8]}
-        camera={{ position:[0,8,14], fov:68, near:0.1, far:300 }}
+        camera={{ position:[0,5,9], fov:62, near:0.1, far:300 }}
         gl={{ antialias:true, alpha:false, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:0.80 }}
         shadows style={{ position:'absolute', inset:0 }}>
         <Suspense fallback={null}>
