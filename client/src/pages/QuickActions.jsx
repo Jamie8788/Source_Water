@@ -1,7 +1,9 @@
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Sky, Cloud, Html, Trail, Billboard, Environment, useGLTF } from '@react-three/drei'
-import { EffectComposer, Bloom, DepthOfField, ChromaticAberration, Vignette } from '@react-three/postprocessing'
+import { Canvas, useFrame, extend, useThree } from '@react-three/fiber'
+import { Sky, Cloud, Html, Trail, Billboard, Environment, useGLTF, Effects } from '@react-three/drei'
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import * as THREE from 'three'
+
+extend({ UnrealBloomPass })
 import { useRef, useState, useEffect, useMemo, useCallback, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -656,14 +658,9 @@ function Scene({ shipRef, navigate }) {
       <ShipSpray shipRef={shipRef}/>
       <CameraRig shipRef={shipRef}/>
 
-      {/* Full cinematic post-processing stack */}
-      <EffectComposer>
-        {/* Bloom — beacon glows, sun glints, foam tips */}
-        <Bloom luminanceThreshold={0.28} luminanceSmoothing={0.9} intensity={0.85}/>
-        <DepthOfField focusDistance={0.012} focalLength={0.028} bokehScale={2.8}/>
-        <ChromaticAberration offset={[0.0008, 0.0004]}/>
-        <Vignette eskil={false} offset={0.12} darkness={0.75}/>
-      </EffectComposer>
+      <Effects disableGamma>
+        <unrealBloomPass threshold={0.28} strength={0.50} radius={0.65}/>
+      </Effects>
     </>
   )
 }
