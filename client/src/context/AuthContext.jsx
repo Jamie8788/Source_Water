@@ -102,6 +102,12 @@ export function AuthProvider({ children }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
+        // If we have a legacy token for a DIFFERENT user, don't let a new Supabase
+        // session (e.g. from another tab) override this session
+        const storedUser = JSON.parse(localStorage.getItem('sw_user') || '{}')
+        const hasLegacyToken = !!localStorage.getItem('sw_token')
+        const differentUser = storedUser.email && storedUser.email !== session.user.email
+        if (hasLegacyToken && differentUser) return
         await fetchProfile(session.user, session.access_token)
       } else if (!isRegisteringRef.current) {
         // Don't clear if a legacy session is active (admin / SQLite-only users)
