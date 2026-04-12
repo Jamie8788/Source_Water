@@ -87,6 +87,15 @@ router.get('/me', async (req, res) => {
       const { data: { user: sbUser }, error } = await sb.auth.getUser(token)
       if (sbUser && !error) {
         let localUser = await db.get('SELECT * FROM users WHERE email = ?', [sbUser.email])
+        if (!localUser) {
+          // Auto-create local user row on first login (same as requireAuth middleware)
+          const username = sbUser.email.split('@')[0].replace(/[^a-z0-9_]/gi, '') + '_' + Math.random().toString(36).slice(2, 6)
+          await db.run(
+            `INSERT INTO users (username, email, password_hash, display_name, role, avatar_emoji, avatar_bg_color) VALUES (?, ?, 'supabase_auth', ?, 'Community member', '💧', '#3B82F6') ON CONFLICT DO NOTHING`,
+            [username, sbUser.email, sbUser.user_metadata?.display_name || username]
+          )
+          localUser = await db.get('SELECT * FROM users WHERE email = ?', [sbUser.email])
+        }
         if (localUser) return res.json(safeUser(localUser))
       }
     } catch (_) {}
