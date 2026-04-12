@@ -1,8 +1,8 @@
 import { Canvas, useFrame, extend, useThree } from '@react-three/fiber'
-import { Sky, Cloud, Float, Html, Trail, Effects, Billboard } from '@react-three/drei'
+import { Sky, Cloud, Html, Trail, Effects, Billboard, Environment } from '@react-three/drei'
 import * as THREE from 'three'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
-import { useRef, useState, useEffect, useMemo, Suspense } from 'react'
+import { useRef, useState, useEffect, useMemo, useCallback, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Sparkles as SparklesIcon, Map, BellRing, FileBarChart2,
@@ -133,13 +133,26 @@ function Ocean() {
   )
 }
 
-/* ─── Terrain ───────────────────────────────────────────────────── */
+/* ─── Terrain with sandy shores ─────────────────────────────────── */
 function Terrain() {
   return (
-    <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.32,0]} receiveShadow>
-      <planeGeometry args={[80,80]}/>
-      <meshStandardMaterial color="#3a5e1e" roughness={0.95} metalness={0}/>
-    </mesh>
+    <group>
+      {/* Base green land */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.32,0]} receiveShadow>
+        <planeGeometry args={[80,80]}/>
+        <meshStandardMaterial color="#3a5a18" roughness={0.92} metalness={0}/>
+      </mesh>
+      {/* Sandy shore band near water edge */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.18,0]}>
+        <planeGeometry args={[30,30]}/>
+        <meshStandardMaterial color="#c8a660" roughness={0.88} metalness={0} transparent opacity={0.85}/>
+      </mesh>
+      {/* Inner sandy centre */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.10,0]}>
+        <planeGeometry args={[18,18]}/>
+        <meshStandardMaterial color="#b89a50" roughness={0.85} metalness={0} transparent opacity={0.6}/>
+      </mesh>
+    </group>
   )
 }
 
@@ -227,107 +240,77 @@ function GreatLake({ lake }) {
   )
 }
 
-/* ─── Holographic map beacon ────────────────────────────────────── */
+/* ─── Holographic beacon — clean floating orb, no ground rings ───── */
 function MapBeacon({ portal, idx, onNav }) {
-  const [hov,setHov] = useState(false)
-  const ping1 = useRef(), ping2 = useRef()
-  const beam  = useRef()
-  const dot   = useRef()
+  const [hov, setHov] = useState(false)
+  const beam = useRef(), orb = useRef(), glow = useRef(), ring = useRef()
   const isHub = idx === 0
+  const orbR  = isHub ? 0.34 : 0.24
+  const baseY = portal.pos[1]  // use portal's Y directly
 
-  useFrame(({clock})=>{
+  useFrame(({ clock }) => {
     const t = clock.getElapsedTime()
-    const speed = isHub ? 0.55 : 0.45
-    // Ping 1
-    if(ping1.current){
-      const ph = (t*speed + idx*0.38) % 1
-      ping1.current.scale.setScalar(1+ph*3.2)
-      ping1.current.material.opacity = (1-ph)*0.55
-    }
-    // Ping 2 — offset half cycle
-    if(ping2.current){
-      const ph = (t*speed + idx*0.38 + 0.5) % 1
-      ping2.current.scale.setScalar(1+ph*3.2)
-      ping2.current.material.opacity = (1-ph)*0.35
-    }
+    // Orb float
+    if(orb.current) orb.current.position.y = baseY + Math.sin(t*1.2+idx*0.55)*0.22
     // Beam breathe
-    if(beam.current) beam.current.material.opacity = 0.30+Math.sin(t*1.6+idx)*0.12
-    // Dot float
-    if(dot.current) dot.current.position.y = (isHub?2.2:1.8)+Math.sin(t*1.3+idx*0.6)*0.18
+    if(beam.current) beam.current.material.opacity = (hov?0.55:0.30)+Math.sin(t*1.8+idx)*0.10
+    // Outer glow pulse
+    if(glow.current) glow.current.material.opacity = (hov?0.18:0.06)+Math.sin(t*1.0+idx*0.4)*0.04
+    // Equator ring spin
+    if(ring.current) ring.current.rotation.y += 0.012
   })
 
-  const beamH = isHub ? 4.6 : 4.0
-  const dotR  = isHub ? 0.30 : 0.22
-
   return (
-    <group position={portal.pos}
+    <group position={[portal.pos[0], 0, portal.pos[2]]}
       onPointerOver={()=>{setHov(true);document.body.style.cursor='pointer'}}
       onPointerOut={()=>{setHov(false);document.body.style.cursor=''}}
-      onClick={()=>onNav(portal.path)}>
+      onClick={()=>onNav(portal.path, portal.pos, portal.label)}>
 
-      {/* Ground base disc */}
-      <mesh rotation={[-Math.PI/2,0,0]} position={[0,-2.3,0]}>
-        <circleGeometry args={[isHub?0.5:0.38,48]}/>
-        <meshStandardMaterial color={portal.color} emissive={portal.glow} emissiveIntensity={1.8} transparent opacity={0.82}/>
-      </mesh>
-
-      {/* Ping ring 1 */}
-      <mesh ref={ping1} rotation={[-Math.PI/2,0,0]} position={[0,-2.27,0]}>
-        <ringGeometry args={[0.36,0.50,48]}/>
-        <meshBasicMaterial color={portal.glow} transparent opacity={0.5} depthWrite={false}/>
-      </mesh>
-
-      {/* Ping ring 2 */}
-      <mesh ref={ping2} rotation={[-Math.PI/2,0,0]} position={[0,-2.25,0]}>
-        <ringGeometry args={[0.36,0.46,48]}/>
-        <meshBasicMaterial color={portal.glow} transparent opacity={0.35} depthWrite={false}/>
-      </mesh>
-
-      {/* Light pillar */}
-      <mesh ref={beam} position={[0,0,0]}>
-        <cylinderGeometry args={[isHub?0.045:0.032, isHub?0.09:0.07, beamH, 6, 1, true]}/>
+      {/* Vertical light beam — goes high into sky */}
+      <mesh ref={beam} position={[0, 6, 0]}>
+        <cylinderGeometry args={[isHub?0.04:0.028, isHub?0.08:0.055, 20, 6, 1, true]}/>
         <meshBasicMaterial color={portal.glow} transparent opacity={0.32}
           depthWrite={false} side={THREE.DoubleSide} blending={THREE.AdditiveBlending}/>
       </mesh>
 
-      {/* Outer glow column */}
-      <mesh position={[0,0,0]}>
-        <cylinderGeometry args={[isHub?0.18:0.13, isHub?0.28:0.22, beamH, 6, 1, true]}/>
-        <meshBasicMaterial color={portal.glow} transparent opacity={hov?0.06:0.03}
-          depthWrite={false} side={THREE.DoubleSide} blending={THREE.AdditiveBlending}/>
-      </mesh>
-
-      {/* Floating beacon sphere */}
-      <group ref={dot} position={[0, isHub?2.2:1.8, 0]}>
-        {/* Outer glow */}
-        <mesh>
-          <sphereGeometry args={[dotR*1.9,16,16]}/>
-          <meshStandardMaterial color={portal.glow} emissive={portal.glow} emissiveIntensity={0.2}
-            transparent opacity={hov?0.18:0.08} depthWrite={false}/>
+      {/* Floating orb */}
+      <group ref={orb} position={[0, baseY, 0]}>
+        {/* Wide ambient glow */}
+        <mesh ref={glow}>
+          <sphereGeometry args={[orbR*2.8,16,16]}/>
+          <meshBasicMaterial color={portal.glow} transparent opacity={0.07} depthWrite={false} blending={THREE.AdditiveBlending}/>
         </mesh>
-        {/* Main sphere */}
+        {/* Core sphere */}
         <mesh>
-          <sphereGeometry args={[dotR,20,20]}/>
+          <sphereGeometry args={[orbR,24,24]}/>
           <meshStandardMaterial color={portal.color} emissive={portal.glow}
-            emissiveIntensity={hov?2.2:1.1} metalness={0.25} roughness={0.08}/>
+            emissiveIntensity={hov?2.8:1.4} metalness={0.35} roughness={0.06}
+            envMapIntensity={1.2}/>
         </mesh>
-        <pointLight color={portal.glow} intensity={hov?3.5:1.4} distance={5} decay={2}/>
+        {/* Single thin equator ring */}
+        <mesh ref={ring} rotation={[Math.PI*0.32, 0, 0]}>
+          <torusGeometry args={[orbR*1.6, 0.014, 6, 60]}/>
+          <meshBasicMaterial color={portal.glow} transparent opacity={hov?0.95:0.6} blending={THREE.AdditiveBlending}/>
+        </mesh>
+        <pointLight color={portal.glow} intensity={hov?5:2} distance={6} decay={2}/>
 
-        {/* Label */}
-        <Billboard position={[0, dotR+0.42, 0]}>
-          <Html center distanceFactor={12}>
-            <div onClick={()=>onNav(portal.path)} style={{
-              background:'rgba(4,12,28,0.86)',
-              border:`1px solid ${portal.glow}65`,
-              borderRadius:8, padding:'4px 11px',
-              color:'#f1f5f9', fontSize:11, fontWeight:800,
+        {/* Clean label */}
+        <Billboard position={[0, orbR+0.5, 0]}>
+          <Html center distanceFactor={11}>
+            <div onClick={()=>onNav(portal.path, portal.pos, portal.label)} style={{
+              background:'rgba(2,8,20,0.88)',
+              border:`1px solid ${portal.glow}70`,
+              borderRadius:6, padding:'4px 12px',
+              color:'#f0f6ff', fontSize:11, fontWeight:800,
               whiteSpace:'nowrap', textAlign:'center',
-              backdropFilter:'blur(8px)',
-              boxShadow:`0 0 14px ${portal.glow}55`,
-              cursor:'pointer', letterSpacing:'0.03em',
+              backdropFilter:'blur(10px)',
+              boxShadow:`0 0 18px ${portal.glow}60, 0 2px 8px rgba(0,0,0,0.5)`,
+              cursor:'pointer', letterSpacing:'0.04em',
+              transition:'all 0.15s',
+              textShadow:`0 0 8px ${portal.glow}`,
             }}>
               {portal.label}
-              <div style={{fontSize:9,color:portal.glow,fontWeight:600,marginTop:1,opacity:0.92}}>{portal.sub}</div>
+              <div style={{fontSize:9,color:portal.glow,fontWeight:600,marginTop:1}}>{portal.sub}</div>
             </div>
           </Html>
         </Billboard>
@@ -478,39 +461,35 @@ function Ship({ shipRef }) {
   )
 }
 
-/* ─── Cinematic camera ──────────────────────────────────────────── */
+/* ─── Cinematic GTA5-style camera ───────────────────────────────── */
 function CameraRig({ shipRef }) {
   const { camera } = useThree()
-  const smooth  = useRef(new THREE.Vector3(0,13,10))
-  const look    = useRef(new THREE.Vector3())
-  const orbitT  = useRef(0)
-  const lastSpd = useRef(0)
+  const smooth = useRef(new THREE.Vector3(0, 7, 16))
+  const look   = useRef(new THREE.Vector3(0, 1, 0))
+  const orbitT = useRef(0)
 
-  useFrame(({clock},dt)=>{
-    const t  = clock.getElapsedTime()
-    const s  = shipRef.current ?? { x:0, z:0, speed:0 }
+  useFrame(({clock}, dt) => {
+    const t   = clock.getElapsedTime()
+    const s   = shipRef.current ?? { x:0, z:0, speed:0 }
     const spd = Math.abs(s.speed ?? 0)
 
-    // Slow cinematic orbit when ship is idle
-    if(spd < 0.05) orbitT.current += dt * 0.12
-    else           orbitT.current *= 0.98
+    // Slow dramatic orbit when idle
+    if(spd < 0.05) orbitT.current += dt * 0.09
+    else           orbitT.current *= 0.97
 
-    const orbitR  = orbitT.current
-    const orbitX  = Math.sin(orbitR) * 4
-    const orbitZ  = Math.cos(orbitR) * 4
+    const ox = Math.sin(orbitT.current) * 5
+    const oz = Math.cos(orbitT.current) * 3
 
-    // Camera height breathe — feels like a drone
-    const breathe = Math.sin(t*0.4)*0.35 + Math.cos(t*0.27)*0.2
+    // Low cinematic height — see sky + horizon like GTA5
+    const breathe = Math.sin(t*0.35)*0.4 + Math.cos(t*0.22)*0.18
+    const camH = 6.5 + breathe
+    const camD = 15  // far enough back to see horizon
 
-    const targetX = s.x + orbitX
-    const targetZ = s.z + 10 + orbitZ
-    const targetY = 13 + breathe
-
-    smooth.current.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.028)
-    look.current.lerp(new THREE.Vector3(s.x, 0.5, s.z), 0.05)
+    smooth.current.lerp(new THREE.Vector3(s.x+ox, camH, s.z+camD+oz), 0.030)
+    // Look slightly above horizon — gives wide dramatic view
+    look.current.lerp(new THREE.Vector3(s.x, 1.8, s.z-6), 0.055)
     camera.position.copy(smooth.current)
     camera.lookAt(look.current)
-    lastSpd.current = spd
   })
   return null
 }
@@ -540,20 +519,25 @@ function ConnectionLines() {
 function Scene({ shipRef, navigate }) {
   return (
     <>
-      {/* Golden-hour sky */}
-      <Sky sunPosition={SUN_POS} turbidity={8} rayleigh={2.2} mieCoefficient={0.008} mieDirectionalG={0.88}/>
+      {/* Dramatic cinematic sky — deep golden sunset */}
+      <Sky sunPosition={SUN_POS} turbidity={10} rayleigh={3.0}
+           mieCoefficient={0.012} mieDirectionalG={0.92}
+           inclination={0.49} azimuth={0.22}/>
 
-      {/* Warm dramatic sun */}
-      <directionalLight position={SUN_POS} intensity={4.2} color="#ffd070" castShadow
+      {/* PBR environment reflections */}
+      <Environment preset="sunset" background={false}/>
+
+      {/* Sun */}
+      <directionalLight position={SUN_POS} intensity={5.0} color="#ffb840" castShadow
         shadow-mapSize={[2048,2048]} shadow-camera-far={80}
         shadow-camera-left={-30} shadow-camera-right={30}
         shadow-camera-top={30} shadow-camera-bottom={-30}/>
-      <ambientLight intensity={0.38} color="#ffe0a0"/>
-      <hemisphereLight skyColor="#f0a050" groundColor="#2a4a10" intensity={0.55}/>
+      <ambientLight intensity={0.30} color="#ffc870"/>
+      <hemisphereLight skyColor="#ff8c30" groundColor="#1a3a08" intensity={0.65}/>
       <LensFlare/>
 
-      {/* Atmospheric fog */}
-      <fog attach="fog" args={['#aecde0',44,92]}/>
+      {/* Warm cinematic haze */}
+      <fog attach="fog" args={['#e8a050',55,130]}/>
 
       <Terrain/>
       <Ocean/>
@@ -585,13 +569,29 @@ function Scene({ shipRef, navigate }) {
 
 /* ─── Ship controls ─────────────────────────────────────────────── */
 function useShipControls() {
-  const shipRef  = useRef({ x:0.4, z:-1.2, angle:-20, speed:0 })
-  const keys     = useRef({})
-  const stateRef = useRef({ x:0.4, z:-1.2, angle:-20, speed:0 })
-  const [render, setRender] = useState({ x:0.4, z:-1.2, angle:-20, speed:0 })
+  const shipRef       = useRef({ x:0.4, z:-1.2, angle:-20, speed:0 })
+  const keys          = useRef({})
+  const stateRef      = useRef({ x:0.4, z:-1.2, angle:-20, speed:0 })
+  const autoTargetRef = useRef(null)
+  const [render, setRender]       = useState({ x:0.4, z:-1.2, angle:-20, speed:0 })
+  const [sailTarget, setSailTarget] = useState(null) // { label } for HUD
+
+  const setAutoTarget = useCallback((target) => {
+    autoTargetRef.current = target
+    setSailTarget(target ? { label: target.label } : null)
+  }, [])
 
   useEffect(()=>{
-    const dn=e=>{ keys.current[e.key]=true; if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault() }
+    const CANCEL_KEYS = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','W','a','A','s','S','d','D']
+    const dn=e=>{
+      keys.current[e.key]=true
+      if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault()
+      // Manual key press cancels auto-sail
+      if(CANCEL_KEYS.includes(e.key) && autoTargetRef.current) {
+        autoTargetRef.current = null
+        setSailTarget(null)
+      }
+    }
     const up=e=>{ keys.current[e.key]=false }
     window.addEventListener('keydown',dn); window.addEventListener('keyup',up)
     return()=>{ window.removeEventListener('keydown',dn); window.removeEventListener('keyup',up) }
@@ -601,13 +601,39 @@ function useShipControls() {
     let raf
     const loop=()=>{
       const k=keys.current, s=stateRef.current
-      if(k['ArrowLeft']||k['a']||k['A'])  s.angle-=2.8
-      if(k['ArrowRight']||k['d']||k['D']) s.angle+=2.8
-      const fwd=k['ArrowUp']||k['w']||k['W']
-      const rev=k['ArrowDown']||k['s']||k['S']
-      if(fwd)       s.speed=Math.min(s.speed+0.025,0.55)
-      else if(rev)  s.speed=Math.max(s.speed-0.02,-0.2)
-      else          s.speed*=0.94
+      const auto = autoTargetRef.current
+
+      if (auto) {
+        // ── Auto-sail toward beacon ──────────────────────────────
+        const dx = auto.x - s.x
+        const dz = auto.z - s.z
+        const dist = Math.sqrt(dx*dx + dz*dz)
+        if (dist < 1.8) {
+          // Arrived — trigger navigation
+          autoTargetRef.current = null
+          setSailTarget(null)
+          auto.onArrive()
+        } else {
+          // Target heading: angle convention = atan2(dz,dx)*180/PI + 90
+          const targetAngleDeg = Math.atan2(dz, dx) * 180 / Math.PI + 90
+          // Shortest angular difference
+          let diff = ((targetAngleDeg - s.angle) % 360 + 540) % 360 - 180
+          // Steer toward target (max 4° per frame)
+          s.angle += Math.sign(diff) * Math.min(Math.abs(diff), 4.0)
+          // Accelerate to full speed
+          s.speed = Math.min(s.speed + 0.022, 0.50)
+        }
+      } else {
+        // ── Manual controls ──────────────────────────────────────
+        if(k['ArrowLeft']||k['a']||k['A'])  s.angle-=2.8
+        if(k['ArrowRight']||k['d']||k['D']) s.angle+=2.8
+        const fwd=k['ArrowUp']||k['w']||k['W']
+        const rev=k['ArrowDown']||k['s']||k['S']
+        if(fwd)       s.speed=Math.min(s.speed+0.025,0.55)
+        else if(rev)  s.speed=Math.max(s.speed-0.02,-0.2)
+        else          s.speed*=0.94
+      }
+
       const rad=(s.angle-90)*Math.PI/180
       s.x=Math.max(-18,Math.min(18,s.x+Math.cos(rad)*s.speed))
       s.z=Math.max(-18,Math.min(18,s.z+Math.sin(rad)*s.speed))
@@ -618,25 +644,55 @@ function useShipControls() {
     return()=>cancelAnimationFrame(raf)
   },[])
 
-  return { shipRef, shipRender:render }
+  return { shipRef, shipRender:render, setAutoTarget, sailTarget }
 }
 
 /* ─── Page ──────────────────────────────────────────────────────── */
 export default function QuickActions() {
   const navigate = useNavigate()
-  const { shipRef, shipRender } = useShipControls()
+  const { shipRef, shipRender, setAutoTarget, sailTarget } = useShipControls()
   const speed   = Math.abs(shipRender.speed)
   const heading = ((shipRender.angle%360)+360)%360
+  const [flash, setFlash] = useState(0)
+  const flashRef = useRef(null)
+
+  const doFlashNav = useCallback((path) => {
+    setFlash(1)
+    if(flashRef.current) clearInterval(flashRef.current)
+    flashRef.current = setInterval(() => {
+      setFlash(f => {
+        if(f <= 0.02){ clearInterval(flashRef.current); return 0 }
+        return f - 0.05
+      })
+    }, 16)
+    setTimeout(() => navigate(path), 650)
+  }, [navigate])
+
+  // Click a beacon → ship auto-sails there, then page opens
+  const handleNav = useCallback((path, beaconPos, label) => {
+    setAutoTarget({
+      x: beaconPos[0],
+      z: beaconPos[2],
+      label,
+      onArrive: () => doFlashNav(path),
+    })
+  }, [setAutoTarget, doFlashNav])
 
   return (
-    <div style={{ position:'relative', width:'100%', height:'calc(100vh - 88px)', overflow:'hidden', borderRadius:16, background:'#7ecbe8' }}>
+    <div style={{ position:'relative', width:'100%', height:'calc(100vh - 88px)', overflow:'hidden', borderRadius:16, background:'#c87020' }}>
+
+      {/* Cinematic click flash */}
+      {flash > 0 && (
+        <div style={{ position:'absolute', inset:0, zIndex:50, pointerEvents:'none',
+          background:`rgba(255,240,180,${flash})`, borderRadius:16 }}/>
+      )}
 
       <Canvas dpr={[1,1.8]}
-        camera={{ position:[0,13,10], fov:52, near:0.1, far:200 }}
-        gl={{ antialias:true, alpha:false, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:1.15 }}
+        camera={{ position:[0,4,18], fov:68, near:0.1, far:300 }}
+        gl={{ antialias:true, alpha:false, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:1.4 }}
         shadows style={{ position:'absolute', inset:0 }}>
         <Suspense fallback={null}>
-          <Scene shipRef={shipRef} navigate={navigate}/>
+          <Scene shipRef={shipRef} navigate={handleNav}/>
         </Suspense>
       </Canvas>
 
@@ -648,14 +704,25 @@ export default function QuickActions() {
         <div style={{ fontSize:18, fontWeight:900, color:'#fff', fontFamily:'system-ui', letterSpacing:'0.08em', textShadow:'0 2px 20px rgba(0,80,160,0.55), 0 0 6px rgba(255,255,255,0.35)', textTransform:'uppercase' }}>
           The Great Lakes Water Network
         </div>
-        <div style={{ fontSize:10, color:'rgba(255,255,255,0.65)', marginTop:3, fontFamily:'system-ui', letterSpacing:'0.2em', textShadow:'0 1px 4px rgba(0,0,0,0.4)' }}>
-          CLICK A BEACON TO NAVIGATE
+        <div style={{ fontSize:10, color: sailTarget ? '#fcd34d' : 'rgba(255,255,255,0.65)', marginTop:3, fontFamily:'system-ui', letterSpacing:'0.2em', textShadow:'0 1px 4px rgba(0,0,0,0.4)', transition:'color 0.3s' }}>
+          {sailTarget ? `⚓ SAILING TO ${sailTarget.label.toUpperCase()}...` : 'CLICK A BEACON TO NAVIGATE'}
         </div>
       </div>
 
       {/* HUD */}
       <div style={{ position:'absolute', bottom:16, left:16, zIndex:10, background:'rgba(4,14,32,0.82)', border:'1px solid rgba(60,130,200,0.35)', borderRadius:12, padding:'12px 16px', backdropFilter:'blur(12px)', boxShadow:'0 4px 24px rgba(0,0,0,0.35)', fontFamily:'system-ui' }}>
-        <div style={{ fontSize:9, fontWeight:800, color:'#60d4f0', letterSpacing:'0.15em', marginBottom:8 }}>HELM CONTROL</div>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+          <div style={{ fontSize:9, fontWeight:800, color:'#60d4f0', letterSpacing:'0.15em' }}>
+            {sailTarget ? '⚓ AUTO-SAIL' : 'HELM CONTROL'}
+          </div>
+          {sailTarget && (
+            <div onClick={()=>setAutoTarget(null)} style={{
+              fontSize:9, fontWeight:800, color:'#f87171', cursor:'pointer',
+              background:'rgba(239,68,68,0.15)', border:'1px solid rgba(239,68,68,0.4)',
+              borderRadius:4, padding:'1px 6px', letterSpacing:'0.1em',
+            }}>✕ CANCEL</div>
+          )}
+        </div>
         {[['W / ↑','Forward'],['S / ↓','Reverse'],['A / ←','Port'],['D / →','Starboard']].map(([k,v])=>(
           <div key={k} style={{ display:'flex', justifyContent:'space-between', gap:20, marginBottom:4 }}>
             <span style={{ fontSize:10, fontWeight:800, color:'#90e0f8', background:'rgba(30,100,180,0.2)', padding:'1px 6px', borderRadius:4, border:'1px solid rgba(60,130,200,0.3)' }}>{k}</span>
