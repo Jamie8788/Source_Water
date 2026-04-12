@@ -15,7 +15,7 @@ const requireAuth = async (req, res, next) => {
     try {
       const { data: { user }, error } = await supabase.auth.getUser(token)
       if (user && !error) {
-        let localUser = await db.get('SELECT * FROM users WHERE email = ? AND is_active = 1', [user.email])
+        let localUser = await db.get('SELECT * FROM users WHERE email = ?', [user.email])
         if (!localUser) {
           // Use the real username from Supabase metadata if available (set during signUp)
           const metaUsername = user.user_metadata?.username
@@ -27,7 +27,7 @@ const requireAuth = async (req, res, next) => {
             `INSERT INTO users (username, email, password_hash, display_name, role, avatar_emoji, avatar_bg_color) VALUES (?, ?, 'supabase_auth', ?, 'Community member', '💧', '#3B82F6') ON CONFLICT DO NOTHING`,
             [username, user.email, displayName]
           )
-          localUser = await db.get('SELECT * FROM users WHERE email = ? AND is_active = 1', [user.email])
+          localUser = await db.get('SELECT * FROM users WHERE email = ?', [user.email])
         }
         if (localUser) {
           req.user = localUser
@@ -41,7 +41,7 @@ const requireAuth = async (req, res, next) => {
   // Fallback: legacy JWT
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
-    const user = await db.get('SELECT * FROM users WHERE id = ? AND is_active = 1', [decoded.id])
+    const user = await db.get('SELECT * FROM users WHERE id = ?', [decoded.id])
     if (!user) return res.status(401).json({ error: 'User not found' })
     req.user = user
     next()

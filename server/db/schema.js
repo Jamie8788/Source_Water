@@ -366,9 +366,9 @@ async function initSchema() {
       `DELETE FROM users WHERE email IS NULL AND password_hash = 'supabase_auth'`
     ).catch(() => {})
 
-    // Ensure admin@sourcewater.app always has admin privileges
+    // Ensure admin@sourcewater.app always has admin privileges and is active
     await db.pool.query(
-      `UPDATE users SET is_admin=1 WHERE email='admin@sourcewater.app' AND is_admin=0`
+      `UPDATE users SET is_admin=1, is_active=1 WHERE email='admin@sourcewater.app'`
     )
 
     console.log('[schema] PostgreSQL schema ready')
