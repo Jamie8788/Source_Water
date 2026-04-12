@@ -12,8 +12,8 @@ import {
 
 extend({ UnrealBloomPass })
 
-const SUN_POS  = [8, 5, -60]
-const SUN_DIR  = new THREE.Vector3(8, 5, -60).normalize()
+const SUN_POS  = [-45, 12, -55]
+const SUN_DIR  = new THREE.Vector3(-45, 12, -55).normalize()
 const SUN_COL  = new THREE.Color('#ff9a30')
 
 /* ─── Portals ───────────────────────────────────────────────────── */
@@ -165,11 +165,11 @@ function SunShafts() {
     g.current.children.forEach((m,i)=>{ if(m.material) m.material.opacity=0.055+Math.sin(t*0.35+i*1.2)*0.022 })
   })
   return (
-    <group ref={g} position={[4,18,-55]} rotation={[0.18,0.12,-0.04]}>
+    <group ref={g} position={[-40,18,-48]} rotation={[0.18,-0.55,-0.04]}>
       {[0,1,2,3,4,5,6].map(i=>(
         <mesh key={i} rotation={[0,(i/7)*Math.PI*0.45,0]}>
           <coneGeometry args={[9+i*3.5,65,5,1,true]}/>
-          <meshBasicMaterial color="#ff7020" transparent opacity={0.038} depthWrite={false} side={THREE.BackSide} blending={THREE.AdditiveBlending}/>
+          <meshBasicMaterial color="#ff7020" transparent opacity={0.028} depthWrite={false} side={THREE.BackSide} blending={THREE.AdditiveBlending}/>
         </mesh>
       ))}
     </group>
@@ -183,10 +183,10 @@ function LensFlare() {
     if(ref.current) ref.current.material.opacity = 0.55+Math.sin(clock.getElapsedTime()*0.7)*0.15
   })
   return (
-    <Billboard position={[6,8,-52]}>
+    <Billboard position={[-38,10,-48]}>
       <mesh ref={ref}>
-        <planeGeometry args={[8,8]}/>
-        <meshBasicMaterial color="#ff8030" transparent opacity={0.35} depthWrite={false} blending={THREE.AdditiveBlending}/>
+        <planeGeometry args={[4,4]}/>
+        <meshBasicMaterial color="#ff8030" transparent opacity={0.22} depthWrite={false} blending={THREE.AdditiveBlending}/>
       </mesh>
     </Billboard>
   )
@@ -434,7 +434,7 @@ function Ship({ shipRef }) {
   useFrame(() => {
     if (!gRef.current || !shipRef.current) return
     const s = shipRef.current
-    gRef.current.position.set(s.x, 0, s.z)
+    gRef.current.position.set(s.x, 0.35, s.z)
     gRef.current.rotation.y = -(s.angle - 90) * Math.PI / 180
   })
 
@@ -444,7 +444,7 @@ function Ship({ shipRef }) {
         <object3D ref={trailTarget} />
       </Trail>
       {/* Scale up — GLB is in meters, scene units are small */}
-      <primitive object={model} scale={[0.012, 0.012, 0.012]} rotation={[0, Math.PI, 0]}/>
+      <primitive object={model} scale={[0.022, 0.022, 0.022]} rotation={[0, Math.PI, 0]}/>
       {/* Bow lantern glow */}
       <pointLight color="#ffcc66" intensity={2.5} distance={5} position={[0.6, 0.5, 0]}/>
       <mesh position={[0.6, 0.5, 0]}>
@@ -515,27 +515,25 @@ function ConnectionLines() {
 function Scene({ shipRef, navigate }) {
   return (
     <>
-      {/* Deep dramatic dusk sky — low sun, dark horizon */}
-      <Sky sunPosition={[8, 1.2, -80]} turbidity={14} rayleigh={1.0}
-           mieCoefficient={0.006} mieDirectionalG={0.96}
-           inclination={0.51} azimuth={0.25}/>
+      {/* Dramatic dusk sky — sun off to the left, not in camera path */}
+      <Sky sunPosition={[-45, 12, -55]} turbidity={12} rayleigh={1.4}
+           mieCoefficient={0.008} mieDirectionalG={0.94}
+           inclination={0.50} azimuth={0.12}/>
 
-      {/* PBR — night environment, no background override */}
       <Environment preset="night" background={false}/>
 
-      {/* Low sun — warm but not blinding */}
-      <directionalLight position={[8, 5, -60]} intensity={1.8} color="#ff9a30" castShadow
+      {/* Sun off left-side, not blasting into camera */}
+      <directionalLight position={[-45, 12, -55]} intensity={2.2} color="#ff9a30" castShadow
         shadow-mapSize={[2048,2048]} shadow-camera-far={80}
         shadow-camera-left={-30} shadow-camera-right={30}
         shadow-camera-top={30} shadow-camera-bottom={-30}/>
-      {/* Moonlight fill — cold blue from opposite side */}
-      <directionalLight position={[-20, 18, 30]} intensity={0.9} color="#4a80cc"/>
-      <ambientLight intensity={0.12} color="#1a3060"/>
-      <hemisphereLight skyColor="#0a1a40" groundColor="#0a0e06" intensity={0.55}/>
+      {/* Moonlight fill */}
+      <directionalLight position={[30, 20, 30]} intensity={1.1} color="#6090dd"/>
+      <ambientLight intensity={0.18} color="#1a3060"/>
+      <hemisphereLight skyColor="#0a1a40" groundColor="#0a0e06" intensity={0.50}/>
       <LensFlare/>
 
-      {/* Deep ocean haze — dark blue-black */}
-      <fog attach="fog" args={['#050d1e',45,110]}/>
+      <fog attach="fog" args={['#060e20',50,120]}/>
 
       <Terrain/>
       <Ocean/>
@@ -559,7 +557,7 @@ function Scene({ shipRef, navigate }) {
       <CameraRig shipRef={shipRef}/>
 
       <Effects disableGamma>
-        <unrealBloomPass threshold={0.18} strength={1.1} radius={0.85}/>
+        <unrealBloomPass threshold={0.32} strength={0.45} radius={0.65}/>
       </Effects>
     </>
   )
