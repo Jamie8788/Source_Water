@@ -2,44 +2,27 @@ const db = require('./db')
 
 async function initSchema() {
   if (db.USE_PG) {
-    // Drop and recreate any pre-existing Supabase tables that have UUID columns
-    // (old app used Supabase Auth UUIDs; our app uses INTEGER ids).
-    // Only drops if the column is actually UUID type — safe to run repeatedly.
-    await db.exec(`
-      DO $$
-      DECLARE col text;
-      BEGIN
-        -- notifications.user_id
-        SELECT data_type INTO col FROM information_schema.columns
-          WHERE table_schema='public' AND table_name='notifications' AND column_name='user_id';
-        IF col = 'uuid' THEN DROP TABLE IF EXISTS notifications CASCADE; END IF;
-
-        -- posts.user_id
-        SELECT data_type INTO col FROM information_schema.columns
-          WHERE table_schema='public' AND table_name='posts' AND column_name='user_id';
-        IF col = 'uuid' THEN DROP TABLE IF EXISTS posts CASCADE; END IF;
-
-        -- comments.user_id
-        SELECT data_type INTO col FROM information_schema.columns
-          WHERE table_schema='public' AND table_name='comments' AND column_name='user_id';
-        IF col = 'uuid' THEN DROP TABLE IF EXISTS comments CASCADE; END IF;
-
-        -- post_reactions.user_id
-        SELECT data_type INTO col FROM information_schema.columns
-          WHERE table_schema='public' AND table_name='post_reactions' AND column_name='user_id';
-        IF col = 'uuid' THEN DROP TABLE IF EXISTS post_reactions CASCADE; END IF;
-
-        -- direct_messages.sender_id
-        SELECT data_type INTO col FROM information_schema.columns
-          WHERE table_schema='public' AND table_name='direct_messages' AND column_name='sender_id';
-        IF col = 'uuid' THEN DROP TABLE IF EXISTS direct_messages CASCADE; END IF;
-
-        -- leaderboard_points.user_id
-        SELECT data_type INTO col FROM information_schema.columns
-          WHERE table_schema='public' AND table_name='leaderboard_points' AND column_name='user_id';
-        IF col = 'uuid' THEN DROP TABLE IF EXISTS leaderboard_points CASCADE; END IF;
-      END $$
-    `)
+    // Drop any pre-existing Supabase tables that have UUID user columns.
+    // (old app used Supabase Auth UUIDs; our app uses INTEGER ids.)
+    // Uses JS-level checks to avoid PL/pgSQL dollar-quoting issues with exec().
+    const uuidChecks = [
+      { table: 'notifications',    column: 'user_id' },
+      { table: 'posts',            column: 'user_id' },
+      { table: 'comments',         column: 'user_id' },
+      { table: 'post_reactions',   column: 'user_id' },
+      { table: 'direct_messages',  column: 'sender_id' },
+      { table: 'leaderboard_points', column: 'user_id' },
+    ]
+    for (const { table, column } of uuidChecks) {
+      const row = await db.get(
+        `SELECT data_type FROM information_schema.columns WHERE table_schema='public' AND table_name=? AND column_name=?`,
+        [table, column]
+      )
+      if (row?.data_type === 'uuid') {
+        await db.pool.query(`DROP TABLE IF EXISTS ${table} CASCADE`)
+        console.log(`[schema] dropped ${table} (had UUID columns, will recreate with INTEGER)`)
+      }
+    }
 
     // PostgreSQL schema — runs on every startup, safe due to IF NOT EXISTS
     await db.exec(`
