@@ -160,7 +160,7 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
     shuffle_questions: !!initQuiz?.shuffle_questions,
     shuffle_answers:   !!initQuiz?.shuffle_answers,
     show_answers_after:initQuiz?.show_answers_after !== 0,
-    status:            initQuiz?.status || 'draft',
+    status:            initQuiz?.status || 'published',
   })
   const [questions, setQs]      = useState([])
   const [editQ, setEditQ]       = useState(null)   // null | 'new' | {question}
@@ -767,7 +767,7 @@ function QuestionEditor({ qForm, setQF, imgPreview, setImgPrev, imgRef, isNew, o
           className="px-4 py-2 rounded-xl text-sm" style={{background:'var(--border)',color:'var(--text-muted)',border:'none'}}>
           Cancel
         </button>
-        <button onClick={onSave} disabled={savingQ||!qForm.question_text?.trim()}
+        <button onClick={onSave} disabled={saving||!qForm.question_text?.trim()}
           className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold disabled:opacity-40"
           style={{background:'rgba(99,102,241,0.15)',color:'#818cf8',border:'none'}}>
           <Save className="w-3 h-3"/>{saving?'Saving…':isNew?'Add Question':'Save Changes'}

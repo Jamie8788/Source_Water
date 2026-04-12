@@ -1,18 +1,50 @@
 /**
- * QuizMe — Brightspace/Canvas-level quiz platform
- * Browse → Confirm (study mode toggle) → Full-screen Play → Results
+ * QuizMe — powered by @brightspace-ui/core web components
+ * Real D2L list, buttons, status-indicators, loading-spinner
  */
+
+// ── D2L web-component registrations ──────────────────────────────────────────
+import '@brightspace-ui/core/components/list/list.js'
+import '@brightspace-ui/core/components/list/list-item.js'
+import '@brightspace-ui/core/components/list/list-item-content.js'
+import '@brightspace-ui/core/components/button/button.js'
+import '@brightspace-ui/core/components/button/button-subtle.js'
+import '@brightspace-ui/core/components/button/button-icon.js'
+import '@brightspace-ui/core/components/status-indicator/status-indicator.js'
+import '@brightspace-ui/core/components/loading-spinner/loading-spinner.js'
+import '@brightspace-ui/core/components/inputs/input-search.js'
+import '@brightspace-ui/core/components/tabs/tabs.js'
+import '@brightspace-ui/core/components/tabs/tab-panel.js'
+import '@brightspace-ui/core/components/card/card.js'
+import '@brightspace-ui/core/components/expand-collapse/expand-collapse-content.js'
+import '@brightspace-ui/core/components/alert/alert.js'
+
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useSound } from '../context/SoundContext'
 import api from '../utils/api'
 import {
-  Clock, Trophy, Star, CheckCircle, XCircle, RotateCcw, Zap, BookOpen,
-  Search, Flag, ChevronDown, ChevronUp, AlertCircle, Play, X, Target,
-  Award, GraduationCap, ChevronLeft, ChevronRight, Settings2, Eye,
-  BookMarked, BarChart2, Edit3, PlusCircle
+  Clock, Trophy, CheckCircle, XCircle, RotateCcw,
+  Flag, ChevronDown, ChevronUp, AlertCircle, Play,
+  ChevronLeft, ChevronRight, BookMarked, X
 } from 'lucide-react'
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const normDiff = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : 'Beginner'
+const fmtTime  = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`
+const CREATOR_ROLES = ['Teacher','Professor','Researcher','SOURCE Water team member']
+
+const DIFF_STYLE = {
+  Beginner:     { bg:'#edfcf1', color:'#1a7a3c', label:'Beginner' },
+  Intermediate: { bg:'#fef9e7', color:'#976500', label:'Intermediate' },
+  Advanced:     { bg:'#fef0f0', color:'#cc3333', label:'Advanced' },
+}
+const CAT_COLORS = {
+  'Water Quality':'#006fbf','Field Work':'#067d62','Data Literacy':'#7b4fc4',
+  'Ecology':'#0a7c5b','Regional':'#c45f00','Safety':'#c00','Sampling':'#006fbf','General':'#494c4e',
+}
+const catColor = cat => CAT_COLORS[cat] || CAT_COLORS[Object.keys(CAT_COLORS).find(k => k.toLowerCase()===(cat||'').toLowerCase())] || '#494c4e'
 
 // ── Confetti ──────────────────────────────────────────────────────────────────
 function Confetti() {
@@ -24,7 +56,7 @@ function Confetti() {
     const P = Array.from({ length: 160 }, (_, i) => ({
       x: Math.random() * c.width, y: -20 - Math.random() * 300,
       r: Math.random() * 8 + 3,
-      col: ['#6366f1','#14b8a6','#f59e0b','#ec4899','#10b981','#0ea5e9','#f97316'][i % 7],
+      col: ['#006fbf','#14b8a6','#f59e0b','#ec4899','#10b981','#0ea5e9','#f97316'][i % 7],
       vx: (Math.random() - .5) * 6, vy: Math.random() * 4 + 2,
       rot: Math.random() * 360, vr: (Math.random() - .5) * 8,
     }))
@@ -46,26 +78,15 @@ function Confetti() {
   return <canvas ref={ref} style={{ position:'fixed', inset:0, pointerEvents:'none', zIndex:9999 }}/>
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-const DIFF = {
-  Beginner:     { color:'#10b981', bg:'#f0fdf4', border:'#bbf7d0', icon:'🌱' },
-  Intermediate: { color:'#f59e0b', bg:'#fffbeb', border:'#fde68a', icon:'🔬' },
-  Advanced:     { color:'#ef4444', bg:'#fef2f2', border:'#fecaca', icon:'🏆' },
+// ── D2L Badge chip ─────────────────────────────────────────────────────────────
+function Chip({ label, bg='#e3e9f1', color='#494c4e' }) {
+  return (
+    <span style={{
+      display:'inline-block', padding:'2px 8px', borderRadius:99,
+      fontSize:11, fontWeight:600, background:bg, color,
+    }}>{label}</span>
+  )
 }
-const CAT_GRAD = {
-  'Water Quality':  'linear-gradient(135deg,#0ea5e9,#6366f1)',
-  'Field Work':     'linear-gradient(135deg,#10b981,#0ea5e9)',
-  'Data Literacy':  'linear-gradient(135deg,#8b5cf6,#ec4899)',
-  'Ecology':        'linear-gradient(135deg,#14b8a6,#10b981)',
-  'Regional':       'linear-gradient(135deg,#f59e0b,#ef4444)',
-  'Safety':         'linear-gradient(135deg,#ef4444,#f97316)',
-  'Sampling':       'linear-gradient(135deg,#0ea5e9,#14b8a6)',
-  'General':        'linear-gradient(135deg,#6366f1,#8b5cf6)',
-}
-const catGrad = (cat) => CAT_GRAD[cat] || CAT_GRAD[Object.keys(CAT_GRAD).find(k => k.toLowerCase() === (cat||'').toLowerCase())] || 'linear-gradient(135deg,#6366f1,#8b5cf6)'
-const normDiff = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : 'Beginner'
-const fmtTime = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`
-const CREATOR_ROLES = ['Teacher', 'Professor', 'Researcher', 'SOURCE Water team member']
 
 // ── Quiz Browser ──────────────────────────────────────────────────────────────
 function QuizBrowser({ onSelect }) {
@@ -75,9 +96,10 @@ function QuizBrowser({ onSelect }) {
   const [progress, setProgress] = useState([])
   const [loading, setLoading]   = useState(true)
   const [search, setSearch]     = useState('')
-  const [diffFilter, setDiff]   = useState('All')
   const [catFilter, setCat]     = useState('All')
-  const [showHistory, setShow]  = useState(false)
+  const [diffFilter, setDiff]   = useState('All')
+  const [showStats, setShowStats] = useState(false)
+  const searchRef = useRef(null)
   const isCreator = user?.is_admin || CREATOR_ROLES.includes(user?.role)
 
   useEffect(() => {
@@ -90,6 +112,19 @@ function QuizBrowser({ onSelect }) {
     }).finally(() => setLoading(false))
   }, [])
 
+  // Wire D2L search custom event
+  useEffect(() => {
+    const el = searchRef.current; if (!el) return
+    const onSearch = e => setSearch(e.detail?.value ?? '')
+    const onClear  = ()  => setSearch('')
+    el.addEventListener('d2l-input-search-searched', onSearch)
+    el.addEventListener('d2l-input-search-cleared',  onClear)
+    return () => {
+      el.removeEventListener('d2l-input-search-searched', onSearch)
+      el.removeEventListener('d2l-input-search-cleared',  onClear)
+    }
+  }, [loading])
+
   const myStats = {}
   progress.forEach(a => {
     if (!myStats[a.quiz_id]) myStats[a.quiz_id] = { attempts:0, best:0, passed:0 }
@@ -99,7 +134,6 @@ function QuizBrowser({ onSelect }) {
   })
 
   const cats    = ['All', ...new Set(quizzes.map(q => q.category).filter(Boolean).map(c => c.replace(/_/g,' ')))]
-  const diffs   = ['All', 'Beginner', 'Intermediate', 'Advanced']
   const visible = quizzes.filter(q => {
     const cat = (q.category||'').replace(/_/g,' ')
     if (catFilter !== 'All' && cat.toLowerCase() !== catFilter.toLowerCase()) return false
@@ -109,171 +143,183 @@ function QuizBrowser({ onSelect }) {
   })
   const totalAttempts = progress.length
   const avgScore      = totalAttempts ? Math.round(progress.reduce((s,a) => s+(a.score||0),0)/totalAttempts) : 0
-  const totalPassed   = progress.filter(a => a.passed).length
+  const passed        = progress.filter(a => a.passed).length
 
   if (loading) return (
-    <div className="space-y-4">
-      {[1,2,3].map(i => <div key={i} className="card p-5 h-40" style={{background:'var(--card-bg)',animation:'pulse 1.5s infinite'}}/>)}
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',padding:'80px 0',flexDirection:'column',gap:16}}>
+      <d2l-loading-spinner size={80}/>
+      <p style={{color:'var(--text-muted)',fontSize:14}}>Loading quizzes...</p>
     </div>
   )
 
   return (
-    <div className="space-y-5 pb-8">
-      {/* Hero */}
-      <div className="rounded-2xl p-7 text-white relative overflow-hidden"
-        style={{background:'linear-gradient(135deg,#4f46e5,#7c3aed,#ec4899)'}}>
-        <div className="absolute -right-12 -top-12 w-52 h-52 rounded-full bg-white/5"/>
-        <div className="absolute right-24 -bottom-6 w-36 h-36 rounded-full bg-white/5"/>
-        <div className="relative">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Zap className="w-4 h-4 text-yellow-300"/>
-                <span className="text-yellow-300 font-bold text-xs tracking-widest">WATER KNOWLEDGE CHALLENGE</span>
-              </div>
-              <h1 className="text-3xl font-black mb-1">Quiz & Learn 🧠</h1>
-              <p className="text-white/70 text-sm">Master water science. Earn XP. Climb the leaderboard.</p>
-            </div>
-            {isCreator && (
-              <button onClick={() => navigate('/quiz-admin')}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all hover:scale-105"
-                style={{background:'rgba(255,255,255,0.15)',border:'1.5px solid rgba(255,255,255,0.3)',backdropFilter:'blur(4px)'}}>
-                <Edit3 className="w-4 h-4"/>
-                Manage Quizzes
-              </button>
-            )}
-          </div>
-          <div className="flex gap-6 flex-wrap mt-5">
-            {[{l:'Available',v:quizzes.length},{l:'My Attempts',v:totalAttempts},{l:'Avg Score',v:totalAttempts?`${avgScore}%`:'—'},{l:'Passed',v:totalPassed}].map(s => (
-              <div key={s.l} className="text-center">
-                <div className="text-2xl font-black">{s.v}</div>
-                <div className="text-xs text-white/60">{s.l}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+    <div style={{maxWidth:960, margin:'0 auto', paddingBottom:40}}>
 
-      {/* History */}
-      {progress.length > 0 && (
-        <div className="card overflow-hidden">
-          <button className="w-full flex items-center justify-between px-5 py-4" onClick={() => setShow(v => !v)}>
-            <div className="flex items-center gap-3">
-              <Trophy className="w-5 h-5 text-amber-500"/>
-              <span className="font-bold" style={{color:'var(--text)'}}>My History</span>
-              <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{background:'rgba(99,102,241,0.1)',color:'#6366f1'}}>{totalAttempts}</span>
-            </div>
-            {showHistory ? <ChevronUp className="w-4 h-4" style={{color:'var(--text-muted)'}}/> : <ChevronDown className="w-4 h-4" style={{color:'var(--text-muted)'}}/>}
-          </button>
-          {showHistory && (
-            <div className="px-5 pb-4 border-t" style={{borderColor:'var(--border)'}}>
-              <div className="grid grid-cols-3 gap-3 my-3">
-                {[{l:'Attempts',v:totalAttempts,c:'#6366f1'},{l:'Avg Score',v:`${avgScore}%`,c:avgScore>=70?'#10b981':'#f59e0b'},{l:'Passed',v:totalPassed,c:'#10b981'}].map(s => (
-                  <div key={s.l} className="rounded-xl p-3 text-center" style={{background:'var(--page-bg)',border:'1px solid var(--border)'}}>
-                    <div className="text-xl font-black" style={{color:s.c}}>{s.v}</div>
-                    <div className="text-xs mt-0.5" style={{color:'var(--text-muted)'}}>{s.l}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="space-y-1.5 max-h-52 overflow-y-auto">
-                {progress.slice(0,12).map((a,i) => (
-                  <div key={i} className="flex items-center justify-between px-3 py-2 rounded-xl text-sm" style={{background:'var(--page-bg)'}}>
-                    <span className="font-medium truncate flex-1" style={{color:'var(--text)'}}>{a.quiz_title}</span>
-                    <div className="flex items-center gap-3 ml-3 flex-shrink-0">
-                      <span className="font-black" style={{color:a.passed?'#10b981':'#f59e0b'}}>{a.score??'—'}%</span>
-                      <span className="text-xs px-2 py-0.5 rounded-full" style={{background:a.passed?'#f0fdf4':'#fef3c7',color:a.passed?'#10b981':'#d97706'}}>{a.passed?'✓ Pass':'Fail'}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+      {/* ── Page header ── */}
+      <div style={{
+        display:'flex', alignItems:'flex-start', justifyContent:'space-between',
+        marginBottom:20, flexWrap:'wrap', gap:12,
+        paddingBottom:16, borderBottom:'1px solid var(--border)'
+      }}>
+        <div>
+          <h1 style={{fontSize:22, fontWeight:400, color:'var(--text)', margin:0, lineHeight:1.3}}>
+            Quizzes &amp; Assessments
+          </h1>
+          <p style={{color:'var(--text-muted)', fontSize:13, marginTop:4, marginBottom:0}}>
+            {quizzes.length} available
+            {totalAttempts > 0 && ` · ${passed} of ${totalAttempts} attempts passed · Avg ${avgScore}%`}
+          </p>
+        </div>
+        <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+          {totalAttempts > 0 && (
+            <button onClick={() => setShowStats(v=>!v)}
+              style={{fontSize:13,color:'var(--text-muted)',background:'none',border:'none',cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>
+              My Progress {showStats ? <ChevronUp className="w-3 h-3"/> : <ChevronDown className="w-3 h-3"/>}
+            </button>
+          )}
+          {isCreator && (
+            <d2l-button primary onClick={() => navigate('/quiz-admin')}>
+              + Create Quiz
+            </d2l-button>
           )}
         </div>
-      )}
-
-      {/* Search + filters */}
-      <div className="flex flex-wrap gap-3">
-        <div className="relative flex-1 min-w-48">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{color:'var(--text-muted)'}}/>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search quizzes..."
-            className="w-full pl-9 pr-4 py-2 rounded-xl text-sm"
-            style={{background:'var(--card-bg)',border:'1.5px solid var(--border)',color:'var(--text)',outline:'none'}}/>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          {diffs.map(d => (
-            <button key={d} onClick={() => setDiff(d)}
-              className="px-3 py-2 rounded-xl text-xs font-semibold transition-all"
-              style={{background:diffFilter===d?'#6366f1':'var(--card-bg)',color:diffFilter===d?'white':'var(--text-muted)',border:`1px solid ${diffFilter===d?'#6366f1':'var(--border)'}`}}>
-              {d === 'All' ? 'All Levels' : d}
-            </button>
-          ))}
-        </div>
       </div>
-      {cats.length > 1 && (
-        <div className="flex gap-2 flex-wrap">
-          {cats.map(c => (
-            <button key={c} onClick={() => setCat(c)}
-              className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
-              style={{background:catFilter===c?'#14b8a6':'var(--card-bg)',color:catFilter===c?'white':'var(--text-muted)',border:`1px solid ${catFilter===c?'#14b8a6':'var(--border)'}`}}>
-              {c}
-            </button>
+
+      {/* ── My progress panel ── */}
+      {showStats && totalAttempts > 0 && (
+        <div style={{
+          marginBottom:20, padding:'16px 20px', borderRadius:8,
+          background:'var(--card-bg)', border:'1px solid var(--border)',
+          display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))', gap:16
+        }}>
+          {[
+            {l:'Total Attempts', v:totalAttempts, c:'#006fbf'},
+            {l:'Avg Score', v:`${avgScore}%`, c:avgScore>=70?'#1a7a3c':'#976500'},
+            {l:'Passed', v:passed, c:'#1a7a3c'},
+            {l:'Quizzes Taken', v:new Set(progress.map(a=>a.quiz_id)).size, c:'#7b4fc4'},
+          ].map(s => (
+            <div key={s.l} style={{textAlign:'center'}}>
+              <div style={{fontSize:28,fontWeight:700,color:s.c,lineHeight:1}}>{s.v}</div>
+              <div style={{fontSize:12,color:'var(--text-muted)',marginTop:4}}>{s.l}</div>
+            </div>
           ))}
         </div>
       )}
 
-      {/* Cards */}
+      {/* ── Search ── */}
+      <d2l-input-search
+        ref={searchRef}
+        label="Search quizzes"
+        placeholder="Search by title or description..."
+        style={{display:'block', marginBottom:12}}
+      />
+
+      {/* ── Category filter ── */}
+      {cats.length > 1 && (
+        <div style={{display:'flex',gap:6,marginBottom:10,flexWrap:'wrap'}}>
+          {cats.map(c => (
+            <button key={c} onClick={() => setCat(c)} style={{
+              padding:'3px 12px', borderRadius:99, fontSize:12, fontWeight:600, cursor:'pointer',
+              border:`1.5px solid ${catFilter===c?catColor(c):'var(--border)'}`,
+              background:catFilter===c?catColor(c):'transparent',
+              color:catFilter===c?'white':'var(--text-muted)',
+              transition:'all .15s',
+            }}>{c}</button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Difficulty filter ── */}
+      <div style={{display:'flex',gap:6,marginBottom:20,flexWrap:'wrap'}}>
+        {['All','Beginner','Intermediate','Advanced'].map(d => {
+          const ds = DIFF_STYLE[d] || {}
+          const active = diffFilter === d
+          return (
+            <button key={d} onClick={() => setDiff(d)} style={{
+              padding:'3px 12px', borderRadius:4, fontSize:12, cursor:'pointer',
+              border:`1.5px solid ${active?(ds.color||'#006fbf'):'var(--border)'}`,
+              background:active?(ds.bg||'#e3f2fd'):'transparent',
+              color:active?(ds.color||'#006fbf'):'var(--text-muted)',
+              fontWeight:active?700:400,
+              transition:'all .15s',
+            }}>{d === 'All' ? 'All Levels' : d}</button>
+          )
+        })}
+      </div>
+
+      {/* ── Quiz list ── */}
       {visible.length === 0 ? (
-        <div className="text-center py-20">
-          <div className="text-5xl mb-4">🔍</div>
-          <p style={{color:'var(--text-muted)'}}>{quizzes.length === 0 ? 'No quizzes available yet.' : 'No quizzes match your filters.'}</p>
+        <div style={{textAlign:'center', padding:'60px 20px'}}>
+          <div style={{fontSize:56, marginBottom:12}}>🎓</div>
+          <p style={{color:'var(--text-muted)', fontSize:16, marginBottom:16}}>
+            {quizzes.length === 0 ? 'No quizzes published yet.' : 'No quizzes match your search.'}
+          </p>
           {isCreator && quizzes.length === 0 && (
-            <button onClick={() => navigate('/quiz-admin')} className="mt-4 px-5 py-2.5 rounded-xl font-bold text-white text-sm" style={{background:'linear-gradient(135deg,#6366f1,#4f46e5)'}}>
-              Create First Quiz
-            </button>
+            <d2l-button primary onClick={() => navigate('/quiz-admin')}>Create First Quiz</d2l-button>
           )}
         </div>
       ) : (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <d2l-list separators="all">
           {visible.map(q => {
-            const cat  = (q.category||'general').replace(/_/g,' ')
-            const diff = DIFF[normDiff(q.difficulty)] || DIFF.Beginner
-            const grad = catGrad(cat)
-            const my   = myStats[q.id]
+            const cat   = (q.category||'general').replace(/_/g,' ')
+            const diff  = normDiff(q.difficulty)
+            const ds    = DIFF_STYLE[diff] || DIFF_STYLE.Beginner
+            const cc    = catColor(cat)
+            const my    = myStats[q.id]
+            const timeLabel = q.time_limit > 0 ? `${q.time_limit} min` : `${q.time_per_question||60}s/q`
+
+            let statusState = 'default', statusText = 'Not Attempted'
+            if (my) {
+              if (my.passed > 0) { statusState = 'success'; statusText = `Best ${my.best}% — Passed` }
+              else                { statusState = 'default'; statusText = `Best ${my.best}% — Try again` }
+            }
+
             return (
-              <div key={q.id} className="card overflow-hidden group hover:shadow-xl hover:-translate-y-1 transition-all duration-200 cursor-pointer"
-                onClick={() => onSelect(q)}>
-                <div style={{height:5,background:grad}}/>
-                <div className="p-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl" style={{background:grad}}>
-                      {diff.icon}
+              <d2l-list-item key={q.id} label={q.title}>
+                <d2l-list-item-content>
+                  {/* Primary content */}
+                  <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                    <span style={{fontWeight:600, fontSize:15, color:'var(--text)'}}>{q.title}</span>
+                    <Chip label={cat} bg={`${cc}18`} color={cc}/>
+                    <Chip label={diff} bg={ds.bg} color={ds.color}/>
+                    {(q.status === 'draft' || q.status === 'archived') && (
+                      <Chip label={q.status.toUpperCase()} bg='#fef9e7' color='#976500'/>
+                    )}
+                  </div>
+                  {/* Supporting row */}
+                  <div slot="supporting-info" style={{
+                    display:'flex', gap:20, marginTop:4, flexWrap:'wrap',
+                    fontSize:13, color:'var(--text-muted)',
+                  }}>
+                    <span>📋 {q.question_count||0} questions</span>
+                    <span>⏱ {timeLabel}</span>
+                    <span>✓ Pass: {q.pass_score||70}%</span>
+                    {q.attempt_count > 0 && <span>👥 {q.attempt_count} attempts</span>}
+                    {my?.attempts > 0 && <span>My attempts: {my.attempts}</span>}
+                  </div>
+                  {/* Status badge */}
+                  {my && (
+                    <div slot="badge" style={{marginTop:4}}>
+                      <d2l-status-indicator state={statusState} text={statusText}/>
                     </div>
-                    <span className="text-xs font-bold px-2.5 py-1 rounded-full"
-                      style={{background:diff.bg,color:diff.color,border:`1px solid ${diff.border}`}}>
-                      {normDiff(q.difficulty)}
-                    </span>
-                  </div>
-                  <h3 className="font-black text-sm mb-1" style={{color:'var(--text)'}}>{q.title}</h3>
-                  <p className="text-xs mb-4 line-clamp-2" style={{color:'var(--text-muted)'}}>{q.description||cat}</p>
-                  <div className="flex items-center justify-between text-xs mb-4" style={{color:'var(--text-muted)'}}>
-                    <div className="flex gap-3">
-                      <span>❓ {q.question_count||0}q</span>
-                      <span>⏱ {q.time_per_question||60}s</span>
-                      {q.attempt_count > 0 && <span>👥 {q.attempt_count}</span>}
-                      {q.pass_score && <span>✓ {q.pass_score}%</span>}
-                    </div>
-                    {my && <span className="font-bold" style={{color:my.passed>0?'#10b981':'#f59e0b'}}>{my.passed>0?'✓ ':''}Best: {my.best}%</span>}
-                  </div>
-                  <div className="w-full py-2.5 rounded-xl text-xs font-bold text-white text-center flex items-center justify-center gap-2"
-                    style={{background:grad}}>
-                    <Play className="w-3 h-3 fill-current"/>
-                    {my ? 'Retake Quiz' : 'Start Quiz'}
-                  </div>
+                  )}
+                  {/* Description */}
+                  {q.description && (
+                    <p style={{margin:'6px 0 0', fontSize:13, color:'var(--text-muted)', lineHeight:1.5}}>
+                      {q.description}
+                    </p>
+                  )}
+                </d2l-list-item-content>
+                {/* Action button */}
+                <div slot="actions" style={{display:'flex',gap:8,alignItems:'center',flexShrink:0}}>
+                  <d2l-button primary={!my || undefined} onClick={() => onSelect(q)}>
+                    {my ? 'Retake' : 'Start Quiz'}
+                  </d2l-button>
                 </div>
-              </div>
+              </d2l-list-item>
             )
           })}
-        </div>
+        </d2l-list>
       )}
     </div>
   )
@@ -283,141 +329,148 @@ function QuizBrowser({ onSelect }) {
 function QuizConfirm({ quiz, onStart, onBack }) {
   const [studyMode, setStudyMode] = useState(false)
   const cat   = (quiz.category||'general').replace(/_/g,' ')
-  const diff  = DIFF[normDiff(quiz.difficulty)] || DIFF.Beginner
-  const grad  = catGrad(cat)
-  const qTime = quiz.time_per_question || 60
-  const limit = quiz.time_limit > 0 ? `${quiz.time_limit} min total` : `${qTime}s per question`
+  const diff  = normDiff(quiz.difficulty)
+  const ds    = DIFF_STYLE[diff] || DIFF_STYLE.Beginner
+  const cc    = catColor(cat)
+  const timeLabel = quiz.time_limit > 0 ? `${quiz.time_limit} min total` : `${quiz.time_per_question||60}s per question`
 
   return (
-    <div className="max-w-xl mx-auto py-8">
-      {/* Back */}
-      <button onClick={onBack} className="flex items-center gap-2 mb-6 text-sm font-medium hover:opacity-70 transition-opacity"
-        style={{color:'var(--text-muted)'}}>
+    <div style={{maxWidth:600, margin:'0 auto', padding:'32px 0'}}>
+      <button onClick={onBack} style={{
+        display:'flex', alignItems:'center', gap:6, marginBottom:24,
+        fontSize:14, color:'var(--text-muted)', background:'none', border:'none', cursor:'pointer'
+      }}>
         <ChevronLeft className="w-4 h-4"/> Back to quizzes
       </button>
 
-      {/* Card */}
-      <div className="card overflow-hidden">
-        <div style={{height:6,background:grad}}/>
-        <div className="p-8">
+      <div style={{
+        background:'var(--card-bg)', border:'1px solid var(--border)',
+        borderRadius:8, overflow:'hidden', boxShadow:'0 2px 12px rgba(0,0,0,0.06)'
+      }}>
+        {/* Color bar */}
+        <div style={{height:6, background:`linear-gradient(90deg,${cc},${cc}88)`}}/>
+
+        <div style={{padding:32}}>
           {/* Header */}
-          <div className="flex items-start gap-4 mb-6">
-            <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0" style={{background:grad}}>
-              {diff.icon}
+          <div style={{marginBottom:24}}>
+            <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:8, flexWrap:'wrap'}}>
+              <Chip label={cat} bg={`${cc}18`} color={cc}/>
+              <Chip label={diff} bg={ds.bg} color={ds.color}/>
             </div>
-            <div className="flex-1">
-              <h1 className="text-xl font-black mb-1" style={{color:'var(--text)'}}>{quiz.title}</h1>
-              <p className="text-sm mb-3" style={{color:'var(--text-muted)'}}>{quiz.description||cat}</p>
-              <div className="flex gap-2 flex-wrap">
-                <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{background:diff.bg,color:diff.color,border:`1px solid ${diff.border}`}}>{normDiff(quiz.difficulty)}</span>
-                <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{background:'rgba(99,102,241,0.1)',color:'#6366f1'}}>{cat}</span>
-              </div>
-            </div>
+            <h1 style={{fontSize:22, fontWeight:700, color:'var(--text)', margin:'0 0 8px'}}>{quiz.title}</h1>
+            {quiz.description && <p style={{fontSize:14, color:'var(--text-muted)', margin:0}}>{quiz.description}</p>}
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-3 gap-3 mb-6">
+          {/* Stats grid */}
+          <div style={{
+            display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:24,
+            padding:'16px', background:'var(--page-bg)', borderRadius:8, border:'1px solid var(--border)'
+          }}>
             {[
-              {icon:'❓',l:'Questions',v:quiz.question_count||'?'},
-              {icon:'⏱',l:'Timer',v:limit},
-              {icon:'🎯',l:'Pass Score',v:`${quiz.pass_score||70}%`},
+              {icon:'📋', l:'Questions', v:quiz.question_count||'?'},
+              {icon:'⏱',  l:'Time',      v:timeLabel},
+              {icon:'🎯',  l:'Pass Score',v:`${quiz.pass_score||70}%`},
             ].map(s => (
-              <div key={s.l} className="rounded-xl p-3 text-center" style={{background:'var(--page-bg)',border:'1px solid var(--border)'}}>
-                <div className="text-xl mb-1">{s.icon}</div>
-                <div className="font-black text-sm" style={{color:'var(--text)'}}>{s.v}</div>
-                <div className="text-xs" style={{color:'var(--text-muted)'}}>{s.l}</div>
+              <div key={s.l} style={{textAlign:'center'}}>
+                <div style={{fontSize:22, marginBottom:4}}>{s.icon}</div>
+                <div style={{fontSize:16, fontWeight:700, color:'var(--text)'}}>{s.v}</div>
+                <div style={{fontSize:12, color:'var(--text-muted)'}}>{s.l}</div>
               </div>
             ))}
           </div>
 
-          {/* Study Mode Toggle */}
-          <div className="rounded-2xl p-5 mb-6" style={{background:'var(--page-bg)',border:`2px solid ${studyMode ? '#6366f1' : 'var(--border)'}`}}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{background:studyMode?'rgba(99,102,241,0.1)':'var(--card-bg)'}}>
-                  <BookMarked className="w-5 h-5" style={{color:studyMode?'#6366f1':'var(--text-muted)'}}/>
-                </div>
+          {/* Study mode toggle */}
+          <div style={{
+            padding:'16px', borderRadius:8, marginBottom:24,
+            border:`2px solid ${studyMode?'#006fbf':'var(--border)'}`,
+            background:studyMode?'rgba(0,111,191,0.04)':'var(--page-bg)',
+            transition:'border-color .2s, background .2s',
+          }}>
+            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+              <div style={{display:'flex',alignItems:'center',gap:12}}>
+                <div style={{fontSize:24}}>📖</div>
                 <div>
-                  <div className="font-bold text-sm" style={{color:'var(--text)'}}>Study Mode</div>
-                  <div className="text-xs" style={{color:'var(--text-muted)'}}>See correct answers immediately after each selection. No timer pressure.</div>
+                  <div style={{fontWeight:600, fontSize:14, color:'var(--text)'}}>Study Mode</div>
+                  <div style={{fontSize:12, color:'var(--text-muted)'}}>
+                    See correct answers immediately. No timer. Attempt is still recorded.
+                  </div>
                 </div>
               </div>
-              <button onClick={() => setStudyMode(v => !v)}
-                className="relative w-12 h-6 rounded-full transition-all flex-shrink-0"
-                style={{background:studyMode?'#6366f1':'var(--border)'}}>
-                <span className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform"
-                  style={{transform:studyMode?'translateX(24px)':'translateX(0)'}}/>
+              <button onClick={() => setStudyMode(v=>!v)} style={{
+                width:44, height:24, borderRadius:12, border:'none', cursor:'pointer',
+                background:studyMode?'#006fbf':'#cdd5dc', position:'relative', flexShrink:0,
+                transition:'background .2s',
+              }}>
+                <span style={{
+                  position:'absolute', top:2, left:studyMode?22:2, width:20, height:20,
+                  borderRadius:10, background:'white', transition:'left .2s',
+                  boxShadow:'0 1px 3px rgba(0,0,0,0.2)',
+                }}/>
               </button>
             </div>
             {studyMode && (
-              <div className="mt-3 pt-3 border-t text-xs" style={{borderColor:'rgba(99,102,241,0.2)',color:'#6366f1'}}>
-                ✓ Immediate feedback &nbsp;·&nbsp; ✓ Explanations shown &nbsp;·&nbsp; ✓ No time pressure &nbsp;·&nbsp; ✓ Attempt still recorded
+              <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid rgba(0,111,191,0.15)', fontSize:12, color:'#006fbf'}}>
+                ✓ Immediate feedback · ✓ Explanations shown · ✓ No time pressure
               </div>
             )}
           </div>
 
-          {/* Start button */}
-          <button onClick={() => onStart(studyMode)}
-            className="w-full py-4 rounded-2xl font-black text-white text-base flex items-center justify-center gap-3 hover:opacity-90 hover:scale-[1.01] transition-all"
-            style={{background:grad,boxShadow:`0 8px 24px rgba(99,102,241,0.3)`}}>
-            <Play className="w-5 h-5 fill-white"/>
-            {studyMode ? 'Start Study Session' : 'Start Quiz'}
-          </button>
+          {/* Action buttons */}
+          <div style={{display:'flex', gap:12}}>
+            <d2l-button onClick={onBack}>Back</d2l-button>
+            <d2l-button primary onClick={() => onStart(studyMode)} style={{flex:1}}>
+              {studyMode ? '📖 Start Study Session' : '▶ Start Quiz'}
+            </d2l-button>
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
-// ── Question Navigator Sidebar ────────────────────────────────────────────────
+// ── Question Navigator ─────────────────────────────────────────────────────────
 function QNavigator({ questions, current, answers, flagged, onNavigate }) {
   const getStyle = (q, idx) => {
     const isAnswered = answers[q.id] !== undefined && answers[q.id] !== null && answers[q.id] !== ''
     const isFlagged  = flagged.has(q.id)
     const isCurrent  = idx === current
-    if (isCurrent)  return { background:'#4f46e5', color:'white', boxShadow:'0 0 0 3px rgba(99,102,241,0.4)' }
+    if (isCurrent)  return { background:'#006fbf', color:'white', boxShadow:'0 0 0 3px rgba(0,111,191,0.3)' }
     if (isFlagged)  return { background:'#d97706', color:'white' }
-    if (isAnswered) return { background:'#6366f1', color:'white' }
-    return { background:'rgba(255,255,255,0.05)', color:'#94a3b8', border:'1px solid rgba(255,255,255,0.08)' }
+    if (isAnswered) return { background:'#1a7a3c', color:'white' }
+    return { background:'rgba(255,255,255,0.06)', color:'#94a3b8', border:'1px solid rgba(255,255,255,0.1)' }
   }
-
   const answered = questions.filter(q => answers[q.id] !== undefined && answers[q.id] !== null && answers[q.id] !== '').length
-  const flaggedCount = flagged.size
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Stats */}
-      <div className="p-3 border-b" style={{borderColor:'rgba(255,255,255,0.08)'}}>
-        <div className="text-xs font-bold mb-2" style={{color:'#94a3b8'}}>QUESTIONS</div>
-        <div className="flex gap-2 text-xs" style={{color:'#64748b'}}>
-          <span style={{color:'#6366f1'}}>■</span> {answered} answered
-          {flaggedCount > 0 && <><span style={{color:'#d97706'}}>■</span> {flaggedCount} flagged</>}
-        </div>
+    <div style={{height:'100%', display:'flex', flexDirection:'column'}}>
+      <div style={{padding:'12px', borderBottom:'1px solid rgba(255,255,255,0.08)'}}>
+        <div style={{fontSize:11, fontWeight:600, color:'#94a3b8', marginBottom:6}}>QUESTIONS</div>
+        <div style={{fontSize:11, color:'#64748b'}}>{answered}/{questions.length} answered</div>
       </div>
-
-      {/* Grid */}
-      <div className="flex-1 overflow-y-auto p-3">
-        <div className="grid gap-1.5" style={{gridTemplateColumns:'repeat(4,1fr)'}}>
+      <div style={{flex:1, overflowY:'auto', padding:10}}>
+        <div style={{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:6}}>
           {questions.map((q, idx) => (
             <button key={q.id} onClick={() => onNavigate(idx)}
-              className="w-full aspect-square rounded-lg text-xs font-bold flex items-center justify-center transition-all hover:opacity-80"
-              style={getStyle(q, idx)}>
+              data-qidx={idx}
+              style={{
+                width:'100%', aspectRatio:'1', borderRadius:8, fontSize:11,
+                fontWeight:700, border:'none', cursor:'pointer', transition:'all .1s',
+                ...getStyle(q, idx),
+              }}>
               {idx + 1}
             </button>
           ))}
         </div>
       </div>
-
-      {/* Legend */}
-      <div className="p-3 border-t text-xs space-y-1.5" style={{borderColor:'rgba(255,255,255,0.08)',color:'#64748b'}}>
+      <div style={{padding:10, borderTop:'1px solid rgba(255,255,255,0.08)', fontSize:11, lineHeight:1.8}}>
         {[
-          { col:'#4f46e5', l:'Current' },
-          { col:'#6366f1', l:'Answered' },
-          { col:'#d97706', l:'Flagged' },
-          { col:'rgba(255,255,255,0.05)', l:'Not answered', border:'1px solid rgba(255,255,255,0.08)' },
+          {c:'#006fbf', l:'Current'},
+          {c:'#1a7a3c', l:'Answered'},
+          {c:'#d97706', l:'Flagged'},
+          {c:'rgba(255,255,255,0.06)', l:'Not answered', border:'1px solid rgba(255,255,255,0.1)'},
         ].map(i => (
-          <div key={i.l} className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded flex-shrink-0" style={{background:i.col,border:i.border}}/>
+          <div key={i.l} style={{display:'flex', alignItems:'center', gap:6, color:'#64748b'}}>
+            <span style={{width:10,height:10,borderRadius:2,background:i.c,border:i.border,flexShrink:0}}/>
             {i.l}
           </div>
         ))}
@@ -428,49 +481,36 @@ function QNavigator({ questions, current, answers, flagged, onNavigate }) {
 
 // ── Submit Modal ──────────────────────────────────────────────────────────────
 function SubmitModal({ questions, answers, flagged, onConfirm, onCancel, submitting }) {
-  const answered  = questions.filter(q => answers[q.id] !== undefined && answers[q.id] !== null && answers[q.id] !== '').length
+  const answered   = questions.filter(q => answers[q.id] !== undefined && answers[q.id] !== null && answers[q.id] !== '').length
   const unanswered = questions.length - answered
-  const flaggedC   = flagged.size
-
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-[200]" style={{background:'rgba(0,0,0,0.7)'}}>
-      <div className="rounded-2xl p-8 max-w-sm w-full mx-4 shadow-2xl" style={{background:'var(--card-bg)',border:'1px solid var(--border)'}}>
-        <div className="text-center mb-6">
-          <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{background:'rgba(99,102,241,0.1)'}}>
-            <CheckCircle className="w-8 h-8" style={{color:'#6366f1'}}/>
-          </div>
-          <h2 className="text-xl font-black mb-2" style={{color:'var(--text)'}}>Submit Quiz?</h2>
-          <p className="text-sm" style={{color:'var(--text-muted)'}}>Your attempt will be recorded and graded.</p>
-        </div>
-        <div className="space-y-2 mb-6">
-          <div className="flex items-center justify-between px-4 py-2.5 rounded-xl" style={{background:'var(--page-bg)'}}>
-            <span className="text-sm" style={{color:'var(--text)'}}>Answered</span>
-            <span className="font-black text-sm" style={{color:'#10b981'}}>{answered}/{questions.length}</span>
+    <div style={{position:'fixed',inset:0,display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,background:'rgba(0,0,0,0.6)'}}>
+      <div style={{background:'var(--card-bg)',borderRadius:8,padding:32,maxWidth:400,width:'calc(100% - 32px)',boxShadow:'0 8px 32px rgba(0,0,0,0.2)',border:'1px solid var(--border)'}}>
+        <h2 style={{fontSize:20,fontWeight:600,color:'var(--text)',margin:'0 0 8px'}}>Submit Assessment?</h2>
+        <p style={{fontSize:14,color:'var(--text-muted)',margin:'0 0 20px'}}>Your responses will be graded and recorded.</p>
+        <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:24}}>
+          <div style={{display:'flex',justifyContent:'space-between',padding:'10px 14px',borderRadius:6,background:'var(--page-bg)'}}>
+            <span style={{fontSize:14,color:'var(--text)'}}>Answered</span>
+            <span style={{fontSize:14,fontWeight:700,color:'#1a7a3c'}}>{answered}/{questions.length}</span>
           </div>
           {unanswered > 0 && (
-            <div className="flex items-center justify-between px-4 py-2.5 rounded-xl" style={{background:'#fef3c7'}}>
-              <span className="text-sm font-medium" style={{color:'#92400e'}}>⚠ Unanswered</span>
-              <span className="font-black text-sm" style={{color:'#d97706'}}>{unanswered}</span>
+            <div style={{display:'flex',justifyContent:'space-between',padding:'10px 14px',borderRadius:6,background:'#fef9e7'}}>
+              <span style={{fontSize:14,color:'#92400e'}}>⚠ Unanswered</span>
+              <span style={{fontSize:14,fontWeight:700,color:'#d97706'}}>{unanswered}</span>
             </div>
           )}
-          {flaggedC > 0 && (
-            <div className="flex items-center justify-between px-4 py-2.5 rounded-xl" style={{background:'#fffbeb'}}>
-              <span className="text-sm font-medium" style={{color:'#92400e'}}>⚑ Flagged for review</span>
-              <span className="font-black text-sm" style={{color:'#d97706'}}>{flaggedC}</span>
+          {flagged.size > 0 && (
+            <div style={{display:'flex',justifyContent:'space-between',padding:'10px 14px',borderRadius:6,background:'#fef9e7'}}>
+              <span style={{fontSize:14,color:'#92400e'}}>⚑ Flagged for review</span>
+              <span style={{fontSize:14,fontWeight:700,color:'#d97706'}}>{flagged.size}</span>
             </div>
           )}
         </div>
-        <div className="flex gap-3">
-          <button onClick={onCancel} disabled={submitting}
-            className="flex-1 py-3 rounded-xl font-bold text-sm transition-all hover:opacity-80"
-            style={{background:'var(--page-bg)',color:'var(--text)',border:'1px solid var(--border)'}}>
-            Keep Going
-          </button>
-          <button onClick={onConfirm} disabled={submitting}
-            className="flex-1 py-3 rounded-xl font-black text-white text-sm transition-all hover:opacity-90"
-            style={{background:'linear-gradient(135deg,#6366f1,#4f46e5)'}}>
-            {submitting ? 'Submitting...' : 'Submit Quiz'}
-          </button>
+        <div style={{display:'flex',gap:10}}>
+          <d2l-button onClick={onCancel} disabled={submitting || undefined}>Keep Going</d2l-button>
+          <d2l-button primary onClick={onConfirm} disabled={submitting || undefined}>
+            {submitting ? 'Submitting...' : 'Submit Assessment'}
+          </d2l-button>
         </div>
       </div>
     </div>
@@ -485,21 +525,19 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
   const [loading, setLoad]       = useState(true)
   const [current, setCurrent]    = useState(0)
   const [answers, setAnswers]    = useState({})
-  const [multiSel, setMultiSel]  = useState({})       // {qId: [idx...]}
-  const [textAns, setTextAns]    = useState({})        // {qId: string}
+  const [multiSel, setMultiSel]  = useState({})
+  const [textAns, setTextAns]    = useState({})
   const [flagged, setFlagged]    = useState(new Set())
-  const [revealed, setRevealed]  = useState(new Set()) // study mode: answered Qs
+  const [revealed, setRevealed]  = useState(new Set())
   const [totalSecs, setTotal]    = useState(0)
   const [qSecs, setQSecs]        = useState(null)
   const [showSubmit, setShowSub] = useState(false)
   const [submitting, setSub]     = useState(false)
-  const [showExitModal, setShowExit] = useState(false)
+  const [showExit, setShowExit]  = useState(false)
   const totalRef  = useRef(null)
   const qRef      = useRef(null)
   const startRef  = useRef(Date.now())
-  const sideRef   = useRef(null)
 
-  // Load
   useEffect(() => {
     api.post(`/quizzes/${quiz.id}/start`, { study_mode: studyMode }).then(r => {
       setQs(r.data.questions || [])
@@ -510,20 +548,15 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
     return () => { clearInterval(totalRef.current); clearInterval(qRef.current) }
   }, [])
 
-  // Total timer
   useEffect(() => {
     if (!quiz.time_limit || quiz.time_limit <= 0 || loading) return
     clearInterval(totalRef.current)
     totalRef.current = setInterval(() => {
-      setTotal(t => {
-        if (t <= 1) { clearInterval(totalRef.current); doSubmit(); return 0 }
-        return t - 1
-      })
+      setTotal(t => { if (t <= 1) { clearInterval(totalRef.current); doSubmit(); return 0 } return t - 1 })
     }, 1000)
     return () => clearInterval(totalRef.current)
   }, [loading])
 
-  // Per-question timer
   useEffect(() => {
     if (loading || studyMode || questions.length === 0) return
     const q = questions[current]
@@ -534,7 +567,6 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
       setQSecs(t => {
         if (t <= 1) {
           clearInterval(qRef.current)
-          // Auto-advance on timeout
           setRevealed(prev => new Set([...prev, q.id]))
           setTimeout(() => setCurrent(c => Math.min(c + 1, questions.length - 1)), 600)
           return 0
@@ -545,16 +577,14 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
     return () => clearInterval(qRef.current)
   }, [current, loading, questions.length])
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handler = e => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
-      const q = questions[current]
-      if (!q) return
-      if (e.key === 'ArrowRight' || e.key === 'l') nav(current + 1)
-      else if (e.key === 'ArrowLeft' || e.key === 'h') nav(current - 1)
+      const q = questions[current]; if (!q) return
+      if (e.key === 'ArrowRight') nav(current + 1)
+      else if (e.key === 'ArrowLeft') nav(current - 1)
       else if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey) toggleFlag(q.id)
-      else if (e.key === 'Enter' && (revealed.has(q.id) || studyMode)) nav(current + 1)
+      else if (e.key === 'Enter' && revealed.has(q.id)) nav(current + 1)
       else if (['1','2','3','4','5','6'].includes(e.key)) {
         const i = parseInt(e.key) - 1
         if (q.options?.length > i && !revealed.has(q.id)) handleMCQAnswer(q, i)
@@ -564,56 +594,27 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
     return () => window.removeEventListener('keydown', handler)
   }, [current, questions, revealed])
 
-  const nav = useCallback(i => {
-    if (i >= 0 && i < questions.length) {
-      setCurrent(i)
-      // Scroll sidebar nav button into view
-      setTimeout(() => {
-        const btn = sideRef.current?.querySelector(`[data-qidx="${i}"]`)
-        btn?.scrollIntoView({ block:'nearest', behavior:'smooth' })
-      }, 50)
-    }
-  }, [questions.length])
-
-  const toggleFlag = useCallback(qId => {
-    setFlagged(prev => { const s = new Set(prev); s.has(qId) ? s.delete(qId) : s.add(qId); return s })
-  }, [])
+  const nav        = useCallback(i => { if (i >= 0 && i < questions.length) setCurrent(i) }, [questions.length])
+  const toggleFlag = useCallback(qId => { setFlagged(prev => { const s = new Set(prev); s.has(qId)?s.delete(qId):s.add(qId); return s }) }, [])
 
   const recordAnswer = (qId, answer) => {
     setAnswers(prev => ({ ...prev, [qId]: answer }))
-    if (studyMode) {
-      clearInterval(qRef.current)
-      setRevealed(prev => new Set([...prev, qId]))
-    } else {
-      clearInterval(qRef.current)
-      setRevealed(prev => new Set([...prev, qId]))
-    }
-  }
-
-  const handleMCQAnswer = (q, i) => {
-    if (revealed.has(q.id)) return
-    recordAnswer(q.id, i)
+    clearInterval(qRef.current)
+    setRevealed(prev => new Set([...prev, qId]))
     play?.('correct')
   }
 
+  const handleMCQAnswer = (q, i) => { if (!revealed.has(q.id)) recordAnswer(q.id, i) }
   const handleMultiToggle = (q, i) => {
     if (revealed.has(q.id)) return
-    setMultiSel(prev => {
-      const cur = prev[q.id] || []
-      return { ...prev, [q.id]: cur.includes(i) ? cur.filter(x => x !== i) : [...cur, i] }
-    })
+    setMultiSel(prev => { const cur=prev[q.id]||[]; return {...prev,[q.id]:cur.includes(i)?cur.filter(x=>x!==i):[...cur,i]} })
   }
-
   const handleMultiSubmit = q => {
-    if (revealed.has(q.id)) return
-    const sel = multiSel[q.id] || []
-    if (!sel.length) return
+    const sel = multiSel[q.id] || []; if (!sel.length || revealed.has(q.id)) return
     recordAnswer(q.id, sel)
   }
-
-  const handleText = (q) => {
-    const v = textAns[q.id]?.trim()
-    if (!v) return
+  const handleText = q => {
+    const v = textAns[q.id]?.trim(); if (!v || revealed.has(q.id)) return
     recordAnswer(q.id, v)
   }
 
@@ -621,10 +622,9 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
     setSub(true)
     clearInterval(totalRef.current); clearInterval(qRef.current)
     const timeTaken = Math.round((Date.now() - startRef.current) / 1000)
-    // Build answers including any pending multi/text
     const finalAnswers = { ...answers }
-    Object.entries(multiSel).forEach(([qId, sel]) => { if (sel.length && !finalAnswers[qId]) finalAnswers[qId] = sel })
-    Object.entries(textAns).forEach(([qId, v]) => { if (v?.trim() && !finalAnswers[qId]) finalAnswers[qId] = v.trim() })
+    Object.entries(multiSel).forEach(([k,v]) => { if (v.length && !finalAnswers[k]) finalAnswers[k] = v })
+    Object.entries(textAns).forEach(([k,v]) => { if (v?.trim() && !finalAnswers[k]) finalAnswers[k] = v.trim() })
     try {
       const r = await api.post(`/quizzes/${quiz.id}/submit`, { attempt_id: attemptId, answers: finalAnswers, time_taken: timeTaken })
       onFinish({ ...r.data, quiz })
@@ -634,156 +634,132 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
   }
 
   if (loading) return (
-    <div style={{position:'fixed',inset:0,zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',background:'var(--page-bg)'}}>
-      <div style={{textAlign:'center'}}>
-        <div className="w-16 h-16 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin mx-auto mb-4"/>
-        <p style={{color:'var(--text-muted)'}}>Loading quiz...</p>
-      </div>
+    <div style={{position:'fixed',inset:0,zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',background:'var(--page-bg)',flexDirection:'column',gap:16}}>
+      <d2l-loading-spinner size={80}/>
+      <p style={{color:'var(--text-muted)'}}>Loading quiz...</p>
     </div>
   )
-
   if (questions.length === 0) return (
-    <div style={{position:'fixed',inset:0,zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',background:'var(--page-bg)'}}>
-      <div style={{textAlign:'center'}}>
-        <AlertCircle className="w-12 h-12 mx-auto mb-4" style={{color:'var(--text-muted)'}}/>
-        <p style={{color:'var(--text-muted)'}}>No questions found for this quiz.</p>
-      </div>
+    <div style={{position:'fixed',inset:0,zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',background:'var(--page-bg)',flexDirection:'column',gap:12}}>
+      <AlertCircle style={{width:48,height:48,color:'var(--text-muted)'}}/>
+      <p style={{color:'var(--text-muted)'}}>No questions found.</p>
+      <d2l-button onClick={() => onFinish(null)}>Go Back</d2l-button>
     </div>
   )
 
   const q = questions[current]
   const isAnswered = qId => answers[qId] !== undefined && answers[qId] !== null && answers[qId] !== ''
   const qTimePct   = qSecs !== null ? qSecs / (quiz.time_per_question || 60) * 100 : 100
-  const qTC        = qTimePct > 50 ? '#10b981' : qTimePct > 20 ? '#f59e0b' : '#ef4444'
-  const ttPct      = totalSecs > 0 ? totalSecs / (quiz.time_limit * 60) * 100 : 0
-  const allDone    = questions.every(q => isAnswered(q.id))
+  const qTC        = qTimePct > 50 ? '#1a7a3c' : qTimePct > 20 ? '#d97706' : '#cc3333'
+
+  const optionStyle = (q, i, isRevd) => {
+    const isSelected   = answers[q.id] === i || answers[q.id] === String(i)
+    const isCorrectAns = studyMode && q.correct_answers && (q.correct_answers.includes(i) || q.correct_answers.includes(String(i)))
+    const isWrong      = isRevd && isSelected && !isCorrectAns
+    if (isCorrectAns && isRevd) return { border:'1.5px solid #1a7a3c', background:'rgba(26,122,60,0.08)', color:'#1a7a3c' }
+    if (isWrong)                return { border:'1.5px solid #cc3333', background:'rgba(204,51,51,0.08)', color:'#cc3333' }
+    if (isSelected)             return { border:'1.5px solid #006fbf', background:'rgba(0,111,191,0.08)', color:'#006fbf' }
+    return { border:'1.5px solid rgba(255,255,255,0.1)', background:'rgba(255,255,255,0.03)', color:'#e2e8f0' }
+  }
 
   return (
     <div style={{position:'fixed',inset:0,zIndex:100,display:'flex',flexDirection:'column',background:'var(--page-bg)'}}>
-      {/* ── Header ── */}
+      {/* Header */}
       <div style={{
         height:56,flexShrink:0,display:'flex',alignItems:'center',gap:12,padding:'0 16px',
-        background:'linear-gradient(180deg,#060e1d,#0a1628)',
-        borderBottom:'1px solid rgba(255,255,255,0.08)',zIndex:10
+        background:'#0a1628', borderBottom:'1px solid rgba(255,255,255,0.08)',
       }}>
-        <button onClick={() => setShowExit(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:bg-white/10"
-          style={{color:'#94a3b8'}}>
-          <ChevronLeft className="w-4 h-4"/> Exit
+        <button onClick={() => setShowExit(true)} style={{
+          display:'flex',alignItems:'center',gap:4,padding:'6px 12px',borderRadius:6,
+          fontSize:13,color:'#94a3b8',background:'rgba(255,255,255,0.06)',border:'none',cursor:'pointer'
+        }}>
+          <ChevronLeft style={{width:14,height:14}}/> Exit
         </button>
-        <div className="flex-1 min-w-0">
-          <div className="font-bold text-sm truncate" style={{color:'#e2e8f0'}}>{quiz.title}</div>
-          {studyMode && <div className="text-xs" style={{color:'#6366f1'}}>📖 Study Mode</div>}
+        <div style={{flex:1,overflow:'hidden'}}>
+          <div style={{fontSize:14,fontWeight:600,color:'#e2e8f0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{quiz.title}</div>
+          {studyMode && <div style={{fontSize:11,color:'#006fbf'}}>📖 Study Mode</div>}
         </div>
-        <div className="flex items-center gap-4 flex-shrink-0">
+        <div style={{display:'flex',alignItems:'center',gap:16,flexShrink:0}}>
           {quiz.time_limit > 0 && (
-            <div className="flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5" style={{color:ttPct < 20 ? '#ef4444' : '#94a3b8'}}/>
-              <span className={`font-black text-sm tabular-nums ${ttPct < 20 ? 'text-red-400' : ''}`} style={{color:ttPct<20?'#ef4444':'#e2e8f0'}}>
-                {fmtTime(totalSecs)}
-              </span>
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <Clock style={{width:14,height:14,color:totalSecs<120?'#cc3333':'#94a3b8'}}/>
+              <span style={{fontSize:14,fontWeight:700,fontVariantNumeric:'tabular-nums',color:totalSecs<120?'#ef4444':'#e2e8f0'}}>{fmtTime(totalSecs)}</span>
             </div>
           )}
-          <div className="text-sm" style={{color:'#64748b'}}>
-            <span style={{color:'#e2e8f0',fontWeight:700}}>{current+1}</span>/{questions.length}
-          </div>
-          <button onClick={() => setShowSub(true)}
-            className="hidden sm:flex items-center gap-2 px-4 py-1.5 rounded-lg font-bold text-xs text-white transition-all hover:opacity-90"
-            style={{background:'linear-gradient(135deg,#6366f1,#4f46e5)'}}>
-            <CheckCircle className="w-3.5 h-3.5"/> Submit
+          <span style={{fontSize:13,color:'#64748b'}}><span style={{color:'#e2e8f0',fontWeight:700}}>{current+1}</span>/{questions.length}</span>
+          <button onClick={() => setShowSub(true)} style={{
+            display:'flex',alignItems:'center',gap:6,padding:'6px 14px',borderRadius:6,
+            fontSize:13,fontWeight:700,color:'white',background:'#006fbf',border:'none',cursor:'pointer'
+          }}>
+            Submit
           </button>
         </div>
       </div>
 
-      {/* ── Body ── */}
+      {/* Body */}
       <div style={{flex:1,display:'flex',overflow:'hidden'}}>
-        {/* Sidebar */}
-        <div ref={sideRef} style={{
-          width:200,flexShrink:0,overflow:'hidden',display:'flex',flexDirection:'column',
-          background:'#060e1d',borderRight:'1px solid rgba(255,255,255,0.06)',
-        }}>
+        {/* Navigator sidebar */}
+        <div style={{width:192,flexShrink:0,background:'#060e1d',borderRight:'1px solid rgba(255,255,255,0.06)',overflow:'hidden'}}>
           <QNavigator questions={questions} current={current} answers={answers} flagged={flagged} onNavigate={nav}/>
         </div>
 
-        {/* Main question area */}
-        <div style={{flex:1,overflowY:'auto',padding:'0'}}>
+        {/* Question area */}
+        <div style={{flex:1,overflowY:'auto'}}>
           <div style={{maxWidth:720,margin:'0 auto',padding:'24px 24px 120px'}}>
-            {/* Q header */}
+            {/* Question meta */}
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,flexWrap:'wrap',gap:8}}>
               <div style={{display:'flex',alignItems:'center',gap:8}}>
-                <span style={{
-                  fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:99,
-                  background:'rgba(99,102,241,0.12)',color:'#818cf8'
-                }}>
+                <span style={{fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:99,background:'rgba(0,111,191,0.15)',color:'#60a5fa'}}>
                   {q.question_type==='mcq'?'Multiple Choice':q.question_type==='true_false'?'True / False':q.question_type==='multiple_select'?'Multi-Select':q.question_type==='short_answer'?'Short Answer':q.question_type==='fill_blank'?'Fill in Blank':'Numeric'}
                 </span>
                 <span style={{fontSize:11,color:'#64748b'}}>· {q.points||1} pt{(q.points||1)!==1?'s':''}</span>
               </div>
-              <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
                 {!studyMode && qSecs !== null && !revealed.has(q.id) && (
                   <div style={{display:'flex',alignItems:'center',gap:6}}>
-                    <div style={{width:60,height:4,borderRadius:99,background:'rgba(255,255,255,0.1)',overflow:'hidden'}}>
+                    <div style={{width:56,height:4,borderRadius:99,background:'rgba(255,255,255,0.1)',overflow:'hidden'}}>
                       <div style={{height:'100%',borderRadius:99,background:qTC,width:`${qTimePct}%`,transition:'width 1s linear'}}/>
                     </div>
-                    <span className={`font-black tabular-nums text-sm ${qSecs<=10?'animate-pulse':''}`} style={{color:qTC,minWidth:28}}>{qSecs}s</span>
+                    <span style={{fontSize:13,fontWeight:700,fontVariantNumeric:'tabular-nums',color:qTC,minWidth:28}}>{qSecs}s</span>
                   </div>
                 )}
-                <button onClick={() => toggleFlag(q.id)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all hover:scale-105"
-                  style={{
-                    background:flagged.has(q.id)?'rgba(217,119,6,0.15)':'rgba(255,255,255,0.05)',
-                    color:flagged.has(q.id)?'#f59e0b':'#64748b',
-                    border:`1px solid ${flagged.has(q.id)?'rgba(217,119,6,0.3)':'rgba(255,255,255,0.06)'}`,
-                  }}>
-                  <Flag className="w-3.5 h-3.5"/> {flagged.has(q.id)?'Flagged':'Flag'}
+                <button onClick={() => toggleFlag(q.id)} style={{
+                  display:'flex',alignItems:'center',gap:5,padding:'5px 10px',borderRadius:6,fontSize:12,fontWeight:700,cursor:'pointer',
+                  background:flagged.has(q.id)?'rgba(217,119,6,0.15)':'rgba(255,255,255,0.05)',
+                  color:flagged.has(q.id)?'#f59e0b':'#64748b',
+                  border:`1px solid ${flagged.has(q.id)?'rgba(217,119,6,0.3)':'rgba(255,255,255,0.06)'}`,
+                }}>
+                  <Flag style={{width:12,height:12}}/>{flagged.has(q.id)?'Flagged':'Flag'}
                 </button>
               </div>
             </div>
 
-            {/* Question image */}
-            {q.question_image && (
-              <img src={q.question_image} alt="question visual" className="w-full max-h-72 object-contain rounded-xl mb-5 border" style={{borderColor:'var(--border)'}}/>
-            )}
+            {q.question_image && <img src={q.question_image} alt="q" style={{width:'100%',maxHeight:280,objectFit:'contain',borderRadius:8,marginBottom:16,border:'1px solid rgba(255,255,255,0.1)'}}/>}
 
-            {/* Question text */}
-            <p style={{fontSize:16,fontWeight:600,lineHeight:1.7,color:'var(--text)',marginBottom:24}}>{q.question_text}</p>
+            <p style={{fontSize:17,fontWeight:500,lineHeight:1.7,color:'#e2e8f0',marginBottom:24}}>{q.question_text}</p>
 
-            {/* MCQ / True-False */}
+            {/* MCQ / T-F */}
             {(q.question_type==='mcq'||q.question_type==='true_false') && q.options && (
               <div style={{display:'flex',flexDirection:'column',gap:10}}>
                 {q.options.map((opt, i) => {
-                  const isSelected    = answers[q.id]===i || answers[q.id]===String(i)
-                  const isRevd        = revealed.has(q.id)
-                  const isCorrectAns  = studyMode && q.correct_answers && (q.correct_answers.includes(i)||q.correct_answers.includes(String(i)))
-                  const isWrong       = isRevd && isSelected && !isCorrectAns && studyMode
-
-                  let bg = 'rgba(255,255,255,0.03)'
-                  let border = '1.5px solid rgba(255,255,255,0.08)'
-                  let color = '#e2e8f0'
-                  if (isCorrectAns && isRevd) { bg='rgba(16,185,129,0.12)'; border='1.5px solid #10b981'; color='#10b981' }
-                  else if (isWrong) { bg='rgba(239,68,68,0.1)'; border='1.5px solid #ef4444'; color='#ef4444' }
-                  else if (isSelected) { bg='rgba(99,102,241,0.15)'; border='1.5px solid #6366f1'; color='#a5b4fc' }
-
+                  const isSelected   = answers[q.id]===i||answers[q.id]===String(i)
+                  const isRevd       = revealed.has(q.id)
+                  const isCorrectAns = studyMode && q.correct_answers && (q.correct_answers.includes(i)||q.correct_answers.includes(String(i)))
+                  const st           = optionStyle(q, i, isRevd)
                   return (
-                    <button key={i} onClick={() => handleMCQAnswer(q, i)} disabled={isRevd}
-                      style={{
-                        display:'flex',alignItems:'center',gap:12,padding:'12px 16px',
-                        borderRadius:12,border,background:bg,
-                        cursor:isRevd?'default':'pointer',transition:'all 0.15s',textAlign:'left',width:'100%'
-                      }}
-                      onMouseEnter={e => { if (!isRevd && !isSelected) e.currentTarget.style.background='rgba(255,255,255,0.06)' }}
-                      onMouseLeave={e => { if (!isRevd && !isSelected) e.currentTarget.style.background='rgba(255,255,255,0.03)' }}>
+                    <button key={i} onClick={() => handleMCQAnswer(q, i)} disabled={isRevd} style={{
+                      display:'flex',alignItems:'center',gap:12,padding:'12px 16px',borderRadius:8,
+                      width:'100%',textAlign:'left',cursor:isRevd?'default':'pointer',transition:'all .15s',...st
+                    }}>
                       <span style={{
-                        width:28,height:28,borderRadius:99,display:'flex',alignItems:'center',justifyContent:'center',
+                        width:26,height:26,borderRadius:99,display:'flex',alignItems:'center',justifyContent:'center',
                         fontSize:11,fontWeight:700,flexShrink:0,
-                        background:isCorrectAns&&isRevd?'#10b981':isWrong?'#ef4444':isSelected?'#6366f1':'rgba(255,255,255,0.08)',
-                        color:isSelected||isCorrectAns&&isRevd||isWrong?'white':'#64748b'
-                      }}>
-                        {String.fromCharCode(65+i)}
-                      </span>
-                      <span style={{flex:1,fontSize:14,fontWeight:500,color}}>{opt}</span>
-                      {isCorrectAns && isRevd && <CheckCircle className="w-4 h-4 flex-shrink-0" style={{color:'#10b981'}}/>}
-                      {isWrong && <XCircle className="w-4 h-4 flex-shrink-0" style={{color:'#ef4444'}}/>}
+                        background:isSelected?'#006fbf':isCorrectAns&&isRevd?'#1a7a3c':isRevd&&answers[q.id]===i?'#cc3333':'rgba(255,255,255,0.1)',
+                        color:'white',
+                      }}>{String.fromCharCode(65+i)}</span>
+                      <span style={{flex:1,fontSize:14,fontWeight:500}}>{opt}</span>
+                      {isCorrectAns&&isRevd && <CheckCircle style={{width:16,height:16,flexShrink:0,color:'#1a7a3c'}}/>}
+                      {!isCorrectAns&&isRevd&&isSelected && <XCircle style={{width:16,height:16,flexShrink:0,color:'#cc3333'}}/>}
                     </button>
                   )
                 })}
@@ -793,29 +769,25 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
             {/* Multi-select */}
             {q.question_type==='multiple_select' && q.options && (
               <div style={{display:'flex',flexDirection:'column',gap:10}}>
-                <p style={{fontSize:12,color:'#64748b',marginBottom:4}}>Select all that apply</p>
+                <p style={{fontSize:12,color:'#64748b',margin:'0 0 4px'}}>Select all that apply</p>
                 {q.options.map((opt, i) => {
                   const sel = (multiSel[q.id]||[]).includes(i)
-                  const isRevd = revealed.has(q.id)
                   return (
                     <label key={i} style={{
-                      display:'flex',alignItems:'center',gap:12,padding:'12px 16px',borderRadius:12,
-                      border:`1.5px solid ${sel?'#8b5cf6':'rgba(255,255,255,0.08)'}`,
-                      background:sel?'rgba(139,92,246,0.1)':'rgba(255,255,255,0.03)',cursor:isRevd?'default':'pointer'
+                      display:'flex',alignItems:'center',gap:12,padding:'12px 16px',borderRadius:8,cursor:revealed.has(q.id)?'default':'pointer',
+                      border:`1.5px solid ${sel?'#8b5cf6':'rgba(255,255,255,0.1)'}`,
+                      background:sel?'rgba(139,92,246,0.1)':'rgba(255,255,255,0.03)',
                     }}>
-                      <input type="checkbox" checked={sel} disabled={isRevd}
-                        onChange={() => handleMultiToggle(q, i)} style={{accentColor:'#8b5cf6',width:16,height:16}}/>
+                      <input type="checkbox" checked={sel} disabled={revealed.has(q.id)} onChange={() => handleMultiToggle(q, i)} style={{accentColor:'#8b5cf6',width:16,height:16}}/>
                       <span style={{fontSize:14,color:'#e2e8f0'}}>{opt}</span>
                     </label>
                   )
                 })}
                 {!revealed.has(q.id) && (
-                  <button onClick={() => handleMultiSubmit(q)} disabled={!(multiSel[q.id]||[]).length}
-                    style={{padding:'11px 24px',borderRadius:12,fontWeight:700,fontSize:14,color:'white',
-                      background:'linear-gradient(135deg,#8b5cf6,#6366f1)',marginTop:4,
-                      opacity:!(multiSel[q.id]||[]).length?0.4:1,cursor:!(multiSel[q.id]||[]).length?'not-allowed':'pointer'}}>
-                    Confirm Selection
-                  </button>
+                  <button onClick={() => handleMultiSubmit(q)} disabled={!(multiSel[q.id]||[]).length} style={{
+                    padding:'11px 24px',borderRadius:8,fontWeight:700,fontSize:14,color:'white',border:'none',cursor:'pointer',
+                    background:'#6366f1',opacity:!(multiSel[q.id]||[]).length?0.4:1,marginTop:4,
+                  }}>Confirm Selection</button>
                 )}
               </div>
             )}
@@ -824,17 +796,15 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
             {(q.question_type==='short_answer'||q.question_type==='fill_blank') && (
               <div style={{display:'flex',gap:10}}>
                 <input value={textAns[q.id]||''} disabled={revealed.has(q.id)}
-                  onChange={e => setTextAns(prev => ({...prev,[q.id]:e.target.value}))}
+                  onChange={e => setTextAns(prev=>({...prev,[q.id]:e.target.value}))}
                   onKeyDown={e => e.key==='Enter' && handleText(q)}
                   placeholder={q.question_type==='fill_blank'?'Fill in the blank...':'Type your answer...'}
-                  style={{flex:1,padding:'12px 16px',borderRadius:12,background:'rgba(255,255,255,0.05)',
-                    border:'1.5px solid rgba(255,255,255,0.1)',color:'#e2e8f0',fontSize:14,outline:'none'}}/>
+                  style={{flex:1,padding:'12px 16px',borderRadius:8,background:'rgba(255,255,255,0.05)',border:'1.5px solid rgba(255,255,255,0.12)',color:'#e2e8f0',fontSize:14,outline:'none'}}/>
                 {!revealed.has(q.id) && (
-                  <button onClick={() => handleText(q)} disabled={!textAns[q.id]?.trim()}
-                    style={{padding:'12px 20px',borderRadius:12,fontWeight:700,fontSize:14,color:'white',
-                      background:'#6366f1',opacity:!textAns[q.id]?.trim()?0.4:1,cursor:!textAns[q.id]?.trim()?'not-allowed':'pointer'}}>
-                    Submit
-                  </button>
+                  <button onClick={() => handleText(q)} disabled={!textAns[q.id]?.trim()} style={{
+                    padding:'12px 20px',borderRadius:8,fontWeight:700,fontSize:14,color:'white',border:'none',cursor:'pointer',
+                    background:'#006fbf',opacity:!textAns[q.id]?.trim()?0.4:1,
+                  }}>Submit</button>
                 )}
               </div>
             )}
@@ -843,97 +813,68 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
             {q.question_type==='numeric' && (
               <div style={{display:'flex',gap:10}}>
                 <input type="number" value={textAns[q.id]||''} disabled={revealed.has(q.id)}
-                  onChange={e => setTextAns(prev => ({...prev,[q.id]:e.target.value}))}
+                  onChange={e => setTextAns(prev=>({...prev,[q.id]:e.target.value}))}
                   onKeyDown={e => e.key==='Enter' && handleText(q)}
                   placeholder="Enter numeric value..."
-                  style={{flex:1,padding:'12px 16px',borderRadius:12,background:'rgba(255,255,255,0.05)',
-                    border:'1.5px solid rgba(255,255,255,0.1)',color:'#e2e8f0',fontSize:14,outline:'none'}}/>
+                  style={{flex:1,padding:'12px 16px',borderRadius:8,background:'rgba(255,255,255,0.05)',border:'1.5px solid rgba(255,255,255,0.12)',color:'#e2e8f0',fontSize:14,outline:'none'}}/>
                 {!revealed.has(q.id) && (
-                  <button onClick={() => handleText(q)} disabled={!textAns[q.id]}
-                    style={{padding:'12px 20px',borderRadius:12,fontWeight:700,fontSize:14,color:'white',
-                      background:'#6366f1',opacity:!textAns[q.id]?0.4:1,cursor:!textAns[q.id]?'not-allowed':'pointer'}}>
-                    Submit
-                  </button>
+                  <button onClick={() => handleText(q)} disabled={!textAns[q.id]} style={{
+                    padding:'12px 20px',borderRadius:8,fontWeight:700,fontSize:14,color:'white',border:'none',cursor:'pointer',
+                    background:'#006fbf',opacity:!textAns[q.id]?0.4:1,
+                  }}>Submit</button>
                 )}
               </div>
             )}
 
-            {/* Study mode feedback */}
-            {studyMode && revealed.has(q.id) && (
-              <div style={{
-                marginTop:20,padding:'16px',borderRadius:12,
-                background:(q.question_type==='mcq'||q.question_type==='true_false')&&q.correct_answers
-                  ? (q.correct_answers.includes(answers[q.id])||q.correct_answers.includes(+answers[q.id])
-                    ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.08)')
-                  : 'rgba(99,102,241,0.08)',
-                border:`1px solid ${(q.correct_answers?.includes(answers[q.id])||q.correct_answers?.includes(+answers[q.id]))?'rgba(16,185,129,0.3)':'rgba(99,102,241,0.2)'}`,
-              }}>
-                {q.explanation && (
-                  <div>
-                    <div style={{fontSize:12,fontWeight:700,marginBottom:6,color:'#94a3b8'}}>EXPLANATION</div>
-                    <p style={{fontSize:14,color:'#e2e8f0',lineHeight:1.6}}>{q.explanation}</p>
-                  </div>
-                )}
-                {!q.explanation && <p style={{fontSize:13,color:'#94a3b8'}}>Answer recorded. Continue to next question.</p>}
+            {/* Study mode reveal */}
+            {studyMode && revealed.has(q.id) && q.explanation && (
+              <div style={{marginTop:20,padding:'14px 16px',borderRadius:8,background:'rgba(0,111,191,0.08)',border:'1px solid rgba(0,111,191,0.2)'}}>
+                <div style={{fontSize:11,fontWeight:700,marginBottom:6,color:'#60a5fa'}}>EXPLANATION</div>
+                <p style={{fontSize:14,color:'#e2e8f0',lineHeight:1.6,margin:0}}>{q.explanation}</p>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* ── Footer ── */}
+      {/* Footer */}
       <div style={{
-        flexShrink:0,height:56,display:'flex',alignItems:'center',justifyContent:'space-between',
-        padding:'0 16px',gap:12,
+        flexShrink:0,height:56,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 16px',
         background:'#060e1d',borderTop:'1px solid rgba(255,255,255,0.08)',
       }}>
-        <button onClick={() => nav(current-1)} disabled={current===0}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold transition-all hover:bg-white/5"
-          style={{color:current===0?'#334155':'#94a3b8',cursor:current===0?'not-allowed':'pointer'}}>
-          <ChevronLeft className="w-4 h-4"/> Prev
+        <button onClick={() => nav(current-1)} disabled={current===0} style={{
+          display:'flex',alignItems:'center',gap:4,padding:'6px 14px',borderRadius:6,fontSize:13,fontWeight:600,cursor:current===0?'not-allowed':'pointer',
+          color:current===0?'#334155':'#94a3b8',background:'rgba(255,255,255,0.04)',border:'none',opacity:current===0?0.4:1
+        }}>
+          <ChevronLeft style={{width:14,height:14}}/> Prev
         </button>
-
-        {/* Keyboard hint */}
-        <span className="text-xs hidden md:block" style={{color:'#334155'}}>
-          ← → navigate · 1-4 answer · F flag · Enter next
-        </span>
-
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+        <span style={{fontSize:11,color:'#334155',display:'none'}}>← → navigate · 1-4 answer · F flag</span>
+        <div style={{display:'flex',gap:8}}>
           {current < questions.length - 1 ? (
-            <button onClick={() => nav(current+1)}
-              className="flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-bold text-white transition-all hover:opacity-90"
-              style={{background:'rgba(99,102,241,0.8)'}}>
-              Next <ChevronRight className="w-4 h-4"/>
-            </button>
+            <button onClick={() => nav(current+1)} style={{
+              display:'flex',alignItems:'center',gap:4,padding:'6px 16px',borderRadius:6,fontSize:13,fontWeight:700,color:'white',background:'#006fbf',border:'none',cursor:'pointer'
+            }}>Next <ChevronRight style={{width:14,height:14}}/></button>
           ) : (
-            <button onClick={() => setShowSub(true)}
-              className="flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-bold text-white transition-all hover:opacity-90"
-              style={{background:'linear-gradient(135deg,#10b981,#059669)'}}>
-              <CheckCircle className="w-4 h-4"/> Review & Submit
+            <button onClick={() => setShowSub(true)} style={{
+              display:'flex',alignItems:'center',gap:6,padding:'6px 16px',borderRadius:6,fontSize:13,fontWeight:700,color:'white',background:'#1a7a3c',border:'none',cursor:'pointer'
+            }}>
+              <CheckCircle style={{width:14,height:14}}/> Review &amp; Submit
             </button>
           )}
-          <button onClick={() => setShowSub(true)}
-            className="sm:hidden flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold text-white"
-            style={{background:'linear-gradient(135deg,#6366f1,#4f46e5)'}}>
-            Submit
-          </button>
         </div>
       </div>
 
-      {/* Submit modal */}
       {showSubmit && (
-        <SubmitModal questions={questions} answers={{...answers,...Object.fromEntries(Object.entries(multiSel).map(([k,v])=>[k,v]))}} flagged={flagged} onConfirm={doSubmit} onCancel={() => setShowSub(false)} submitting={submitting}/>
+        <SubmitModal questions={questions} answers={answers} flagged={flagged} onConfirm={doSubmit} onCancel={() => setShowSub(false)} submitting={submitting}/>
       )}
-
-      {/* Exit modal */}
-      {showExitModal && (
-        <div className="fixed inset-0 flex items-center justify-center z-[200]" style={{background:'rgba(0,0,0,0.7)'}}>
-          <div className="rounded-2xl p-8 max-w-sm w-full mx-4 shadow-2xl" style={{background:'var(--card-bg)',border:'1px solid var(--border)'}}>
-            <h2 className="text-lg font-black mb-2" style={{color:'var(--text)'}}>Exit quiz?</h2>
-            <p className="text-sm mb-6" style={{color:'var(--text-muted)'}}>Your progress will be lost if you exit without submitting.</p>
-            <div className="flex gap-3">
-              <button onClick={() => setShowExit(false)} className="flex-1 py-3 rounded-xl font-bold text-sm" style={{background:'var(--page-bg)',color:'var(--text)',border:'1px solid var(--border)'}}>Stay</button>
-              <button onClick={() => onFinish(null)} className="flex-1 py-3 rounded-xl font-black text-white text-sm" style={{background:'#ef4444'}}>Exit</button>
+      {showExit && (
+        <div style={{position:'fixed',inset:0,display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,background:'rgba(0,0,0,0.6)'}}>
+          <div style={{background:'var(--card-bg)',borderRadius:8,padding:32,maxWidth:380,width:'calc(100% - 32px)',boxShadow:'0 8px 32px rgba(0,0,0,0.2)',border:'1px solid var(--border)'}}>
+            <h2 style={{fontSize:18,fontWeight:600,color:'var(--text)',margin:'0 0 8px'}}>Exit assessment?</h2>
+            <p style={{fontSize:14,color:'var(--text-muted)',margin:'0 0 24px'}}>Your progress will be lost.</p>
+            <div style={{display:'flex',gap:10}}>
+              <d2l-button onClick={() => setShowExit(false)}>Stay</d2l-button>
+              <d2l-button onClick={() => onFinish(null)} style={{background:'#cc3333'}}>Exit</d2l-button>
             </div>
           </div>
         </div>
@@ -946,135 +887,126 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
 function QuizResult({ result, quiz, onRetake, onBrowse }) {
   const [expand, setExpand] = useState({})
   if (!result) return (
-    <div className="text-center py-20">
-      <button onClick={onBrowse} className="mt-4 px-6 py-3 rounded-xl font-bold text-white" style={{background:'#6366f1'}}>Back to Quizzes</button>
+    <div style={{textAlign:'center',padding:'80px 20px'}}>
+      <d2l-button primary onClick={onBrowse}>Back to Quizzes</d2l-button>
     </div>
   )
-
-  const { score=0, passed=false, earned=0, total=1, xp_earned=0, results=[] } = result
-  const r = Math.min(160, (score / 100) * 160)
+  const { score=0, passed=false, earned=0, total=1, xp_earned=0, results=[], time_taken=0 } = result
   const circ = 2 * Math.PI * 54
-  const dash = (r / 160) * circ
-  const scoreColor = score >= 80 ? '#10b981' : score >= 60 ? '#f59e0b' : '#ef4444'
-  const timeTaken  = result.time_taken || 0
+  const dash  = (score / 100) * circ
+  const scoreColor = score >= 80 ? '#1a7a3c' : score >= 60 ? '#d97706' : '#cc3333'
 
   return (
-    <div className="max-w-2xl mx-auto py-8 space-y-6">
+    <div style={{maxWidth:720, margin:'0 auto', paddingBottom:40}}>
       {passed && <Confetti/>}
 
       {/* Score card */}
-      <div className="card p-8 text-center relative overflow-hidden">
-        {passed && <div className="absolute inset-0 opacity-5" style={{background:'radial-gradient(circle,#10b981,transparent)'}}/>}
-        <div className="relative">
+      <div style={{background:'var(--card-bg)',border:'1px solid var(--border)',borderRadius:8,overflow:'hidden',marginBottom:20,boxShadow:'0 2px 12px rgba(0,0,0,0.06)'}}>
+        <div style={{height:6,background:passed?'#1a7a3c':'#d97706'}}/>
+        <div style={{padding:32,textAlign:'center'}}>
           {/* Score ring */}
-          <div className="flex justify-center mb-6">
-            <svg width={140} height={140} className="rotate-[-90deg]">
+          <div style={{display:'flex',justifyContent:'center',marginBottom:20}}>
+            <svg width={140} height={140} style={{transform:'rotate(-90deg)'}}>
               <circle cx={70} cy={70} r={54} fill="none" stroke="var(--border)" strokeWidth={10}/>
               <circle cx={70} cy={70} r={54} fill="none" stroke={scoreColor} strokeWidth={10}
-                strokeDasharray={`${dash} ${circ - dash}`} strokeLinecap="round"
-                style={{transition:'stroke-dasharray 1.2s cubic-bezier(0.4,0,0.2,1)'}}/>
+                strokeDasharray={`${dash} ${circ-dash}`} strokeLinecap="round"
+                style={{transition:'stroke-dasharray 1.2s ease'}}/>
             </svg>
-            <div className="absolute flex flex-col items-center justify-center" style={{width:140,height:140,top:0,left:'calc(50% - 70px)'}}>
-              <div className="text-4xl font-black" style={{color:scoreColor}}>{score}%</div>
-              <div className={`text-xs font-bold mt-1 px-2.5 py-0.5 rounded-full ${passed?'text-emerald-700 bg-emerald-100':'text-amber-700 bg-amber-100'}`}>
-                {passed ? '✓ PASS' : 'FAIL'}
-              </div>
+            <div style={{position:'absolute',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',width:140,height:140,marginLeft:-140}}>
+              <span style={{fontSize:36,fontWeight:700,color:scoreColor}}>{score}%</span>
+              <span style={{
+                fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:99,marginTop:4,
+                background:passed?'#edfcf1':'#fef0f0',color:passed?'#1a7a3c':'#cc3333'
+              }}>{passed?'PASS':'FAIL'}</span>
             </div>
           </div>
 
-          <h2 className="text-2xl font-black mb-2" style={{color:'var(--text)'}}>
-            {passed ? (score >= 90 ? '🏆 Outstanding!' : '🎉 Well Done!') : '📚 Keep Practising'}
+          <h2 style={{fontSize:22,fontWeight:600,color:'var(--text)',margin:'0 0 8px'}}>
+            {passed ? (score>=90?'Outstanding!':'Well Done!') : 'Keep Practising'}
           </h2>
-          <p className="text-sm mb-6" style={{color:'var(--text-muted)'}}>
-            You scored {score}% — {passed ? `passed with ${score - (quiz.pass_score||70)}% above the pass mark` : `${(quiz.pass_score||70) - score}% below the pass mark of ${quiz.pass_score||70}%`}
+          <p style={{fontSize:14,color:'var(--text-muted)',margin:'0 0 24px'}}>
+            {passed ? `Passed with ${score-(quiz.pass_score||70)}% above the pass mark` : `${(quiz.pass_score||70)-score}% below the pass mark of ${quiz.pass_score||70}%`}
           </p>
 
           {/* Stats */}
-          <div className="grid grid-cols-4 gap-3 mb-6">
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:24}}>
             {[
-              {l:'Points',v:`${earned}/${total}`,c:'#6366f1'},
-              {l:'XP Earned',v:`+${xp_earned}`,c:'#f59e0b'},
-              {l:'Correct',v:`${results.filter(r=>r.is_correct).length}/${results.length}`,c:'#10b981'},
-              {l:'Time',v:timeTaken>0?fmtTime(timeTaken):'—',c:'#0ea5e9'},
+              {l:'Points', v:`${earned}/${total}`, c:'#006fbf'},
+              {l:'XP Earned', v:`+${xp_earned}`, c:'#d97706'},
+              {l:'Correct', v:`${results.filter(r=>r.is_correct).length}/${results.length}`, c:'#1a7a3c'},
+              {l:'Time', v:time_taken>0?fmtTime(time_taken):'—', c:'#494c4e'},
             ].map(s => (
-              <div key={s.l} className="rounded-xl p-3 text-center" style={{background:'var(--page-bg)',border:'1px solid var(--border)'}}>
-                <div className="font-black text-sm" style={{color:s.c}}>{s.v}</div>
-                <div className="text-xs mt-0.5" style={{color:'var(--text-muted)'}}>{s.l}</div>
+              <div key={s.l} style={{padding:12,borderRadius:8,textAlign:'center',background:'var(--page-bg)',border:'1px solid var(--border)'}}>
+                <div style={{fontSize:20,fontWeight:700,color:s.c}}>{s.v}</div>
+                <div style={{fontSize:11,color:'var(--text-muted)',marginTop:2}}>{s.l}</div>
               </div>
             ))}
           </div>
 
-          {/* Actions */}
-          <div className="flex gap-3 justify-center flex-wrap">
-            <button onClick={onBrowse} className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all hover:opacity-80"
-              style={{background:'var(--page-bg)',color:'var(--text)',border:'1px solid var(--border)'}}>
-              <BookOpen className="w-4 h-4"/> All Quizzes
-            </button>
-            <button onClick={onRetake} className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm text-white transition-all hover:opacity-90"
-              style={{background:'linear-gradient(135deg,#6366f1,#4f46e5)'}}>
-              <RotateCcw className="w-4 h-4"/> Retake Quiz
-            </button>
+          <div style={{display:'flex',gap:12,justifyContent:'center',flexWrap:'wrap'}}>
+            <d2l-button onClick={onBrowse}>All Quizzes</d2l-button>
+            <d2l-button primary onClick={onRetake}>Retake Quiz</d2l-button>
           </div>
         </div>
       </div>
 
       {/* Per-question review */}
       {results.length > 0 && (
-        <div className="card overflow-hidden">
-          <div className="px-6 py-4 border-b" style={{borderColor:'var(--border)'}}>
-            <h3 className="font-bold" style={{color:'var(--text)'}}>Question Review</h3>
+        <div style={{background:'var(--card-bg)',border:'1px solid var(--border)',borderRadius:8,overflow:'hidden'}}>
+          <div style={{padding:'16px 20px',borderBottom:'1px solid var(--border)'}}>
+            <h3 style={{margin:0,fontSize:16,fontWeight:600,color:'var(--text)'}}>Question Review</h3>
           </div>
-          <div className="divide-y" style={{borderColor:'var(--border)'}}>
-            {results.map((r, i) => (
-              <div key={i} className="overflow-hidden">
-                <button className="w-full flex items-center gap-4 px-5 py-3 text-left hover:opacity-80 transition-opacity"
-                  onClick={() => setExpand(prev => ({...prev,[i]:!prev[i]}))}>
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
-                    style={{background:r.is_correct?'#f0fdf4':'#fef2f2'}}>
-                    {r.is_correct
-                      ? <CheckCircle className="w-4 h-4" style={{color:'#10b981'}}/>
-                      : <XCircle className="w-4 h-4" style={{color:'#ef4444'}}/>}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate" style={{color:'var(--text)'}}>{r.question_text}</p>
-                    <p className="text-xs" style={{color:r.is_correct?'#10b981':'#ef4444'}}>{r.is_correct?`+${r.points_earned} pts`:`${r.points_earned} pts`}</p>
-                  </div>
-                  {expand[i] ? <ChevronUp className="w-4 h-4 flex-shrink-0" style={{color:'var(--text-muted)'}}/> : <ChevronDown className="w-4 h-4 flex-shrink-0" style={{color:'var(--text-muted)'}}/>}
-                </button>
-                {expand[i] && (
-                  <div className="px-5 pb-4 pt-1" style={{borderTop:'1px solid var(--border)'}}>
-                    {r.options && r.options.length > 0 && (
-                      <div className="grid gap-1.5 mb-3">
-                        {r.options.map((opt, oi) => {
-                          const isCorrect = r.correct_answers?.includes(oi)||r.correct_answers?.includes(String(oi))
-                          const isUser    = r.user_answer===oi||r.user_answer===String(oi)||r.user_answer===oi
-                          return (
-                            <div key={oi} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
-                              style={{
-                                background:isCorrect?'#f0fdf4':isUser&&!isCorrect?'#fef2f2':'var(--page-bg)',
-                                border:`1px solid ${isCorrect?'#bbf7d0':isUser&&!isCorrect?'#fecaca':'var(--border)'}`,
-                              }}>
-                              <span style={{width:18,height:18,borderRadius:99,display:'inline-flex',alignItems:'center',justifyContent:'center',
-                                background:isCorrect?'#10b981':isUser&&!isCorrect?'#ef4444':'var(--border)',
-                                color:'white',fontSize:9,fontWeight:700,flexShrink:0}}>{String.fromCharCode(65+oi)}</span>
-                              <span style={{flex:1,color:'var(--text)'}}>{opt}</span>
-                              {isCorrect && <span style={{color:'#10b981',fontWeight:700}}>✓ Correct</span>}
-                              {isUser && !isCorrect && <span style={{color:'#ef4444',fontWeight:700}}>Your answer</span>}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                    {r.explanation && (
-                      <div className="text-xs p-3 rounded-lg" style={{background:'rgba(99,102,241,0.06)',color:'var(--text-muted)',border:'1px solid rgba(99,102,241,0.12)'}}>
-                        💡 {r.explanation}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+          {results.map((r, i) => (
+            <div key={i} style={{borderBottom:'1px solid var(--border)'}}>
+              <button onClick={() => setExpand(prev=>({...prev,[i]:!prev[i]}))} style={{
+                width:'100%',display:'flex',alignItems:'center',gap:12,padding:'12px 20px',
+                background:'transparent',border:'none',cursor:'pointer',textAlign:'left',
+              }}>
+                <div style={{
+                  width:28,height:28,borderRadius:99,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',
+                  background:r.is_correct?'#edfcf1':'#fef0f0'
+                }}>
+                  {r.is_correct
+                    ? <CheckCircle style={{width:16,height:16,color:'#1a7a3c'}}/>
+                    : <XCircle style={{width:16,height:16,color:'#cc3333'}}/>}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <p style={{margin:0,fontSize:14,fontWeight:500,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.question_text}</p>
+                  <p style={{margin:'2px 0 0',fontSize:12,color:r.is_correct?'#1a7a3c':'#cc3333'}}>{r.is_correct?`+${r.points_earned} pts`:`${r.points_earned} pts`}</p>
+                </div>
+                {expand[i] ? <ChevronUp style={{width:16,height:16,flexShrink:0,color:'var(--text-muted)'}}/> : <ChevronDown style={{width:16,height:16,flexShrink:0,color:'var(--text-muted)'}}/>}
+              </button>
+              {expand[i] && (
+                <div style={{padding:'4px 20px 16px 60px',borderTop:'1px solid var(--border)'}}>
+                  {r.options?.length > 0 && (
+                    <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:10}}>
+                      {r.options.map((opt, oi) => {
+                        const isCorrect = r.correct_answers?.includes(oi)||r.correct_answers?.includes(String(oi))
+                        const isUser    = r.user_answer===oi||r.user_answer===String(oi)
+                        return (
+                          <div key={oi} style={{
+                            display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:6,fontSize:13,
+                            background:isCorrect?'#edfcf1':isUser&&!isCorrect?'#fef0f0':'var(--page-bg)',
+                            border:`1px solid ${isCorrect?'#bbf7d0':isUser&&!isCorrect?'#fecaca':'var(--border)'}`,
+                          }}>
+                            <span style={{width:18,height:18,borderRadius:99,display:'flex',alignItems:'center',justifyContent:'center',background:isCorrect?'#1a7a3c':isUser&&!isCorrect?'#cc3333':'#cdd5dc',color:'white',fontSize:9,fontWeight:700,flexShrink:0}}>{String.fromCharCode(65+oi)}</span>
+                            <span style={{flex:1,color:'var(--text)'}}>{opt}</span>
+                            {isCorrect && <span style={{fontSize:11,fontWeight:700,color:'#1a7a3c'}}>✓ Correct</span>}
+                            {isUser&&!isCorrect && <span style={{fontSize:11,fontWeight:700,color:'#cc3333'}}>Your answer</span>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {r.explanation && (
+                    <div style={{fontSize:13,padding:'10px 12px',borderRadius:6,background:'rgba(0,111,191,0.06)',color:'var(--text-muted)',border:'1px solid rgba(0,111,191,0.12)'}}>
+                      💡 {r.explanation}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -1083,20 +1015,16 @@ function QuizResult({ result, quiz, onRetake, onBrowse }) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 export default function QuizMe() {
-  const [phase, setPhase]       = useState('browse')
-  const [quiz, setQuiz]         = useState(null)
-  const [studyMode, setStudy]   = useState(false)
-  const [result, setResult]     = useState(null)
-
-  const handleSelect = q  => { setQuiz(q); setPhase('confirm') }
-  const handleStart  = sm => { setStudy(sm); setPhase('play') }
-  const handleFinish = r  => { setResult(r); setPhase(r ? 'result' : 'browse') }
+  const [phase, setPhase]     = useState('browse')
+  const [quiz, setQuiz]       = useState(null)
+  const [studyMode, setStudy] = useState(false)
+  const [result, setResult]   = useState(null)
 
   return (
     <div>
-      {phase === 'browse'  && <QuizBrowser onSelect={handleSelect}/>}
-      {phase === 'confirm' && <QuizConfirm quiz={quiz} onStart={handleStart} onBack={() => setPhase('browse')}/>}
-      {phase === 'play'    && <QuizPlayer quiz={quiz} studyMode={studyMode} onFinish={handleFinish}/>}
+      {phase === 'browse'  && <QuizBrowser onSelect={q => { setQuiz(q); setPhase('confirm') }}/>}
+      {phase === 'confirm' && <QuizConfirm quiz={quiz} onStart={sm => { setStudy(sm); setPhase('play') }} onBack={() => setPhase('browse')}/>}
+      {phase === 'play'    && <QuizPlayer quiz={quiz} studyMode={studyMode} onFinish={r => { setResult(r); setPhase(r ? 'result' : 'browse') }}/>}
       {phase === 'result'  && <QuizResult result={result} quiz={quiz} onRetake={() => setPhase('confirm')} onBrowse={() => setPhase('browse')}/>}
     </div>
   )
