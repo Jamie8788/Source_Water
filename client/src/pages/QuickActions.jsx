@@ -1,634 +1,556 @@
+import { Canvas, useFrame, extend, useThree } from '@react-three/fiber'
+import { Stars, Float, Sparkles, Html, Trail, MeshDistortMaterial, Effects, Billboard } from '@react-three/drei'
+import * as THREE from 'three'
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+import { useRef, useState, useEffect, useMemo, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useState, useEffect, useRef } from 'react'
 import {
-  LayoutDashboard, Sparkles, Map, BellRing, FileBarChart2,
+  LayoutDashboard, Sparkles as SparklesIcon, Map, BellRing, FileBarChart2,
   Users, BookOpen, GraduationCap, LineChart, Microscope,
   FlaskConical, CloudSun, Joystick,
 } from 'lucide-react'
 
-/* ── Portal nodes – positions are % on the map canvas ───────────────────── */
+extend({ UnrealBloomPass })
+
+/* ─── Portal definitions ────────────────────────────────────────── */
 const PORTALS = [
-  { label: 'Dashboard',     sub: 'Overview',      icon: LayoutDashboard, path: '/dashboard',  color: '#1a78c2', glow: '#4db6f5', x: 52, y: 44 },
-  { label: 'Ask Water AI',  sub: 'Talk to Water',  icon: Sparkles,        path: '/ask-water',  color: '#7c3aed', glow: '#a78bfa', x: 78, y: 24 },
-  { label: 'Live Map',      sub: 'Explore',        icon: Map,             path: '/map',        color: '#0e7490', glow: '#22d3ee', x: 20, y: 28 },
-  { label: 'Alerts',        sub: 'Stay notified',  icon: BellRing,        path: '/alerts',     color: '#b45309', glow: '#fcd34d', x: 52, y: 13 },
-  { label: 'Reports',       sub: 'Stats & trends', icon: FileBarChart2,   path: '/reports',    color: '#1d4ed8', glow: '#60a5fa', x: 82, y: 50 },
-  { label: 'Community',     sub: 'Connect',        icon: Users,           path: '/social',     color: '#be185d', glow: '#f472b6', x: 10, y: 56 },
-  { label: 'Resources',     sub: 'Learn & quiz',   icon: BookOpen,        path: '/resources',  color: '#166534', glow: '#4ade80', x: 32, y: 70 },
-  { label: 'Quiz & Learn',  sub: 'Test yourself',  icon: GraduationCap,   path: '/quiz',       color: '#9a3412', glow: '#fb923c', x: 68, y: 72 },
-  { label: 'Data Analysis', sub: 'Deep dive',      icon: LineChart,       path: '/analysis',   color: '#1e3a8a', glow: '#818cf8', x: 84, y: 35 },
-  { label: 'Research Hub',  sub: 'Projects & tools', icon: Microscope,   path: '/research',   color: '#581c87', glow: '#c084fc', x: 16, y: 72 },
-  { label: 'Projects',      sub: 'Build & track',  icon: FlaskConical,   path: '/projects',   color: '#134e4a', glow: '#5eead4', x: 60, y: 84 },
-  { label: 'Weather',       sub: 'Conditions',     icon: CloudSun,        path: '/weather',    color: '#0c4a6e', glow: '#7dd3fc', x: 36, y: 17 },
-  { label: 'Games',         sub: 'Water activities', icon: Joystick,      path: '/games',      color: '#4a044e', glow: '#e879f9', x: 20, y: 84 },
+  { label:'Dashboard',     sub:'Overview',         Icon:LayoutDashboard, path:'/dashboard', color:'#1a78c2', glow:'#4db6f5', svgX:52, svgY:44 },
+  { label:'Ask Water AI',  sub:'Talk to Water',    Icon:SparklesIcon,    path:'/ask-water', color:'#7c3aed', glow:'#a78bfa', svgX:78, svgY:24 },
+  { label:'Live Map',      sub:'Explore',          Icon:Map,             path:'/map',       color:'#0e7490', glow:'#22d3ee', svgX:20, svgY:28 },
+  { label:'Alerts',        sub:'Stay notified',    Icon:BellRing,        path:'/alerts',    color:'#b45309', glow:'#fcd34d', svgX:52, svgY:13 },
+  { label:'Reports',       sub:'Stats & trends',   Icon:FileBarChart2,   path:'/reports',   color:'#1d4ed8', glow:'#60a5fa', svgX:82, svgY:50 },
+  { label:'Community',     sub:'Connect',          Icon:Users,           path:'/social',    color:'#be185d', glow:'#f472b6', svgX:10, svgY:56 },
+  { label:'Resources',     sub:'Learn & explore',  Icon:BookOpen,        path:'/resources', color:'#166534', glow:'#4ade80', svgX:32, svgY:70 },
+  { label:'Quiz & Learn',  sub:'Test yourself',    Icon:GraduationCap,   path:'/quiz',      color:'#9a3412', glow:'#fb923c', svgX:68, svgY:72 },
+  { label:'Data Analysis', sub:'Deep dive',        Icon:LineChart,       path:'/analysis',  color:'#1e3a8a', glow:'#818cf8', svgX:84, svgY:35 },
+  { label:'Research Hub',  sub:'Projects & tools', Icon:Microscope,      path:'/research',  color:'#581c87', glow:'#c084fc', svgX:16, svgY:72 },
+  { label:'Projects',      sub:'Build & track',    Icon:FlaskConical,    path:'/projects',  color:'#134e4a', glow:'#5eead4', svgX:60, svgY:84 },
+  { label:'Weather',       sub:'Conditions',       Icon:CloudSun,        path:'/weather',   color:'#0c4a6e', glow:'#7dd3fc', svgX:36, svgY:17 },
+  { label:'Games',         sub:'Water activities', Icon:Joystick,        path:'/games',     color:'#4a044e', glow:'#e879f9', svgX:20, svgY:84 },
+].map(p => ({
+  ...p,
+  pos: [(p.svgX - 50) * 0.22, 2.4, (p.svgY - 50) * 0.22],
+}))
+
+/* ─── Great Lakes 3D shapes (shapeX = worldX, shapeY = worldZ) ─── */
+const LAKES = [
+  {
+    name:'Lake Superior', color:'#0369a1', emissive:'#075985',
+    labelPos:[-2.5, 0.5, -7.2],
+    pts:[[-6.8,-8.8],[-4.4,-9.2],[-1.6,-9.2],[0.4,-8.6],[1.6,-7.8],[1.4,-6.6],[0,-5.2],[-1,-4.6],[-3,-4.6],[-5.2,-5.2],[-6.8,-6.2]],
+  },
+  {
+    name:'L. Michigan', color:'#0c4a6e', emissive:'#0369a1',
+    labelPos:[-3.2, 0.5, -0.8],
+    pts:[[-3.6,-5],[-4.4,-3.4],[-4.2,-1],[-3.8,1.2],[-3.2,3],[-2.4,2.8],[-1.8,1.8],[-1.8,-0.8],[-2,-2.8],[-2.8,-5]],
+  },
+  {
+    name:'Lake Huron', color:'#0e7490', emissive:'#155e75',
+    labelPos:[1.2, 0.5, -3.2],
+    pts:[[-0.6,-6.6],[1,-6.8],[2.4,-6.2],[3.6,-5.2],[3.6,-3.6],[3.4,-1.8],[2.6,-0.4],[1.2,0.4],[0,0.4],[-0.8,-0.4],[-1.6,-2.4],[-0.8,-5.6]],
+  },
+  {
+    name:'Lake Erie', color:'#14532d', emissive:'#166534',
+    labelPos:[1.4, 0.5, 2],
+    pts:[[-2.2,0.6],[0.2,0.2],[1.8,0.6],[3.4,0.8],[4.4,1.6],[4.4,2.8],[3.6,3.4],[1.6,3.4],[-0.2,3.2],[-1.4,2.6],[-2.2,1.8]],
+  },
+  {
+    name:'L. Ontario', color:'#164e63', emissive:'#155e75',
+    labelPos:[5.2, 0.5, 1.8],
+    pts:[[3.6,0.2],[5.2,0],[6.8,0.6],[7.4,1.4],[7.2,2.8],[6.2,3.2],[4.6,3.2],[3.6,2.4],[3.2,1.4]],
+  },
 ]
 
-const LINES = [
-  [0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],[0,9],[0,10],[0,11],[0,12],
-  [2,11],[3,11],[4,8],[1,8],[5,9],[6,12],[7,10],[1,7],[3,3],[2,5],
-]
-
-/* ── Great Lakes SVG paths (simplified, viewBox 0 0 100 100) ─────────────── */
-const LAKES_SVG = `
-  <path d="M16,11 Q20,7 28,6 Q38,5 48,8 Q56,11 58,17 Q56,23 50,26 Q42,28 32,25 Q22,21 18,16 Z" fill="rgba(62,138,187,0.72)" stroke="rgba(30,90,140,0.5)" stroke-width="0.3"/>
-  <text x="34" y="17" font-size="2.2" fill="rgba(20,60,100,0.7)" text-anchor="middle" font-style="italic" font-family="Georgia,serif">Lake Superior</text>
-  <path d="M32,28 Q30,33 29,42 Q28,52 30,60 Q33,65 37,63 Q41,59 41,50 Q43,40 41,32 Q39,26 35,26 Z" fill="rgba(62,138,187,0.68)" stroke="rgba(30,90,140,0.5)" stroke-width="0.3"/>
-  <text x="35" y="47" font-size="2" fill="rgba(20,60,100,0.7)" text-anchor="middle" font-style="italic" font-family="Georgia,serif">L. Michigan</text>
-  <path d="M46,19 Q54,17 62,19 Q68,23 68,30 Q68,38 64,44 Q60,50 54,52 Q48,52 44,46 Q40,40 41,30 Q42,23 46,19 Z" fill="rgba(62,138,187,0.7)" stroke="rgba(30,90,140,0.5)" stroke-width="0.3"/>
-  <text x="55" y="36" font-size="2.2" fill="rgba(20,60,100,0.7)" text-anchor="middle" font-style="italic" font-family="Georgia,serif">Lake Huron</text>
-  <path d="M44,56 Q52,53 62,55 Q70,57 72,62 Q70,66 60,67 Q50,67 44,64 Q40,61 42,57 Z" fill="rgba(62,138,187,0.66)" stroke="rgba(30,90,140,0.5)" stroke-width="0.3"/>
-  <text x="57" y="62" font-size="2" fill="rgba(20,60,100,0.7)" text-anchor="middle" font-style="italic" font-family="Georgia,serif">Lake Erie</text>
-  <path d="M70,54 Q76,52 82,54 Q86,57 85,62 Q82,65 76,64 Q70,63 68,59 Q68,55 70,54 Z" fill="rgba(62,138,187,0.65)" stroke="rgba(30,90,140,0.5)" stroke-width="0.3"/>
-  <text x="77" y="59.5" font-size="1.8" fill="rgba(20,60,100,0.7)" text-anchor="middle" font-style="italic" font-family="Georgia,serif">L. Ontario</text>
+/* ─── Animated ocean floor ──────────────────────────────────────── */
+const VERT = `
+  uniform float uTime;
+  varying vec2 vUv;
+  varying float vWave;
+  varying vec3 vPos;
+  void main(){
+    vUv=uv; vPos=position;
+    float w =sin(position.x*0.35+uTime*0.7)*0.22
+             +sin(position.z*0.45+uTime*0.9)*0.18
+             +sin((position.x+position.z)*0.22+uTime*0.5)*0.14
+             +cos(position.x*0.12+position.z*0.18+uTime*0.3)*0.1;
+    vWave=w;
+    gl_Position=projectionMatrix*modelViewMatrix*vec4(position.x,position.y+w,position.z,1.0);
+  }
+`
+const FRAG = `
+  uniform float uTime;
+  varying vec2 vUv;
+  varying float vWave;
+  varying vec3 vPos;
+  void main(){
+    float caustic=sin(vPos.x*1.8+uTime)*sin(vPos.z*2.1+uTime*0.8)*0.5+0.5;
+    caustic=caustic*caustic;
+    vec3 deep=vec3(0.02,0.06,0.18);
+    vec3 mid =vec3(0.04,0.14,0.35);
+    vec3 foam=vec3(0.2,0.5,0.9);
+    vec3 col=mix(deep,mid,caustic*0.4+vWave*1.2);
+    col=mix(col,foam,max(0.0,vWave-0.1)*1.5);
+    vec2 e=abs(vUv-0.5)*2.0;
+    float fade=1.0-smoothstep(0.65,1.0,max(e.x,e.y));
+    gl_FragColor=vec4(col,fade*0.88);
+  }
 `
 
-const CSS = `
-@keyframes mapPortalPulse {
-  0%,100% { box-shadow: 0 0 0 2px var(--ring), 0 0 16px var(--glow), 0 2px 8px rgba(0,0,0,0.3) }
-  50%     { box-shadow: 0 0 0 4px var(--ring), 0 0 28px var(--glow), 0 2px 8px rgba(0,0,0,0.3) }
-}
-@keyframes portalFloatIn {
-  0%   { opacity:0; transform:translate(-50%,-50%) scale(0.3) }
-  70%  { transform:translate(-50%,-50%) scale(1.08) }
-  100% { opacity:1; transform:translate(-50%,-50%) scale(1) }
-}
-@keyframes waveRoll {
-  from { transform:translateX(0) }
-  to   { transform:translateX(-50%) }
-}
-@keyframes waveRoll2 {
-  from { transform:translateX(-50%) }
-  to   { transform:translateX(0) }
-}
-@keyframes compassNeedle {
-  0%,100% { filter:drop-shadow(0 0 4px rgba(220,50,50,0.9)) }
-  50%     { filter:drop-shadow(0 0 8px rgba(220,50,50,1)) }
-}
-@keyframes titleShimmer {
-  0%,100% { opacity:1 }
-  50%     { opacity:0.88 }
-}
-@keyframes wakefade {
-  0%   { opacity:0.55; r:3 }
-  100% { opacity:0;    r:1 }
-}
-@keyframes windLine {
-  0%   { transform:translateX(0)  opacity:0 }
-  20%  { opacity:0.4 }
-  80%  { opacity:0.4 }
-  100% { transform:translateX(60px); opacity:0 }
-}
-@keyframes fogDrift {
-  0%,100% { transform:translateX(0) translateY(0); opacity:0.06 }
-  50%     { transform:translateX(2%) translateY(-5px); opacity:0.1 }
-}
-@keyframes seaSpark {
-  0%,100% { opacity:0 }
-  50%     { opacity:0.6 }
-}
-@keyframes labelAppear {
-  0%   { opacity:0; transform:translateX(-4px) }
-  100% { opacity:1; transform:translateX(0) }
-}
-`
-
-/* ── Ship SVG ────────────────────────────────────────────────────────────── */
-function ShipSVG({ angle = 0, scale = 1 }) {
+function Ocean() {
+  const matRef = useRef()
+  const uniforms = useMemo(()=>({ uTime:{value:0} }),[])
+  useFrame(({clock})=>{ if(matRef.current) matRef.current.uniforms.uTime.value=clock.getElapsedTime() })
   return (
-    <svg
-      width={80 * scale} height={56 * scale}
-      viewBox="0 0 80 56"
-      fill="none"
-      style={{ transform: `rotate(${angle + 90}deg)`, transformOrigin: '50% 65%', transition: 'transform 0.05s linear' }}
-    >
-      {/* Hull shadow */}
-      <ellipse cx="40" cy="46" rx="28" ry="5" fill="rgba(0,0,0,0.18)"/>
-      {/* Hull */}
-      <path d="M12 36 Q40 46 68 36 L60 44 Q40 50 20 44 Z" fill="#7c3a1a" stroke="#4a1f00" strokeWidth="1"/>
-      <rect x="18" y="30" width="44" height="7" rx="2" fill="#9b4a22" stroke="#4a1f00" strokeWidth="0.8"/>
-      {/* Masts */}
-      <line x1="40" y1="5" x2="40" y2="34" stroke="#3d2510" strokeWidth="2.5"/>
-      <line x1="26" y1="12" x2="26" y2="33" stroke="#3d2510" strokeWidth="2"/>
-      <line x1="54" y1="14" x2="54" y2="33" stroke="#3d2510" strokeWidth="1.8"/>
-      {/* Sails */}
-      <path d="M42 6 Q56 18 50 34 L42 34 Z" fill="rgba(252,248,230,0.96)" stroke="#c8b060" strokeWidth="0.8"/>
-      <path d="M28 13 Q40 22 36 33 L28 33 Z" fill="rgba(252,248,230,0.92)" stroke="#c8b060" strokeWidth="0.8"/>
-      <path d="M56 15 Q64 22 62 33 L56 33 Z" fill="rgba(252,248,230,0.85)" stroke="#c8b060" strokeWidth="0.8"/>
-      <path d="M16 22 L26 13 L26 32 Z" fill="rgba(252,248,230,0.82)" stroke="#c8b060" strokeWidth="0.8"/>
-      {/* Flag */}
-      <path d="M40 5 L50 8 L40 11 Z" fill="#1a78c2"/>
-      {/* Crow nest */}
-      <rect x="36" y="12" width="8" height="5" rx="1.5" fill="#7c3a1a"/>
-      {/* Waterline waves */}
-      <path d="M10 42 Q18 39 26 42 Q34 45 42 42 Q50 39 58 42 Q66 45 72 42"
-        stroke="rgba(62,138,187,0.6)" strokeWidth="1.2" fill="none"/>
-    </svg>
+    <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.12,0]}>
+      <planeGeometry args={[80,80,128,128]}/>
+      <shaderMaterial ref={matRef} uniforms={uniforms} vertexShader={VERT} fragmentShader={FRAG} transparent side={THREE.DoubleSide}/>
+    </mesh>
   )
 }
 
-/* ── Compass Rose (interactive) ─────────────────────────────────────────── */
-function Compass({ heading = 0 }) {
+/* ─── Great Lake extruded mesh ──────────────────────────────────── */
+function GreatLake({ lake }) {
+  const shape = useMemo(()=>{
+    const s = new THREE.Shape()
+    s.moveTo(lake.pts[0][0], lake.pts[0][1])
+    lake.pts.slice(1).forEach(([x,y])=>s.lineTo(x,y))
+    s.closePath(); return s
+  },[lake.pts])
+  const geo = useMemo(()=>new THREE.ExtrudeGeometry(shape,{ depth:0.35, bevelEnabled:true, bevelThickness:0.04, bevelSize:0.04, bevelSegments:3 }),[shape])
+  const [hov,setHov] = useState(false)
+  const meshRef = useRef()
+  useFrame(()=>{ if(meshRef.current) meshRef.current.material.emissiveIntensity = THREE.MathUtils.lerp(meshRef.current.material.emissiveIntensity, hov?0.7:0.28, 0.08) })
   return (
-    <svg width="100" height="100" viewBox="0 0 100 100" style={{ display: 'block' }}>
-      {/* Outer decorative ring */}
-      <circle cx="50" cy="50" r="47" fill="rgba(232,212,162,0.95)" stroke="#8b6914" strokeWidth="2"/>
-      <circle cx="50" cy="50" r="42" fill="none" stroke="#b8962a" strokeWidth="0.8" strokeDasharray="3 3"/>
-      {/* Degree ticks */}
-      {Array.from({ length: 36 }, (_, i) => {
-        const a = (i * 10) * Math.PI / 180
-        const r1 = 40, r2 = i % 9 === 0 ? 32 : i % 3 === 0 ? 36 : 38
-        return <line key={i}
-          x1={50 + Math.cos(a - Math.PI/2) * r1} y1={50 + Math.sin(a - Math.PI/2) * r1}
-          x2={50 + Math.cos(a - Math.PI/2) * r2} y2={50 + Math.sin(a - Math.PI/2) * r2}
-          stroke="#8b6914" strokeWidth={i % 9 === 0 ? 1.5 : 0.7}/>
-      })}
-      {/* Rose petals (rotate with heading) */}
-      <g transform={`rotate(${heading} 50 50)`} style={{ transition: 'transform 0.1s linear' }}>
-        {[0, 45, 90, 135].map(deg => (
-          <g key={deg} transform={`rotate(${deg} 50 50)`}>
-            <polygon points="50,16 47,50 50,44 53,50" fill={deg === 0 ? '#c8332a' : 'rgba(180,140,60,0.95)'}/>
-            <polygon points="50,84 47,50 50,56 53,50" fill="rgba(100,70,30,0.8)"/>
-          </g>
-        ))}
-        {/* Center */}
-        <circle cx="50" cy="50" r="7" fill="none" stroke="#8b6914" strokeWidth="1.5"/>
-        <circle cx="50" cy="50" r="3.5" fill="#b8962a"/>
-        {/* Cardinal labels */}
-        {[['N','#c8332a',50,10],['E','#5c3d1e',90,52],['S','#5c3d1e',50,94],['W','#5c3d1e',10,52]].map(([l,c,x,y]) => (
-          <text key={l} x={x} y={y} textAnchor="middle" dominantBaseline="middle"
-            fontSize="10" fontWeight="800" fontFamily="Georgia,serif" fill={c}>{l}</text>
-        ))}
-      </g>
-    </svg>
-  )
-}
-
-export default function QuickActions() {
-  const navigate = useNavigate()
-  const [hovered, setHovered] = useState(null)
-  const [mounted, setMounted] = useState(false)
-
-  // Ship state (in % coords)
-  const shipRef = useRef({ x: 52, y: 58, angle: -20, speed: 0 })
-  const [shipRender, setShipRender] = useState({ x: 52, y: 58, angle: -20 })
-  const [wake, setWake] = useState([])
-  const keysRef = useRef({})
-  const rafRef = useRef()
-
-  // Keyboard controls
-  useEffect(() => {
-    const down = e => {
-      keysRef.current[e.key] = true
-      // prevent arrow keys scrolling page while on this tab
-      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault()
-    }
-    const up = e => { keysRef.current[e.key] = false }
-    window.addEventListener('keydown', down)
-    window.addEventListener('keyup', up)
-    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
-  }, [])
-
-  // Game loop
-  useEffect(() => {
-    let lastWakeTime = 0
-    const loop = (now) => {
-      const k = keysRef.current
-      const s = shipRef.current
-
-      // Turn (left = counter-clockwise)
-      if (k['ArrowLeft'] || k['a'] || k['A']) s.angle -= 2.8
-      if (k['ArrowRight'] || k['d'] || k['D']) s.angle += 2.8
-
-      // Throttle
-      const fwd = k['ArrowUp'] || k['w'] || k['W']
-      const rev = k['ArrowDown'] || k['s'] || k['S']
-      if (fwd)  s.speed = Math.min(s.speed + 0.025, 0.45)
-      else if (rev) s.speed = Math.max(s.speed - 0.02, -0.18)
-      else s.speed *= 0.94
-
-      // Move
-      const rad = (s.angle - 90) * Math.PI / 180
-      const nx = Math.max(3, Math.min(95, s.x + Math.cos(rad) * s.speed))
-      const ny = Math.max(3, Math.min(92, s.y + Math.sin(rad) * s.speed))
-      const moved = nx !== s.x || ny !== s.y
-      s.x = nx; s.y = ny
-
-      // Wake trail
-      if (Math.abs(s.speed) > 0.06 && now - lastWakeTime > 80) {
-        lastWakeTime = now
-        setWake(w => [{ x: s.x, y: s.y, id: now }, ...w.slice(0, 28)])
-      }
-
-      // Sync render state
-      setShipRender({ x: s.x, y: s.y, angle: s.angle, speed: s.speed })
-
-      rafRef.current = requestAnimationFrame(loop)
-    }
-    rafRef.current = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(rafRef.current)
-  }, [])
-
-  useEffect(() => {
-    const t = setTimeout(() => setMounted(true), 80)
-    return () => clearTimeout(t)
-  }, [])
-
-  // Normalize angle 0-360
-  const compassHeading = ((shipRender.angle % 360) + 360) % 360
-  const isMoving = Math.abs(shipRender.speed) > 0.05
-
-  return (
-    <div style={{
-      position: 'relative', width: '100%',
-      minHeight: 'calc(100vh - 120px)',
-      overflow: 'hidden', borderRadius: 16,
-      background: 'linear-gradient(160deg, #e8d4a0 0%, #d4b888 30%, #c9a870 60%, #d8c090 100%)',
-      fontFamily: 'Georgia,"Times New Roman",serif',
-      cursor: 'default',
-    }}>
-      <style>{CSS}</style>
-
-      {/* ── Parchment grain texture overlay ── */}
-      <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', zIndex:0, pointerEvents:'none', opacity:0.18 }}>
-        <filter id="grain">
-          <feTurbulence type="fractalNoise" baseFrequency="0.68" numOctaves="4" stitchTiles="stitch"/>
-          <feColorMatrix type="saturate" values="0"/>
-        </filter>
-        <rect width="100%" height="100%" filter="url(#grain)"/>
-      </svg>
-
-      {/* ── Map aging vignette ── */}
-      <div style={{
-        position:'absolute', inset:0, zIndex:1, pointerEvents:'none',
-        background:`
-          radial-gradient(ellipse 90% 80% at 50% 50%, transparent 40%, rgba(100,60,10,0.28) 100%),
-          radial-gradient(ellipse 60% 40% at 20% 80%, rgba(120,70,10,0.18) 0%, transparent 60%),
-          radial-gradient(ellipse 50% 50% at 80% 10%, rgba(100,60,10,0.14) 0%, transparent 50%)
-        `,
-      }}/>
-
-      {/* ── Latitude / longitude grid ── */}
-      <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', zIndex:2, pointerEvents:'none', opacity:0.22 }}>
-        {Array.from({length:10},(_,i)=>(
-          <g key={i}>
-            <line x1={`${(i+1)*9}%`} y1="0" x2={`${(i+1)*9}%`} y2="100%" stroke="#8b6020" strokeWidth="0.5" strokeDasharray="4 6"/>
-            <line x1="0" y1={`${(i+1)*9}%`} x2="100%" y2={`${(i+1)*9}%`} stroke="#8b6020" strokeWidth="0.5" strokeDasharray="4 6"/>
-          </g>
-        ))}
-      </svg>
-
-      {/* ── Great Lakes map ── */}
-      <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', zIndex:3, pointerEvents:'none' }}
-        viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice">
-        {/* Land mass (background fill for continent) */}
-        <path d="M0,0 L100,0 L100,100 L0,100 Z" fill="rgba(200,170,110,0.0)"/>
-        {/* Shoreline decorations */}
-        <path d="M5,5 Q50,2 95,5 Q98,50 95,95 Q50,98 5,95 Q2,50 5,5 Z"
-          fill="none" stroke="rgba(140,100,40,0.15)" strokeWidth="0.5"/>
-        {/* Lakes */}
-        <g dangerouslySetInnerHTML={{__html: LAKES_SVG}}/>
-        {/* Wave texture inside lakes */}
-        {[
-          'M20,15 Q30,13 40,15', 'M22,18 Q32,16 42,18',
-          'M32,35 Q35,33 38,35', 'M30,38 Q34,36 37,38',
-          'M48,28 Q54,26 60,28', 'M47,32 Q53,30 59,32',
-          'M46,59 Q54,57 62,59', 'M72,57 Q77,55 82,57',
-        ].map((d,i) => (
-          <path key={i} d={d} stroke="rgba(100,170,210,0.4)" strokeWidth="0.5" fill="none"/>
-        ))}
-        {/* Decorative ship routes (historical) */}
-        <path d="M20,28 Q36,20 52,44 Q65,60 82,50"
-          stroke="rgba(140,80,20,0.25)" strokeWidth="0.7" fill="none" strokeDasharray="3 4"/>
-        <path d="M10,56 Q30,40 52,44 Q70,48 84,35"
-          stroke="rgba(140,80,20,0.2)" strokeWidth="0.6" fill="none" strokeDasharray="2 5"/>
-        {/* Depth soundings */}
-        {[[35,14,'42'],[55,30,'187'],[50,22,'36'],[57,61,'24'],[75,58,'10']].map(([x,y,d],i)=>(
-          <text key={i} x={x} y={y} fontSize="1.6" fill="rgba(30,70,120,0.55)" textAnchor="middle" fontFamily="Georgia,serif">{d}</text>
-        ))}
-        {/* Small geographical labels */}
-        {[
-          [18,6,'CANADA'],
-          [82,80,'UNITED STATES'],
-          [8,40,'WISCONSIN'],
-          [72,74,'OHIO'],
-        ].map(([x,y,t],i)=>(
-          <text key={i} x={x} y={y} fontSize="1.8" fill="rgba(80,50,20,0.35)" textAnchor="middle"
-            fontFamily="system-ui,sans-serif" fontWeight="700" letterSpacing="0.15em">{t}</text>
-        ))}
-      </svg>
-
-      {/* ── Water waves ── */}
-      <div style={{ position:'absolute', inset:0, zIndex:4, pointerEvents:'none', overflow:'hidden' }}>
-        <svg style={{ position:'absolute', bottom:'8%', width:'200%', opacity:0.1,
-          animation:'waveRoll 18s linear infinite' }}
-          viewBox="0 0 1440 40" height="40" preserveAspectRatio="none">
-          <path d="M0,20 C160,5 320,35 480,20 C640,5 800,35 960,20 C1120,5 1280,35 1440,20 L1440,40 L0,40 Z"
-            fill="#2a7aa0"/>
-        </svg>
-        <svg style={{ position:'absolute', bottom:'4%', width:'200%', opacity:0.07,
-          animation:'waveRoll2 24s linear infinite' }}
-          viewBox="0 0 1440 30" height="30" preserveAspectRatio="none">
-          <path d="M0,15 C240,4 480,26 720,15 C960,4 1200,26 1440,15 L1440,30 L0,30 Z"
-            fill="#14b8a6"/>
-        </svg>
-      </div>
-
-      {/* ── Fog wisps ── */}
-      {[
-        { top:'10%', left:'5%', w:'40%' },
-        { top:'55%', right:'5%', w:'35%' },
-        { bottom:'15%', left:'25%', w:'30%' },
-      ].map((f,i) => (
-        <div key={i} style={{
-          position:'absolute', ...f, height:'12%', zIndex:5, pointerEvents:'none',
-          background:'radial-gradient(ellipse at 50% 50%, rgba(255,250,230,0.55) 0%, transparent 100%)',
-          filter:'blur(12px)',
-          animation:`fogDrift ${14+i*4}s ease-in-out infinite`,
-          animationDelay:`${i*3}s`,
-        }}/>
-      ))}
-
-      {/* ── Portal connection lines ── */}
-      <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', zIndex:6, pointerEvents:'none' }}>
-        <defs>
-          <filter id="inkBlur">
-            <feGaussianBlur stdDeviation="1.5"/>
-          </filter>
-          {PORTALS.map((p,i) => (
-            <radialGradient key={i} id={`lg${i}`}>
-              <stop offset="0%" stopColor={p.color} stopOpacity="0.9"/>
-              <stop offset="100%" stopColor={p.color} stopOpacity="0.2"/>
-            </radialGradient>
-          ))}
-        </defs>
-        {LINES.map(([a,b], i) => {
-          const pa = PORTALS[a], pb = PORTALS[b]
-          const ah = hovered === a || hovered === b
-          return (
-            <line key={i}
-              x1={`${pa.x}%`} y1={`${pa.y}%`}
-              x2={`${pb.x}%`} y2={`${pb.y}%`}
-              stroke={ah ? pa.color : 'rgba(100,65,20,0.35)'}
-              strokeWidth={ah ? 1.8 : 0.9}
-              strokeDasharray={ah ? 'none' : '5 5'}
-              strokeOpacity={ah ? 0.85 : 1}
-              filter={ah ? 'url(#inkBlur)' : 'none'}
-              style={{ transition:'all 0.3s' }}
-            />
-          )
-        })}
-      </svg>
-
-      {/* ── Wake trail ── */}
-      <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', zIndex:7, pointerEvents:'none' }}>
-        {wake.map((w, i) => {
-          const age = i / wake.length
-          return (
-            <ellipse key={w.id}
-              cx={`${w.x}%`} cy={`${w.y}%`}
-              rx={`${0.6 - age * 0.5}%`} ry={`${0.2 - age * 0.15}%`}
-              fill="none"
-              stroke="rgba(80,150,200,0.5)"
-              strokeWidth={Math.max(0.2, 1 - age * 0.8)}
-              opacity={Math.max(0, 0.6 - age * 0.6)}
-              transform={`rotate(${shipRender.angle} ${w.x * (window.innerWidth/100)} ${w.y * ((window.innerHeight - 120)/100)})`}
-            />
-          )
-        })}
-      </svg>
-
-      {/* ── Drivable ship ── */}
-      <div style={{
-        position: 'absolute',
-        left: `${shipRender.x}%`,
-        top: `${shipRender.y}%`,
-        transform: 'translate(-50%, -60%)',
-        zIndex: 12,
-        pointerEvents: 'none',
-        filter: `drop-shadow(2px 4px 6px rgba(0,0,0,0.4))${isMoving ? ' drop-shadow(0 0 8px rgba(100,180,255,0.3))' : ''}`,
-        transition: 'filter 0.3s',
-      }}>
-        <ShipSVG angle={shipRender.angle} scale={1.1}/>
-      </div>
-
-      {/* ── Portal nodes ── */}
-      {PORTALS.map((portal, i) => {
-        const Icon = portal.icon
-        const isH = hovered === i
-        const isCenter = i === 0
-        const size = isCenter ? 88 : 68
-
-        // Check if ship is near this portal
-        const dx = portal.x - shipRender.x
-        const dy = portal.y - shipRender.y
-        const nearShip = Math.sqrt(dx*dx + dy*dy) < 6
-
-        return (
-          <div key={portal.path}
-            onClick={() => navigate(portal.path)}
-            onMouseEnter={() => setHovered(i)}
-            onMouseLeave={() => setHovered(null)}
-            style={{
-              position:'absolute',
-              left:`${portal.x}%`, top:`${portal.y}%`,
-              transform:'translate(-50%,-50%)',
-              zIndex: 10,
-              cursor:'pointer',
-              opacity: mounted ? 1 : 0,
-              animation: mounted ? `portalFloatIn 0.55s cubic-bezier(0.34,1.56,0.64,1) ${i*0.07}s both` : 'none',
-            }}
-          >
-            {/* Outer glow ring */}
-            <div style={{
-              position:'absolute',
-              inset: -6,
-              borderRadius:'50%',
-              border: `2px solid ${portal.color}`,
-              opacity: isH || nearShip ? 0.9 : 0.45,
-              boxShadow: isH || nearShip ? `0 0 16px ${portal.glow}` : 'none',
-              transition:'all 0.25s',
-              pointerEvents:'none',
-            }}/>
-
-            {/* Main portal disc */}
-            <div style={{
-              width: size, height: size,
-              borderRadius:'50%',
-              background: isH || nearShip
-                ? `radial-gradient(circle at 32% 28%, rgba(255,255,255,0.35) 0%, ${portal.color}cc 40%, ${portal.color}99 100%)`
-                : `radial-gradient(circle at 32% 28%, rgba(255,255,255,0.25) 0%, ${portal.color}aa 45%, ${portal.color}77 100%)`,
-              border:`${isCenter ? 3 : 2.5}px solid`,
-              borderColor: isH || nearShip ? `#ffe680` : `rgba(180,140,40,0.9)`,
-              '--ring': `${portal.color}88`,
-              '--glow': `${portal.glow}66`,
-              animation:`mapPortalPulse ${2.5+i*0.12}s ease-in-out infinite`,
-              animationDelay:`${i*0.15}s`,
-              display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-              gap: isCenter ? 5 : 3,
-              position:'relative', overflow:'hidden',
-              boxShadow:`0 3px 12px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.3)`,
-              transform: isH ? 'scale(1.14)' : nearShip ? 'scale(1.08)' : 'scale(1)',
-              transition:'transform 0.2s, border-color 0.2s',
-            }}>
-              {/* Shine */}
-              <div style={{
-                position:'absolute', top:'6%', left:'12%', width:'42%', height:'32%',
-                background:'radial-gradient(ellipse, rgba(255,255,255,0.45) 0%, transparent 100%)',
-                borderRadius:'50%', pointerEvents:'none',
-              }}/>
-
-              <Icon size={isCenter ? 26 : 20}
-                style={{
-                  color:'white',
-                  filter:`drop-shadow(0 1px 3px rgba(0,0,0,0.6))`,
-                  position:'relative', zIndex:1,
-                  flexShrink:0,
-                }}
-              />
-              <span style={{
-                fontSize: isCenter ? 9.5 : 8.5,
-                fontWeight:700,
-                color:'white',
-                textAlign:'center',
-                lineHeight:1.2,
-                maxWidth: size - 14,
-                fontFamily:'system-ui,sans-serif',
-                letterSpacing:'0.02em',
-                textShadow:'0 1px 4px rgba(0,0,0,0.7)',
-                position:'relative', zIndex:1,
-              }}>
-                {portal.label}
-              </span>
-            </div>
-
-            {/* Label card (like old map tooltip) */}
-            {(isH || nearShip) && (
-              <div style={{
-                position:'absolute',
-                top: i < 7 ? '108%' : 'auto',
-                bottom: i >= 7 ? '108%' : 'auto',
-                left:'50%',
-                transform:'translateX(-50%)',
-                background:'rgba(240,225,185,0.97)',
-                border:'1.5px solid rgba(140,100,30,0.8)',
-                borderRadius:6,
-                padding:'5px 10px',
-                minWidth:90,
-                textAlign:'center',
-                boxShadow:'2px 3px 10px rgba(0,0,0,0.35)',
-                zIndex:30,
-                pointerEvents:'none',
-                animation:'labelAppear 0.15s ease both',
-              }}>
-                <div style={{ fontSize:10, fontWeight:800, color: portal.color, fontFamily:'system-ui,sans-serif', letterSpacing:'0.05em' }}>
-                  {portal.label.toUpperCase()}
-                </div>
-                <div style={{ fontSize:9, color:'#5c3d1e', fontFamily:'Georgia,serif', fontStyle:'italic' }}>
-                  {portal.sub}
-                </div>
-                {nearShip && !isH && (
-                  <div style={{ fontSize:8.5, color:'#1a78c2', fontWeight:700, marginTop:2, fontFamily:'system-ui,sans-serif' }}>
-                    ↵ Press Enter
-                  </div>
-                )}
-              </div>
-            )}
+    <group>
+      <mesh ref={meshRef} geometry={geo} rotation={[-Math.PI/2,0,0]} position={[0,0,0]}
+        onPointerOver={()=>setHov(true)} onPointerOut={()=>setHov(false)}>
+        <meshStandardMaterial color={lake.color} emissive={lake.emissive} emissiveIntensity={0.28} metalness={0.3} roughness={0.15} transparent opacity={0.9}/>
+      </mesh>
+      {/* Top glow surface */}
+      <mesh geometry={geo} rotation={[-Math.PI/2,0,0]} position={[0,0.01,0]}>
+        <meshStandardMaterial color={lake.emissive} emissive={lake.emissive} emissiveIntensity={0.5} transparent opacity={0.12} depthWrite={false}/>
+      </mesh>
+      {/* Point light over lake */}
+      <pointLight position={[lake.labelPos[0], 1.5, lake.labelPos[2]]} color={lake.emissive} intensity={0.6} distance={6}/>
+      {/* Label */}
+      <Billboard position={lake.labelPos}>
+        <Html center distanceFactor={14}>
+          <div style={{color:'#7dd3fc',fontFamily:'system-ui',fontSize:10,fontWeight:800,fontStyle:'italic',
+            textShadow:'0 0 12px #06b6d4, 0 0 4px #0ea5e9',whiteSpace:'nowrap',pointerEvents:'none',letterSpacing:'0.05em'}}>
+            {lake.name}
           </div>
+        </Html>
+      </Billboard>
+    </group>
+  )
+}
+
+/* ─── Portal node ───────────────────────────────────────────────── */
+function PortalNode({ portal, idx, onNav }) {
+  const [hov, setHov] = useState(false)
+  const r1 = useRef(), r2 = useRef(), r3 = useRef(), gRef = useRef()
+  const isCenter = idx === 0
+  const size = isCenter ? 0.72 : 0.52
+
+  useFrame((_,dt)=>{
+    if(r1.current) r1.current.rotation.z += dt*(isCenter?0.6:0.5)
+    if(r2.current) r2.current.rotation.z -= dt*(isCenter?0.9:0.8)
+    if(r3.current) r3.current.rotation.y += dt*0.4
+    if(gRef.current) {
+      const target = hov ? 1.18 : 1
+      gRef.current.scale.lerp(new THREE.Vector3(target,target,target), 0.1)
+    }
+  })
+
+  return (
+    <Float speed={1.4+idx*0.08} rotationIntensity={0.08} floatIntensity={isCenter?0.5:0.35}>
+      <group ref={gRef} position={portal.pos}
+        onPointerOver={()=>{setHov(true);document.body.style.cursor='pointer'}}
+        onPointerOut={()=>{setHov(false);document.body.style.cursor=''}}
+        onClick={()=>onNav(portal.path)}>
+
+        {/* Outer ambient glow */}
+        <mesh>
+          <sphereGeometry args={[size*2.2,16,16]}/>
+          <meshStandardMaterial color={portal.glow} emissive={portal.glow} emissiveIntensity={0.15}
+            transparent opacity={hov?0.1:0.05} depthWrite={false}/>
+        </mesh>
+
+        {/* Main distorted sphere */}
+        <mesh>
+          <icosahedronGeometry args={[size,4]}/>
+          <MeshDistortMaterial color={portal.color} emissive={portal.color}
+            emissiveIntensity={hov?0.9:0.45} distort={hov?0.5:0.25} speed={2.5}
+            metalness={0.6} roughness={0.05} transparent opacity={0.92}/>
+        </mesh>
+
+        {/* Inner core */}
+        <mesh>
+          <sphereGeometry args={[size*0.55,16,16]}/>
+          <meshStandardMaterial color={portal.glow} emissive={portal.glow}
+            emissiveIntensity={hov?3:1.5} transparent opacity={0.6}/>
+        </mesh>
+
+        {/* Ring 1 — tilted */}
+        <mesh ref={r1} rotation={[Math.PI/3,0,0]}>
+          <torusGeometry args={[size*1.55,0.025,8,80]}/>
+          <meshStandardMaterial color={portal.glow} emissive={portal.glow} emissiveIntensity={2}/>
+        </mesh>
+
+        {/* Ring 2 — counter tilt */}
+        <mesh ref={r2} rotation={[Math.PI/5,Math.PI/4,0]}>
+          <torusGeometry args={[size*1.85,0.018,8,80]}/>
+          <meshStandardMaterial color={portal.color} emissive={portal.color}
+            emissiveIntensity={1.5} transparent opacity={0.8}/>
+        </mesh>
+
+        {/* Ring 3 — horizontal equator */}
+        <mesh ref={r3}>
+          <torusGeometry args={[size*1.3,0.012,8,64]}/>
+          <meshStandardMaterial color={portal.glow} emissive={portal.glow}
+            emissiveIntensity={1} transparent opacity={0.6}/>
+        </mesh>
+
+        {/* Glow light */}
+        <pointLight color={portal.glow} intensity={hov?3.5:1.2} distance={5} decay={2}/>
+
+        {/* Label */}
+        <Billboard position={[0,-(size+0.55),0]}>
+          <Html center distanceFactor={13}>
+            <div onClick={()=>onNav(portal.path)} style={{
+              background:`rgba(0,0,0,0.82)`,
+              border:`1px solid ${portal.glow}55`,
+              borderRadius:8,
+              padding:'4px 11px',
+              color:'#f1f5f9',
+              fontSize:11,fontWeight:800,
+              whiteSpace:'nowrap',textAlign:'center',
+              backdropFilter:'blur(6px)',
+              boxShadow:`0 0 14px ${portal.glow}50, inset 0 0 0 1px rgba(255,255,255,0.04)`,
+              cursor:'pointer',letterSpacing:'0.03em',
+              transition:'all 0.15s',
+            }}>
+              {portal.label}
+              <div style={{fontSize:9,color:portal.glow,fontWeight:600,marginTop:1,opacity:0.9}}>{portal.sub}</div>
+            </div>
+          </Html>
+        </Billboard>
+      </group>
+    </Float>
+  )
+}
+
+/* ─── 3D Ship ───────────────────────────────────────────────────── */
+function Ship({ shipRef }) {
+  const gRef = useRef()
+  const prevPos = useRef(new THREE.Vector3())
+  const trailTarget = useRef()
+
+  useFrame(()=>{
+    if(!gRef.current||!shipRef.current) return
+    const s = shipRef.current
+    gRef.current.position.set(s.x, 0.25, s.z)
+    gRef.current.rotation.y = -(s.angle - 90) * Math.PI / 180
+    prevPos.current.set(s.x, 0.25, s.z)
+  })
+
+  return (
+    <group ref={gRef}>
+      <Trail width={0.8} length={8} color={new THREE.Color('#38bdf8')} attenuation={t=>t*t} target={trailTarget}>
+        <object3D ref={trailTarget}/>
+      </Trail>
+      {/* Hull */}
+      <mesh position={[0,0,0]} castShadow>
+        <boxGeometry args={[1.1,0.22,0.38]}/>
+        <meshStandardMaterial color="#7c3a1a" metalness={0.4} roughness={0.6}/>
+      </mesh>
+      {/* Deck */}
+      <mesh position={[0,0.14,0]}>
+        <boxGeometry args={[0.9,0.12,0.28]}/>
+        <meshStandardMaterial color="#9b4a22" metalness={0.3} roughness={0.5}/>
+      </mesh>
+      {/* Main mast */}
+      <mesh position={[0.08,0.65,0]}>
+        <cylinderGeometry args={[0.018,0.024,0.9,8]}/>
+        <meshStandardMaterial color="#3d2510" roughness={0.8}/>
+      </mesh>
+      {/* Sail */}
+      <mesh position={[0.22,0.78,0.1]} rotation={[0,0.1,0]}>
+        <planeGeometry args={[0.36,0.5]}/>
+        <meshStandardMaterial color="#fefce8" side={THREE.DoubleSide} transparent opacity={0.96}/>
+      </mesh>
+      {/* Fore mast */}
+      <mesh position={[-0.12,0.48,0]}>
+        <cylinderGeometry args={[0.013,0.018,0.65,8]}/>
+        <meshStandardMaterial color="#3d2510" roughness={0.8}/>
+      </mesh>
+      {/* Fore sail */}
+      <mesh position={[-0.04,0.56,0.08]}>
+        <planeGeometry args={[0.28,0.38]}/>
+        <meshStandardMaterial color="#fefce8" side={THREE.DoubleSide} transparent opacity={0.9}/>
+      </mesh>
+      {/* Engine glow */}
+      <pointLight color="#38bdf8" intensity={0.8} distance={3} position={[-0.55,0,0]}/>
+      <mesh position={[-0.55,0,0]}>
+        <sphereGeometry args={[0.06,8,8]}/>
+        <meshStandardMaterial emissive="#38bdf8" emissiveIntensity={3} color="#38bdf8"/>
+      </mesh>
+    </group>
+  )
+}
+
+/* ─── Camera follows ship ───────────────────────────────────────── */
+function CameraRig({ shipRef }) {
+  const { camera } = useThree()
+  const smooth = useRef(new THREE.Vector3(0, 13, 10))
+  const lookAt = useRef(new THREE.Vector3())
+  useFrame(()=>{
+    const sx = shipRef.current?.x ?? 0
+    const sz = shipRef.current?.z ?? 0
+    const targetCam = new THREE.Vector3(sx, 13, sz + 10)
+    smooth.current.lerp(targetCam, 0.035)
+    lookAt.current.lerp(new THREE.Vector3(sx, 0, sz), 0.05)
+    camera.position.copy(smooth.current)
+    camera.lookAt(lookAt.current)
+  })
+  return null
+}
+
+/* ─── Connection lines between portals ─────────────────────────── */
+function ConnectionLines({ hovered }) {
+  const EDGES = [[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[1,4],[2,9],[3,6],[5,9],[7,10]]
+  return (
+    <>
+      {EDGES.map(([a,b],i)=>{
+        const pa = PORTALS[a], pb = PORTALS[b]
+        const active = hovered===a||hovered===b
+        const pts = [new THREE.Vector3(...pa.pos), new THREE.Vector3(...pb.pos)]
+        return (
+          <line key={i}>
+            <bufferGeometry>
+              <bufferAttribute attach="attributes-position" count={2}
+                array={new Float32Array([pa.pos[0],pa.pos[1],pa.pos[2],pb.pos[0],pb.pos[1],pb.pos[2]])}
+                itemSize={3}/>
+            </bufferGeometry>
+            <lineBasicMaterial color={active?pa.glow:'#1e3a5f'} transparent opacity={active?0.8:0.25} linewidth={1}/>
+          </line>
         )
       })}
+    </>
+  )
+}
 
-      {/* ── Title banner ── */}
-      <div style={{
-        position:'absolute', top:16, left:'50%', transform:'translateX(-50%)',
-        zIndex:25, textAlign:'center', pointerEvents:'none',
-        animation:'titleShimmer 5s ease-in-out infinite',
-      }}>
-        <div style={{
-          background:'rgba(232,212,162,0.95)',
-          border:'2px solid rgba(140,100,30,0.8)',
-          borderRadius:8,
-          padding:'8px 22px',
-          boxShadow:'2px 3px 14px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.5)',
-        }}>
-          <div style={{ fontSize:9, letterSpacing:'0.4em', color:'rgba(100,65,20,0.7)', fontFamily:'system-ui,sans-serif', fontWeight:700, textTransform:'uppercase', marginBottom:2 }}>
-            ⚓ SOURCE WATER
-          </div>
-          <div style={{ fontSize:17, fontWeight:900, color:'#3d2510', letterSpacing:'0.12em', fontFamily:'Georgia,serif' }}>
-            THE GREAT LAKES WATER NETWORK
-          </div>
-          <div style={{ fontSize:8.5, color:'rgba(100,65,20,0.6)', letterSpacing:'0.2em', marginTop:2, fontFamily:'system-ui,sans-serif' }}>
-            CLICK A PORT TO NAVIGATE
-          </div>
-        </div>
-      </div>
+/* ─── Ground grid ───────────────────────────────────────────────── */
+function GridFloor() {
+  return (
+    <gridHelper args={[80,80,'#0f2a4a','#0a1628']} position={[0,-0.18,0]} rotation={[0,0,0]}/>
+  )
+}
 
-      {/* ── Compass rose (bottom-right) ── */}
-      <div style={{
-        position:'absolute', bottom:18, right:20, zIndex:25,
-        filter:'drop-shadow(2px 3px 6px rgba(0,0,0,0.3))',
-      }}>
-        <Compass heading={compassHeading}/>
-      </div>
+/* ─── Terrain land masses ───────────────────────────────────────── */
+function LandMass() {
+  return (
+    <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.14,0]} receiveShadow>
+      <planeGeometry args={[80,80]}/>
+      <meshStandardMaterial color="#0a1628" roughness={1} metalness={0}/>
+    </mesh>
+  )
+}
 
-      {/* ── Controls hint ── */}
-      <div style={{
-        position:'absolute', bottom:18, left:18, zIndex:25,
-        background:'rgba(232,212,162,0.92)',
-        border:'1.5px solid rgba(140,100,30,0.7)',
-        borderRadius:8, padding:'8px 12px',
-        boxShadow:'2px 3px 10px rgba(0,0,0,0.25)',
-        fontFamily:'system-ui,sans-serif',
-      }}>
-        <div style={{ fontSize:9, fontWeight:800, color:'#3d2510', letterSpacing:'0.1em', marginBottom:5, textTransform:'uppercase' }}>
-          ⛵ Drive the Ship
-        </div>
-        {[
-          ['W / ↑', 'Sail forward'],
-          ['S / ↓', 'Slow / reverse'],
-          ['A / ←', 'Turn port'],
-          ['D / →', 'Turn starboard'],
-        ].map(([k,v]) => (
-          <div key={k} style={{ display:'flex', gap:6, alignItems:'center', marginBottom:3 }}>
-            <span style={{
-              background:'rgba(140,100,30,0.2)', border:'1px solid rgba(140,100,30,0.5)',
-              borderRadius:4, padding:'1px 5px',
-              fontSize:8.5, fontWeight:700, color:'#3d2510', minWidth:36, textAlign:'center',
-            }}>{k}</span>
-            <span style={{ fontSize:8.5, color:'#5c3d1e' }}>{v}</span>
-          </div>
-        ))}
-        {isMoving && (
-          <div style={{ marginTop:4, fontSize:8.5, color:'#1a78c2', fontWeight:700 }}>
-            ⛵ {Math.round(Math.abs(shipRender.speed) * 100)}% speed
-          </div>
-        )}
-      </div>
+/* ─── Main 3D scene ─────────────────────────────────────────────── */
+function Scene({ shipRef, navigate }) {
+  const [hovered, setHovered] = useState(null)
 
-      {/* ── Decorative elements ── */}
-      {/* Sea monsters / decorations */}
-      {[
-        { e:'🐉', b:'30%', l:'2%', size:26 },
-        { e:'🦕', t:'40%', r:'2%', size:22 },
-        { e:'⚓', b:'40%', l:'46%', size:18, op:0.4 },
-        { e:'🗺️', t:'6%', l:'4%',  size:16, op:0.5 },
-        { e:'🐋', b:'18%', l:'58%', size:20 },
-        { e:'🦀', b:'10%', r:'30%', size:16 },
-      ].map((s,i) => (
-        <div key={i} style={{
-          position:'absolute',
-          bottom:s.b, top:s.t, left:s.l, right:s.r,
-          zIndex:8, fontSize:s.size, opacity:s.op || 0.45,
-          pointerEvents:'none',
-          filter:'drop-shadow(1px 2px 3px rgba(0,0,0,0.3))',
-          animation:`fogDrift ${7+i*1.5}s ease-in-out infinite`,
-          animationDelay:`${i*0.8}s`,
-        }}>{s.e}</div>
+  return (
+    <>
+      {/* Lighting */}
+      <ambientLight intensity={0.15} color="#1e3a5f"/>
+      <directionalLight position={[10,20,10]} intensity={0.4} color="#7dd3fc"/>
+      <pointLight position={[0,8,0]} color="#0ea5e9" intensity={0.6} distance={30}/>
+      <hemisphereLight skyColor="#0c1a3a" groundColor="#060e1e" intensity={0.5}/>
+
+      {/* Background */}
+      <Stars radius={120} depth={80} count={6000} factor={4} saturation={0.4} fade speed={0.4}/>
+      <fog attach="fog" args={['#020b18', 30, 80]}/>
+
+      {/* Atmosphere sparkles */}
+      <Sparkles count={180} scale={[30,6,30]} size={0.8} speed={0.15} color="#38bdf8" opacity={0.35} noise={0.4}/>
+      <Sparkles count={80} scale={[20,3,20]} size={1.2} speed={0.08} color="#818cf8" opacity={0.25}/>
+
+      {/* Terrain */}
+      <LandMass/>
+      <GridFloor/>
+      <Ocean/>
+
+      {/* Great Lakes */}
+      {LAKES.map(lake => <GreatLake key={lake.name} lake={lake}/>)}
+
+      {/* Connection lines */}
+      <ConnectionLines hovered={hovered}/>
+
+      {/* Portal nodes */}
+      {PORTALS.map((p,i)=>(
+        <PortalNode key={p.path} portal={p} idx={i} onNav={navigate}/>
       ))}
 
-      {/* Wind rose flourishes (corner decorations) */}
-      <div style={{ position:'absolute', top:14, left:14, zIndex:20, opacity:0.55, pointerEvents:'none', fontSize:22 }}>✦</div>
-      <div style={{ position:'absolute', top:14, right:130, zIndex:20, opacity:0.55, pointerEvents:'none', fontSize:22 }}>✦</div>
-      <div style={{ position:'absolute', bottom:14, left:200, zIndex:20, opacity:0.55, pointerEvents:'none', fontSize:18 }}>✦</div>
+      {/* Ship */}
+      <Ship shipRef={shipRef}/>
+
+      {/* Camera */}
+      <CameraRig shipRef={shipRef}/>
+
+      {/* Bloom */}
+      <Effects disableGamma>
+        <unrealBloomPass threshold={0.05} strength={0.65} radius={0.45}/>
+      </Effects>
+    </>
+  )
+}
+
+/* ─── Ship controls hook ────────────────────────────────────────── */
+function useShipControls() {
+  const shipRef = useRef({ x:0.4, z:-1.2, angle:-20, speed:0 })
+  const keys = useRef({})
+
+  useEffect(()=>{
+    const dn = e => {
+      keys.current[e.key]=true
+      if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault()
+    }
+    const up = e => { keys.current[e.key]=false }
+    window.addEventListener('keydown',dn)
+    window.addEventListener('keyup',up)
+    return()=>{ window.removeEventListener('keydown',dn); window.removeEventListener('keyup',up) }
+  },[])
+
+  // Game loop via rAF — runs outside R3F
+  const stateRef = useRef({ x:0.4, z:-1.2, angle:-20, speed:0 })
+  const [render, setRender] = useState({ x:0.4, z:-1.2, angle:-20, speed:0 })
+
+  useEffect(()=>{
+    let raf
+    const loop = ()=>{
+      const k=keys.current, s=stateRef.current
+      if(k['ArrowLeft']||k['a']||k['A']) s.angle-=2.8
+      if(k['ArrowRight']||k['d']||k['D']) s.angle+=2.8
+      const fwd=k['ArrowUp']||k['w']||k['W']
+      const rev=k['ArrowDown']||k['s']||k['S']
+      if(fwd) s.speed=Math.min(s.speed+0.025,0.55)
+      else if(rev) s.speed=Math.max(s.speed-0.02,-0.2)
+      else s.speed*=0.94
+      const rad=(s.angle-90)*Math.PI/180
+      s.x=Math.max(-18,Math.min(18,s.x+Math.cos(rad)*s.speed))
+      s.z=Math.max(-18,Math.min(18,s.z+Math.sin(rad)*s.speed))
+      shipRef.current={...s}
+      setRender({...s})
+      raf=requestAnimationFrame(loop)
+    }
+    raf=requestAnimationFrame(loop)
+    return()=>cancelAnimationFrame(raf)
+  },[])
+
+  return { shipRef, shipRender: render }
+}
+
+/* ─── Main page ─────────────────────────────────────────────────── */
+export default function QuickActions() {
+  const navigate = useNavigate()
+  const { shipRef, shipRender } = useShipControls()
+  const speed = Math.abs(shipRender.speed)
+  const heading = ((shipRender.angle%360)+360)%360
+
+  return (
+    <div style={{ position:'relative', width:'100%', height:'calc(100vh - 88px)', overflow:'hidden', borderRadius:16, background:'#020b18' }}>
+
+      {/* 3D Canvas */}
+      <Canvas
+        dpr={[1,1.8]}
+        camera={{ position:[0,13,10], fov:52, near:0.1, far:200 }}
+        gl={{ antialias:true, alpha:false, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:1.2 }}
+        style={{ position:'absolute', inset:0 }}
+      >
+        <Suspense fallback={null}>
+          <Scene shipRef={shipRef} navigate={navigate}/>
+        </Suspense>
+      </Canvas>
+
+      {/* Title overlay */}
+      <div style={{
+        position:'absolute', top:16, left:'50%', transform:'translateX(-50%)',
+        textAlign:'center', pointerEvents:'none', zIndex:10,
+      }}>
+        <div style={{ fontSize:9, letterSpacing:'0.35em', color:'rgba(125,211,252,0.7)', fontWeight:700, fontFamily:'system-ui', marginBottom:4, textTransform:'uppercase' }}>
+          SOURCE WATER
+        </div>
+        <div style={{ fontSize:18, fontWeight:900, color:'#e2e8f0', fontFamily:'system-ui', letterSpacing:'0.08em',
+          textShadow:'0 0 24px #0ea5e9, 0 0 8px #38bdf8', textTransform:'uppercase' }}>
+          The Great Lakes Water Network
+        </div>
+        <div style={{ fontSize:10, color:'rgba(125,211,252,0.5)', marginTop:3, fontFamily:'system-ui', letterSpacing:'0.2em' }}>
+          CLICK A NODE TO NAVIGATE
+        </div>
+      </div>
+
+      {/* HUD — ship controls */}
+      <div style={{
+        position:'absolute', bottom:16, left:16, zIndex:10,
+        background:'rgba(2,11,24,0.85)', border:'1px solid rgba(14,116,144,0.35)',
+        borderRadius:12, padding:'12px 16px', backdropFilter:'blur(10px)',
+        boxShadow:'0 0 20px rgba(14,116,144,0.2)',
+        fontFamily:'system-ui',
+      }}>
+        <div style={{ fontSize:9, fontWeight:800, color:'#38bdf8', letterSpacing:'0.15em', marginBottom:8 }}>HELM CONTROL</div>
+        {[
+          ['W / ↑', 'Forward'],
+          ['S / ↓', 'Reverse'],
+          ['A / ←', 'Port'],
+          ['D / →', 'Starboard'],
+        ].map(([k,v])=>(
+          <div key={k} style={{ display:'flex', justifyContent:'space-between', gap:20, marginBottom:4 }}>
+            <span style={{ fontSize:10, fontWeight:800, color:'#7dd3fc', background:'rgba(14,116,144,0.2)', padding:'1px 6px', borderRadius:4, border:'1px solid rgba(14,116,144,0.3)' }}>{k}</span>
+            <span style={{ fontSize:10, color:'rgba(255,255,255,0.4)', fontWeight:600 }}>{v}</span>
+          </div>
+        ))}
+        <div style={{ marginTop:10, paddingTop:8, borderTop:'1px solid rgba(14,116,144,0.2)', display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+          <div>
+            <div style={{ fontSize:8, color:'rgba(125,211,252,0.45)', letterSpacing:'0.1em', marginBottom:2 }}>SPEED</div>
+            <div style={{ height:3, background:'rgba(255,255,255,0.08)', borderRadius:2, overflow:'hidden' }}>
+              <div style={{ height:'100%', width:`${(speed/0.55)*100}%`, background:'linear-gradient(90deg,#0ea5e9,#38bdf8)', transition:'width 0.1s', boxShadow:'0 0 6px #38bdf8' }}/>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize:8, color:'rgba(125,211,252,0.45)', letterSpacing:'0.1em', marginBottom:1 }}>HDG</div>
+            <div style={{ fontSize:13, fontWeight:900, color:'#38bdf8', textShadow:'0 0 8px #0ea5e9' }}>{Math.round(heading)}°</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Mini compass */}
+      <div style={{ position:'absolute', bottom:16, right:16, zIndex:10 }}>
+        <svg width={72} height={72} viewBox="0 0 72 72">
+          <circle cx={36} cy={36} r={34} fill="rgba(2,11,24,0.88)" stroke="rgba(14,116,144,0.4)" strokeWidth={1.5}/>
+          <circle cx={36} cy={36} r={29} fill="none" stroke="rgba(14,116,144,0.15)" strokeWidth={0.8} strokeDasharray="3 3"/>
+          {['N','E','S','W'].map((d,i)=>{
+            const a=i*90*Math.PI/180-Math.PI/2
+            return <text key={d} x={36+Math.cos(a)*22} y={36+Math.sin(a)*22+4}
+              textAnchor="middle" fontSize={d==='N'?10:8} fontWeight={800}
+              fill={d==='N'?'#ef4444':'rgba(125,211,252,0.7)'} fontFamily="system-ui">{d}</text>
+          })}
+          <g transform={`rotate(${heading} 36 36)`}>
+            <polygon points="36,10 33.5,36 36,32 38.5,36" fill="#ef4444"/>
+            <polygon points="36,62 33.5,36 36,40 38.5,36" fill="rgba(125,211,252,0.6)"/>
+          </g>
+          <circle cx={36} cy={36} r={4} fill="none" stroke="rgba(14,116,144,0.5)" strokeWidth={1}/>
+          <circle cx={36} cy={36} r={2} fill="#38bdf8"/>
+        </svg>
+      </div>
+
+      {/* Speed lines overlay when moving fast */}
+      {speed > 0.35 && (
+        <div style={{ position:'absolute', inset:0, pointerEvents:'none', zIndex:5,
+          background:'radial-gradient(ellipse at center, transparent 30%, rgba(14,116,144,0.04) 100%)',
+          animation:'pulse 0.3s ease infinite' }}/>
+      )}
     </div>
   )
 }
