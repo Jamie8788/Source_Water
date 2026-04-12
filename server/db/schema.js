@@ -383,6 +383,7 @@ async function initSchema() {
       `ALTER TABLE cms_site_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
       `ALTER TABLE cms_page_blocks ADD COLUMN IF NOT EXISTS content TEXT DEFAULT '{}'`,
       `ALTER TABLE cms_page_blocks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+      `CREATE TABLE IF NOT EXISTS banned_emails (email TEXT PRIMARY KEY, banned_at TIMESTAMPTZ DEFAULT NOW(), reason TEXT)`,
     ]
     for (const m of migrations) {
       await db.exec(m).catch(() => {}) // ignore if already exists

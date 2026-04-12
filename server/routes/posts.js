@@ -5,7 +5,7 @@ const upload = require('../middleware/upload')
 
 async function enrichPost(post) {
   if (!post) return null
-  const user = await db.get('SELECT id,username,display_name,avatar_emoji,avatar_bg_color,avatar_url,role FROM users WHERE id=?', [post.user_id])
+  const user = await db.get('SELECT id,username,display_name,avatar_emoji,avatar_bg_color,avatar_url,role FROM users WHERE id=? AND is_active=1', [post.user_id])
   const reactions = await db.all('SELECT reaction_type, COUNT(*) as count FROM post_reactions WHERE post_id=? GROUP BY reaction_type', [post.id])
   const commentRow = await db.get('SELECT COUNT(*) as c FROM comments WHERE post_id=?', [post.id])
   const reactionMap = {}
@@ -25,16 +25,17 @@ async function enrichPost(post) {
 router.get('/', requireAuth, async (req, res) => {
   try {
     const { limit = 20, offset = 0, user_id } = req.query
-    let query = 'SELECT * FROM posts'
+    // Only show posts from active users who completed onboarding
+    let query = 'SELECT p.* FROM posts p JOIN users u ON p.user_id=u.id WHERE u.is_active=1 AND u.onboarding_completed=1'
     const params = []
-    if (user_id) { query += ' WHERE user_id=?'; params.push(user_id) }
-    query += ' ORDER BY pinned DESC, created_at DESC LIMIT ? OFFSET ?'
+    if (user_id) { query += ' AND p.user_id=?'; params.push(user_id) }
+    query += ' ORDER BY p.pinned DESC, p.created_at DESC LIMIT ? OFFSET ?'
     params.push(parseInt(limit), parseInt(offset))
     const rows = await db.all(query, params)
-    const posts = await Promise.all(rows.map(enrichPost))
+    const posts = (await Promise.all(rows.map(enrichPost))).filter(Boolean)
     const totalRow = user_id
-      ? await db.get('SELECT COUNT(*) as c FROM posts WHERE user_id=?', [user_id])
-      : await db.get('SELECT COUNT(*) as c FROM posts', [])
+      ? await db.get('SELECT COUNT(*) as c FROM posts p JOIN users u ON p.user_id=u.id WHERE u.is_active=1 AND u.onboarding_completed=1 AND p.user_id=?', [user_id])
+      : await db.get('SELECT COUNT(*) as c FROM posts p JOIN users u ON p.user_id=u.id WHERE u.is_active=1 AND u.onboarding_completed=1', [])
     res.json({ posts, total: parseInt(totalRow?.c ?? 0) })
   } catch (err) {
     console.error('GET /posts error:', err)

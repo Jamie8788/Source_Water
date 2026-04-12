@@ -17,6 +17,9 @@ const requireAuth = async (req, res, next) => {
       if (user && !error) {
         let localUser = await db.get('SELECT * FROM users WHERE email = ?', [user.email])
         if (!localUser) {
+          // Check banned email list before auto-creating
+          const banned = await db.get('SELECT 1 FROM banned_emails WHERE email = ?', [user.email]).catch(() => null)
+          if (banned) return res.status(403).json({ error: 'Account suspended' })
           // Use the real username from Supabase metadata if available (set during signUp)
           const metaUsername = user.user_metadata?.username
           const base = user.email.split('@')[0].replace(/[^a-z0-9_]/gi, '')
@@ -30,6 +33,7 @@ const requireAuth = async (req, res, next) => {
           localUser = await db.get('SELECT * FROM users WHERE email = ?', [user.email])
         }
         if (localUser) {
+          if (!localUser.is_active) return res.status(403).json({ error: 'Account suspended' })
           req.user = localUser
           req.supabaseUser = user
           return next()
@@ -43,6 +47,7 @@ const requireAuth = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
     const user = await db.get('SELECT * FROM users WHERE id = ?', [decoded.id])
     if (!user) return res.status(401).json({ error: 'User not found' })
+    if (!user.is_active) return res.status(403).json({ error: 'Account suspended' })
     req.user = user
     next()
   } catch {

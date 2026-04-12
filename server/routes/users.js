@@ -127,6 +127,14 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   const uid = parseInt(req.params.id)
   if (uid === req.user.id) return res.status(400).json({ error: 'Cannot delete yourself' })
+  // Save their email to banned_emails so Supabase-auth users can't auto-recreate their account
+  const target = await db.get('SELECT email FROM users WHERE id=?', [uid])
+  if (target?.email) {
+    await db.run(
+      `INSERT INTO banned_emails (email, reason) VALUES (?, 'deleted by admin') ON CONFLICT DO NOTHING`,
+      [target.email]
+    ).catch(() => {})
+  }
   await db.run('DELETE FROM users WHERE id=?', [uid])
   res.json({ success: true })
 })
