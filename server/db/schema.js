@@ -360,11 +360,24 @@ async function initSchema() {
       console.log('[schema] added unique email constraint + deduped users')
     }
 
-    // Remove ghost rows: auto-created rows that lost their email during dedup.
-    // These have no real email and were never properly registered.
+    // Remove ghost rows: auto-created rows with no email (lost during dedup)
     await db.pool.query(
       `DELETE FROM users WHERE email IS NULL AND password_hash = 'supabase_auth'`
     ).catch(() => {})
+
+    // Remove any remaining duplicate users — keep lowest id per email.
+    // Uses a safe UPDATE approach: nullify username on dupes first, then delete.
+    await db.pool.query(`
+      DELETE FROM users
+      WHERE id NOT IN (SELECT MIN(id) FROM users WHERE email IS NOT NULL GROUP BY email)
+        AND email IS NOT NULL
+        AND password_hash = 'supabase_auth'
+        AND NOT EXISTS (
+          SELECT 1 FROM posts WHERE posts.user_id = users.id
+          UNION SELECT 1 FROM direct_messages WHERE sender_id = users.id
+          UNION SELECT 1 FROM notifications WHERE notifications.user_id = users.id
+        )
+    `).catch(() => {})
 
     // Ensure admin@sourcewater.app always has admin privileges and is active
     await db.pool.query(

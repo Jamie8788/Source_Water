@@ -36,9 +36,9 @@ export function useFeed() {
   const pageRef = useRef(0)
   const PAGE = 20
 
-  const fetchPosts = useCallback(async (reset = false) => {
+  const fetchPosts = useCallback(async (reset = false, silent = false) => {
     if (reset) { pageRef.current = 0; setHasMore(true) }
-    setLoading(true)
+    if (!silent) setLoading(true)
     try {
       const offset = pageRef.current * PAGE
       const r = await api.get(`/posts?limit=${PAGE}&offset=${offset}`)
@@ -47,13 +47,13 @@ export function useFeed() {
       if (data.length < PAGE) setHasMore(false)
       pageRef.current += 1
     } catch {}
-    setLoading(false)
+    if (!silent) setLoading(false)
   }, [])
 
   useEffect(() => {
-    fetchPosts(true)
-    // Poll every 15s for new posts from other users
-    const t = setInterval(() => fetchPosts(true), 15000)
+    fetchPosts(true, false)
+    // Background poll every 30s — silent so feed doesn't flash/reload
+    const t = setInterval(() => fetchPosts(true, true), 30000)
     return () => clearInterval(t)
   }, [fetchPosts])
 
