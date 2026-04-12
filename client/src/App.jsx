@@ -19,6 +19,7 @@ const Projects   = lazy(() => import('./pages/Projects'))
 const Analysis   = lazy(() => import('./pages/Analysis'))
 const Reports    = lazy(() => import('./pages/Reports'))
 const AdminPage  = lazy(() => import('./pages/AdminPage'))
+const QuizAdmin  = lazy(() => import('./pages/QuizAdmin'))
 const Profile    = lazy(() => import('./pages/Profile'))
 const Alerts     = lazy(() => import('./pages/Alerts'))
 const Weather    = lazy(() => import('./pages/Weather3D'))
@@ -69,7 +70,8 @@ function AppRoutes() {
           <Route path="/research"   element={<ResearchHub />} />
           <Route path="/profile"    element={<Profile />} />
           <Route element={<AdminGuard />}>
-            <Route path="/admin"    element={<AdminPage />} />
+            <Route path="/admin"      element={<AdminPage />} />
+            <Route path="/quiz-admin" element={<QuizAdmin />} />
           </Route>
         </Route>
 

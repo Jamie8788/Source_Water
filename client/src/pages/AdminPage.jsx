@@ -1,6 +1,7 @@
 import PageAmbience from '../components/layout/PageAmbience'
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router-dom'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import { useCMS } from '../context/CMSContext'
@@ -1436,96 +1437,20 @@ function QuizBuilder({ quiz, onClose, onSave }) {
 }
 
 function QuizPanel() {
-  const [quizzes, setQuizzes] = useState([])
-  const [builderQuiz, setBuilderQuiz] = useState(null) // null=closed, {}=new, quiz=edit
-
-  useEffect(() => { reload() }, [])
-  const reload = () => api.get('/quizzes').then(r => setQuizzes(r.data.quizzes || [])).catch(() => {})
-
-  const del = async (id) => {
-    if (!confirm('Delete this quiz and all its questions?')) return
-    await api.delete(`/quizzes/${id}`).catch(() => {})
-    setQuizzes(prev => prev.filter(q => q.id !== id))
-  }
-
-  const toggleStatus = async (quiz) => {
-    const s = quiz.status === 'published' ? 'draft' : 'published'
-    const r = await api.put(`/quizzes/${quiz.id}`, { ...quiz, status: s }).catch(() => null)
-    if (r) setQuizzes(prev => prev.map(q => q.id === quiz.id ? { ...q, status: s } : q))
-  }
-
-  const handleSave = (savedQuiz) => {
-    setQuizzes(prev => {
-      const exists = prev.find(q => q.id === savedQuiz.id)
-      return exists ? prev.map(q => q.id === savedQuiz.id ? { ...q, ...savedQuiz } : q) : [{ ...savedQuiz, question_count: 0, attempt_count: 0 }, ...prev]
-    })
-    // Re-open builder with the saved quiz so user can add questions immediately
-    if (!builderQuiz?.id) setBuilderQuiz(savedQuiz)
-  }
-
+  const navigate = useNavigate()
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {builderQuiz !== null && (
-        <QuizBuilder quiz={builderQuiz?.id ? builderQuiz : null} onClose={() => { setBuilderQuiz(null); reload() }} onSave={handleSave}/>
-      )}
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{quizzes.length} quizzes · {quizzes.filter(q => q.status === 'published').length} published</div>
-        <button onClick={() => setBuilderQuiz({})}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px', borderRadius: 9, background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color: 'white', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, boxShadow: '0 2px 8px rgba(99,102,241,0.35)' }}>
-          <Plus style={{ width: 14, height: 14 }}/> New Quiz
-        </button>
+    <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+      <div style={{ fontSize: 56, marginBottom: 16 }}>🎓</div>
+      <div style={{ fontWeight: 800, fontSize: 20, color: 'var(--text)', marginBottom: 8 }}>Quiz Manager</div>
+      <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 28, maxWidth: 400, margin: '0 auto 28px' }}>
+        The quiz creator has moved to its own dedicated page with research-level analytics,
+        item analysis, score distributions, and bulk question import.
       </div>
-
-      {quizzes.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)', fontSize: 13 }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🎓</div>
-          <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text)', marginBottom: 6 }}>No quizzes yet</div>
-          <div style={{ marginBottom: 16 }}>Click "New Quiz" to build your first quiz with questions, timers, and grading.</div>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {quizzes.map(quiz => {
-          const dc = DIFF_COLORS_Q[quiz.difficulty] || DIFF_COLORS_Q.beginner
-          const sc = STATUS_COLORS[quiz.status] || STATUS_COLORS.draft
-          return (
-            <div key={quiz.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 14, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)' }}>{quiz.title}</span>
-                  <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700, ...sc }}>{quiz.status}</span>
-                  <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, ...dc }}>{quiz.difficulty}</span>
-                  {quiz.negative_marking > 0 && <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>-{quiz.negative_marking} neg</span>}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                  <span>📋 {quiz.question_count || 0} questions</span>
-                  <span>👥 {quiz.attempt_count || 0} attempts</span>
-                  <span>✅ Pass: {quiz.pass_score || 70}%</span>
-                  {quiz.time_per_question > 0 && <span>⏱ {quiz.time_per_question}s/q</span>}
-                  {quiz.time_limit > 0 && <span>⏱ {quiz.time_limit}min total</span>}
-                  {quiz.avg_score != null && <span>📊 Avg: {Math.round(quiz.avg_score)}%</span>}
-                  <span style={{ color: 'var(--text-light)' }}>{quiz.category?.replace(/_/g,' ')}</span>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
-                <button onClick={() => toggleStatus(quiz)}
-                  style={{ padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: quiz.status === 'published' ? 'rgba(16,185,129,0.12)' : 'rgba(99,102,241,0.12)', color: quiz.status === 'published' ? '#10b981' : '#818cf8' }}>
-                  {quiz.status === 'published' ? '✅ Published' : '📤 Publish'}
-                </button>
-                <button onClick={() => setBuilderQuiz(quiz)}
-                  style={{ padding: '7px 14px', borderRadius: 8, background: 'rgba(99,102,241,0.1)', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#818cf8', display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <Edit2 style={{ width: 12, height: 12 }}/> Edit & Questions
-                </button>
-                <button onClick={() => del(quiz.id)}
-                  style={{ padding: '7px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: 'none', cursor: 'pointer', color: '#ef4444' }}>
-                  <Trash2 style={{ width: 13, height: 13 }}/>
-                </button>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+      <button
+        onClick={() => navigate ? navigate('/quiz-admin') : (window.location.href='/quiz-admin')}
+        style={{ padding: '14px 32px', borderRadius: 12, background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color: 'white', border: 'none', cursor: 'pointer', fontSize: 15, fontWeight: 700, boxShadow: '0 4px 14px rgba(99,102,241,0.4)' }}>
+        Open Quiz Manager →
+      </button>
     </div>
   )
 }
