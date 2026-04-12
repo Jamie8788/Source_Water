@@ -58,15 +58,17 @@ const WATER_VERT = `
   void main(){
     vUv = uv;
     vec3 p = position;
-    float w = sin(p.x*0.38+uTime*0.68)*0.30
-            + sin(p.z*0.50+uTime*1.02)*0.24
-            + sin((p.x+p.z)*0.26+uTime*0.55)*0.14
-            + cos(p.x*0.13+p.z*0.18+uTime*0.30)*0.09
-            + sin(p.x*1.05+p.z*0.88+uTime*2.0)*0.025;
+    // Big cinematic ocean swells like AC Black Flag
+    float w = sin(p.x*0.22+uTime*0.55)*0.65
+            + sin(p.z*0.30+uTime*0.82)*0.50
+            + sin((p.x+p.z)*0.18+uTime*0.42)*0.30
+            + cos(p.x*0.10+p.z*0.14+uTime*0.28)*0.20
+            + sin(p.x*0.80+p.z*0.65+uTime*1.6)*0.08
+            + sin(p.x*1.6 +p.z*1.2 +uTime*2.4)*0.04;
     vWave = w;
     float e=0.08;
-    float wx=sin((p.x+e)*0.38+uTime*0.68)*0.30+sin(p.z*0.50+uTime*1.02)*0.24+sin(((p.x+e)+p.z)*0.26+uTime*0.55)*0.14;
-    float wz=sin(p.x*0.38+uTime*0.68)*0.30+sin((p.z+e)*0.50+uTime*1.02)*0.24+sin((p.x+(p.z+e))*0.26+uTime*0.55)*0.14;
+    float wx=sin((p.x+e)*0.22+uTime*0.55)*0.65+sin(p.z*0.30+uTime*0.82)*0.50+sin(((p.x+e)+p.z)*0.18+uTime*0.42)*0.30;
+    float wz=sin(p.x*0.22+uTime*0.55)*0.65+sin((p.z+e)*0.30+uTime*0.82)*0.50+sin((p.x+(p.z+e))*0.18+uTime*0.42)*0.30;
     vNormal = normalize(cross(normalize(vec3(0.,wz-w,e)),normalize(vec3(e,wx-w,0.))));
     p.y += w;
     vec4 wPos = modelMatrix*vec4(p,1.);
@@ -98,22 +100,24 @@ const WATER_FRAG = `
     // Caustic shimmer
     float cau=sin(vWorldPos.x*2.4+uTime*1.6)*sin(vWorldPos.z*2.8+uTime*1.2)*0.5+0.5;
     cau=cau*cau*0.14;
-    // Deep cinematic ocean palette
-    vec3 ink   =vec3(0.01,0.03,0.14); // deep black-blue abyss
-    vec3 navy  =vec3(0.01,0.09,0.28); // navy midnight
-    vec3 teal  =vec3(0.02,0.28,0.46); // dark teal
-    vec3 aqua  =vec3(0.04,0.50,0.58); // cyan highlights near foam
-    float depth=clamp(vWave*1.4+diff*0.25+cau,0.,1.);
-    vec3 col=mix(ink,navy,depth);
-    col=mix(col,teal,max(0.,depth-0.40)*2.2);
-    col=mix(col,aqua,max(0.,depth-0.72)*2.8);
-    // Foam — white caps
-    col=mix(col,vec3(0.88,0.96,1.0),smoothstep(0.34,0.60,vWave)*0.55);
-    // Bright specular sun glint on dark water
-    col+=uSunCol*(sp*1.8+sp2*0.6);
-    // Night sky Fresnel — dark blue reflection
-    col=mix(col,vec3(0.06,0.12,0.38),fr*0.55);
-    col*=(0.5+diff*0.5);
+    // AC Black Flag deep ocean palette
+    vec3 abyss =vec3(0.00,0.02,0.10);
+    vec3 deep  =vec3(0.01,0.07,0.22);
+    vec3 mid   =vec3(0.02,0.20,0.38);
+    vec3 crest =vec3(0.05,0.38,0.52);
+    float depth=clamp(vWave*0.85+diff*0.35+cau,0.,1.);
+    vec3 col=mix(abyss,deep,clamp(depth*2.,0.,1.));
+    col=mix(col,mid, clamp((depth-0.3)*2.,0.,1.));
+    col=mix(col,crest,clamp((depth-0.6)*2.5,0.,1.));
+    // Whitecaps — heavy foam on big waves
+    col=mix(col,vec3(0.90,0.97,1.0),smoothstep(0.28,0.55,vWave)*0.80);
+    // Spray haze at tips
+    col=mix(col,vec3(0.75,0.88,0.95),smoothstep(0.50,0.70,vWave)*0.35);
+    // Dramatic sun glint
+    col+=uSunCol*(sp*2.4+sp2*0.8);
+    // Sky reflection Fresnel
+    col=mix(col,vec3(0.04,0.10,0.30),fr*0.60);
+    col*=(0.45+diff*0.55);
     // Horizon fade
     vec2 ed=abs(vUv-0.5)*2.;
     float fade=1.-smoothstep(0.68,1.,max(ed.x,ed.y));
@@ -434,7 +438,7 @@ function Ship({ shipRef }) {
   useFrame(() => {
     if (!gRef.current || !shipRef.current) return
     const s = shipRef.current
-    gRef.current.position.set(s.x, 0.35, s.z)
+    gRef.current.position.set(s.x, 0.6, s.z)
     gRef.current.rotation.y = -(s.angle - 90) * Math.PI / 180
   })
 
@@ -444,9 +448,11 @@ function Ship({ shipRef }) {
         <object3D ref={trailTarget} />
       </Trail>
       {/* Scale up — GLB is in meters, scene units are small */}
-      <primitive object={model} scale={[0.022, 0.022, 0.022]} rotation={[0, Math.PI, 0]}/>
+      <primitive object={model} scale={[0.055, 0.055, 0.055]} rotation={[0, Math.PI, 0]}/>
+      {/* Ship key light — always illuminates the hull */}
+      <pointLight color="#ffaa44" intensity={6} distance={12} position={[0, 3, 3]}/>
       {/* Bow lantern glow */}
-      <pointLight color="#ffcc66" intensity={2.5} distance={5} position={[0.6, 0.5, 0]}/>
+      <pointLight color="#ffcc66" intensity={3.5} distance={7} position={[0.6, 0.8, 0]}/>
       <mesh position={[0.6, 0.5, 0]}>
         <sphereGeometry args={[0.06, 8, 8]}/>
         <meshStandardMaterial emissive="#ffcc44" emissiveIntensity={4} color="#ffcc44"/>
@@ -469,21 +475,21 @@ function CameraRig({ shipRef }) {
     const s   = shipRef.current ?? { x:0, z:0, speed:0 }
     const spd = Math.abs(s.speed ?? 0)
 
-    // Slow dramatic orbit when idle
-    if(spd < 0.05) orbitT.current += dt * 0.09
-    else           orbitT.current *= 0.97
+    // Idle: slow cinematic side-drift like a floating camera
+    if(spd < 0.05) orbitT.current += dt * 0.06
+    else           orbitT.current *= 0.95
 
-    const ox = Math.sin(orbitT.current) * 5
-    const oz = Math.cos(orbitT.current) * 3
+    const ox = Math.sin(orbitT.current) * 2.5
+    const oz = Math.cos(orbitT.current) * 1.2
 
-    // Low cinematic height — see sky + horizon like GTA5
-    const breathe = Math.sin(t*0.35)*0.4 + Math.cos(t*0.22)*0.18
-    const camH = 6.5 + breathe
-    const camD = 15  // far enough back to see horizon
+    // AC Black Flag: camera low, right behind ship, at wave height
+    const sway  = Math.sin(t*0.28)*0.18 + Math.cos(t*0.19)*0.10  // sea sway
+    const camH  = 2.8 + sway   // almost at water level
+    const camD  = 7.5           // close behind ship
 
-    smooth.current.lerp(new THREE.Vector3(s.x+ox, camH, s.z+camD+oz), 0.030)
-    // Look slightly above horizon — gives wide dramatic view
-    look.current.lerp(new THREE.Vector3(s.x, 1.8, s.z-6), 0.055)
+    smooth.current.lerp(new THREE.Vector3(s.x+ox, camH, s.z+camD+oz), 0.040)
+    // Look forward across ocean — ship fills lower frame, horizon above
+    look.current.lerp(new THREE.Vector3(s.x, 1.2, s.z - 10), 0.065)
     camera.position.copy(smooth.current)
     camera.lookAt(look.current)
   })
@@ -515,25 +521,29 @@ function ConnectionLines() {
 function Scene({ shipRef, navigate }) {
   return (
     <>
-      {/* Dramatic dusk sky — sun off to the left, not in camera path */}
-      <Sky sunPosition={[-45, 12, -55]} turbidity={12} rayleigh={1.4}
-           mieCoefficient={0.008} mieDirectionalG={0.94}
-           inclination={0.50} azimuth={0.12}/>
+      {/* Explicit dark background so no white bleed */}
+      <color attach="background" args={['#060c1a']}/>
+
+      {/* Dark stormy horizon sky — sun far left, low */}
+      <Sky sunPosition={[-60, 3, -40]} turbidity={18} rayleigh={0.6}
+           mieCoefficient={0.003} mieDirectionalG={0.98}
+           inclination={0.52} azimuth={0.08}/>
 
       <Environment preset="night" background={false}/>
 
-      {/* Sun off left-side, not blasting into camera */}
-      <directionalLight position={[-45, 12, -55]} intensity={2.2} color="#ff9a30" castShadow
+      {/* Warm side sun — left of camera, low angle */}
+      <directionalLight position={[-55, 8, -35]} intensity={2.8} color="#ff8820" castShadow
         shadow-mapSize={[2048,2048]} shadow-camera-far={80}
         shadow-camera-left={-30} shadow-camera-right={30}
         shadow-camera-top={30} shadow-camera-bottom={-30}/>
-      {/* Moonlight fill */}
-      <directionalLight position={[30, 20, 30]} intensity={1.1} color="#6090dd"/>
-      <ambientLight intensity={0.18} color="#1a3060"/>
-      <hemisphereLight skyColor="#0a1a40" groundColor="#0a0e06" intensity={0.50}/>
+      {/* Cold moonlight from opposite side */}
+      <directionalLight position={[40, 25, 20]} intensity={1.4} color="#5580cc"/>
+      <ambientLight intensity={0.14} color="#0d1f44"/>
+      <hemisphereLight skyColor="#060e28" groundColor="#050804" intensity={0.45}/>
       <LensFlare/>
 
-      <fog attach="fog" args={['#060e20',50,120]}/>
+      {/* Tight fog for AC horizon haze */}
+      <fog attach="fog" args={['#060c1a', 35, 95]}/>
 
       <Terrain/>
       <Ocean/>
@@ -688,8 +698,8 @@ export default function QuickActions() {
       )}
 
       <Canvas dpr={[1,1.8]}
-        camera={{ position:[0,7,22], fov:62, near:0.1, far:300 }}
-        gl={{ antialias:true, alpha:false, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:0.85 }}
+        camera={{ position:[0,3,8], fov:72, near:0.1, far:300 }}
+        gl={{ antialias:true, alpha:false, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:0.80 }}
         shadows style={{ position:'absolute', inset:0 }}>
         <Suspense fallback={null}>
           <Scene shipRef={shipRef} navigate={handleNav}/>
