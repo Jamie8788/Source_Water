@@ -190,15 +190,16 @@ function QuizBrowser({ onSelect }) {
         <div style={{
           marginBottom:20, padding:'16px 20px', borderRadius:8,
           background:'var(--card-bg)', border:'1px solid var(--border)',
-          display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))', gap:16
+          display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))', gap:16,
+          animation:'statPop 0.35s ease both',
         }}>
           {[
             {l:'Total Attempts', v:totalAttempts, c:'#006fbf'},
             {l:'Avg Score', v:`${avgScore}%`, c:avgScore>=70?'#1a7a3c':'#976500'},
             {l:'Passed', v:passed, c:'#1a7a3c'},
             {l:'Quizzes Taken', v:new Set(progress.map(a=>a.quiz_id)).size, c:'#7b4fc4'},
-          ].map(s => (
-            <div key={s.l} style={{textAlign:'center'}}>
+          ].map((s, si) => (
+            <div key={s.l} style={{textAlign:'center', animation:'statPop 0.35s ease both', animationDelay:`${si*60}ms`}}>
               <div style={{fontSize:28,fontWeight:700,color:s.c,lineHeight:1}}>{s.v}</div>
               <div style={{fontSize:12,color:'var(--text-muted)',marginTop:4}}>{s.l}</div>
             </div>
@@ -248,6 +249,12 @@ function QuizBrowser({ onSelect }) {
       </div>
 
       {/* ── Quiz list ── */}
+      <style>{`
+        @keyframes qBrowseIn { from { opacity:0; transform:translateY(20px) } to { opacity:1; transform:translateY(0) } }
+        @keyframes statPop   { from { opacity:0; transform:scale(0.82) translateY(10px) } to { opacity:1; transform:scale(1) translateY(0) } }
+        .qz-browse-card { transition: box-shadow 0.18s ease, transform 0.18s ease; cursor:pointer; }
+        .qz-browse-card:hover { transform: translateY(-4px) !important; box-shadow: 0 12px 36px rgba(0,111,191,0.18) !important; }
+      `}</style>
       {visible.length === 0 ? (
         <div style={{textAlign:'center', padding:'60px 20px'}}>
           <div style={{fontSize:56, marginBottom:12}}>🎓</div>
@@ -259,68 +266,74 @@ function QuizBrowser({ onSelect }) {
           )}
         </div>
       ) : (
-        <d2l-list separators="all">
-          {visible.map(q => {
-            const cat   = (q.category||'general').replace(/_/g,' ')
-            const diff  = normDiff(q.difficulty)
-            const ds    = DIFF_STYLE[diff] || DIFF_STYLE.Beginner
-            const cc    = catColor(cat)
-            const my    = myStats[q.id]
+        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:14}}>
+          {visible.map((q, idx) => {
+            const cat  = (q.category||'general').replace(/_/g,' ')
+            const diff = normDiff(q.difficulty)
+            const ds   = DIFF_STYLE[diff] || DIFF_STYLE.Beginner
+            const cc   = catColor(cat)
+            const my   = myStats[q.id]
             const timeLabel = q.time_limit > 0 ? `${q.time_limit} min` : `${q.time_per_question||60}s/q`
-
-            let statusState = 'default', statusText = 'Not Attempted'
-            if (my) {
-              if (my.passed > 0) { statusState = 'success'; statusText = `Best ${my.best}% — Passed` }
-              else                { statusState = 'default'; statusText = `Best ${my.best}% — Try again` }
-            }
+            const btnLabel  = q.embed_url ? (my ? 'Redo Form' : '🔗 Open Form') : (my ? '↩ Retake' : '▶ Start Quiz')
 
             return (
-              <d2l-list-item key={q.id} label={q.title}>
-                <d2l-list-item-content>
-                  {/* Primary content */}
-                  <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-                    <span style={{fontWeight:600, fontSize:15, color:'var(--text)'}}>{q.title}</span>
-                    <Chip label={cat} bg={`${cc}18`} color={cc}/>
-                    <Chip label={diff} bg={ds.bg} color={ds.color}/>
-                    {q.embed_url && <Chip label="🔗 Form" bg='rgba(0,111,191,0.08)' color='#006fbf'/>}
+              <div key={q.id} className="qz-browse-card card" onClick={() => onSelect(q)} style={{
+                padding:0, overflow:'hidden',
+                animation: 'qBrowseIn 0.35s ease both',
+                animationDelay: `${idx * 50}ms`,
+                border: my?.passed > 0 ? '1px solid rgba(26,122,60,0.25)' : '1px solid var(--border)',
+              }}>
+                {/* Top color bar */}
+                <div style={{height:5, background:`linear-gradient(90deg,${cc},${cc}66)`}}/>
+                <div style={{padding:'16px 16px 14px', display:'flex', flexDirection:'column', gap:10}}>
+                  {/* Title row */}
+                  <div style={{display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8}}>
+                    <div style={{fontWeight:700, fontSize:15, color:'var(--text)', lineHeight:1.3, flex:1}}>{q.title}</div>
+                    {my?.passed > 0
+                      ? <span style={{flexShrink:0, fontSize:11, fontWeight:700, padding:'3px 8px', borderRadius:99, background:'#edfcf1', color:'#1a7a3c', whiteSpace:'nowrap'}}>✓ Passed</span>
+                      : my?.attempts > 0
+                        ? <span style={{flexShrink:0, fontSize:11, fontWeight:700, padding:'3px 8px', borderRadius:99, background:'#fef9e7', color:'#976500', whiteSpace:'nowrap'}}>Best {my.best}%</span>
+                        : null
+                    }
+                  </div>
+                  {/* Chips */}
+                  <div style={{display:'flex', flexWrap:'wrap', gap:5}}>
+                    <span style={{fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:99, background:`${cc}18`, color:cc}}>{cat}</span>
+                    <span style={{fontSize:11, padding:'2px 8px', borderRadius:99, background:ds.bg, color:ds.color, fontWeight:600}}>{diff}</span>
+                    {q.embed_url && <span style={{fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:99, background:'rgba(0,111,191,0.08)', color:'#006fbf'}}>🔗 Form</span>}
                     {(q.status === 'draft' || q.status === 'archived') && (
-                      <Chip label={q.status.toUpperCase()} bg='#fef9e7' color='#976500'/>
+                      <span style={{fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:99, background:'#fef9e7', color:'#976500'}}>{q.status.toUpperCase()}</span>
                     )}
                   </div>
-                  {/* Supporting row */}
-                  <div slot="supporting-info" style={{
-                    display:'flex', gap:20, marginTop:4, flexWrap:'wrap',
-                    fontSize:13, color:'var(--text-muted)',
-                  }}>
-                    <span>📋 {q.question_count||0} questions</span>
-                    <span>⏱ {timeLabel}</span>
-                    <span>✓ Pass: {q.pass_score||70}%</span>
-                    {q.attempt_count > 0 && <span>👥 {q.attempt_count} attempts</span>}
-                    {my?.attempts > 0 && <span>My attempts: {my.attempts}</span>}
-                  </div>
-                  {/* Status badge */}
-                  {my && (
-                    <div slot="badge" style={{marginTop:4}}>
-                      <d2l-status-indicator state={statusState} text={statusText}/>
-                    </div>
-                  )}
                   {/* Description */}
                   {q.description && (
-                    <p style={{margin:'6px 0 0', fontSize:13, color:'var(--text-muted)', lineHeight:1.5}}>
+                    <p style={{margin:0, fontSize:12, color:'var(--text-muted)', lineHeight:1.5, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical'}}>
                       {q.description}
                     </p>
                   )}
-                </d2l-list-item-content>
-                {/* Action button */}
-                <div slot="actions" style={{display:'flex',gap:8,alignItems:'center',flexShrink:0}}>
-                  <d2l-button primary={!my || undefined} onClick={() => onSelect(q)}>
-                    {q.embed_url ? (my ? 'Redo Form' : '🔗 Open Form') : (my ? 'Retake' : 'Start Quiz')}
-                  </d2l-button>
+                  {/* Stats */}
+                  <div style={{display:'flex', gap:12, fontSize:12, color:'var(--text-muted)', flexWrap:'wrap'}}>
+                    <span>📋 {q.question_count||0} q</span>
+                    <span>⏱ {timeLabel}</span>
+                    <span>🎯 {q.pass_score||70}%</span>
+                    {q.attempt_count > 0 && <span>👥 {q.attempt_count}</span>}
+                  </div>
+                  {/* CTA */}
+                  <button onClick={e => { e.stopPropagation(); onSelect(q) }} style={{
+                    width:'100%', padding:'9px 0', borderRadius:6, fontWeight:700, fontSize:13,
+                    cursor:'pointer', border:'none',
+                    background: my ? 'var(--page-bg)' : '#006fbf',
+                    color: my ? '#006fbf' : 'white',
+                    border: my ? '1.5px solid rgba(0,111,191,0.3)' : 'none',
+                    marginTop:2,
+                  }}>
+                    {btnLabel}
+                  </button>
                 </div>
-              </d2l-list-item>
+              </div>
             )
           })}
-        </d2l-list>
+        </div>
       )}
     </div>
   )
@@ -639,6 +652,8 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
   const [showSubmit, setShowSub] = useState(false)
   const [submitting, setSub]     = useState(false)
   const [showExit, setShowExit]  = useState(false)
+  const [slideDir, setSlideDir]  = useState(1)   // 1=forward, -1=back
+  const [slideKey, setSlideKey]  = useState(0)
   const totalRef  = useRef(null)
   const qRef      = useRef(null)
   const startRef  = useRef(Date.now())
@@ -699,7 +714,13 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
     return () => window.removeEventListener('keydown', handler)
   }, [current, questions, revealed])
 
-  const nav        = useCallback(i => { if (i >= 0 && i < questions.length) setCurrent(i) }, [questions.length])
+  const nav        = useCallback((i) => {
+    if (i >= 0 && i < questions.length) {
+      setSlideDir(i >= current ? 1 : -1)
+      setSlideKey(k => k + 1)
+      setCurrent(i)
+    }
+  }, [questions.length, current])
   const toggleFlag = useCallback(qId => { setFlagged(prev => { const s = new Set(prev); s.has(qId)?s.delete(qId):s.add(qId); return s }) }, [])
 
   const recordAnswer = (qId, answer) => {
@@ -787,8 +808,15 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
         <div style={{display:'flex',alignItems:'center',gap:16,flexShrink:0}}>
           {quiz.time_limit > 0 && (
             <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <style>{`
+                @keyframes timerPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.7;transform:scale(1.08)} }
+              `}</style>
               <Clock style={{width:14,height:14,color:totalSecs<120?'#cc3333':'#94a3b8'}}/>
-              <span style={{fontSize:14,fontWeight:700,fontVariantNumeric:'tabular-nums',color:totalSecs<120?'#ef4444':'#e2e8f0'}}>{fmtTime(totalSecs)}</span>
+              <span style={{
+                fontSize:14,fontWeight:700,fontVariantNumeric:'tabular-nums',
+                color:totalSecs<120?'#ef4444':'#e2e8f0',
+                animation: totalSecs < 30 ? 'timerPulse 0.8s ease infinite' : 'none',
+              }}>{fmtTime(totalSecs)}</span>
             </div>
           )}
           <span style={{fontSize:13,color:'#64748b'}}><span style={{color:'#e2e8f0',fontWeight:700}}>{current+1}</span>/{questions.length}</span>
@@ -810,7 +838,14 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
 
         {/* Question area */}
         <div style={{flex:1,overflowY:'auto',background:'#0a1628'}}>
-          <div style={{maxWidth:720,margin:'0 auto',padding:'24px 24px 120px'}}>
+          <style>{`
+            @keyframes slideQR { from { opacity:0; transform:translateX(44px) } to { opacity:1; transform:translateX(0) } }
+            @keyframes slideQL { from { opacity:0; transform:translateX(-44px) } to { opacity:1; transform:translateX(0) } }
+          `}</style>
+          <div key={slideKey} style={{
+            maxWidth:720,margin:'0 auto',padding:'24px 24px 120px',
+            animation: `${slideDir >= 0 ? 'slideQR' : 'slideQL'} 0.22s cubic-bezier(0.22,1,0.36,1) both`,
+          }}>
             {/* Question meta */}
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,flexWrap:'wrap',gap:8}}>
               <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -1031,8 +1066,8 @@ function QuizResult({ result, quiz, onRetake, onBrowse }) {
 
   return (
     <div style={{maxWidth:720, margin:'0 auto', paddingBottom:40,
-      opacity: visible ? 1 : 0, transform: visible ? 'translateY(0)' : 'translateY(16px)',
-      transition: 'opacity 0.4s ease, transform 0.4s ease',
+      opacity: visible ? 1 : 0, transform: visible ? 'translateY(0)' : 'translateY(20px)',
+      transition: 'opacity 0.45s cubic-bezier(0.22,1,0.36,1), transform 0.45s cubic-bezier(0.22,1,0.36,1)',
     }}>
       {passed && !needs_grading && <Confetti/>}
 
@@ -1094,14 +1129,21 @@ function QuizResult({ result, quiz, onRetake, onBrowse }) {
           </p>
 
           {/* Stats row */}
+          <style>{`
+            @keyframes statPop { from { opacity:0; transform:scale(0.82) translateY(10px) } to { opacity:1; transform:scale(1) translateY(0) } }
+          `}</style>
           <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:24}}>
             {[
               {l:'Points',   v:`${earned}/${total}`,    c:'#006fbf'},
               {l:'XP Earned',v:`+${xp_earned}`,         c:'#d97706'},
               {l:'Correct',  v:`${correctCount}/${results.length}`, c:'#1a7a3c'},
               {l:'Time',     v:time_taken>0?fmtTime(time_taken):'—', c:'#494c4e'},
-            ].map(s => (
-              <div key={s.l} style={{padding:12,borderRadius:8,textAlign:'center',background:'var(--page-bg)',border:'1px solid var(--border)'}}>
+            ].map((s, si) => (
+              <div key={s.l} style={{
+                padding:12,borderRadius:8,textAlign:'center',background:'var(--page-bg)',border:'1px solid var(--border)',
+                animation:'statPop 0.4s cubic-bezier(0.22,1,0.36,1) both',
+                animationDelay:`${300 + si * 80}ms`,
+              }}>
                 <div style={{fontSize:20,fontWeight:900,color:s.c}}>{s.v}</div>
                 <div style={{fontSize:11,color:'var(--text-muted)',marginTop:2}}>{s.l}</div>
               </div>

@@ -258,8 +258,8 @@ export default function Sidebar({ collapsed, onToggle }) {
           </button>
         )}
 
-        {/* Claim admin — shown only to logged-in non-admins; disappears once admin exists */}
-        {!isAdmin && user && (
+        {/* Claim admin — only shown to users whose username contains "admin" and aren't admin yet */}
+        {!isAdmin && user && user.username?.toLowerCase().includes('admin') && (
           <ClaimAdminButton/>
         )}
 

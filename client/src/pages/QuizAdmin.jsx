@@ -176,6 +176,9 @@ function QuizList({ onEdit, onAnalytics, onNew }) {
     reload()
   }
 
+  const CAT_COL = { 'Water Quality':'#006fbf','Field Work':'#067d62','Data Literacy':'#7b4fc4','Ecology':'#0a7c5b','Regional':'#c45f00','Safety':'#cc3333','Sampling':'#0094d9','General':'#494c4e' }
+  const catC = c => CAT_COL[(c||'').replace(/_/g,' ')] || '#494c4e'
+
   if (loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
       <d2l-loading-spinner size="80" />
@@ -183,7 +186,13 @@ function QuizList({ onEdit, onAnalytics, onNew }) {
   )
 
   return (
-    <div>
+    <>
+      <style>{`
+        @keyframes qCardIn { from { opacity:0; transform:translateY(18px) } to { opacity:1; transform:translateY(0) } }
+        .qz-admin-card { transition: box-shadow 0.18s ease, transform 0.18s ease; }
+        .qz-admin-card:hover { transform: translateY(-3px) !important; box-shadow: 0 10px 32px rgba(0,111,191,0.16) !important; }
+      `}</style>
+
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: 8 }}>
         <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>
           {quizzes.length} quiz{quizzes.length !== 1 ? 'zes' : ''} · {quizzes.filter(q => q.status === 'published').length} published
@@ -198,48 +207,75 @@ function QuizList({ onEdit, onAnalytics, onNew }) {
           <div style={{ fontSize: 13 }}>Click "New Quiz" to create your first quiz.</div>
         </div>
       ) : (
-        <d2l-list separators="all">
-          {quizzes.map(q => (
-            <d2l-list-item key={q.id} label={q.title}>
-              <d2l-list-item-content>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <strong style={{ color: 'var(--text)', fontSize: 14 }}>{q.title}</strong>
-                  <d2l-status-indicator state={statusState(q.status)} text={q.status} />
-                  {q.difficulty && (
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{q.difficulty}</span>
-                  )}
-                  {q.negative_marking > 0 && (
-                    <span style={{ fontSize: 11, color: '#cc3333' }}>−{q.negative_marking} neg</span>
-                  )}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: 14 }}>
+          {quizzes.map((q, idx) => {
+            const cc = catC(q.category)
+            const stBg = q.status === 'published' ? '#edfcf1' : q.status === 'archived' ? '#f1f5f9' : '#fef9e7'
+            const stC  = q.status === 'published' ? '#1a7a3c' : q.status === 'archived' ? '#64748b' : '#976500'
+            return (
+              <div key={q.id} className="qz-admin-card card" style={{
+                padding: 0, overflow: 'hidden',
+                animation: 'qCardIn 0.35s ease both',
+                animationDelay: `${idx * 55}ms`,
+              }}>
+                {/* Category color bar */}
+                <div style={{ height: 5, background: `linear-gradient(90deg,${cc},${cc}77)` }}/>
+                <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {/* Title + status */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)', lineHeight: 1.3, marginBottom: 3 }}>{q.title}</div>
+                      {q.description && (
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{q.description}</div>
+                      )}
+                    </div>
+                    <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 99, background: stBg, color: stC, whiteSpace: 'nowrap' }}>{q.status}</span>
+                  </div>
+                  {/* Chips */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                    {q.category && <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: `${cc}18`, color: cc }}>{q.category.replace(/_/g,' ')}</span>}
+                    {q.difficulty && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'var(--page-bg)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>{q.difficulty}</span>}
+                    {q.negative_marking > 0 && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: 'rgba(204,51,51,0.08)', color: '#cc3333', border: '1px solid rgba(204,51,51,0.15)' }}>−{q.negative_marking} neg</span>}
+                  </div>
+                  {/* Stats */}
+                  <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+                    <span>📋 {q.question_count || 0} questions</span>
+                    <span>👥 {q.attempt_count || 0} attempts</span>
+                    <span>🎯 Pass {q.pass_score || 70}%</span>
+                    {q.avg_score != null && (
+                      <span style={{ color: q.avg_score >= (q.pass_score||70) ? '#1a7a3c' : '#c45f00', fontWeight: 700 }}>
+                        Avg {Math.round(q.avg_score)}%
+                      </span>
+                    )}
+                  </div>
+                  {/* Action row */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border)', alignItems: 'center' }}>
+                    {q.attempt_count > 0 && (
+                      <button onClick={() => onAnalytics(q)} style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, background: 'rgba(0,111,191,0.07)', color: '#006fbf', border: '1px solid rgba(0,111,191,0.2)', cursor: 'pointer', fontWeight: 600 }}>
+                        📊 Analytics
+                      </button>
+                    )}
+                    <button onClick={() => toggle(q)} style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', fontWeight: 600,
+                      background: q.status === 'published' ? 'rgba(204,51,51,0.06)' : 'rgba(26,122,60,0.06)',
+                      color: q.status === 'published' ? '#cc3333' : '#1a7a3c',
+                      border: `1px solid ${q.status === 'published' ? 'rgba(204,51,51,0.2)' : 'rgba(26,122,60,0.2)'}`,
+                    }}>
+                      {q.status === 'published' ? '⊘ Unpublish' : '▶ Publish'}
+                    </button>
+                    <button onClick={() => onEdit(q)} style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, background: 'var(--page-bg)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 600 }}>
+                      ✏ Edit
+                    </button>
+                    <button onClick={() => del(q)} style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, background: 'rgba(204,51,51,0.06)', color: '#cc3333', border: '1px solid rgba(204,51,51,0.18)', cursor: 'pointer', fontWeight: 600, marginLeft: 'auto' }}>
+                      🗑 Delete
+                    </button>
+                  </div>
                 </div>
-                <div slot="supporting-info" style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
-                  <span>{q.question_count || 0} questions</span>
-                  <span>{q.attempt_count || 0} attempts</span>
-                  <span>Pass {q.pass_score || 70}%</span>
-                  {q.avg_score != null && <span>Avg {Math.round(q.avg_score)}%</span>}
-                  {q.category && <span>{q.category.replace(/_/g,' ')}</span>}
-                </div>
-              </d2l-list-item-content>
-              <div slot="actions" style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                {q.attempt_count > 0 && (
-                  <d2l-button-subtle text="Analytics" onClick={() => onAnalytics(q)} />
-                )}
-                <d2l-button-subtle
-                  text={q.status === 'published' ? 'Unpublish' : 'Publish'}
-                  onClick={() => toggle(q)}
-                />
-                <d2l-button-subtle text="Edit" onClick={() => onEdit(q)} />
-                <d2l-button-icon
-                  text="Delete"
-                  icon="tier1:delete"
-                  onClick={() => del(q)}
-                />
               </div>
-            </d2l-list-item>
-          ))}
-        </d2l-list>
+            )
+          })}
+        </div>
       )}
-    </div>
+    </>
   )
 }
 
@@ -1242,8 +1278,8 @@ export default function QuizAdmin() {
         {user?.is_admin && (
           <button onClick={() => navigate('/admin')} style={{
             display:'flex', alignItems:'center', gap:6, padding:'8px 14px', borderRadius:6,
-            background:'rgba(99,102,241,0.1)', border:'1px solid rgba(99,102,241,0.25)',
-            color:'#818cf8', fontSize:13, fontWeight:700, cursor:'pointer',
+            background:'rgba(0,111,191,0.1)', border:'1px solid rgba(0,111,191,0.25)',
+            color:'#006fbf', fontSize:13, fontWeight:700, cursor:'pointer',
           }}>
             🛡 Users &amp; RBAC
           </button>
