@@ -336,6 +336,100 @@ function MapBeacon({ portal, idx, onNav }) {
   )
 }
 
+/* ─── Dolphin ───────────────────────────────────────────────────── */
+function Dolphin({ offset=0, radius=9, speed=0.28, side=1 }) {
+  const gRef = useRef()
+  useFrame(({clock})=>{
+    const t = clock.getElapsedTime()*speed + offset
+    const x = Math.sin(t)*radius*side
+    const z = Math.cos(t)*radius - 2
+    // Jump arc: periodic leap above surface
+    const jp = (clock.getElapsedTime()*0.55+offset*1.8) % (Math.PI*2)
+    const raw = Math.sin(jp)
+    const jumpY = raw>0 ? raw*raw*3.2 : 0
+    const y = jumpY - 0.08
+    // Face direction of travel
+    const dx = Math.cos(t)*speed*side
+    const dz = -Math.sin(t)*speed
+    const heading = Math.atan2(dx, dz)
+    // Pitch: nose up on ascent, nose down on descent
+    const pitch = raw>0 ? -Math.cos(jp)*0.55 : 0
+    if(gRef.current){
+      gRef.current.position.set(x,y,z)
+      gRef.current.rotation.y = heading
+      gRef.current.rotation.z = pitch
+    }
+  })
+  return (
+    <group ref={gRef}>
+      {/* Body */}
+      <mesh scale={[1.3,0.38,0.38]}>
+        <sphereGeometry args={[0.45,12,8]}/>
+        <meshStandardMaterial color="#4a8098" metalness={0.15} roughness={0.35}/>
+      </mesh>
+      {/* Snout */}
+      <mesh position={[0.65,0.04,0]} rotation={[0,0,-Math.PI/2]}>
+        <coneGeometry args={[0.09,0.38,8]}/>
+        <meshStandardMaterial color="#4a8098"/>
+      </mesh>
+      {/* Dorsal fin */}
+      <mesh position={[0.05,0.28,0]} rotation={[0,0,0.18]}>
+        <coneGeometry args={[0.06,0.32,6]}/>
+        <meshStandardMaterial color="#3a6a80"/>
+      </mesh>
+      {/* Tail flukes */}
+      <mesh position={[-0.6,0,0]} rotation={[Math.PI/2,0,Math.PI/2]}>
+        <boxGeometry args={[0.38,0.06,0.18]}/>
+        <meshStandardMaterial color="#4a8098"/>
+      </mesh>
+      {/* Belly lighter */}
+      <mesh scale={[1.1,0.28,0.3]} position={[0,-0.06,0]}>
+        <sphereGeometry args={[0.42,12,8]}/>
+        <meshStandardMaterial color="#c8dde8" metalness={0.1} roughness={0.4}/>
+      </mesh>
+    </group>
+  )
+}
+
+/* ─── Seagull ───────────────────────────────────────────────────── */
+function Seagull({ offset=0 }) {
+  const ref = useRef()
+  useFrame(({clock})=>{
+    const t = clock.getElapsedTime()
+    const a = t*0.38+offset
+    const x = Math.sin(a*1.1)*16
+    const z = Math.cos(a*0.9)*12
+    const y = 7+Math.sin(t*1.8+offset)*1.2
+    const flapA = Math.sin(t*4.5+offset)*0.45
+    if(ref.current){
+      ref.current.position.set(x,y,z)
+      ref.current.rotation.y = Math.atan2(Math.cos(a*1.1)*1.1, Math.sin(a*0.9)*0.9)
+      // Flap left/right wings
+      if(ref.current.children[1]) ref.current.children[1].rotation.z = flapA+0.2
+      if(ref.current.children[2]) ref.current.children[2].rotation.z = -flapA-0.2
+    }
+  })
+  return (
+    <group ref={ref}>
+      {/* Body */}
+      <mesh scale={[0.7,0.22,0.22]}>
+        <sphereGeometry args={[0.18,8,6]}/>
+        <meshStandardMaterial color="#f8f8f8" roughness={0.7}/>
+      </mesh>
+      {/* Left wing */}
+      <mesh position={[0,0,-0.28]} rotation={[0,0,0.2]}>
+        <boxGeometry args={[0.65,0.02,0.22]}/>
+        <meshStandardMaterial color="#f0f0f0" roughness={0.7}/>
+      </mesh>
+      {/* Right wing */}
+      <mesh position={[0,0, 0.28]} rotation={[0,0,-0.2]}>
+        <boxGeometry args={[0.65,0.02,0.22]}/>
+        <meshStandardMaterial color="#f0f0f0" roughness={0.7}/>
+      </mesh>
+    </group>
+  )
+}
+
 /* ─── Ship ──────────────────────────────────────────────────────── */
 function Ship({ shipRef }) {
   const gRef = useRef()
@@ -469,6 +563,15 @@ function Scene({ shipRef, navigate }) {
       {LAKES.map(l=><GreatLake key={l.name} lake={l}/>)}
       <ConnectionLines/>
       {PORTALS.map((p,i)=><MapBeacon key={p.path} portal={p} idx={i} onNav={navigate}/>)}
+
+      {/* Wildlife */}
+      <Dolphin offset={0}    radius={9}  speed={0.30} side={ 1}/>
+      <Dolphin offset={2.1}  radius={11} speed={0.26} side={-1}/>
+      <Dolphin offset={4.4}  radius={7}  speed={0.34} side={ 1}/>
+      <Seagull offset={0}/>
+      <Seagull offset={1.8}/>
+      <Seagull offset={3.4}/>
+      <Seagull offset={5.1}/>
 
       <Ship shipRef={shipRef}/>
       <CameraRig shipRef={shipRef}/>
