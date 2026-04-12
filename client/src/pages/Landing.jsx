@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useCMS } from '../context/CMSContext'
 import CMSField from '../components/cms/CMSField'
@@ -168,8 +168,13 @@ function CountUp({ target, suffix = '' }) {
 }
 
 export default function Landing() {
-  const { login, register } = useAuth()
+  const { login, register, user } = useAuth()
   const navigate = useNavigate()
+
+  // Already logged in — send them where they belong
+  if (user) {
+    return <Navigate to={user.onboarding_completed ? '/dashboard' : '/onboarding'} replace />
+  }
   const [mode, setMode] = useState('login')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')

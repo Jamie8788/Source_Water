@@ -17,10 +17,15 @@ const requireAuth = async (req, res, next) => {
       if (user && !error) {
         let localUser = await db.get('SELECT * FROM users WHERE email = ? AND is_active = 1', [user.email])
         if (!localUser) {
-          const username = user.email.split('@')[0].replace(/[^a-z0-9_]/gi, '') + '_' + Math.random().toString(36).slice(2, 6)
+          // Use the real username from Supabase metadata if available (set during signUp)
+          const metaUsername = user.user_metadata?.username
+          const base = user.email.split('@')[0].replace(/[^a-z0-9_]/gi, '')
+          const suffix = Math.random().toString(36).slice(2, 6)
+          const username = (metaUsername && metaUsername.length >= 3) ? metaUsername : `${base}_${suffix}`
+          const displayName = user.user_metadata?.display_name || username
           await db.run(
             `INSERT INTO users (username, email, password_hash, display_name, role, avatar_emoji, avatar_bg_color) VALUES (?, ?, 'supabase_auth', ?, 'Community member', '💧', '#3B82F6') ON CONFLICT DO NOTHING`,
-            [username, user.email, user.user_metadata?.display_name || username]
+            [username, user.email, displayName]
           )
           localUser = await db.get('SELECT * FROM users WHERE email = ? AND is_active = 1', [user.email])
         }

@@ -25,11 +25,27 @@ router.post('/register', limiter, async (req, res) => {
     if (username.length < 3) return res.status(400).json({ error: 'Username must be at least 3 characters' })
     if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' })
 
-    const existing = await db.get('SELECT id FROM users WHERE username = ?', [username])
-    if (existing) return res.status(409).json({ error: 'Username already taken' })
-
     const hash = await bcrypt.hash(password, 10)
     const isAdmin = role === 'SOURCE Water team member'
+
+    // If a row already exists for this email (auto-created by Supabase JWT on /auth/me
+    // or onAuthStateChange), update it with the real username/password — no duplicate.
+    const existingByEmail = email ? await db.get('SELECT id FROM users WHERE email = ?', [email]) : null
+    if (existingByEmail) {
+      const usernameTaken = await db.get('SELECT id FROM users WHERE username = ? AND id != ?', [username, existingByEmail.id])
+      if (usernameTaken) return res.status(409).json({ error: 'Username already taken' })
+      await db.run(
+        `UPDATE users SET username=?, password_hash=?, display_name=?, role=?, avatar_emoji=?, avatar_bg_color=?, is_admin=? WHERE id=?`,
+        [username, hash, display_name || username, role || 'Community member',
+          avatar_emoji || '💧', avatar_bg_color || '#3B82F6', isAdmin ? 1 : 0, existingByEmail.id]
+      )
+      const user = await db.get('SELECT * FROM users WHERE id = ?', [existingByEmail.id])
+      return res.json({ token: makeToken(user), user: safeUser(user) })
+    }
+
+    // Fresh registration — no existing row
+    const existing = await db.get('SELECT id FROM users WHERE username = ?', [username])
+    if (existing) return res.status(409).json({ error: 'Username already taken' })
 
     const { lastInsertRowid } = await db.run(`
       INSERT INTO users (username, email, password_hash, display_name, role, avatar_emoji, avatar_bg_color, is_admin)
@@ -88,11 +104,14 @@ router.get('/me', async (req, res) => {
       if (sbUser && !error) {
         let localUser = await db.get('SELECT * FROM users WHERE email = ?', [sbUser.email])
         if (!localUser) {
-          // Auto-create local user row on first login (same as requireAuth middleware)
-          const username = sbUser.email.split('@')[0].replace(/[^a-z0-9_]/gi, '') + '_' + Math.random().toString(36).slice(2, 6)
+          const metaUsername = sbUser.user_metadata?.username
+          const base = sbUser.email.split('@')[0].replace(/[^a-z0-9_]/gi, '')
+          const suffix = Math.random().toString(36).slice(2, 6)
+          const username = (metaUsername && metaUsername.length >= 3) ? metaUsername : `${base}_${suffix}`
+          const displayName = sbUser.user_metadata?.display_name || username
           await db.run(
             `INSERT INTO users (username, email, password_hash, display_name, role, avatar_emoji, avatar_bg_color) VALUES (?, ?, 'supabase_auth', ?, 'Community member', '💧', '#3B82F6') ON CONFLICT DO NOTHING`,
-            [username, sbUser.email, sbUser.user_metadata?.display_name || username]
+            [username, sbUser.email, displayName]
           )
           localUser = await db.get('SELECT * FROM users WHERE email = ?', [sbUser.email])
         }

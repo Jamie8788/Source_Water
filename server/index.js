@@ -29,6 +29,9 @@ initSchema().then(() => seed().catch(console.error)).catch(err => {
 // Initialize WebSocket Chat Service
 const chatService = new ChatService(server)
 
+// Trust Render's reverse proxy so rate-limiting uses real client IPs
+app.set('trust proxy', 1)
+
 // Security
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
