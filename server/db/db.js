@@ -73,10 +73,10 @@ function pgify(sql) {
   // date(col) = date('now') → col::date = CURRENT_DATE
   sql = sql.replace(/date\s*\(([^)]+)\)\s*=\s*date\s*\(\s*'now'\s*\)/gi, '$1::date = CURRENT_DATE')
 
-  // Boolean columns: SQLite uses 0/1, PostgreSQL may use BOOLEAN type
-  // Convert = 0 / = 1 to = false / = true for known boolean-like column names
-  // so queries work regardless of whether the column is BOOLEAN or INTEGER
-  const boolCols = 'is_read|read|deleted|edited|pinned|passed|visible|active|is_admin|is_active|onboarding_completed|shuffle_questions|shuffle_answers|show_answers_after|certificate_enabled|secchi_bottom_visible|is_archived'
+  // Boolean columns: only convert = 0/1 to = false/true for columns that are
+  // BOOLEAN type in PostgreSQL (pre-existing Supabase tables).
+  // Do NOT include columns in our own new tables (users, quizzes, etc.) which use INTEGER.
+  const boolCols = 'is_read|read|deleted|edited|pinned'
   sql = sql.replace(new RegExp(`\\b(${boolCols})\\s*=\\s*0\\b`, 'gi'), '$1 = false')
   sql = sql.replace(new RegExp(`\\b(${boolCols})\\s*=\\s*1\\b`, 'gi'), '$1 = true')
 

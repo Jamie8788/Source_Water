@@ -108,17 +108,14 @@ class ChatService {
   }
 
   setUserOnline(userId, isOnline) {
-    try {
-      db.prepare('UPDATE users SET is_active = ? WHERE id = ?').run(isOnline ? 1 : 0, userId)
-    } catch (error) {
-      console.error('Error updating user status:', error)
-    }
+    db.run('UPDATE users SET is_active = ? WHERE id = ?', [isOnline ? 1 : 0, userId])
+      .catch(err => console.error('Error updating user status:', err.message))
   }
 
   // Get user's online status
-  getUserStatus(userId) {
-    const user = db.prepare('SELECT is_active FROM users WHERE id = ?').get(userId)
-    return user ? user.is_active === 1 : false
+  async getUserStatus(userId) {
+    const user = await db.get('SELECT is_active FROM users WHERE id = ?', [userId])
+    return user ? user.is_active === true || user.is_active === 1 : false
   }
 
   // Get unread count for user
