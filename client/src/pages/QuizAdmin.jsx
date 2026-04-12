@@ -1,37 +1,51 @@
 /**
- * QuizAdmin — full-screen quiz creator + research-level analytics
+ * QuizAdmin — Brightspace-grade quiz creator with real @brightspace-ui/core components
  * Route: /quiz-admin (QuizCreatorGuard: admin, teacher, professor, researcher)
  */
+
+// ── D2L web-component registrations ──────────────────────────────────────────
+import '@brightspace-ui/core/components/list/list.js'
+import '@brightspace-ui/core/components/list/list-item.js'
+import '@brightspace-ui/core/components/list/list-item-content.js'
+import '@brightspace-ui/core/components/button/button.js'
+import '@brightspace-ui/core/components/button/button-subtle.js'
+import '@brightspace-ui/core/components/button/button-icon.js'
+import '@brightspace-ui/core/components/status-indicator/status-indicator.js'
+import '@brightspace-ui/core/components/loading-spinner/loading-spinner.js'
+import '@brightspace-ui/core/components/tabs/tabs.js'
+import '@brightspace-ui/core/components/tabs/tab-panel.js'
+import '@brightspace-ui/core/components/inputs/input-text.js'
+import '@brightspace-ui/core/components/inputs/input-textarea.js'
+import '@brightspace-ui/core/components/inputs/input-number.js'
+import '@brightspace-ui/core/components/inputs/input-checkbox.js'
+import '@brightspace-ui/core/components/alert/alert.js'
+
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../utils/api'
 import {
-  Plus, Trash2, Edit2, Save, X, ArrowUp, ArrowDown,
+  Plus, Trash2, Edit2, Save, ArrowUp, ArrowDown,
   BarChart2, ChevronLeft, Eye, Upload, AlertCircle,
-  CheckCircle, XCircle, RefreshCw, Download, Sparkles, Zap
+  CheckCircle, RefreshCw, Sparkles, Zap
 } from 'lucide-react'
 
 // ─────────────────────────────────────────────────────────────────────────────
 const Q_TYPES = [
-  { v:'mcq',             l:'Multiple Choice',   i:'◉', c:'#6366f1' },
-  { v:'true_false',      l:'True / False',      i:'⊤', c:'#10b981' },
-  { v:'multiple_select', l:'Multi-Select',       i:'☑', c:'#8b5cf6' },
-  { v:'short_answer',    l:'Short Answer',       i:'T', c:'#f59e0b' },
-  { v:'numeric',         l:'Numeric',            i:'#', c:'#0ea5e9' },
-  { v:'fill_blank',      l:'Fill in Blank',      i:'_', c:'#14b8a6' },
+  { v:'mcq',             l:'Multiple Choice',  i:'◉', c:'#006fbf' },
+  { v:'true_false',      l:'True / False',     i:'⊤', c:'#1a7a3c' },
+  { v:'multiple_select', l:'Multi-Select',     i:'☑', c:'#7b4fc4' },
+  { v:'short_answer',    l:'Short Answer',     i:'T', c:'#c45f00' },
+  { v:'numeric',         l:'Numeric',          i:'#', c:'#067d62' },
+  { v:'fill_blank',      l:'Fill in Blank',    i:'_', c:'#494c4e' },
 ]
 const CATEGORIES = ['Water Quality','Field Work','Data Literacy','Ecology','Regional','Safety','Sampling','General']
 const DIFFICULTIES = ['Beginner','Intermediate','Advanced']
-const STATUS_COLORS = {
-  published: { bg:'rgba(16,185,129,0.1)', c:'#10b981' },
-  draft:     { bg:'rgba(100,116,139,0.1)', c:'#94a3b8' },
-  archived:  { bg:'rgba(99,102,241,0.1)', c:'#818cf8' },
-}
-const iS = (extra={}) => ({ width:'100%', background:'var(--page-bg)', border:'1.5px solid var(--border)', borderRadius:9, padding:'8px 12px', fontSize:13, color:'var(--text)', outline:'none', ...extra })
-const lS = { fontSize:12, fontWeight:600, color:'var(--text-muted)', display:'block', marginBottom:5 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// D2L status-indicator states
+const statusState = s => s === 'published' ? 'success' : s === 'archived' ? 'none' : 'default'
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 function parseOpts(v) {
   if (!v) return []
   if (typeof v === 'string') { try { return JSON.parse(v) } catch { return [] } }
@@ -44,14 +58,105 @@ function parseToken() {
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api')
 
-// ── Quiz list panel ───────────────────────────────────────────────────────────
+// ── D2L Input wrappers — sync value property and forward change events ────────
+// D2L inputs are web components; value must be set as a DOM property, not attribute.
+
+function D2LText({ label, value, onChange, placeholder, required, style }) {
+  const ref = useRef()
+  useEffect(() => { if (ref.current) ref.current.value = value ?? '' }, [value])
+  useEffect(() => {
+    const el = ref.current; if (!el) return
+    const h = e => onChange(e.target.value)
+    el.addEventListener('change', h)
+    return () => el.removeEventListener('change', h)
+  }, [onChange])
+  return (
+    <d2l-input-text
+      ref={ref} label={label}
+      placeholder={placeholder || ''}
+      required={required || undefined}
+      style={{ width: '100%', ...style }}
+    />
+  )
+}
+
+function D2LTextarea({ label, value, onChange, rows = 3, placeholder }) {
+  const ref = useRef()
+  useEffect(() => { if (ref.current) ref.current.value = value ?? '' }, [value])
+  useEffect(() => {
+    const el = ref.current; if (!el) return
+    const h = e => onChange(e.target.value)
+    el.addEventListener('change', h)
+    return () => el.removeEventListener('change', h)
+  }, [onChange])
+  return (
+    <d2l-input-textarea
+      ref={ref} label={label}
+      rows={rows}
+      placeholder={placeholder || ''}
+      style={{ width: '100%' }}
+    />
+  )
+}
+
+function D2LNumber({ label, value, onChange, min, max, step }) {
+  const ref = useRef()
+  useEffect(() => { if (ref.current) ref.current.value = value ?? 0 }, [value])
+  useEffect(() => {
+    const el = ref.current; if (!el) return
+    const h = e => onChange(+e.target.value)
+    el.addEventListener('change', h)
+    return () => el.removeEventListener('change', h)
+  }, [onChange])
+  return (
+    <d2l-input-number
+      ref={ref} label={label}
+      min={min} max={max} step={step}
+      style={{ width: '100%' }}
+    />
+  )
+}
+
+function D2LCheckbox({ label, checked, onChange }) {
+  const ref = useRef()
+  useEffect(() => { if (ref.current) ref.current.checked = !!checked }, [checked])
+  useEffect(() => {
+    const el = ref.current; if (!el) return
+    const h = e => onChange(e.target.checked)
+    el.addEventListener('change', h)
+    return () => el.removeEventListener('change', h)
+  }, [onChange])
+  return <d2l-input-checkbox ref={ref}>{label}</d2l-input-checkbox>
+}
+
+// D2L uses CSS class `.d2l-input-select` on a native <select> (no custom element)
+const selectStyle = {
+  WebkitAppearance: 'none',
+  MozAppearance: 'none',
+  appearance: 'none',
+  background: '#fff',
+  border: 'none',
+  borderRadius: '0.3rem',
+  boxShadow: 'inset 0 2px 0 1px rgba(177,185,190,0.2)',
+  color: '#202122',
+  fontSize: '0.8rem',
+  padding: '0.4rem 2.2rem 0.4rem 0.75rem',
+  outline: '1px solid #cdd5dc',
+  outlineOffset: -1,
+  width: '100%',
+  backgroundImage: `url("data:image/svg+xml,%3Csvg width='11' height='7' viewBox='0 0 11 7' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 2l4.5 4M10 2L5.5 6' stroke='%23565A5C' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")`,
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: 'right 0.75rem center',
+}
+
+// ── Quiz list panel ──────────────────────────────────────────────────────────
 function QuizList({ onEdit, onAnalytics, onNew }) {
   const [quizzes, setQuizzes] = useState([])
   const [loading, setLoading] = useState(true)
 
   const reload = useCallback(() => {
     setLoading(true)
-    api.get('/quizzes').then(r => setQuizzes(r.data.quizzes||[])).finally(() => setLoading(false))
+    api.get('/quizzes').then(r => setQuizzes(r.data.quizzes || [])).finally(() => setLoading(false))
   }, [])
   useEffect(() => { reload() }, [reload])
 
@@ -68,123 +173,117 @@ function QuizList({ onEdit, onAnalytics, onNew }) {
   }
 
   if (loading) return (
-    <div className="space-y-3">
-      {[1,2,3].map(i => <div key={i} className="card p-4 h-20 skeleton"/>)}
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+      <d2l-loading-spinner size="80" />
     </div>
   )
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm" style={{color:'var(--text-muted)'}}>
-          {quizzes.length} quizzes · {quizzes.filter(q=>q.status==='published').length} published
-        </div>
-        <button onClick={onNew}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white"
-          style={{background:'linear-gradient(135deg,#6366f1,#4f46e5)'}}>
-          <Plus className="w-4 h-4"/> New Quiz
-        </button>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: 8 }}>
+        <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+          {quizzes.length} quiz{quizzes.length !== 1 ? 'zes' : ''} · {quizzes.filter(q => q.status === 'published').length} published
+        </span>
+        <d2l-button primary onClick={onNew}>+ New Quiz</d2l-button>
       </div>
 
-      {quizzes.length === 0 && (
-        <div className="text-center py-16" style={{color:'var(--text-muted)'}}>
-          <div className="text-5xl mb-3">🎓</div>
-          <div className="font-bold text-base mb-2" style={{color:'var(--text)'}}>No quizzes yet</div>
-          <div className="text-sm mb-4">Click "New Quiz" to build your first quiz.</div>
+      {quizzes.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '4rem 1rem', color: 'var(--text-muted)' }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🎓</div>
+          <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>No quizzes yet</div>
+          <div style={{ fontSize: 13 }}>Click "New Quiz" to create your first quiz.</div>
         </div>
+      ) : (
+        <d2l-list separators="all">
+          {quizzes.map(q => (
+            <d2l-list-item key={q.id} label={q.title}>
+              <d2l-list-item-content>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <strong style={{ color: 'var(--text)', fontSize: 14 }}>{q.title}</strong>
+                  <d2l-status-indicator state={statusState(q.status)} text={q.status} />
+                  {q.difficulty && (
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{q.difficulty}</span>
+                  )}
+                  {q.negative_marking > 0 && (
+                    <span style={{ fontSize: 11, color: '#cc3333' }}>−{q.negative_marking} neg</span>
+                  )}
+                </div>
+                <div slot="supporting-info" style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+                  <span>{q.question_count || 0} questions</span>
+                  <span>{q.attempt_count || 0} attempts</span>
+                  <span>Pass {q.pass_score || 70}%</span>
+                  {q.avg_score != null && <span>Avg {Math.round(q.avg_score)}%</span>}
+                  {q.category && <span>{q.category.replace(/_/g,' ')}</span>}
+                </div>
+              </d2l-list-item-content>
+              <div slot="actions" style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                {q.attempt_count > 0 && (
+                  <d2l-button-subtle text="Analytics" onClick={() => onAnalytics(q)} />
+                )}
+                <d2l-button-subtle
+                  text={q.status === 'published' ? 'Unpublish' : 'Publish'}
+                  onClick={() => toggle(q)}
+                />
+                <d2l-button-subtle text="Edit" onClick={() => onEdit(q)} />
+                <d2l-button-icon
+                  text="Delete"
+                  icon="tier1:delete"
+                  onClick={() => del(q)}
+                />
+              </div>
+            </d2l-list-item>
+          ))}
+        </d2l-list>
       )}
-
-      {quizzes.map(q => {
-        const sc = STATUS_COLORS[q.status] || STATUS_COLORS.draft
-        return (
-          <div key={q.id} className="card p-4 flex items-center gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <span className="font-black text-sm" style={{color:'var(--text)'}}>{q.title}</span>
-                <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:sc.bg,color:sc.c}}>{q.status}</span>
-                <span className="text-xs" style={{color:'var(--text-muted)'}}>{q.difficulty}</span>
-                {q.negative_marking > 0 && <span className="text-xs px-1.5 py-0.5 rounded-full" style={{background:'rgba(239,68,68,0.1)',color:'#ef4444'}}>-{q.negative_marking} neg</span>}
-              </div>
-              <div className="flex gap-3 text-xs" style={{color:'var(--text-muted)'}}>
-                <span>📋 {q.question_count||0}q</span>
-                <span>👥 {q.attempt_count||0} attempts</span>
-                <span>✅ Pass {q.pass_score||70}%</span>
-                {q.avg_score != null && <span>📊 Avg {Math.round(q.avg_score)}%</span>}
-                <span>{(q.category||'').replace(/_/g,' ')}</span>
-              </div>
-            </div>
-            <div className="flex gap-2 flex-shrink-0">
-              {q.attempt_count > 0 && (
-                <button onClick={() => onAnalytics(q)}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold"
-                  style={{background:'rgba(20,184,166,0.1)',color:'#14b8a6',border:'none'}}>
-                  <BarChart2 className="w-3 h-3"/> Analytics
-                </button>
-              )}
-              <button onClick={() => toggle(q)}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold"
-                style={{background:q.status==='published'?'rgba(16,185,129,0.1)':'rgba(99,102,241,0.1)',color:q.status==='published'?'#10b981':'#818cf8',border:'none'}}>
-                {q.status==='published'?'✅ Live':'📤 Publish'}
-              </button>
-              <button onClick={() => onEdit(q)}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold"
-                style={{background:'rgba(99,102,241,0.1)',color:'#818cf8',border:'none'}}>
-                <Edit2 className="w-3 h-3"/> Edit
-              </button>
-              <button onClick={() => del(q)}
-                className="p-1.5 rounded-lg"
-                style={{background:'rgba(239,68,68,0.08)',color:'#ef4444',border:'none'}}>
-                <Trash2 className="w-4 h-4"/>
-              </button>
-            </div>
-          </div>
-        )
-      })}
     </div>
   )
 }
 
-// ── Quiz builder ──────────────────────────────────────────────────────────────
+// ── Quiz builder ─────────────────────────────────────────────────────────────
 function QuizBuilder({ quiz: initQuiz, onBack }) {
   const isNew = !initQuiz?.id
-  const [quiz, setQuiz]         = useState(initQuiz)
-  const [form, setForm]         = useState({
-    title:             initQuiz?.title || '',
-    description:       initQuiz?.description || '',
-    category:          initQuiz?.category || 'Water Quality',
-    difficulty:        initQuiz?.difficulty || 'Beginner',
-    time_per_question: initQuiz?.time_per_question || 60,
-    time_limit:        initQuiz?.time_limit || 0,
-    pass_score:        initQuiz?.pass_score || 70,
-    negative_marking:  initQuiz?.negative_marking || 0,
-    shuffle_questions: !!initQuiz?.shuffle_questions,
-    shuffle_answers:   !!initQuiz?.shuffle_answers,
-    show_answers_after:initQuiz?.show_answers_after !== 0,
-    status:            initQuiz?.status || 'published',
+  const [quiz, setQuiz]          = useState(initQuiz)
+  const [form, setForm]          = useState({
+    title:              initQuiz?.title || '',
+    description:        initQuiz?.description || '',
+    category:           initQuiz?.category || 'Water Quality',
+    difficulty:         initQuiz?.difficulty || 'Beginner',
+    time_per_question:  initQuiz?.time_per_question || 60,
+    time_limit:         initQuiz?.time_limit || 0,
+    pass_score:         initQuiz?.pass_score || 70,
+    negative_marking:   initQuiz?.negative_marking || 0,
+    shuffle_questions:  !!initQuiz?.shuffle_questions,
+    shuffle_answers:    !!initQuiz?.shuffle_answers,
+    show_answers_after: initQuiz?.show_answers_after !== 0,
+    status:             initQuiz?.status || 'published',
   })
-  const [questions, setQs]      = useState([])
-  const [editQ, setEditQ]       = useState(null)   // null | 'new' | {question}
-  const [qForm, setQF]          = useState(null)
-  const [imgPreview, setImgPrev]= useState(null)
-  const [saving, setSaving]     = useState(false)
-  const [savingQ, setSavingQ]   = useState(false)
-  const [importJson, setImpJson]  = useState('')
-  const [showImport, setShowImp]  = useState(false)
-  const [showAI, setShowAI]       = useState(false)
-  const [aiText, setAiText]       = useState('')
-  const [aiCount, setAiCount]     = useState(5)
-  const [aiGenerating, setAiGen]  = useState(false)
-  const [aiPreview, setAiPreview] = useState([])
-  const [aiError, setAiErr]       = useState('')
+  const [questions, setQs]       = useState([])
+  const [editQ, setEditQ]        = useState(null)
+  const [qForm, setQF]           = useState(null)
+  const [imgPreview, setImgPrev] = useState(null)
+  const [saving, setSaving]      = useState(false)
+  const [savingQ, setSavingQ]    = useState(false)
+  const [importJson, setImpJson] = useState('')
+  const [showImport, setShowImp] = useState(false)
+  const [showAI, setShowAI]      = useState(false)
+  const [aiText, setAiText]      = useState('')
+  const [aiCount, setAiCount]    = useState(5)
+  const [aiGenerating, setAiGen] = useState(false)
+  const [aiPreview, setAiPreview]= useState([])
+  const [aiError, setAiErr]      = useState('')
   const imgRef = useRef(null)
 
-  const inp = (k, v) => setForm(f => ({...f,[k]:v}))
+  const inp = useCallback((k, v) => setForm(f => ({ ...f, [k]: v })), [])
 
   useEffect(() => {
     if (!quiz?.id) return
     api.get(`/quizzes/${quiz.id}`)
-      .then(r => setQs(r.data.questions?.map(q => ({...q,options:parseOpts(q.options),correct_answers:parseOpts(q.correct_answers)}))||[]))
-      .catch(()=>{})
+      .then(r => setQs(r.data.questions?.map(q => ({
+        ...q,
+        options: parseOpts(q.options),
+        correct_answers: parseOpts(q.correct_answers)
+      })) || []))
+      .catch(() => {})
   }, [quiz?.id])
 
   const saveQuiz = async () => {
@@ -195,33 +294,18 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
         ? await api.put(`/quizzes/${quiz.id}`, form)
         : await api.post('/quizzes', form)
       setQuiz(r.data)
-      if (isNew) {
-        // reload questions for new quiz
-      }
     } catch (e) { alert(e.response?.data?.error || 'Failed to save') }
     setSaving(false)
   }
 
   const blankQ = () => ({
-    question_type: 'mcq',
-    question_text: '',
-    options: ['','','',''],
-    correct_answers: [0],
-    explanation: '',
-    points: 1,
-    negative_points: 0,
-    image: null,
+    question_type: 'mcq', question_text: '',
+    options: ['','','',''], correct_answers: [0],
+    explanation: '', points: 1, negative_points: 0, image: null,
   })
 
-  const openNewQ = () => {
-    if (!quiz?.id) { alert('Save the quiz settings first.'); return }
-    setQF(blankQ()); setEditQ('new'); setImgPrev(null)
-  }
-  const openEditQ = (q) => {
-    setQF({ ...q, image: null })
-    setImgPrev(q.question_image || null)
-    setEditQ(q)
-  }
+  const openNewQ  = () => { if (!quiz?.id) { alert('Save quiz settings first.'); return } setQF(blankQ()); setEditQ('new'); setImgPrev(null) }
+  const openEditQ = (q) => { setQF({ ...q, image: null }); setImgPrev(q.question_image || null); setEditQ(q) }
 
   const saveQ = async () => {
     if (!qForm?.question_text?.trim()) return
@@ -229,53 +313,41 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
     const fd = new FormData()
     fd.append('question_type', qForm.question_type)
     fd.append('question_text', qForm.question_text)
-    fd.append('options', JSON.stringify((qForm.options||[]).filter(o => o.trim())))
-    fd.append('correct_answers', JSON.stringify(qForm.correct_answers||[]))
-    fd.append('explanation', qForm.explanation||'')
-    fd.append('points', String(qForm.points||1))
-    fd.append('negative_points', String(qForm.negative_points||0))
-    fd.append('sort_order', String(editQ==='new' ? questions.length : (editQ?.sort_order??questions.length)))
+    fd.append('options', JSON.stringify((qForm.options || []).filter(o => o.trim())))
+    fd.append('correct_answers', JSON.stringify(qForm.correct_answers || []))
+    fd.append('explanation', qForm.explanation || '')
+    fd.append('points', String(qForm.points || 1))
+    fd.append('negative_points', String(qForm.negative_points || 0))
+    fd.append('sort_order', String(editQ === 'new' ? questions.length : (editQ?.sort_order ?? questions.length)))
     if (qForm.image) fd.append('question_image', qForm.image)
 
     const token = parseToken()
     const isEdit = editQ !== 'new'
     const url = isEdit ? `${API_BASE}/quizzes/questions/${editQ.id}` : `${API_BASE}/quizzes/${quiz.id}/questions`
     try {
-      const res = await fetch(url, { method: isEdit?'PUT':'POST', headers:{ Authorization:`Bearer ${token}` }, body: fd })
+      const res  = await fetch(url, { method: isEdit ? 'PUT' : 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error||'Failed')
+      if (!res.ok) throw new Error(data.error || 'Failed')
       const saved = { ...data, options: parseOpts(data.options), correct_answers: parseOpts(data.correct_answers) }
-      setQs(prev => isEdit ? prev.map(q => q.id===saved.id?saved:q) : [...prev,saved])
+      setQs(prev => isEdit ? prev.map(q => q.id === saved.id ? saved : q) : [...prev, saved])
       setEditQ(null); setQF(null); setImgPrev(null)
     } catch (e) { alert(e.message) }
     setSavingQ(false)
   }
 
-  const delQ = async (q) => {
-    if (!confirm('Delete this question?')) return
-    await api.delete(`/quizzes/questions/${q.id}`).catch(()=>{})
-    setQs(prev => prev.filter(x => x.id !== q.id))
-  }
-
-  const moveQ = (i, dir) => {
-    const arr = [...questions]
-    const to = i + dir
-    if (to < 0 || to >= arr.length) return
-    ;[arr[i], arr[to]] = [arr[to], arr[i]]
-    setQs(arr)
-  }
+  const delQ  = async (q) => { if (!confirm('Delete this question?')) return; await api.delete(`/quizzes/questions/${q.id}`).catch(() => {}); setQs(prev => prev.filter(x => x.id !== q.id)) }
+  const moveQ = (i, dir) => { const arr=[...questions]; const to=i+dir; if(to<0||to>=arr.length) return; [arr[i],arr[to]]=[arr[to],arr[i]]; setQs(arr) }
 
   const doImport = async () => {
     try {
       const parsed = JSON.parse(importJson)
-      const questions = Array.isArray(parsed) ? parsed : parsed.questions
-      if (!Array.isArray(questions)) throw new Error('Expected array of questions')
-      const r = await api.post(`/quizzes/${quiz?.id}/import`, { questions })
+      const qs = Array.isArray(parsed) ? parsed : parsed.questions
+      if (!Array.isArray(qs)) throw new Error('Expected array of questions')
+      const r = await api.post(`/quizzes/${quiz?.id}/import`, { questions: qs })
       alert(`Imported ${r.data.imported} questions!`)
       setShowImp(false); setImpJson('')
-      // reload
       const r2 = await api.get(`/quizzes/${quiz.id}`)
-      setQs(r2.data.questions?.map(q => ({...q,options:parseOpts(q.options),correct_answers:parseOpts(q.correct_answers)}))||[])
+      setQs(r2.data.questions?.map(q => ({ ...q, options: parseOpts(q.options), correct_answers: parseOpts(q.correct_answers) })) || [])
     } catch (e) { alert('Import failed: ' + e.message) }
   }
 
@@ -283,16 +355,9 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
     if (!aiText.trim()) return
     setAiGen(true); setAiErr(''); setAiPreview([])
     try {
-      const r = await api.post('/quizzes/ai-generate', {
-        text: aiText,
-        count: aiCount,
-        difficulty: form.difficulty,
-        category: form.category,
-      })
+      const r = await api.post('/quizzes/ai-generate', { text: aiText, count: aiCount, difficulty: form.difficulty, category: form.category })
       setAiPreview(r.data.questions || [])
-    } catch (e) {
-      setAiErr(e.response?.data?.error || 'AI generation failed. Check GEMINI_API_KEY is set.')
-    }
+    } catch (e) { setAiErr(e.response?.data?.error || 'AI generation failed. Check GEMINI_API_KEY.') }
     setAiGen(false)
   }
 
@@ -303,189 +368,161 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
       alert(`Added ${r.data.imported} AI-generated questions!`)
       setShowAI(false); setAiText(''); setAiPreview([])
       const r2 = await api.get(`/quizzes/${quiz.id}`)
-      setQs(r2.data.questions?.map(q => ({...q,options:parseOpts(q.options),correct_answers:parseOpts(q.correct_answers)}))||[])
+      setQs(r2.data.questions?.map(q => ({ ...q, options: parseOpts(q.options), correct_answers: parseOpts(q.correct_answers) })) || [])
     } catch (e) { alert('Failed: ' + (e.response?.data?.error || e.message)) }
   }
 
-  const totalPoints = questions.reduce((s,q)=>s+(+q.points||1),0)
+  const totalPoints = questions.reduce((s, q) => s + (+q.points || 1), 0)
 
   return (
-    <div className="space-y-5">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Toolbar */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <button onClick={onBack} className="flex items-center gap-1 text-sm font-semibold"
-          style={{color:'var(--text-muted)',background:'none',border:'none',cursor:'pointer'}}>
-          <ChevronLeft className="w-4 h-4"/> Back to quizzes
-        </button>
-        <div className="flex-1"/>
-        <button onClick={saveQuiz} disabled={saving||!form.title.trim()}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-40"
-          style={{background:'linear-gradient(135deg,#6366f1,#4f46e5)'}}>
-          <Save className="w-4 h-4"/>{saving?'Saving…':quiz?.id?'Save Settings':'Create Quiz'}
-        </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <d2l-button-subtle text="Back to quizzes" onClick={onBack} />
+        <div style={{ flex: 1 }} />
+        <d2l-button
+          primary
+          disabled={saving || !form.title.trim() || undefined}
+          onClick={saveQuiz}
+        >
+          {saving ? 'Saving…' : quiz?.id ? 'Save Settings' : 'Create Quiz'}
+        </d2l-button>
       </div>
 
-      <div className="grid lg:grid-cols-[340px_1fr] gap-5">
-        {/* Settings panel */}
-        <div className="card p-5 space-y-4 self-start">
-          <div className="text-sm font-bold pb-2 border-b" style={{color:'var(--text)',borderColor:'var(--border)'}}>⚙️ Quiz Settings</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px,340px) 1fr', gap: 20, alignItems: 'start' }}>
+        {/* ── Settings panel ── */}
+        <div className="card" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, paddingBottom: 10, borderBottom: '1px solid var(--border)', color: 'var(--text)' }}>
+            Quiz Settings
+          </div>
 
-          <div>
-            <label style={lS}>Title *</label>
-            <input value={form.title} onChange={e=>inp('title',e.target.value)} placeholder="Quiz title..." style={iS()}/>
-          </div>
-          <div>
-            <label style={lS}>Description</label>
-            <textarea rows={2} value={form.description} onChange={e=>inp('description',e.target.value)} style={{...iS(),resize:'none'}}/>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+          <D2LText label="Title *" value={form.title} onChange={v => inp('title', v)} placeholder="Quiz title…" required />
+          <D2LTextarea label="Description" value={form.description} onChange={v => inp('description', v)} rows={2} placeholder="Brief description…" />
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
-              <label style={lS}>Category</label>
-              <select value={form.category} onChange={e=>inp('category',e.target.value)} style={iS()}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Category</label>
+              <select value={form.category} onChange={e => inp('category', e.target.value)} style={selectStyle}>
                 {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div>
-              <label style={lS}>Difficulty</label>
-              <select value={form.difficulty} onChange={e=>inp('difficulty',e.target.value)} style={iS()}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Difficulty</label>
+              <select value={form.difficulty} onChange={e => inp('difficulty', e.target.value)} style={selectStyle}>
                 {DIFFICULTIES.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
-            <div>
-              <label style={lS}>⏱ Sec / Question</label>
-              <input type="number" min={0} value={form.time_per_question} onChange={e=>inp('time_per_question',+e.target.value)} style={iS()}/>
-            </div>
-            <div>
-              <label style={lS}>⏱ Total Limit (min, 0=off)</label>
-              <input type="number" min={0} value={form.time_limit} onChange={e=>inp('time_limit',+e.target.value)} style={iS()}/>
-            </div>
-            <div>
-              <label style={lS}>Pass Score %</label>
-              <input type="number" min={0} max={100} value={form.pass_score} onChange={e=>inp('pass_score',+e.target.value)} style={iS()}/>
-            </div>
-            <div>
-              <label style={lS}>➖ Negative Marking</label>
-              <input type="number" min={0} step={0.25} value={form.negative_marking} onChange={e=>inp('negative_marking',+e.target.value)} style={iS()}/>
-            </div>
+            <D2LNumber label="Sec / Question" value={form.time_per_question} onChange={v => inp('time_per_question', v)} min={0} />
+            <D2LNumber label="Total Limit (min, 0=off)" value={form.time_limit} onChange={v => inp('time_limit', v)} min={0} />
+            <D2LNumber label="Pass Score %" value={form.pass_score} onChange={v => inp('pass_score', v)} min={0} max={100} />
+            <D2LNumber label="Negative Marking" value={form.negative_marking} onChange={v => inp('negative_marking', v)} min={0} step={0.25} />
           </div>
-          <div className="space-y-2">
-            {[['shuffle_questions','🔀 Shuffle questions'],['shuffle_answers','🔀 Shuffle answer options'],['show_answers_after','💡 Show answers after submission']].map(([k,l]) => (
-              <label key={k} className="flex items-center gap-2 cursor-pointer text-sm" style={{color:'var(--text)'}}>
-                <input type="checkbox" checked={!!form[k]} onChange={e=>inp(k,e.target.checked)} className="w-4 h-4"/> {l}
-              </label>
-            ))}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <D2LCheckbox label="Shuffle questions" checked={form.shuffle_questions} onChange={v => inp('shuffle_questions', v)} />
+            <D2LCheckbox label="Shuffle answer options" checked={form.shuffle_answers} onChange={v => inp('shuffle_answers', v)} />
+            <D2LCheckbox label="Show correct answers after submission" checked={form.show_answers_after} onChange={v => inp('show_answers_after', v)} />
           </div>
+
           <div>
-            <label style={lS}>Status</label>
-            <select value={form.status} onChange={e=>inp('status',e.target.value)} style={iS()}>
-              <option value="draft">📝 Draft</option>
-              <option value="published">✅ Published</option>
-              <option value="archived">📦 Archived</option>
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Status</label>
+            <select value={form.status} onChange={e => inp('status', e.target.value)} style={selectStyle}>
+              <option value="draft">Draft</option>
+              <option value="published">Published</option>
+              <option value="archived">Archived</option>
             </select>
           </div>
 
           {quiz?.id && (
-            <div className="pt-2 border-t space-y-1 text-xs" style={{borderColor:'var(--border)',color:'var(--text-muted)'}}>
+            <div style={{ paddingTop: 8, borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--text-muted)' }}>
               <div>{questions.length} questions · {totalPoints} total pts</div>
-              {form.negative_marking > 0 && <div className="text-red-400">-{form.negative_marking} pts per wrong answer</div>}
+              {form.negative_marking > 0 && <div style={{ color: '#cc3333', marginTop: 4 }}>−{form.negative_marking} pts per wrong answer</div>}
             </div>
           )}
         </div>
 
-        {/* Questions panel */}
-        <div className="space-y-4">
+        {/* ── Questions panel ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {!quiz?.id ? (
-            <div className="card p-10 text-center" style={{color:'var(--text-muted)'}}>
-              <div className="text-4xl mb-3">💾</div>
-              <div className="font-semibold mb-1" style={{color:'var(--text)'}}>Save quiz settings first</div>
-              <div className="text-sm">Fill in the title on the left and click "Create Quiz" — then you can add questions.</div>
+            <div className="card" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>💾</div>
+              <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>Save quiz settings first</div>
+              <div style={{ fontSize: 13 }}>Fill in the title and click "Create Quiz" — then you can add questions.</div>
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between">
-                <div className="font-bold text-sm" style={{color:'var(--text)'}}>
-                  📋 Questions ({questions.length})
-                </div>
-                <div className="flex gap-2 flex-wrap">
-                  <button onClick={() => setShowAI(v=>!v)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold"
-                    style={{background:showAI?'rgba(139,92,246,0.2)':'rgba(139,92,246,0.1)',color:'#a78bfa',border:'1px dashed rgba(139,92,246,0.4)'}}>
-                    <Sparkles className="w-3 h-3"/> AI Generate
-                  </button>
-                  <button onClick={() => setShowImp(v=>!v)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold"
-                    style={{background:'rgba(20,184,166,0.1)',color:'#14b8a6',border:'1px dashed rgba(20,184,166,0.3)'}}>
-                    <Upload className="w-3 h-3"/> Import JSON
-                  </button>
-                  <button onClick={openNewQ}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold"
-                    style={{background:'rgba(99,102,241,0.1)',color:'#818cf8',border:'1px dashed rgba(99,102,241,0.3)'}}>
-                    <Plus className="w-3 h-3"/> Add Question
-                  </button>
+              {/* Question toolbar */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>
+                  Questions ({questions.length})
+                </span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <d2l-button-subtle text="AI Generate" onClick={() => setShowAI(v => !v)} />
+                  <d2l-button-subtle text="Import JSON" onClick={() => setShowImp(v => !v)} />
+                  <d2l-button primary onClick={openNewQ}>+ Add Question</d2l-button>
                 </div>
               </div>
 
               {/* AI Generate panel */}
               {showAI && (
-                <div className="card p-5 space-y-4" style={{border:'1px solid rgba(139,92,246,0.3)',background:'rgba(139,92,246,0.04)'}}>
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4" style={{color:'#a78bfa'}}/>
-                    <span className="font-bold text-sm" style={{color:'var(--text)'}}>AI Question Generator</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full ml-auto" style={{background:'rgba(139,92,246,0.1)',color:'#a78bfa'}}>Gemini 1.5 Flash · Free</span>
+                <div className="card" style={{ padding: 20, border: '1px solid rgba(0,111,191,0.3)', background: 'rgba(0,111,191,0.03)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <Sparkles size={16} style={{ color: '#006fbf' }} />
+                    <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>AI Question Generator</span>
+                    <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, marginLeft: 'auto', background: 'rgba(0,111,191,0.1)', color: '#006fbf' }}>Gemini 1.5 Flash · Free</span>
                   </div>
-                  <div className="text-xs" style={{color:'var(--text-muted)'}}>
-                    Paste any text (lecture notes, articles, textbook excerpts) and AI will generate quiz questions from it. Requires GEMINI_API_KEY in server environment.
-                  </div>
-                  <div className="grid grid-cols-[1fr_auto] gap-3">
-                    <div>
-                      <label style={lS}>Source Text</label>
-                      <textarea rows={5} value={aiText} onChange={e=>setAiText(e.target.value)}
-                        placeholder="Paste text here... (e.g. 'Water hardness refers to the concentration of dissolved minerals, primarily calcium and magnesium ions. Hard water...')"
-                        style={{...iS(),resize:'vertical'}}/>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+                    Paste lecture notes, articles, or textbook excerpts — AI generates quiz questions from the content.
+                  </p>
+                  <D2LTextarea
+                    label="Source Text"
+                    value={aiText}
+                    onChange={setAiText}
+                    rows={5}
+                    placeholder="Paste text here… e.g. 'Water hardness refers to dissolved minerals…'"
+                  />
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, marginTop: 12 }}>
+                    <div style={{ width: 100 }}>
+                      <D2LNumber label="Questions" value={aiCount} onChange={setAiCount} min={1} max={20} />
                     </div>
-                    <div className="flex flex-col gap-3">
-                      <div>
-                        <label style={lS}>Questions</label>
-                        <input type="number" min={1} max={20} value={aiCount} onChange={e=>setAiCount(+e.target.value)} style={{...iS(),width:70}}/>
-                      </div>
-                    </div>
+                    <d2l-button primary disabled={!aiText.trim() || aiGenerating || undefined} onClick={doAiGenerate}>
+                      {aiGenerating ? 'Generating…' : 'Generate'}
+                    </d2l-button>
+                    <d2l-button-subtle text="Close" onClick={() => { setShowAI(false); setAiText(''); setAiPreview([]) }} />
                   </div>
-                  {aiError && <div className="text-xs px-3 py-2 rounded-lg" style={{background:'rgba(239,68,68,0.1)',color:'#ef4444'}}>{aiError}</div>}
-                  <button onClick={doAiGenerate} disabled={!aiText.trim()||aiGenerating}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40"
-                    style={{background:'linear-gradient(135deg,#8b5cf6,#6366f1)'}}>
-                    <Zap className="w-4 h-4"/>{aiGenerating?'Generating…':'Generate Questions'}
-                  </button>
 
-                  {/* Preview generated questions */}
+                  {aiError && (
+                    <d2l-alert type="error" style={{ marginTop: 12 }}>{aiError}</d2l-alert>
+                  )}
+
                   {aiPreview.length > 0 && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold" style={{color:'var(--text)'}}>Generated {aiPreview.length} questions — review before adding:</span>
-                        <button onClick={() => doImportAiQuestions(aiPreview)}
-                          className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold text-white"
-                          style={{background:'#8b5cf6'}}>
-                          <Plus className="w-3 h-3"/> Add All to Quiz
-                        </button>
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+                          {aiPreview.length} questions generated — review before adding:
+                        </span>
+                        <d2l-button primary onClick={() => doImportAiQuestions(aiPreview)}>Add All to Quiz</d2l-button>
                       </div>
-                      <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                      <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {aiPreview.map((q, i) => (
-                          <div key={i} className="card p-3 text-xs space-y-1.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-bold text-sm" style={{color:'var(--text)'}}>{i+1}. {q.question_text}</span>
-                              <span className="px-2 py-0.5 rounded-full flex-shrink-0" style={{background:'rgba(139,92,246,0.1)',color:'#a78bfa'}}>{q.question_type}</span>
+                          <div key={i} className="card" style={{ padding: 12 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                              <strong style={{ fontSize: 13, color: 'var(--text)' }}>{i + 1}. {q.question_text}</strong>
+                              <span style={{ fontSize: 11, flexShrink: 0, padding: '2px 8px', borderRadius: 12, background: 'rgba(0,111,191,0.1)', color: '#006fbf' }}>{q.question_type}</span>
                             </div>
                             {q.options?.length > 0 && (
-                              <div className="grid grid-cols-2 gap-1 mt-1">
-                                {q.options.map((o, oi) => (
-                                  <span key={oi} className="px-2 py-1 rounded-lg"
-                                    style={{background:(q.correct_answers||[]).includes(oi)?'rgba(16,185,129,0.1)':'var(--page-bg)',color:(q.correct_answers||[]).includes(oi)?'#10b981':'var(--text-muted)'}}>
-                                    {String.fromCharCode(65+oi)}) {o}
-                                  </span>
-                                ))}
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 6 }}>
+                                {q.options.map((o, oi) => {
+                                  const correct = (q.correct_answers || []).includes(oi)
+                                  return (
+                                    <span key={oi} style={{ fontSize: 12, padding: '3px 8px', borderRadius: 6, background: correct ? 'rgba(26,122,60,0.1)' : 'var(--page-bg)', color: correct ? '#1a7a3c' : 'var(--text-muted)' }}>
+                                      {String.fromCharCode(65 + oi)}) {o}
+                                    </span>
+                                  )
+                                })}
                               </div>
                             )}
-                            {q.explanation && <div style={{color:'#64748b'}}>💡 {q.explanation}</div>}
+                            {q.explanation && <div style={{ fontSize: 11, color: '#64748b' }}>💡 {q.explanation}</div>}
                           </div>
                         ))}
                       </div>
@@ -496,84 +533,82 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
 
               {/* JSON import panel */}
               {showImport && (
-                <div className="card p-4 space-y-3">
-                  <div className="text-sm font-bold" style={{color:'var(--text)'}}>📥 Import Questions (JSON)</div>
-                  <div className="text-xs" style={{color:'var(--text-muted)'}}>
-                    Paste an array of questions. Each needs: question_text, question_type, options (array), correct_answers (array of 0-based indexes), explanation (optional), points.
-                  </div>
-                  <textarea rows={6} value={importJson} onChange={e=>setImpJson(e.target.value)}
-                    placeholder={`[\n  {\n    "question_type": "mcq",\n    "question_text": "What is pH?",\n    "options": ["A measure of acidity","A type of fish","A water color","None"],\n    "correct_answers": [0],\n    "explanation": "pH measures hydrogen ion concentration.",\n    "points": 1\n  }\n]`}
-                    style={{...iS(),resize:'vertical',fontFamily:'monospace',fontSize:11}}/>
-                  <div className="flex gap-2">
-                    <button onClick={doImport} disabled={!importJson.trim()}
-                      className="px-4 py-2 rounded-lg text-sm font-bold text-white disabled:opacity-40"
-                      style={{background:'#14b8a6'}}>Import</button>
-                    <button onClick={()=>{setShowImp(false);setImpJson('')}}
-                      className="px-4 py-2 rounded-lg text-sm" style={{background:'var(--border)',color:'var(--text-muted)'}}>
-                      Cancel
-                    </button>
+                <div className="card" style={{ padding: 16 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>Import Questions (JSON)</div>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+                    Paste an array of questions. Each needs: question_text, question_type, options (array), correct_answers (array of 0-based indexes).
+                  </p>
+                  <D2LTextarea
+                    label="JSON"
+                    value={importJson}
+                    onChange={setImpJson}
+                    rows={6}
+                    placeholder={'[\n  {\n    "question_type": "mcq",\n    "question_text": "What is pH?",\n    "options": ["Acidity measure","A fish type","Water color","None"],\n    "correct_answers": [0],\n    "points": 1\n  }\n]'}
+                  />
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                    <d2l-button primary disabled={!importJson.trim() || undefined} onClick={doImport}>Import</d2l-button>
+                    <d2l-button-subtle text="Cancel" onClick={() => { setShowImp(false); setImpJson('') }} />
                   </div>
                 </div>
               )}
 
               {questions.length === 0 && !editQ && (
-                <div className="card p-10 text-center" style={{color:'var(--text-muted)'}}>
-                  <div className="text-4xl mb-3">📝</div>
-                  <div className="font-semibold mb-1" style={{color:'var(--text)'}}>No questions yet</div>
-                  <div className="text-sm">Click "Add Question" to start building.</div>
+                <div className="card" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: 40, marginBottom: 12 }}>📝</div>
+                  <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>No questions yet</div>
+                  <div style={{ fontSize: 13 }}>Click "+ Add Question" to start building, or use AI Generate.</div>
                 </div>
               )}
 
-              {/* Question cards */}
-              <div className="space-y-2">
-                {questions.map((q, i) => {
-                  const qt = Q_TYPES.find(t=>t.v===q.question_type)||Q_TYPES[0]
-                  return (
-                    <div key={q.id} className="card p-4 flex items-start gap-3">
-                      <div className="flex flex-col gap-1 flex-shrink-0">
-                        <button onClick={()=>moveQ(i,-1)} disabled={i===0}
-                          className="p-1 rounded-md disabled:opacity-30"
-                          style={{background:'var(--border)',border:'none',cursor:i===0?'not-allowed':'pointer'}}>
-                          <ArrowUp className="w-3 h-3" style={{color:'var(--text-muted)'}}/>
-                        </button>
-                        <span className="text-center text-xs font-bold" style={{color:'var(--text-muted)'}}>{i+1}</span>
-                        <button onClick={()=>moveQ(i,1)} disabled={i===questions.length-1}
-                          className="p-1 rounded-md disabled:opacity-30"
-                          style={{background:'var(--border)',border:'none',cursor:i===questions.length-1?'not-allowed':'pointer'}}>
-                          <ArrowDown className="w-3 h-3" style={{color:'var(--text-muted)'}}/>
-                        </button>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:`${qt.c}18`,color:qt.c}}>{qt.i} {qt.l}</span>
-                          <span className="text-xs" style={{color:'var(--text-muted)'}}>{q.points}pt{q.points!==1?'s':''}</span>
-                          {q.question_image && <span className="text-xs text-green-500">🖼</span>}
+              {/* Question list */}
+              {questions.length > 0 && (
+                <d2l-list separators="all">
+                  {questions.map((q, i) => {
+                    const qt = Q_TYPES.find(t => t.v === q.question_type) || Q_TYPES[0]
+                    return (
+                      <d2l-list-item key={q.id} label={q.question_text}>
+                        <div slot="illustration" style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 0' }}>
+                          <button onClick={() => moveQ(i, -1)} disabled={i === 0}
+                            style={{ background: 'none', border: 'none', cursor: i === 0 ? 'not-allowed' : 'pointer', opacity: i === 0 ? 0.3 : 1, padding: 2 }}>
+                            <ArrowUp size={12} style={{ color: 'var(--text-muted)' }} />
+                          </button>
+                          <span style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', lineHeight: 1 }}>{i + 1}</span>
+                          <button onClick={() => moveQ(i, 1)} disabled={i === questions.length - 1}
+                            style={{ background: 'none', border: 'none', cursor: i === questions.length - 1 ? 'not-allowed' : 'pointer', opacity: i === questions.length - 1 ? 0.3 : 1, padding: 2 }}>
+                            <ArrowDown size={12} style={{ color: 'var(--text-muted)' }} />
+                          </button>
                         </div>
-                        <p className="text-sm font-medium truncate mb-1" style={{color:'var(--text)'}}>{q.question_text}</p>
-                        {(q.question_type==='mcq'||q.question_type==='true_false'||q.question_type==='multiple_select') && q.options?.length > 0 && (
-                          <div className="flex gap-1 flex-wrap mt-1">
-                            {q.options.map((opt,oi) => (
-                              <span key={oi} className="text-xs px-2 py-0.5 rounded-full"
-                                style={{background:q.correct_answers?.includes(oi)?'rgba(16,185,129,0.15)':'var(--border)',color:q.correct_answers?.includes(oi)?'#10b981':'var(--text-muted)',fontWeight:q.correct_answers?.includes(oi)?700:400}}>
-                                {q.correct_answers?.includes(oi)?'✓ ':''}{opt}
-                              </span>
-                            ))}
+                        <d2l-list-item-content>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: `${qt.c}18`, color: qt.c }}>{qt.i} {qt.l}</span>
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{q.points} pt{q.points !== 1 ? 's' : ''}</span>
+                            {q.question_image && <span style={{ fontSize: 11, color: '#1a7a3c' }}>🖼 image</span>}
                           </div>
-                        )}
-                        {q.explanation && <p className="text-xs italic mt-1" style={{color:'var(--text-muted)'}}>💡 {q.explanation.slice(0,80)}{q.explanation.length>80?'…':''}</p>}
-                      </div>
-                      <div className="flex gap-1 flex-shrink-0">
-                        <button onClick={()=>openEditQ(q)} className="p-1.5 rounded-lg" style={{background:'rgba(99,102,241,0.1)',color:'#818cf8',border:'none'}}>
-                          <Edit2 className="w-3 h-3"/>
-                        </button>
-                        <button onClick={()=>delQ(q)} className="p-1.5 rounded-lg" style={{background:'rgba(239,68,68,0.08)',color:'#ef4444',border:'none'}}>
-                          <Trash2 className="w-3 h-3"/>
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+                          <div slot="supporting-info" style={{ fontSize: 13, color: 'var(--text)', marginTop: 2, maxWidth: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {q.question_text}
+                          </div>
+                          {(q.question_type === 'mcq' || q.question_type === 'multiple_select') && q.options?.length > 0 && (
+                            <div slot="supporting-info" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                              {q.options.map((opt, oi) => {
+                                const correct = q.correct_answers?.includes(oi)
+                                return (
+                                  <span key={oi} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: correct ? 'rgba(26,122,60,0.12)' : 'var(--border)', color: correct ? '#1a7a3c' : 'var(--text-muted)', fontWeight: correct ? 700 : 400 }}>
+                                    {correct ? '✓ ' : ''}{opt}
+                                  </span>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </d2l-list-item-content>
+                        <div slot="actions" style={{ display: 'flex', gap: 4 }}>
+                          <d2l-button-subtle text="Edit" onClick={() => openEditQ(q)} />
+                          <d2l-button-icon text="Delete" icon="tier1:delete" onClick={() => delQ(q)} />
+                        </div>
+                      </d2l-list-item>
+                    )
+                  })}
+                </d2l-list>
+              )}
 
               {/* Question editor */}
               {(editQ === 'new' || (editQ && editQ !== 'new')) && qForm && (
@@ -581,8 +616,8 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
                   qForm={qForm} setQF={setQF}
                   imgPreview={imgPreview} setImgPrev={setImgPrev}
                   imgRef={imgRef}
-                  isNew={editQ==='new'}
-                  onCancel={()=>{setEditQ(null);setQF(null);setImgPrev(null)}}
+                  isNew={editQ === 'new'}
+                  onCancel={() => { setEditQ(null); setQF(null); setImgPrev(null) }}
                   onSave={saveQ} saving={savingQ}
                   negativeMarking={form.negative_marking}
                 />
@@ -595,101 +630,102 @@ function QuizBuilder({ quiz: initQuiz, onBack }) {
   )
 }
 
-// ── Question editor form ──────────────────────────────────────────────────────
+// ── Question editor form ─────────────────────────────────────────────────────
 function QuestionEditor({ qForm, setQF, imgPreview, setImgPrev, imgRef, isNew, onCancel, onSave, saving, negativeMarking }) {
   const qt = qForm.question_type
 
-  const setOpt = (i, v) => { const o=[...qForm.options]; o[i]=v; setQF(f=>({...f,options:o})) }
-  const addOpt = () => setQF(f=>({...f,options:[...f.options,'']}))
+  const setOpt = (i, v) => { const o = [...qForm.options]; o[i] = v; setQF(f => ({ ...f, options: o })) }
+  const addOpt = () => setQF(f => ({ ...f, options: [...f.options, ''] }))
   const delOpt = (i) => {
-    const o = qForm.options.filter((_,j)=>j!==i)
-    const ca = qForm.correct_answers.filter(x=>x!==i).map(x=>x>i?x-1:x)
-    setQF(f=>({...f,options:o,correct_answers:ca}))
+    const o  = qForm.options.filter((_, j) => j !== i)
+    const ca = qForm.correct_answers.filter(x => x !== i).map(x => x > i ? x - 1 : x)
+    setQF(f => ({ ...f, options: o, correct_answers: ca }))
   }
 
   return (
-    <div className="card p-5 space-y-4 border-2" style={{borderColor:'rgba(99,102,241,0.3)'}}>
-      <div className="text-sm font-black" style={{color:'#818cf8'}}>{isNew?'➕ New Question':'✏️ Edit Question'}</div>
+    <div className="card" style={{ padding: 20, border: '2px solid rgba(0,111,191,0.25)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ fontWeight: 800, fontSize: 14, color: '#006fbf' }}>{isNew ? '+ New Question' : 'Edit Question'}</div>
 
       {/* Type selector */}
       <div>
-        <label style={lS}>Question Type</label>
-        <div className="flex flex-wrap gap-2">
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>QUESTION TYPE</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {Q_TYPES.map(t => (
-            <button key={t.v} onClick={() => setQF(f => ({
-              ...f,
-              question_type: t.v,
-              correct_answers: t.v==='true_false'?[0]:t.v==='multiple_select'?[]:f.question_type!==t.v?[0]:f.correct_answers,
-              options: t.v==='true_false'?['True','False']:(f.options?.length?f.options:['','','','']),
-            }))}
-              className="text-xs font-semibold px-3 py-1.5 rounded-full transition-all"
-              style={{border:`2px solid ${qt===t.v?t.c:'var(--border)'}`,background:qt===t.v?`${t.c}18`:'transparent',color:qt===t.v?t.c:'var(--text-muted)'}}>
+            <button key={t.v}
+              onClick={() => setQF(f => ({
+                ...f,
+                question_type: t.v,
+                correct_answers: t.v === 'true_false' ? [0] : t.v === 'multiple_select' ? [] : f.question_type !== t.v ? [0] : f.correct_answers,
+                options: t.v === 'true_false' ? ['True','False'] : (f.options?.length ? f.options : ['','','','']),
+              }))}
+              style={{
+                fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
+                border: `2px solid ${qt === t.v ? t.c : 'var(--border)'}`,
+                background: qt === t.v ? `${t.c}18` : 'transparent',
+                color: qt === t.v ? t.c : 'var(--text-muted)',
+              }}>
               {t.i} {t.l}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Question text */}
-      <div>
-        <label style={lS}>Question Text *</label>
-        <textarea rows={3} value={qForm.question_text}
-          onChange={e=>setQF(f=>({...f,question_text:e.target.value}))}
-          placeholder="Write your question here..."
-          style={{...iS(),resize:'vertical'}}/>
-      </div>
+      <D2LTextarea
+        label="Question Text *"
+        value={qForm.question_text}
+        onChange={v => setQF(f => ({ ...f, question_text: v }))}
+        rows={3}
+        placeholder="Write your question here…"
+      />
 
-      {/* Image */}
+      {/* Image upload */}
       <div>
-        <label style={lS}>🖼 Question Image (optional — stored on Cloudinary)</label>
-        <div className="flex items-center gap-3">
-          <input ref={imgRef} type="file" accept="image/*" style={{display:'none'}} onChange={e=>{
-            const f=e.target.files?.[0]; if(!f) return
-            setQF(prev=>({...prev,image:f})); setImgPrev(URL.createObjectURL(f))
-          }}/>
-          <button onClick={()=>imgRef.current?.click()}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold"
-            style={{background:'var(--border)',color:'var(--text-muted)',border:'none'}}>
-            <Upload className="w-3 h-3"/>{imgPreview?'Change':'Upload'} Image
-          </button>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Question Image (optional)</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input ref={imgRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+            const f = e.target.files?.[0]; if (!f) return
+            setQF(prev => ({ ...prev, image: f })); setImgPrev(URL.createObjectURL(f))
+          }} />
+          <d2l-button-subtle text={imgPreview ? 'Change Image' : 'Upload Image'} onClick={() => imgRef.current?.click()} />
           {imgPreview && (
             <>
-              <img src={imgPreview} alt="preview" className="h-14 w-20 object-cover rounded-lg border" style={{borderColor:'var(--border)'}}/>
-              <button onClick={()=>{setImgPrev(null);setQF(f=>({...f,image:null}))}}
-                className="p-1 rounded-lg text-xs" style={{background:'rgba(239,68,68,0.1)',color:'#ef4444',border:'none'}}>✕</button>
+              <img src={imgPreview} alt="preview" style={{ height: 56, width: 80, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
+              <button onClick={() => { setImgPrev(null); setQF(f => ({ ...f, image: null })) }}
+                style={{ fontSize: 12, padding: '3px 8px', borderRadius: 6, background: 'rgba(204,51,51,0.1)', color: '#cc3333', border: 'none', cursor: 'pointer' }}>✕</button>
             </>
           )}
         </div>
       </div>
 
       {/* MCQ / multi-select options */}
-      {(qt==='mcq'||qt==='multiple_select') && (
+      {(qt === 'mcq' || qt === 'multiple_select') && (
         <div>
-          <label style={lS}>{qt==='mcq'?'Answer Options (select one correct)':'Answer Options (select all correct)'}</label>
-          <div className="space-y-2">
-            {qForm.options.map((opt,i) => {
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>
+            {qt === 'mcq' ? 'ANSWER OPTIONS (select one correct)' : 'ANSWER OPTIONS (select all correct)'}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {qForm.options.map((opt, i) => {
               const isCor = qForm.correct_answers?.includes(i)
               return (
-                <div key={i} className="flex items-center gap-2">
-                  {qt==='mcq' ? (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {qt === 'mcq' ? (
                     <input type="radio" name="correct_radio" checked={isCor}
-                      onChange={()=>setQF(f=>({...f,correct_answers:[i]}))} className="flex-shrink-0"/>
+                      onChange={() => setQF(f => ({ ...f, correct_answers: [i] }))} style={{ flexShrink: 0 }} />
                   ) : (
                     <input type="checkbox" checked={isCor}
-                      onChange={()=>setQF(f=>({...f,correct_answers:isCor?f.correct_answers.filter(x=>x!==i):[...f.correct_answers,i]}))} className="flex-shrink-0"/>
+                      onChange={() => setQF(f => ({ ...f, correct_answers: isCor ? f.correct_answers.filter(x => x !== i) : [...f.correct_answers, i] }))}
+                      style={{ flexShrink: 0 }} />
                   )}
-                  <input value={opt} onChange={e=>setOpt(i,e.target.value)}
-                    placeholder={`Option ${String.fromCharCode(65+i)}`}
-                    style={{...iS({flex:1,width:'auto'}),borderColor:isCor?'#10b981':'var(--border)'}}/>
+                  <input value={opt} onChange={e => setOpt(i, e.target.value)}
+                    placeholder={`Option ${String.fromCharCode(65 + i)}`}
+                    style={{ flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 13, border: `1.5px solid ${isCor ? '#1a7a3c' : 'var(--border)'}`, background: 'var(--page-bg)', color: 'var(--text)', outline: 'none' }} />
                   {qForm.options.length > 2 && (
-                    <button onClick={()=>delOpt(i)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',flexShrink:0}}>✕</button>
+                    <button onClick={() => delOpt(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', flexShrink: 0 }}>✕</button>
                   )}
                 </div>
               )
             })}
-            <button onClick={addOpt}
-              className="text-xs font-semibold px-3 py-1.5 rounded-lg"
-              style={{background:'rgba(99,102,241,0.08)',color:'#818cf8',border:'1px dashed rgba(99,102,241,0.3)'}}>
+            <button onClick={addOpt} style={{ fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 8, background: 'rgba(0,111,191,0.08)', color: '#006fbf', border: '1px dashed rgba(0,111,191,0.3)', cursor: 'pointer', alignSelf: 'flex-start' }}>
               + Add Option
             </button>
           </div>
@@ -697,91 +733,72 @@ function QuestionEditor({ qForm, setQF, imgPreview, setImgPrev, imgRef, isNew, o
       )}
 
       {/* True/False */}
-      {qt==='true_false' && (
+      {qt === 'true_false' && (
         <div>
-          <label style={lS}>Correct Answer</label>
-          <div className="flex gap-3">
-            {['True','False'].map((tf,ti) => (
-              <button key={tf} onClick={()=>setQF(f=>({...f,correct_answers:[ti],options:['True','False']}))}
-                className="flex-1 py-2.5 rounded-xl font-bold text-sm"
-                style={{border:`2px solid ${qForm.correct_answers?.[0]===ti?'#10b981':'var(--border)'}`,background:qForm.correct_answers?.[0]===ti?'rgba(16,185,129,0.12)':'var(--card-bg)',color:qForm.correct_answers?.[0]===ti?'#10b981':'var(--text)'}}>
-                {ti===0?'✓ True':'✗ False'}
-              </button>
-            ))}
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>CORRECT ANSWER</div>
+          <div style={{ display: 'flex', gap: 12 }}>
+            {['True','False'].map((tf, ti) => {
+              const sel = qForm.correct_answers?.[0] === ti
+              return (
+                <button key={tf} onClick={() => setQF(f => ({ ...f, correct_answers: [ti], options: ['True','False'] }))}
+                  style={{ flex: 1, padding: '10px 0', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer', border: `2px solid ${sel ? '#1a7a3c' : 'var(--border)'}`, background: sel ? 'rgba(26,122,60,0.1)' : 'var(--card-bg)', color: sel ? '#1a7a3c' : 'var(--text)' }}>
+                  {ti === 0 ? '✓ True' : '✗ False'}
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
 
       {/* Short answer / fill blank */}
-      {(qt==='short_answer'||qt==='fill_blank') && (
+      {(qt === 'short_answer' || qt === 'fill_blank') && (
         <div>
-          <label style={lS}>Accepted Answers (comma-separated, case-insensitive)</label>
-          <input value={qForm.correct_answers?.join(', ')||''}
-            onChange={e=>setQF(f=>({...f,correct_answers:e.target.value.split(',').map(s=>s.trim()).filter(Boolean)}))}
-            placeholder="answer1, answer2, alternate spelling..." style={iS()}/>
-          <div className="text-xs mt-1" style={{color:'var(--text-muted)'}}>Case-insensitive partial match. Add all accepted variations.</div>
+          <D2LText
+            label="Accepted Answers (comma-separated, case-insensitive)"
+            value={qForm.correct_answers?.join(', ') || ''}
+            onChange={v => setQF(f => ({ ...f, correct_answers: v.split(',').map(s => s.trim()).filter(Boolean) }))}
+            placeholder="answer1, answer2, alternate spelling…"
+          />
+          <div style={{ fontSize: 11, marginTop: 4, color: 'var(--text-muted)' }}>Case-insensitive partial match. Add all accepted variations.</div>
         </div>
       )}
 
       {/* Numeric */}
-      {qt==='numeric' && (
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label style={lS}>Correct Value</label>
-            <input type="number" value={qForm.correct_answers?.[0]||''}
-              onChange={e=>setQF(f=>({...f,correct_answers:[e.target.value, f.correct_answers?.[1]||0]}))} style={iS()}/>
-          </div>
-          <div>
-            <label style={lS}>Tolerance ±</label>
-            <input type="number" min={0} step={0.01} value={qForm.correct_answers?.[1]||0}
-              onChange={e=>setQF(f=>({...f,correct_answers:[f.correct_answers?.[0]||0, e.target.value]}))} style={iS()}/>
-          </div>
+      {qt === 'numeric' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <D2LNumber label="Correct Value" value={qForm.correct_answers?.[0] || ''} onChange={v => setQF(f => ({ ...f, correct_answers: [v, f.correct_answers?.[1] || 0] }))} />
+          <D2LNumber label="Tolerance ±" value={qForm.correct_answers?.[1] || 0} onChange={v => setQF(f => ({ ...f, correct_answers: [f.correct_answers?.[0] || 0, v] }))} min={0} step={0.01} />
         </div>
       )}
 
       {/* Points */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label style={lS}>Points (correct)</label>
-          <input type="number" min={0} step={0.5} value={qForm.points}
-            onChange={e=>setQF(f=>({...f,points:+e.target.value}))} style={iS()}/>
-        </div>
-        <div>
-          <label style={lS}>➖ Deduct if Wrong (override global {negativeMarking})</label>
-          <input type="number" min={0} step={0.25} value={qForm.negative_points}
-            onChange={e=>setQF(f=>({...f,negative_points:+e.target.value}))}
-            placeholder={`default: ${negativeMarking}`} style={iS()}/>
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <D2LNumber label="Points (correct)" value={qForm.points} onChange={v => setQF(f => ({ ...f, points: v }))} min={0} step={0.5} />
+        <D2LNumber label={`Deduct if Wrong (global: ${negativeMarking})`} value={qForm.negative_points} onChange={v => setQF(f => ({ ...f, negative_points: v }))} min={0} step={0.25} />
       </div>
 
-      {/* Explanation */}
-      <div>
-        <label style={lS}>💡 Explanation (shown after attempt)</label>
-        <textarea rows={2} value={qForm.explanation}
-          onChange={e=>setQF(f=>({...f,explanation:e.target.value}))}
-          placeholder="Explain why the answer is correct..." style={{...iS(),resize:'none'}}/>
-      </div>
+      <D2LTextarea
+        label="Explanation (shown after attempt)"
+        value={qForm.explanation}
+        onChange={v => setQF(f => ({ ...f, explanation: v }))}
+        rows={2}
+        placeholder="Explain why the answer is correct…"
+      />
 
-      <div className="flex gap-2 justify-end">
-        <button onClick={onCancel}
-          className="px-4 py-2 rounded-xl text-sm" style={{background:'var(--border)',color:'var(--text-muted)',border:'none'}}>
-          Cancel
-        </button>
-        <button onClick={onSave} disabled={saving||!qForm.question_text?.trim()}
-          className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold disabled:opacity-40"
-          style={{background:'rgba(99,102,241,0.15)',color:'#818cf8',border:'none'}}>
-          <Save className="w-3 h-3"/>{saving?'Saving…':isNew?'Add Question':'Save Changes'}
-        </button>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <d2l-button-subtle text="Cancel" onClick={onCancel} />
+        <d2l-button primary disabled={saving || !qForm.question_text?.trim() || undefined} onClick={onSave}>
+          {saving ? 'Saving…' : isNew ? 'Add Question' : 'Save Changes'}
+        </d2l-button>
       </div>
     </div>
   )
 }
 
-// ── Research analytics dashboard ──────────────────────────────────────────────
+// ── Research analytics dashboard ─────────────────────────────────────────────
 function Analytics({ quiz, onBack }) {
-  const [data, setData]   = useState(null)
-  const [loading, setL]   = useState(true)
-  const [view, setView]   = useState('overview') // overview | items | attempts
+  const [data, setData] = useState(null)
+  const [loading, setL] = useState(true)
 
   useEffect(() => {
     api.get(`/quizzes/${quiz.id}/analytics`)
@@ -790,271 +807,242 @@ function Analytics({ quiz, onBack }) {
   }, [quiz.id])
 
   if (loading) return (
-    <div className="flex items-center justify-center py-24 gap-3">
-      <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"/>
-      <span style={{color:'var(--text-muted)'}}>Loading analytics...</span>
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem', gap: 12, alignItems: 'center' }}>
+      <d2l-loading-spinner size="80" />
     </div>
   )
   if (!data?.stats) return (
-    <div className="text-center py-24" style={{color:'var(--text-muted)'}}>
-      <AlertCircle className="w-10 h-10 mx-auto mb-3"/>
+    <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-muted)' }}>
+      <AlertCircle size={36} style={{ marginBottom: 12, opacity: 0.5 }} />
       <div>No attempt data yet for this quiz.</div>
     </div>
   )
 
   const { stats, item_analysis, attempts } = data
-
-  // Score distribution bars
-  const maxBucket = Math.max(...stats.score_distribution, 1)
+  const maxBucket   = Math.max(...stats.score_distribution, 1)
   const bucketLabels = ['0-9','10-19','20-29','30-39','40-49','50-59','60-69','70-79','80-89','90-100']
-
-  const discColor = (d) => d >= 0.4 ? '#10b981' : d >= 0.3 ? '#6366f1' : d >= 0.2 ? '#f59e0b' : '#ef4444'
-  const pColor    = (p) => p > 0.8 ? '#10b981' : p > 0.5 ? '#6366f1' : p > 0.3 ? '#f59e0b' : '#ef4444'
+  const discColor   = d => d >= 0.4 ? '#1a7a3c' : d >= 0.3 ? '#006fbf' : d >= 0.2 ? '#c45f00' : '#cc3333'
+  const pColor      = p => p > 0.8 ? '#1a7a3c' : p > 0.5 ? '#006fbf' : p > 0.3 ? '#c45f00' : '#cc3333'
 
   return (
-    <div className="space-y-5">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Toolbar */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <button onClick={onBack} className="flex items-center gap-1 text-sm font-semibold"
-          style={{color:'var(--text-muted)',background:'none',border:'none',cursor:'pointer'}}>
-          <ChevronLeft className="w-4 h-4"/> Back to quizzes
-        </button>
-        <div className="flex-1"/>
-        <div className="flex gap-1 p-1 rounded-xl" style={{background:'var(--card-bg)',border:'1px solid var(--border)'}}>
-          {[['overview','Overview'],['items','Item Analysis'],['attempts','Attempts']].map(([v,l]) => (
-            <button key={v} onClick={()=>setView(v)}
-              className="px-4 py-1.5 rounded-lg text-sm font-semibold transition-all"
-              style={{background:view===v?'#6366f1':'transparent',color:view===v?'white':'var(--text-muted)'}}>
-              {l}
-            </button>
-          ))}
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <d2l-button-subtle text="Back to quizzes" onClick={onBack} />
+        <div style={{ flex: 1 }} />
       </div>
 
-      <div className="font-black text-lg" style={{color:'var(--text)'}}>{quiz.title} — Analytics</div>
+      <h2 style={{ fontWeight: 800, fontSize: 20, color: 'var(--text)', margin: 0 }}>{quiz.title} — Analytics</h2>
 
-      {/* ── Overview ── */}
-      {view === 'overview' && (
-        <div className="space-y-5">
-          {/* Key stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[
-              {l:'Total Attempts',v:stats.total_attempts,c:'#6366f1'},
-              {l:'Unique Users',v:stats.unique_users,c:'#8b5cf6'},
-              {l:'Pass Rate',v:`${stats.pass_rate}%`,c:stats.pass_rate>=70?'#10b981':'#f59e0b'},
-              {l:'Avg Score',v:`${stats.avg_score}%`,c:stats.avg_score>=70?'#10b981':'#f59e0b'},
-            ].map(s => (
-              <div key={s.l} className="card p-4 text-center">
-                <div className="text-3xl font-black mb-1" style={{color:s.c}}>{s.v}</div>
-                <div className="text-xs" style={{color:'var(--text-muted)'}}>{s.l}</div>
-              </div>
-            ))}
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-4">
-            {/* Score distribution histogram */}
-            <div className="card p-5">
-              <div className="font-bold text-sm mb-4" style={{color:'var(--text)'}}>Score Distribution</div>
-              <div className="flex items-end gap-1 h-28">
-                {stats.score_distribution.map((n,i) => (
-                  <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                    <div className="text-xs font-bold" style={{color:'#6366f1',minHeight:16}}>{n>0?n:''}</div>
-                    <div className="w-full rounded-t-sm transition-all"
-                      style={{
-                        height: `${Math.round((n/maxBucket)*80)}px`,
-                        minHeight: n>0?4:0,
-                        background: i >= 6 ? '#10b981' : i >= 4 ? '#f59e0b' : '#ef4444',
-                        opacity: 0.8,
-                      }}/>
-                    <div className="text-center" style={{fontSize:9,color:'var(--text-muted)',transform:'rotate(-30deg)',transformOrigin:'top center',marginTop:2}}>{bucketLabels[i]}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="flex justify-between mt-6 text-xs" style={{color:'var(--text-muted)'}}>
-                <span style={{color:'#ef4444'}}>■ Fail</span>
-                <span style={{color:'#f59e0b'}}>■ Borderline</span>
-                <span style={{color:'#10b981'}}>■ Pass</span>
-              </div>
-            </div>
-
-            {/* Extra stats */}
-            <div className="card p-5 space-y-3">
-              <div className="font-bold text-sm mb-2" style={{color:'var(--text)'}}>Score Statistics</div>
+      {/* D2L tabs for analytics views */}
+      <d2l-tabs>
+        {/* ── Overview tab ── */}
+        <d2l-tab-panel text="Overview" selected>
+          <div style={{ padding: '1.5rem 0', display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {/* KPI cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(140px,1fr))', gap: 12 }}>
               {[
-                {l:'Highest Score',v:`${stats.max_score}%`,c:'#10b981'},
-                {l:'Lowest Score',v:`${stats.min_score}%`,c:'#ef4444'},
-                {l:'Median Score',v:`${stats.median_score}%`,c:'#6366f1'},
-                {l:'Std Deviation',v:`±${stats.std_dev}%`,c:'#f59e0b'},
-                {l:'Avg Time Taken',v:stats.avg_time_sec>60?`${Math.floor(stats.avg_time_sec/60)}m ${stats.avg_time_sec%60}s`:`${stats.avg_time_sec}s`,c:'#8b5cf6'},
-                {l:'Pass Count',v:`${stats.pass_count} / ${stats.total_attempts}`,c:'#10b981'},
+                { l: 'Total Attempts', v: stats.total_attempts, c: '#006fbf' },
+                { l: 'Unique Users',   v: stats.unique_users,   c: '#7b4fc4' },
+                { l: 'Pass Rate',      v: `${stats.pass_rate}%`, c: stats.pass_rate >= 70 ? '#1a7a3c' : '#c45f00' },
+                { l: 'Avg Score',      v: `${stats.avg_score}%`, c: stats.avg_score >= 70 ? '#1a7a3c' : '#c45f00' },
               ].map(s => (
-                <div key={s.l} className="flex items-center justify-between py-1.5 border-b last:border-0" style={{borderColor:'var(--border)'}}>
-                  <span className="text-sm" style={{color:'var(--text-muted)'}}>{s.l}</span>
-                  <span className="font-black text-sm" style={{color:s.c}}>{s.v}</span>
+                <div key={s.l} className="card" style={{ padding: 16, textAlign: 'center' }}>
+                  <div style={{ fontSize: 28, fontWeight: 900, color: s.c, lineHeight: 1 }}>{s.v}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{s.l}</div>
                 </div>
               ))}
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* ── Item Analysis ── */}
-      {view === 'items' && (
-        <div className="space-y-4">
-          <div className="card p-4">
-            <div className="font-bold text-sm mb-3" style={{color:'var(--text)'}}>📊 Item Analysis Glossary</div>
-            <div className="grid md:grid-cols-2 gap-3 text-xs" style={{color:'var(--text-muted)'}}>
-              <div><span className="font-bold" style={{color:'var(--text)'}}>p-value (Difficulty Index):</span> Proportion of students who answered correctly. 0.0 = impossible, 1.0 = trivial. Ideal: 0.3–0.7.</div>
-              <div><span className="font-bold" style={{color:'var(--text)'}}>Discrimination Index:</span> Difference between top 27% and bottom 27% performance. ≥0.4 = Excellent, 0.3 = Good, 0.2 = Fair, &lt;0.2 = Poor.</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              {/* Score distribution histogram */}
+              <div className="card" style={{ padding: 20 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 16, color: 'var(--text)' }}>Score Distribution</div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 100 }}>
+                  {stats.score_distribution.map((n, i) => (
+                    <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#006fbf', minHeight: 14 }}>{n > 0 ? n : ''}</div>
+                      <div style={{ width: '100%', borderRadius: '3px 3px 0 0', background: i >= 6 ? '#1a7a3c' : i >= 4 ? '#c45f00' : '#cc3333', opacity: 0.8, height: Math.round((n / maxBucket) * 72), minHeight: n > 0 ? 3 : 0 }} />
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 6px', marginTop: 24 }}>
+                  {bucketLabels.map((l, i) => (
+                    <span key={l} style={{ fontSize: 9, color: 'var(--text-muted)', flex: 1, textAlign: 'center', minWidth: 28 }}>{l}</span>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11 }}>
+                  <span style={{ color: '#cc3333' }}>■ Fail</span>
+                  <span style={{ color: '#c45f00' }}>■ Borderline</span>
+                  <span style={{ color: '#1a7a3c' }}>■ Pass</span>
+                </div>
+              </div>
+
+              {/* Score statistics */}
+              <div className="card" style={{ padding: 20 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 12, color: 'var(--text)' }}>Score Statistics</div>
+                {[
+                  { l: 'Highest Score', v: `${stats.max_score}%`,    c: '#1a7a3c' },
+                  { l: 'Lowest Score',  v: `${stats.min_score}%`,    c: '#cc3333' },
+                  { l: 'Median Score',  v: `${stats.median_score}%`, c: '#006fbf' },
+                  { l: 'Std Deviation', v: `±${stats.std_dev}%`,     c: '#c45f00' },
+                  { l: 'Avg Time',      v: stats.avg_time_sec > 60 ? `${Math.floor(stats.avg_time_sec/60)}m ${stats.avg_time_sec%60}s` : `${stats.avg_time_sec}s`, c: '#7b4fc4' },
+                  { l: 'Pass Count',    v: `${stats.pass_count} / ${stats.total_attempts}`, c: '#1a7a3c' },
+                ].map(s => (
+                  <div key={s.l} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{s.l}</span>
+                    <span style={{ fontWeight: 900, fontSize: 13, color: s.c }}>{s.v}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
+        </d2l-tab-panel>
 
-          {item_analysis.map((item, i) => (
-            <div key={item.question_id} className="card p-5">
-              <div className="flex items-start gap-3 mb-4">
-                <span className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-black text-white" style={{background:'#6366f1'}}>{i+1}</span>
-                <div className="flex-1">
-                  <p className="font-semibold text-sm mb-1" style={{color:'var(--text)'}}>{item.question_text}</p>
-                  <span className="text-xs px-2 py-0.5 rounded-full" style={{background:'var(--page-bg)',color:'var(--text-muted)'}}>{Q_TYPES.find(t=>t.v===item.question_type)?.l||item.question_type}</span>
-                </div>
+        {/* ── Item Analysis tab ── */}
+        <d2l-tab-panel text="Item Analysis">
+          <div style={{ padding: '1.5rem 0', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div className="card" style={{ padding: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: 'var(--text)' }}>Item Analysis Glossary</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12, color: 'var(--text-muted)' }}>
+                <div><strong style={{ color: 'var(--text)' }}>p-value (Difficulty Index):</strong> Proportion who answered correctly. 0.0 = impossible, 1.0 = trivial. Ideal: 0.3–0.7.</div>
+                <div><strong style={{ color: 'var(--text)' }}>Discrimination Index:</strong> Top 27% vs bottom 27% performance. ≥0.4 = Excellent, 0.3 = Good, 0.2 = Fair.</div>
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <div className="rounded-xl p-3 text-center" style={{background:'var(--page-bg)'}}>
-                  <div className="text-xl font-black" style={{color:pColor(item.p_value)}}>{(item.p_value*100).toFixed(0)}%</div>
-                  <div className="text-xs mt-0.5" style={{color:'var(--text-muted)'}}>p-value</div>
-                  <div className="text-xs font-semibold" style={{color:pColor(item.p_value)}}>{item.difficulty_label}</div>
+            {item_analysis.map((item, i) => (
+              <div key={item.question_id} className="card" style={{ padding: 20 }}>
+                <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                  <span style={{ flexShrink: 0, width: 28, height: 28, borderRadius: '50%', background: '#006fbf', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900 }}>{i + 1}</span>
+                  <div>
+                    <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', margin: '0 0 4px' }}>{item.question_text}</p>
+                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'var(--page-bg)', color: 'var(--text-muted)' }}>{Q_TYPES.find(t => t.v === item.question_type)?.l || item.question_type}</span>
+                  </div>
                 </div>
-                <div className="rounded-xl p-3 text-center" style={{background:'var(--page-bg)'}}>
-                  <div className="text-xl font-black" style={{color:discColor(item.discrimination_index)}}>{item.discrimination_index.toFixed(2)}</div>
-                  <div className="text-xs mt-0.5" style={{color:'var(--text-muted)'}}>Discrimination</div>
-                  <div className="text-xs font-semibold" style={{color:discColor(item.discrimination_index)}}>{item.discrimination_label}</div>
-                </div>
-                <div className="rounded-xl p-3 text-center" style={{background:'var(--page-bg)'}}>
-                  <div className="text-xl font-black" style={{color:'#10b981'}}>{item.total_correct}</div>
-                  <div className="text-xs mt-0.5" style={{color:'var(--text-muted)'}}>Got Correct</div>
-                  <div className="text-xs font-semibold" style={{color:'var(--text-muted)'}}>of {item.total_attempts}</div>
-                </div>
-                <div className="rounded-xl p-3 text-center" style={{background:'var(--page-bg)'}}>
-                  <div className="text-xl font-black" style={{color:'#6366f1'}}>{item.total_attempts}</div>
-                  <div className="text-xs mt-0.5" style={{color:'var(--text-muted)'}}>Attempts</div>
-                </div>
-              </div>
 
-              {/* Answer frequency bar chart (for MCQ) */}
-              {item.options?.length > 0 && (
-                <div>
-                  <div className="text-xs font-semibold mb-2" style={{color:'var(--text-muted)'}}>ANSWER DISTRIBUTION</div>
-                  <div className="space-y-1.5">
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
+                  {[
+                    { l: 'p-value', v: `${(item.p_value * 100).toFixed(0)}%`, sub: item.difficulty_label, c: pColor(item.p_value) },
+                    { l: 'Discrimination', v: item.discrimination_index.toFixed(2), sub: item.discrimination_label, c: discColor(item.discrimination_index) },
+                    { l: 'Got Correct', v: item.total_correct, sub: `of ${item.total_attempts}`, c: '#1a7a3c' },
+                    { l: 'Attempts', v: item.total_attempts, sub: '', c: '#006fbf' },
+                  ].map(s => (
+                    <div key={s.l} style={{ background: 'var(--page-bg)', borderRadius: 10, padding: '12px 8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 22, fontWeight: 900, color: s.c }}>{s.v}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{s.l}</div>
+                      {s.sub && <div style={{ fontSize: 11, fontWeight: 600, color: s.c }}>{s.sub}</div>}
+                    </div>
+                  ))}
+                </div>
+
+                {item.options?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>ANSWER DISTRIBUTION</div>
                     {item.options.map((opt, oi) => {
-                      const count = item.answer_frequency?.[String(oi)] || 0
-                      const pct   = item.total_attempts > 0 ? Math.round(count/item.total_attempts*100) : 0
-                      const isCor = item.correct_answers?.includes(oi)
+                      const count  = item.answer_frequency?.[String(oi)] || 0
+                      const pct    = item.total_attempts > 0 ? Math.round(count / item.total_attempts * 100) : 0
+                      const isCor  = item.correct_answers?.includes(oi)
                       return (
-                        <div key={oi} className="flex items-center gap-2">
-                          <span className="text-xs font-bold w-5 flex-shrink-0" style={{color:isCor?'#10b981':'var(--text-muted)'}}>{String.fromCharCode(65+oi)}</span>
-                          <div className="flex-1 h-5 rounded-full overflow-hidden" style={{background:'var(--border)'}}>
-                            <div className="h-full rounded-full flex items-center pl-2 text-xs text-white font-bold transition-all"
-                              style={{width:`${Math.max(pct,4)}%`,background:isCor?'#10b981':'#6366f1',opacity:0.85}}>
-                              {pct>10?`${pct}%`:''}
+                        <div key={oi} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, width: 18, color: isCor ? '#1a7a3c' : 'var(--text-muted)' }}>{String.fromCharCode(65 + oi)}</span>
+                          <div style={{ flex: 1, height: 20, borderRadius: 10, overflow: 'hidden', background: 'var(--border)' }}>
+                            <div style={{ width: `${Math.max(pct, 2)}%`, height: '100%', borderRadius: 10, background: isCor ? '#1a7a3c' : '#006fbf', opacity: 0.75, display: 'flex', alignItems: 'center', paddingLeft: 8 }}>
+                              {pct > 12 && <span style={{ fontSize: 11, color: '#fff', fontWeight: 700 }}>{pct}%</span>}
                             </div>
                           </div>
-                          <span className="text-xs w-10 text-right flex-shrink-0" style={{color:isCor?'#10b981':'var(--text-muted)'}}>{count} ({pct}%)</span>
-                          {isCor && <CheckCircle className="w-3 h-3 flex-shrink-0 text-green-500"/>}
+                          <span style={{ fontSize: 12, width: 56, textAlign: 'right', color: isCor ? '#1a7a3c' : 'var(--text-muted)' }}>{count} ({pct}%)</span>
+                          {isCor && <CheckCircle size={14} style={{ color: '#1a7a3c', flexShrink: 0 }} />}
                         </div>
                       )
                     })}
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Flag poor items */}
-              {(item.discrimination_index < 0.2 || item.p_value < 0.2 || item.p_value > 0.95) && (
-                <div className="mt-3 flex items-start gap-2 p-3 rounded-xl text-xs" style={{background:'rgba(245,158,11,0.08)',color:'#b45309'}}>
-                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5"/>
-                  <div>
-                    <span className="font-bold">Review this question: </span>
-                    {item.p_value < 0.2 && 'Very few students answered correctly — may be ambiguous or too hard. '}
-                    {item.p_value > 0.95 && 'Almost everyone got this right — consider if it tests meaningful knowledge. '}
-                    {item.discrimination_index < 0.2 && 'Low discrimination — this question doesn\'t differentiate knowledge levels well.'}
+                {(item.discrimination_index < 0.2 || item.p_value < 0.2 || item.p_value > 0.95) && (
+                  <div style={{ marginTop: 12, display: 'flex', gap: 8, padding: 12, borderRadius: 8, background: 'rgba(196,95,0,0.07)', color: '#7a3700', fontSize: 12 }}>
+                    <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <div>
+                      <strong>Review this question: </strong>
+                      {item.p_value < 0.2 && 'Very few students answered correctly — may be ambiguous or too hard. '}
+                      {item.p_value > 0.95 && 'Almost everyone got this right — consider if it tests meaningful knowledge. '}
+                      {item.discrimination_index < 0.2 && "Low discrimination — doesn't differentiate knowledge levels well."}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── Attempts table ── */}
-      {view === 'attempts' && (
-        <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr style={{background:'var(--page-bg)',borderBottom:'1px solid var(--border)'}}>
-                  {['User','Score','Passed','Time','Date'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-bold" style={{color:'var(--text-muted)'}}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {attempts.map((a, i) => (
-                  <tr key={a.id} className="border-b last:border-0" style={{borderColor:'var(--border)'}}>
-                    <td className="px-4 py-2.5">
-                      <div className="font-semibold text-xs" style={{color:'var(--text)'}}>{a.display_name||a.username}</div>
-                      <div className="text-xs" style={{color:'var(--text-muted)'}}>@{a.username}</div>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className="font-black text-sm" style={{color:a.score>=70?'#10b981':a.score>=50?'#f59e0b':'#ef4444'}}>{a.score??'—'}%</span>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {a.passed
-                        ? <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{background:'#f0fdf4',color:'#10b981'}}>✓ Passed</span>
-                        : <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{background:'#fef2f2',color:'#ef4444'}}>Failed</span>}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs" style={{color:'var(--text-muted)'}}>
-                      {a.time_taken ? `${Math.floor(a.time_taken/60)}m ${a.time_taken%60}s` : '—'}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs" style={{color:'var(--text-muted)'}}>
-                      {a.completed_at ? new Date(a.completed_at).toLocaleDateString() : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                )}
+              </div>
+            ))}
           </div>
-        </div>
-      )}
+        </d2l-tab-panel>
+
+        {/* ── Attempts tab ── */}
+        <d2l-tab-panel text="Attempts">
+          <div style={{ padding: '1.5rem 0' }}>
+            <div className="card" style={{ overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--page-bg)', borderBottom: '1px solid var(--border)' }}>
+                      {['User','Score','Status','Time','Date'].map(h => (
+                        <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attempts.map(a => (
+                      <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '10px 16px' }}>
+                          <div style={{ fontWeight: 600, color: 'var(--text)' }}>{a.display_name || a.username}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>@{a.username}</div>
+                        </td>
+                        <td style={{ padding: '10px 16px' }}>
+                          <span style={{ fontWeight: 900, fontSize: 14, color: a.score >= 70 ? '#1a7a3c' : a.score >= 50 ? '#c45f00' : '#cc3333' }}>{a.score ?? '—'}%</span>
+                        </td>
+                        <td style={{ padding: '10px 16px' }}>
+                          <d2l-status-indicator state={a.passed ? 'success' : 'error'} text={a.passed ? 'Passed' : 'Failed'} />
+                        </td>
+                        <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-muted)' }}>
+                          {a.time_taken ? `${Math.floor(a.time_taken / 60)}m ${a.time_taken % 60}s` : '—'}
+                        </td>
+                        <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-muted)' }}>
+                          {a.completed_at ? new Date(a.completed_at).toLocaleDateString() : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </d2l-tab-panel>
+      </d2l-tabs>
     </div>
   )
 }
 
-// ── Page root ─────────────────────────────────────────────────────────────────
+// ── Page root ────────────────────────────────────────────────────────────────
 export default function QuizAdmin() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const [view, setView] = useState('list')    // list | build | analytics
-  const [editQuiz, setEditQuiz]   = useState(null)
+  const [view, setView]                   = useState('list')
+  const [editQuiz, setEditQuiz]           = useState(null)
   const [analyticsQuiz, setAnalyticsQuiz] = useState(null)
 
   const roleLabel = user?.is_admin ? 'Admin' : user?.role || 'Creator'
 
   return (
-    <div className="max-w-5xl mx-auto space-y-4 pb-10">
+    <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 0 3rem', display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Page header */}
-      <div className="flex items-center justify-between pt-2 flex-wrap gap-3">
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', paddingTop: 8, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-2xl font-black" style={{color:'var(--text)'}}>🎓 Quiz Manager</h1>
-            <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{background:'rgba(99,102,241,0.1)',color:'#818cf8'}}>{roleLabel}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+            <h1 style={{ fontWeight: 900, fontSize: 24, color: 'var(--text)', margin: 0 }}>Quiz Manager</h1>
+            <d2l-status-indicator state="default" text={roleLabel} />
           </div>
-          <p className="text-sm" style={{color:'var(--text-muted)'}}>Create quizzes, add questions, generate with AI, view research analytics</p>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
+            Create quizzes, add questions, generate with AI, view research-grade analytics
+          </p>
         </div>
-        <button onClick={() => navigate('/quiz')}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold"
-          style={{background:'var(--card-bg)',color:'var(--text-muted)',border:'1px solid var(--border)'}}>
-          <Eye className="w-4 h-4"/> Student View
-        </button>
+        <d2l-button onClick={() => navigate('/quiz')}>Student View</d2l-button>
       </div>
 
       {view === 'list' && (
@@ -1066,11 +1054,11 @@ export default function QuizAdmin() {
       )}
 
       {view === 'build' && (
-        <QuizBuilder quiz={editQuiz} onBack={() => { setEditQuiz(null); setView('list') }}/>
+        <QuizBuilder quiz={editQuiz} onBack={() => { setEditQuiz(null); setView('list') }} />
       )}
 
       {view === 'analytics' && analyticsQuiz && (
-        <Analytics quiz={analyticsQuiz} onBack={() => { setAnalyticsQuiz(null); setView('list') }}/>
+        <Analytics quiz={analyticsQuiz} onBack={() => { setAnalyticsQuiz(null); setView('list') }} />
       )}
     </div>
   )
