@@ -115,7 +115,10 @@ router.get('/me', async (req, res) => {
           )
           localUser = await db.get('SELECT * FROM users WHERE email = ?', [sbUser.email])
         }
-        if (localUser) return res.json(safeUser(localUser))
+        if (localUser) {
+          if (!localUser.is_active) return res.status(403).json({ error: 'Account suspended' })
+          return res.json(safeUser(localUser))
+        }
       }
     } catch (_) {}
   }
@@ -125,6 +128,7 @@ router.get('/me', async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
     const user = await db.get('SELECT * FROM users WHERE id = ?', [decoded.id])
     if (!user) return res.status(401).json({ error: 'User not found' })
+    if (!user.is_active) return res.status(403).json({ error: 'Account suspended' })
     res.json(safeUser(user))
   } catch {
     res.status(401).json({ error: 'Invalid token' })
