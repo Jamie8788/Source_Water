@@ -72,7 +72,6 @@ async function uploadVideoDirectly(file, folder, token, onProgress) {
   formData.append('timestamp', String(timestamp))
   formData.append('api_key', api_key)
   formData.append('signature', signature)
-  formData.append('eager_async', 'true')
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
