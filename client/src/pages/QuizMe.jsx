@@ -658,16 +658,16 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
     const isWrong      = isRevd && isSelected && !isCorrectAns
     if (isCorrectAns && isRevd) return { border:'1.5px solid #1a7a3c', background:'rgba(26,122,60,0.08)', color:'#1a7a3c' }
     if (isWrong)                return { border:'1.5px solid #cc3333', background:'rgba(204,51,51,0.08)', color:'#cc3333' }
-    if (isSelected)             return { border:'1.5px solid #006fbf', background:'rgba(0,111,191,0.08)', color:'#006fbf' }
-    return { border:'1.5px solid rgba(255,255,255,0.1)', background:'rgba(255,255,255,0.03)', color:'#e2e8f0' }
+    if (isSelected)             return { border:'1.5px solid #60a5fa', background:'rgba(96,165,250,0.12)', color:'#e2e8f0' }
+    return { border:'1.5px solid rgba(255,255,255,0.12)', background:'rgba(255,255,255,0.04)', color:'#cbd5e1' }
   }
 
   return (
-    <div style={{position:'fixed',inset:0,zIndex:100,display:'flex',flexDirection:'column',background:'var(--page-bg)'}}>
+    <div style={{position:'fixed',inset:0,zIndex:100,display:'flex',flexDirection:'column',background:'#0a1628'}}>
       {/* Header */}
       <div style={{
         height:56,flexShrink:0,display:'flex',alignItems:'center',gap:12,padding:'0 16px',
-        background:'#0a1628', borderBottom:'1px solid rgba(255,255,255,0.08)',
+        background:'#0f1f38', borderBottom:'1px solid rgba(255,255,255,0.1)',
       }}>
         <button onClick={() => setShowExit(true)} style={{
           display:'flex',alignItems:'center',gap:4,padding:'6px 12px',borderRadius:6,
@@ -704,12 +704,12 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
         </div>
 
         {/* Question area */}
-        <div style={{flex:1,overflowY:'auto'}}>
+        <div style={{flex:1,overflowY:'auto',background:'#0a1628'}}>
           <div style={{maxWidth:720,margin:'0 auto',padding:'24px 24px 120px'}}>
             {/* Question meta */}
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,flexWrap:'wrap',gap:8}}>
               <div style={{display:'flex',alignItems:'center',gap:8}}>
-                <span style={{fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:99,background:'rgba(0,111,191,0.15)',color:'#60a5fa'}}>
+                <span style={{fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:99,background:'rgba(0,111,191,0.2)',color:'#93c5fd'}}>
                   {q.question_type==='mcq'?'Multiple Choice':q.question_type==='true_false'?'True / False':q.question_type==='multiple_select'?'Multi-Select':q.question_type==='short_answer'?'Short Answer':q.question_type==='fill_blank'?'Fill in Blank':'Numeric'}
                 </span>
                 <span style={{fontSize:11,color:'#64748b'}}>· {q.points||1} pt{(q.points||1)!==1?'s':''}</span>
@@ -736,7 +736,7 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
 
             {q.question_image && <img src={q.question_image} alt="q" style={{width:'100%',maxHeight:280,objectFit:'contain',borderRadius:8,marginBottom:16,border:'1px solid rgba(255,255,255,0.1)'}}/>}
 
-            <p style={{fontSize:17,fontWeight:500,lineHeight:1.7,color:'#e2e8f0',marginBottom:24}}>{q.question_text}</p>
+            <p style={{fontSize:18,fontWeight:500,lineHeight:1.7,color:'#f1f5f9',marginBottom:24}}>{q.question_text}</p>
 
             {/* MCQ / T-F */}
             {(q.question_type==='mcq'||q.question_type==='true_false') && q.options && (
@@ -754,10 +754,10 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
                       <span style={{
                         width:26,height:26,borderRadius:99,display:'flex',alignItems:'center',justifyContent:'center',
                         fontSize:11,fontWeight:700,flexShrink:0,
-                        background:isSelected?'#006fbf':isCorrectAns&&isRevd?'#1a7a3c':isRevd&&answers[q.id]===i?'#cc3333':'rgba(255,255,255,0.1)',
+                        background:isSelected?'#3b82f6':isCorrectAns&&isRevd?'#1a7a3c':isRevd&&answers[q.id]===i?'#cc3333':'rgba(255,255,255,0.15)',
                         color:'white',
                       }}>{String.fromCharCode(65+i)}</span>
-                      <span style={{flex:1,fontSize:14,fontWeight:500}}>{opt}</span>
+                      <span style={{flex:1,fontSize:15,fontWeight:500,color:'#e2e8f0'}}>{opt}</span>
                       {isCorrectAns&&isRevd && <CheckCircle style={{width:16,height:16,flexShrink:0,color:'#1a7a3c'}}/>}
                       {!isCorrectAns&&isRevd&&isSelected && <XCircle style={{width:16,height:16,flexShrink:0,color:'#cc3333'}}/>}
                     </button>
@@ -775,8 +775,8 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
                   return (
                     <label key={i} style={{
                       display:'flex',alignItems:'center',gap:12,padding:'12px 16px',borderRadius:8,cursor:revealed.has(q.id)?'default':'pointer',
-                      border:`1.5px solid ${sel?'#8b5cf6':'rgba(255,255,255,0.1)'}`,
-                      background:sel?'rgba(139,92,246,0.1)':'rgba(255,255,255,0.03)',
+                      border:`1.5px solid ${sel?'#a78bfa':'rgba(255,255,255,0.14)'}`,
+                      background:sel?'rgba(139,92,246,0.15)':'rgba(255,255,255,0.04)',
                     }}>
                       <input type="checkbox" checked={sel} disabled={revealed.has(q.id)} onChange={() => handleMultiToggle(q, i)} style={{accentColor:'#8b5cf6',width:16,height:16}}/>
                       <span style={{fontSize:14,color:'#e2e8f0'}}>{opt}</span>

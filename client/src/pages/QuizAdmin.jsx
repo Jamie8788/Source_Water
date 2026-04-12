@@ -707,20 +707,27 @@ function QuestionEditor({ qForm, setQF, imgPreview, setImgPrev, imgRef, isNew, o
             {qForm.options.map((opt, i) => {
               const isCor = qForm.correct_answers?.includes(i)
               return (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
                   {qt === 'mcq' ? (
                     <input type="radio" name="correct_radio" checked={isCor}
-                      onChange={() => setQF(f => ({ ...f, correct_answers: [i] }))} style={{ flexShrink: 0 }} />
+                      onChange={() => setQF(f => ({ ...f, correct_answers: [i] }))}
+                      style={{ flexShrink: 0, width: 16, height: 16, cursor: 'pointer', accentColor: '#006fbf' }} />
                   ) : (
                     <input type="checkbox" checked={isCor}
                       onChange={() => setQF(f => ({ ...f, correct_answers: isCor ? f.correct_answers.filter(x => x !== i) : [...f.correct_answers, i] }))}
-                      style={{ flexShrink: 0 }} />
+                      style={{ flexShrink: 0, width: 16, height: 16, cursor: 'pointer', accentColor: '#006fbf' }} />
                   )}
                   <input value={opt} onChange={e => setOpt(i, e.target.value)}
                     placeholder={`Option ${String.fromCharCode(65 + i)}`}
-                    style={{ flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 13, border: `1.5px solid ${isCor ? '#1a7a3c' : 'var(--border)'}`, background: 'var(--page-bg)', color: 'var(--text)', outline: 'none' }} />
+                    style={{
+                      flex: 1, minWidth: 0, padding: '8px 12px', borderRadius: 6, fontSize: 13,
+                      border: `1.5px solid ${isCor ? '#1a7a3c' : '#cdd5dc'}`,
+                      background: isCor ? 'rgba(26,122,60,0.05)' : '#ffffff',
+                      color: '#202122', outline: 'none', fontFamily: 'inherit',
+                      boxSizing: 'border-box',
+                    }} />
                   {qForm.options.length > 2 && (
-                    <button onClick={() => delOpt(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', flexShrink: 0 }}>✕</button>
+                    <button onClick={() => delOpt(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#888', flexShrink: 0, fontSize: 16, lineHeight: 1 }}>✕</button>
                   )}
                 </div>
               )
