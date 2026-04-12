@@ -1,8 +1,8 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Sky, Cloud, Html, Trail, Billboard, Environment, useTexture, OrbitControls } from '@react-three/drei'
+import { Sky, Cloud, Html, Trail, Billboard, Environment, OrbitControls } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
-import { useRef, useState, useEffect, useMemo, useCallback, Suspense, Component } from 'react'
+import { useRef, useState, useEffect, useMemo, useCallback, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Sparkles as SparklesIcon, Map, BellRing, FileBarChart2,
@@ -177,87 +177,54 @@ function Ocean() {
 }
 
 /* ─── Real geographic map platform ──────────────────────────────── */
-// Natural Earth II equirectangular — Wikipedia Commons (public domain)
-const MAP_URL = '/textures/worldmap.jpg'
+function MapPlatform() {
+  const [mapTex, setMapTex] = useState(null)
 
-class MapErrorBoundary extends Component {
-  constructor(p) { super(p); this.state = { err: false } }
-  static getDerivedStateFromError() { return { err: true } }
-  render() { return this.state.err ? <MapPlatformFallback/> : this.props.children }
-}
-
-function MapPlatformContent() {
-  const mapTex = useTexture(MAP_URL)
-
-  // Full world map — show entire equirectangular projection
-  useMemo(() => {
-    mapTex.wrapS = THREE.ClampToEdgeWrapping
-    mapTex.wrapT = THREE.ClampToEdgeWrapping
-    mapTex.offset.set(0, 0)
-    mapTex.repeat.set(1, 1)
-    mapTex.needsUpdate = true
-  }, [mapTex])
+  useEffect(() => {
+    // Load with plain TextureLoader — no Suspense, never crashes
+    new THREE.TextureLoader().load(
+      '/textures/worldmap.jpg',
+      (t) => {
+        t.wrapS = THREE.ClampToEdgeWrapping
+        t.wrapT = THREE.ClampToEdgeWrapping
+        t.needsUpdate = true
+        setMapTex(t)
+      },
+      undefined,
+      (e) => console.warn('[map] texture failed', e)
+    )
+  }, [])
 
   return (
     <group>
-      {/* Deep water base under map */}
+      {/* Deep ocean base */}
       <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.55,0]} receiveShadow>
         <planeGeometry args={[160,160]}/>
         <meshStandardMaterial color="#05121e" roughness={1} metalness={0}/>
       </mesh>
 
-      {/* Map board sides — modest thickness, like a folded atlas on a table */}
+      {/* Map board sides */}
       <mesh position={[0,-0.22,0]} receiveShadow castShadow>
         <boxGeometry args={[29.2,0.52,29.2]}/>
         <meshStandardMaterial color="#3a2508" roughness={0.96} metalness={0}/>
       </mesh>
-      {/* Beveled top edge */}
-      <mesh position={[0,-0.0,0]} receiveShadow castShadow>
-        <boxGeometry args={[29.4,0.08,29.4]}/>
+      {/* Thin top lip */}
+      <mesh position={[0,0,0]} receiveShadow castShadow>
+        <boxGeometry args={[29.4,0.06,29.4]}/>
         <meshStandardMaterial color="#2a1804" roughness={0.97} metalness={0}/>
       </mesh>
 
-      {/* ─ Real geographic map surface ─ */}
+      {/* Geographic map surface — worldmap.jpg loaded via TextureLoader */}
       <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.04,0]} receiveShadow>
         <planeGeometry args={[29,29,2,2]}/>
         <meshStandardMaterial
           map={mapTex}
-          roughness={0.82}
+          color={mapTex ? '#ffffff' : '#1e3a5a'}
+          roughness={0.78}
           metalness={0}
-          color="#ffffff"
         />
       </mesh>
     </group>
-  )
-}
-
-// Fallback if external texture fails to load
-function MapPlatformFallback() {
-  return (
-    <group>
-      <mesh rotation={[-Math.PI/2,0,0]} position={[0,-0.55,0]} receiveShadow>
-        <planeGeometry args={[160,160]}/>
-        <meshStandardMaterial color="#05121e" roughness={1} metalness={0}/>
-      </mesh>
-      <mesh position={[0,-0.35,0]} receiveShadow castShadow>
-        <boxGeometry args={[29.2,0.75,29.2]}/>
-        <meshStandardMaterial color="#3a2508" roughness={0.96} metalness={0}/>
-      </mesh>
-      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.04,0]} receiveShadow>
-        <planeGeometry args={[29,29,2,2]}/>
-        <meshStandardMaterial color="#1a4a6a" roughness={0.82} metalness={0}/>
-      </mesh>
-    </group>
-  )
-}
-
-function MapPlatform() {
-  return (
-    <MapErrorBoundary>
-      <Suspense fallback={<MapPlatformFallback/>}>
-        <MapPlatformContent/>
-      </Suspense>
-    </MapErrorBoundary>
   )
 }
 
