@@ -252,16 +252,12 @@ export function CMSProvider({ children }) {
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
   }, [overrides, tagAndApply, location.pathname])
 
-  // ── MutationObserver: re-apply text overrides after every React re-render ──
-  // React re-renders reset DOM text back to JSX values, undoing CMS overrides.
-  // We watch for DOM mutations and re-apply overrides (debounced, guarded against
-  // our own mutations to prevent infinite loops).
+  // ── Interval: keep re-applying text overrides so React re-renders can't wipe them ──
+  // React reconciliation resets innerText to JSX values on every component re-render.
+  // A setInterval that checks + re-applies every 150ms is the simplest reliable fix.
   useEffect(() => {
     if (!Object.keys(overrides).length) return
-    let debounce = null
     const reApply = () => {
-      if (applyingRef.current) return
-      applyingRef.current = true
       Object.entries(overrides).forEach(([key, { text, html }]) => {
         if (text == null && html == null) return
         const el = document.querySelector(`[data-cms-id="${key}"]`)
@@ -269,17 +265,9 @@ export function CMSProvider({ children }) {
         if (html != null) { if (el.innerHTML !== html) el.innerHTML = html }
         else if (text != null) { if (el.innerText !== text) el.innerText = text }
       })
-      applyingRef.current = false
     }
-    const observer = new MutationObserver(() => {
-      if (applyingRef.current) return
-      clearTimeout(debounce)
-      debounce = setTimeout(reApply, 90)
-    })
-    // characterData:true catches React text-node updates (node.nodeValue changes)
-    // childList:true catches React element replacement
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true })
-    return () => { observer.disconnect(); clearTimeout(debounce) }
+    const iv = setInterval(reApply, 150)
+    return () => clearInterval(iv)
   }, [overrides])
 
   // ── Extra CMS edit-mode UI (hover outlines, click to select) ─────────────

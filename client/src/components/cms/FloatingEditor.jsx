@@ -9,7 +9,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import TextAlign from '@tiptap/extension-text-align'
-import { TextStyle } from '@tiptap/extension-text-style'
+import { TextStyle, FontFamily } from '@tiptap/extension-text-style'
 import Color from '@tiptap/extension-color'
 import Underline from '@tiptap/extension-underline'
 import Highlight from '@tiptap/extension-highlight'
@@ -94,6 +94,7 @@ export default function FloatingEditor() {
       StarterKit,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       TextStyle,
+      FontFamily,
       Color,
       Underline,
       Highlight.configure({ multicolor: true }),
@@ -151,7 +152,14 @@ export default function FloatingEditor() {
   const handleSave = async () => {
     if (!selectedEl || !editor) return
     setSaving(true)
-    const html = editor.getHTML()
+    const rawHtml = editor.getHTML()
+    // Strip outer <p> wrapper for single-paragraph content.
+    // TipTap always wraps in <p> but sidebar links, buttons, spans are inline —
+    // injecting <p> inside <a> creates invalid HTML and breaks layout.
+    const pCount = (rawHtml.match(/<p[> ]/g) || []).length
+    const html = pCount === 1
+      ? rawHtml.replace(/^<p>/, '').replace(/<\/p>$/, '')
+      : rawHtml
     const styles = {}
     if (fontSize) styles.fontSize = `${fontSize}px`
     if (fontFamily && fontFamily !== 'Default') styles.fontFamily = fontFamily
@@ -230,7 +238,7 @@ export default function FloatingEditor() {
             {/* Toolbar row 2: font + color + size */}
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               {/* Font family */}
-              <select value={fontFamily} onChange={e => { setFontFamily(e.target.value); if (e.target.value !== 'Default') editor.chain().focus().setMark('textStyle', { fontFamily: e.target.value }).run() }}
+              <select value={fontFamily} onChange={e => { const f = e.target.value; setFontFamily(f); if (f !== 'Default') editor.chain().focus().setFontFamily(f).run(); else editor.chain().focus().unsetFontFamily().run() }}
                 style={{ ...s.input, flex: '1 1 110px', minWidth: 110 }}>
                 {FONTS.map(f => <option key={f} value={f} style={{ background: '#1e1b4b' }}>{f}</option>)}
               </select>
