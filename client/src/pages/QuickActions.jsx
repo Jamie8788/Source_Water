@@ -169,7 +169,7 @@ function Ocean() {
   const uni = useMemo(()=>({ uTime:{value:0}, uSunDir:{value:SUN_DIR}, uSunCol:{value:SUN_COL} }),[])
   useFrame(({clock})=>{ if(mat.current) mat.current.uniforms.uTime.value=clock.getElapsedTime() })
   return (
-    <mesh rotation={[-Math.PI/2,0,0]} position={[0,-1.1,0]}>
+    <mesh rotation={[-Math.PI/2,0,0]} position={[0,-1.6,0]}>
       <planeGeometry args={[80,80,80,80]}/>
       <shaderMaterial ref={mat} uniforms={uni} vertexShader={WATER_VERT} fragmentShader={WATER_FRAG} transparent side={THREE.DoubleSide}/>
     </mesh>
@@ -180,9 +180,9 @@ function Ocean() {
 function MapSurface() {
   const tex = useLoader(THREE.TextureLoader, '/textures/worldmap.jpg')
   return (
-    <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.04,0]} receiveShadow>
+    <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.08,0]} receiveShadow>
       <planeGeometry args={[29,29,2,2]}/>
-      <meshStandardMaterial map={tex} roughness={0.78} metalness={0} color="#ffffff"/>
+      <meshStandardMaterial map={tex} roughness={0.78} metalness={0} color="#ffffff" polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1}/>
     </mesh>
   )
 }
@@ -209,7 +209,7 @@ function MapPlatform() {
 
       {/* Map surface — Suspense only around this one mesh */}
       <Suspense fallback={
-        <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.04,0]}>
+        <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.08,0]}>
           <planeGeometry args={[29,29,2,2]}/>
           <meshStandardMaterial color="#1e3a5a" roughness={0.78} metalness={0}/>
         </mesh>
@@ -323,7 +323,7 @@ function MapBeacon({ portal, idx, onNav }) {
   })
 
   return (
-    <group position={[portal.pos[0], 0.05, portal.pos[2]]}
+    <group position={[portal.pos[0], 0.09, portal.pos[2]]}
       onPointerOver={()=>{setHov(true);document.body.style.cursor='pointer'}}
       onPointerOut={()=>{setHov(false);document.body.style.cursor=''}}
       onClick={()=>onNav(portal.path, portal.pos, portal.label)}>
@@ -922,7 +922,9 @@ export default function QuickActions() {
   const { shipRef, shipRender, setAutoTarget, sailTarget } = useShipControls()
   const speed   = Math.abs(shipRender.speed)
   const heading = ((shipRender.angle%360)+360)%360
-  const [flash, setFlash] = useState(0)
+  const [flash, setFlash]       = useState(0)
+  const [directMode, setDirectMode] = useState(false)
+  const [menuOpen, setMenuOpen]     = useState(false)
   const flashRef = useRef(null)
 
   const doFlashNav = useCallback((path) => {
@@ -937,15 +939,16 @@ export default function QuickActions() {
     setTimeout(() => navigate(path), 650)
   }, [navigate])
 
-  // Click a beacon → ship auto-sails there, then page opens
+  // Click a beacon → direct (instant) or auto-sail depending on mode
   const handleNav = useCallback((path, beaconPos, label) => {
+    if (directMode) { doFlashNav(path); return }
     setAutoTarget({
       x: beaconPos[0],
       z: beaconPos[2],
       label,
       onArrive: () => doFlashNav(path),
     })
-  }, [setAutoTarget, doFlashNav])
+  }, [setAutoTarget, doFlashNav, directMode])
 
   return (
     <div style={{ position:'relative', width:'100%', height:'calc(100vh - 88px)', overflow:'hidden', borderRadius:16, background:'#c87020' }}>
@@ -979,10 +982,27 @@ export default function QuickActions() {
       </div>
 
       {/* HUD */}
-      <div style={{ position:'absolute', bottom:16, left:16, zIndex:10, background:'rgba(4,14,32,0.82)', border:'1px solid rgba(60,130,200,0.35)', borderRadius:12, padding:'12px 16px', backdropFilter:'blur(12px)', boxShadow:'0 4px 24px rgba(0,0,0,0.35)', fontFamily:'system-ui' }}>
+      <div style={{ position:'absolute', bottom:16, left:16, zIndex:10, background:'rgba(4,14,32,0.88)', border:'1px solid rgba(60,130,200,0.35)', borderRadius:12, padding:'12px 16px', backdropFilter:'blur(12px)', boxShadow:'0 4px 24px rgba(0,0,0,0.45)', fontFamily:'system-ui', minWidth:165 }}>
+
+        {/* Mode toggle */}
+        <div style={{ display:'flex', gap:4, marginBottom:10 }}>
+          {[['⛵ SAIL','sail'],['⚡ DIRECT','direct']].map(([label, mode])=>{
+            const active = mode==='direct' ? directMode : !directMode
+            return (
+              <div key={mode} onClick={()=>setDirectMode(mode==='direct')} style={{
+                flex:1, textAlign:'center', fontSize:9, fontWeight:800, letterSpacing:'0.08em',
+                padding:'4px 0', borderRadius:6, cursor:'pointer', transition:'all 0.2s',
+                background: active ? (mode==='direct'?'rgba(250,204,21,0.22)':'rgba(30,130,200,0.25)') : 'rgba(255,255,255,0.05)',
+                border: active ? `1px solid ${mode==='direct'?'#fbbf24':'#60d4f0'}` : '1px solid rgba(255,255,255,0.1)',
+                color: active ? (mode==='direct'?'#fcd34d':'#60d4f0') : 'rgba(255,255,255,0.35)',
+              }}>{label}</div>
+            )
+          })}
+        </div>
+
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
           <div style={{ fontSize:9, fontWeight:800, color:'#60d4f0', letterSpacing:'0.15em' }}>
-            {sailTarget ? '⚓ AUTO-SAIL' : 'HELM CONTROL'}
+            {sailTarget ? '⚓ AUTO-SAIL' : directMode ? 'DIRECT MODE' : 'HELM CONTROL'}
           </div>
           {sailTarget && (
             <div onClick={()=>setAutoTarget(null)} style={{
@@ -992,24 +1012,70 @@ export default function QuickActions() {
             }}>✕ CANCEL</div>
           )}
         </div>
-        {[['W / ↑','Forward'],['S / ↓','Reverse'],['A / ←','Port'],['D / →','Starboard']].map(([k,v])=>(
+
+        {!directMode && [['W / ↑','Forward'],['S / ↓','Reverse'],['A / ←','Port'],['D / →','Starboard']].map(([k,v])=>(
           <div key={k} style={{ display:'flex', justifyContent:'space-between', gap:20, marginBottom:4 }}>
             <span style={{ fontSize:10, fontWeight:800, color:'#90e0f8', background:'rgba(30,100,180,0.2)', padding:'1px 6px', borderRadius:4, border:'1px solid rgba(60,130,200,0.3)' }}>{k}</span>
             <span style={{ fontSize:10, color:'rgba(255,255,255,0.42)', fontWeight:600 }}>{v}</span>
           </div>
         ))}
-        <div style={{ marginTop:10, paddingTop:8, borderTop:'1px solid rgba(60,130,200,0.2)', display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
-          <div>
-            <div style={{ fontSize:8, color:'rgba(144,224,248,0.5)', letterSpacing:'0.1em', marginBottom:2 }}>SPEED</div>
-            <div style={{ height:3, background:'rgba(255,255,255,0.08)', borderRadius:2, overflow:'hidden' }}>
-              <div style={{ height:'100%', width:`${(speed/0.55)*100}%`, background:'linear-gradient(90deg,#1e7fc4,#60d4f0)', transition:'width 0.1s', boxShadow:'0 0 6px #60d4f0' }}/>
+
+        {directMode && (
+          <div style={{ fontSize:9, color:'rgba(255,255,255,0.5)', lineHeight:1.5 }}>
+            Click any beacon<br/>on the map to<br/>open that page.
+          </div>
+        )}
+
+        {!directMode && (
+          <div style={{ marginTop:10, paddingTop:8, borderTop:'1px solid rgba(60,130,200,0.2)', display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+            <div>
+              <div style={{ fontSize:8, color:'rgba(144,224,248,0.5)', letterSpacing:'0.1em', marginBottom:2 }}>SPEED</div>
+              <div style={{ height:3, background:'rgba(255,255,255,0.08)', borderRadius:2, overflow:'hidden' }}>
+                <div style={{ height:'100%', width:`${(speed/0.55)*100}%`, background:'linear-gradient(90deg,#1e7fc4,#60d4f0)', transition:'width 0.1s', boxShadow:'0 0 6px #60d4f0' }}/>
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize:8, color:'rgba(144,224,248,0.5)', letterSpacing:'0.1em', marginBottom:1 }}>HDG</div>
+              <div style={{ fontSize:13, fontWeight:900, color:'#60d4f0', textShadow:'0 0 8px #1e7fc4' }}>{Math.round(heading)}°</div>
             </div>
           </div>
-          <div>
-            <div style={{ fontSize:8, color:'rgba(144,224,248,0.5)', letterSpacing:'0.1em', marginBottom:1 }}>HDG</div>
-            <div style={{ fontSize:13, fontWeight:900, color:'#60d4f0', textShadow:'0 0 8px #1e7fc4' }}>{Math.round(heading)}°</div>
-          </div>
+        )}
+      </div>
+
+      {/* Quick-nav tab menu button */}
+      <div style={{ position:'absolute', bottom:16, right:100, zIndex:10 }}>
+        <div onClick={()=>setMenuOpen(o=>!o)} style={{
+          background:'rgba(4,14,32,0.88)', border:`1px solid ${menuOpen?'#60d4f0':'rgba(60,130,200,0.35)'}`,
+          borderRadius:10, padding:'8px 14px', cursor:'pointer', backdropFilter:'blur(12px)',
+          fontSize:10, fontWeight:800, color: menuOpen?'#60d4f0':'rgba(255,255,255,0.7)',
+          letterSpacing:'0.12em', display:'flex', alignItems:'center', gap:6,
+          boxShadow:'0 4px 24px rgba(0,0,0,0.45)',
+        }}>
+          ☰ ALL PAGES
         </div>
+
+        {menuOpen && (
+          <div style={{
+            position:'absolute', bottom:42, right:0,
+            background:'rgba(4,14,32,0.96)', border:'1px solid rgba(60,130,200,0.4)',
+            borderRadius:12, padding:8, backdropFilter:'blur(16px)',
+            boxShadow:'0 8px 40px rgba(0,0,0,0.6)', minWidth:200,
+            display:'grid', gridTemplateColumns:'1fr 1fr', gap:4,
+          }}>
+            {PORTALS.map(p=>(
+              <div key={p.path} onClick={()=>{ setMenuOpen(false); doFlashNav(p.path) }} style={{
+                padding:'7px 10px', borderRadius:8, cursor:'pointer',
+                background:'rgba(255,255,255,0.04)', border:`1px solid ${p.glow}30`,
+                transition:'all 0.15s',
+              }}
+              onMouseEnter={e=>e.currentTarget.style.background=`${p.glow}20`}
+              onMouseLeave={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'}>
+                <div style={{ fontSize:10, fontWeight:800, color:'#fff', letterSpacing:'0.04em' }}>{p.label}</div>
+                <div style={{ fontSize:8, color:p.glow, marginTop:2 }}>{p.sub}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Compass */}
