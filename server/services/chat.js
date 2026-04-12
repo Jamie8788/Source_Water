@@ -107,14 +107,20 @@ class ChatService {
   }
 
   setUserOnline(userId, isOnline) {
-    db.run('UPDATE users SET is_active = ? WHERE id = ?', [isOnline ? 1 : 0, userId])
-      .catch(err => console.error('Error updating user status:', err.message))
+    // Update last_seen timestamp for online presence — never touch is_active
+    // (is_active = account suspension flag, managed only by admins)
+    if (isOnline) {
+      db.run('UPDATE users SET last_login = NOW() WHERE id = ?', [userId])
+        .catch(() => {})
+    }
   }
 
-  // Get user's online status
+  // Get user's online status (active in last 5 minutes)
   async getUserStatus(userId) {
-    const user = await db.get('SELECT is_active FROM users WHERE id = ?', [userId])
-    return user ? user.is_active === true || user.is_active === 1 : false
+    const user = await db.get(
+      `SELECT last_login FROM users WHERE id = ? AND last_login > NOW() - INTERVAL '5 minutes'`,
+      [userId])
+    return !!user
   }
 
   // Get unread count for user

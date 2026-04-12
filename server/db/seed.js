@@ -20,7 +20,6 @@ async function seed() {
   }
 
   // Also reactivate the Supabase-linked admin account (admin@sourcewater.app)
-  // This is the local user created when admin logs in via Supabase auth
   await db.run(
     `UPDATE users SET is_active=1, is_admin=1, onboarding_completed=1 WHERE email='admin@sourcewater.app'`)
 
@@ -28,6 +27,10 @@ async function seed() {
   await db.run(
     `DELETE FROM banned_emails WHERE email IN ('info@nordikinstitute.com','admin@sourcewater.app','admin')`
   ).catch(() => {})
+
+  // Reactivate ALL users — the ChatService was incorrectly setting is_active=0
+  // on socket disconnect, locking everyone out. That bug is now fixed; restore all accounts.
+  await db.run(`UPDATE users SET is_active=1 WHERE is_active=0`).catch(() => {})
 
   const existing = await db.get('SELECT COUNT(*) as c FROM users', [])
   if (parseInt(existing?.c ?? 0) > 1) return console.log('DB already seeded.')
