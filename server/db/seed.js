@@ -19,6 +19,16 @@ async function seed() {
     console.log('✅ Admin user verified/restored')
   }
 
+  // Also reactivate the Supabase-linked admin account (admin@sourcewater.app)
+  // This is the local user created when admin logs in via Supabase auth
+  await db.run(
+    `UPDATE users SET is_active=1, is_admin=1, onboarding_completed=1 WHERE email='admin@sourcewater.app'`)
+
+  // Remove admin emails from banned list in case of accidental self-deletion
+  await db.run(
+    `DELETE FROM banned_emails WHERE email IN ('info@nordikinstitute.com','admin@sourcewater.app','admin')`
+  ).catch(() => {})
+
   const existing = await db.get('SELECT COUNT(*) as c FROM users', [])
   if (parseInt(existing?.c ?? 0) > 1) return console.log('DB already seeded.')
 

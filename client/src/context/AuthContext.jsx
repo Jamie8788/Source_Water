@@ -45,8 +45,19 @@ export function AuthProvider({ children }) {
       localStorage.setItem('sw_user', JSON.stringify(merged))
       return merged
     } catch (err) {
-      // 403 = suspended — force logout immediately
       if (err?.response?.status === 403) {
+        // Before nuking session, try falling back to legacy JWT (admin uses this path)
+        const legacyToken = localStorage.getItem('sw_token')
+        if (legacyToken) {
+          try {
+            const r2 = await api.get('/auth/me', { headers: { Authorization: `Bearer ${legacyToken}` } })
+            const profile = r2.data?.user || r2.data
+            setUser(profile)
+            localStorage.setItem('sw_user', JSON.stringify(profile))
+            return profile
+          } catch (_) {}
+        }
+        // No fallback — actually suspended
         setUser(null)
         localStorage.removeItem('sw_user')
         localStorage.removeItem('sw_token')
