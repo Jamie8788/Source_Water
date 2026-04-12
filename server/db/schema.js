@@ -313,6 +313,43 @@ async function initSchema() {
         sort_order INTEGER DEFAULT 0
       )
     `)
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS cms_overrides (
+        element_key TEXT PRIMARY KEY,
+        text_content TEXT,
+        html_content TEXT,
+        styles TEXT DEFAULT '{}',
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS cms_content (
+        id SERIAL PRIMARY KEY,
+        page_key TEXT NOT NULL,
+        block_key TEXT NOT NULL,
+        field TEXT NOT NULL,
+        value TEXT,
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(page_key, block_key, field)
+      )
+    `)
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS cms_site_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS cms_page_blocks (
+        id SERIAL PRIMARY KEY,
+        page_key TEXT NOT NULL,
+        block_type TEXT NOT NULL,
+        content TEXT DEFAULT '{}',
+        order_index INTEGER DEFAULT 0,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
     // Indexes for performance
     const indexes = [
       'CREATE INDEX IF NOT EXISTS idx_posts_user ON posts(user_id)',
@@ -699,6 +736,35 @@ async function initSchema() {
         path TEXT, gradient TEXT,
         visible INTEGER DEFAULT 1,
         sort_order INTEGER DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS cms_overrides (
+        element_key TEXT PRIMARY KEY,
+        text_content TEXT,
+        html_content TEXT,
+        styles TEXT DEFAULT '{}',
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS cms_content (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        page_key TEXT NOT NULL,
+        block_key TEXT NOT NULL,
+        field TEXT NOT NULL,
+        value TEXT,
+        updated_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(page_key, block_key, field)
+      );
+      CREATE TABLE IF NOT EXISTS cms_site_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS cms_page_blocks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        page_key TEXT NOT NULL,
+        block_type TEXT NOT NULL,
+        content TEXT DEFAULT '{}',
+        order_index INTEGER DEFAULT 0,
+        updated_at TEXT DEFAULT (datetime('now'))
       );
       CREATE INDEX IF NOT EXISTS idx_posts_user ON posts(user_id);
       CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at DESC);

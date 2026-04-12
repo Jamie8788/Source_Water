@@ -3,12 +3,11 @@
  * When CMS mode ON: every text element on every page gets a dashed outline on hover.
  * Click any element → FloatingEditor panel appears (draggable).
  * Edit text, font size, font weight, color, background, alignment.
- * Saves to Supabase cms_overrides table. Applied via injected <style> tag.
- * All users see changes instantly via real-time subscription.
+ * Saves to server DB via /api/cms — no Supabase RLS issues.
  */
-import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import api from '../utils/api'
 import { useAuth } from './AuthContext'
 
 const CMSContext = createContext(null)
@@ -23,101 +22,53 @@ function rgbToHex(rgb) {
 export function CMSProvider({ children }) {
   const { isAdmin } = useAuth()
   const location = useLocation()
-  const [cmsMode, setCmsMode]       = useState(false)
-  const [content, setContent]       = useState({})      // CMSField values
-  const [overrides, setOverrides]   = useState({})      // element overrides by key
-  const [saving, setSaving]         = useState(false)
-  const [selectedEl, setSelectedEl] = useState(null)    // { element, key, rect, currentText, currentStyles }
-  const [notification, setNotification] = useState(null) // site-wide notification bar settings
-  const [hiddenComponents, setHiddenComponents] = useState([]) // list of hidden component keys
-  const [pageBlocks, setPageBlocks] = useState([]) // custom blocks inserted by admin per page
+  const [cmsMode, setCmsMode]           = useState(false)
+  const [content, setContent]           = useState({})
+  const [overrides, setOverrides]       = useState({})
+  const [saving, setSaving]             = useState(false)
+  const [selectedEl, setSelectedEl]     = useState(null)
+  const [notification, setNotification] = useState(null)
+  const [hiddenComponents, setHiddenComponents] = useState([])
+  const [pageBlocks, setPageBlocks]     = useState([])
   const styleTagRef  = useRef(null)
-  const observersRef = useRef(new Map()) // key → MutationObserver (per-element re-apply guards)
+  const observersRef = useRef(new Map())
 
   // ── Load CMS field content ────────────────────────────────────────────────
   useEffect(() => {
-    supabase.from('cms_content').select('page_key,block_key,field,value').then(({ data }) => {
-      const map = {}
-      ;(data || []).forEach(r => { map[`${r.page_key}__${r.block_key}__${r.field}`] = r.value })
-      setContent(map)
-    })
+    api.get('/cms/content').then(({ data }) => {
+      setContent(data || {})
+    }).catch(() => {})
   }, [])
 
   // ── Load element overrides ────────────────────────────────────────────────
   useEffect(() => {
-    supabase.from('cms_overrides').select('*').then(({ data }) => {
-      const map = {}
-      ;(data || []).forEach(r => { map[r.element_key] = { text: r.text_content, styles: r.styles || {}, html: r.html_content } })
-      setOverrides(map)
-      applyOverrideStyles(map)
-    })
+    api.get('/cms/overrides').then(({ data }) => {
+      setOverrides(data || {})
+      applyOverrideStyles(data || {})
+    }).catch(() => {})
   }, [])
 
   // ── Load site-wide notification bar ──────────────────────────────────────
   useEffect(() => {
-    supabase.from('cms_site_settings').select('value').eq('key', 'notification_bar').single()
-      .then(({ data }) => { if (data?.value) setNotification(data.value) })
+    api.get('/cms/settings/notification_bar').then(({ data }) => {
+      if (data) setNotification(data)
+    }).catch(() => {})
   }, [])
 
   // ── Load hidden components ────────────────────────────────────────────────
   useEffect(() => {
-    supabase.from('cms_site_settings').select('value').eq('key', 'hidden_components').single()
-      .then(({ data }) => { if (data?.value) setHiddenComponents(data.value) })
+    api.get('/cms/settings/hidden_components').then(({ data }) => {
+      if (Array.isArray(data)) setHiddenComponents(data)
+    }).catch(() => {})
   }, [])
 
   // ── Load page blocks for current page ─────────────────────────────────────
   useEffect(() => {
     const page = location.pathname.replace(/\//g, '') || 'home'
-    supabase.from('cms_page_blocks').select('*').eq('page_key', page).order('order_index')
-      .then(({ data }) => setPageBlocks(data || []))
+    api.get(`/cms/blocks/${page}`).then(({ data }) => {
+      setPageBlocks(data || [])
+    }).catch(() => {})
   }, [location.pathname])
-
-  // ── Real-time subscriptions ───────────────────────────────────────────────
-  useEffect(() => {
-    const ch = supabase.channel('cms_realtime_all')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_content' }, payload => {
-        const r = payload.new || payload.old
-        if (!r) return
-        const key = `${r.page_key}__${r.block_key}__${r.field}`
-        setContent(prev => payload.eventType === 'DELETE'
-          ? Object.fromEntries(Object.entries(prev).filter(([k]) => k !== key))
-          : { ...prev, [key]: r.value }
-        )
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_overrides' }, payload => {
-        const r = payload.new || payload.old
-        if (!r) return
-        setOverrides(prev => {
-          const n = { ...prev }
-          if (payload.eventType === 'DELETE') delete n[r.element_key]
-          else n[r.element_key] = { text: r.text_content, styles: r.styles || {}, html: r.html_content }
-          applyOverrideStyles(n)
-          return n
-        })
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_site_settings' }, payload => {
-        const r = payload.new
-        if (!r) return
-        if (r.key === 'notification_bar') setNotification(r.value || null)
-        if (r.key === 'hidden_components') {
-          setHiddenComponents(r.value || [])
-          applyHiddenComponents(r.value || [])
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_page_blocks' }, payload => {
-        const r = payload.new || payload.old
-        if (!r) return
-        const page = window.location.pathname.replace(/\//g, '') || 'home'
-        if (r.page_key !== page) return
-        setPageBlocks(prev => {
-          if (payload.eventType === 'DELETE') return prev.filter(b => b.id !== r.id)
-          if (payload.eventType === 'INSERT') return [...prev, r].sort((a, b) => a.order_index - b.order_index)
-          return prev.map(b => b.id === r.id ? r : b).sort((a, b) => a.order_index - b.order_index)
-        })
-      })
-      .subscribe()
-    return () => supabase.removeChannel(ch)
-  }, [])
 
   // ── Inject styles into document head ──────────────────────────────────────
   const applyOverrideStyles = (ovrs) => {
@@ -140,7 +91,7 @@ export function CMSProvider({ children }) {
     styleTagRef.current = tag
   }
 
-  // ── Apply hidden components (hide/show sections for all users) ───────────
+  // ── Apply hidden components ───────────────────────────────────────────────
   const applyHiddenComponents = useCallback((hidden) => {
     ;(hidden || []).forEach(key => {
       const el = document.querySelector(`[data-cms-component="${key}"]`)
@@ -151,12 +102,10 @@ export function CMSProvider({ children }) {
   // Tag major sections with component IDs
   const tagComponents = useCallback(() => {
     const page = window.location.pathname.replace(/\//g, '') || 'home'
-    // Find the main outlet
     const outlet = document.querySelector('[data-outlet]') || document.querySelector('main')
     if (!outlet) return []
     const tagged = []
     let idx = 0
-    // Tag direct children + major sections inside
     const candidates = [
       ...Array.from(outlet.children),
       ...Array.from(outlet.querySelectorAll('section, article, [class*="rounded"], [class*="card"]'))
@@ -172,7 +121,6 @@ export function CMSProvider({ children }) {
       idx++
       const key = `${page}/section/${idx}`
       el.setAttribute('data-cms-component', key)
-      // Get a label for this component
       const heading = el.querySelector('h1,h2,h3,h4,h5,h6')
       const label = heading?.innerText?.trim()?.slice(0, 40) || el.className?.split(' ')[0] || `Section ${idx}`
       tagged.push({ key, label, el })
@@ -180,18 +128,13 @@ export function CMSProvider({ children }) {
     return tagged
   }, [])
 
-  // Apply hidden + tag on every page load and navigation
   useEffect(() => {
     const t1 = setTimeout(() => applyHiddenComponents(hiddenComponents), 500)
     const t2 = setTimeout(() => applyHiddenComponents(hiddenComponents), 1500)
     return () => { clearTimeout(t1); clearTimeout(t2) }
   }, [hiddenComponents, applyHiddenComponents, location.pathname])
 
-  // ── Tag elements and apply overrides (runs for ALL users on every page load) ─
-  // Uses CONTENT-BASED stable keys so IDs don't shift on re-render:
-  //   Elements outside [data-outlet] (navbar, sidebar, footer) → global/tag/slug
-  //   Elements inside  [data-outlet] (page content)            → page/tag/slug
-  //   Duplicate slugs get a numeric suffix: global/span/water2
+  // ── Tag elements and apply overrides ──────────────────────────────────────
   const tagAndApply = useCallback((ovrs) => {
     const page = window.location.pathname.replace(/\//g, '') || 'home'
     const tags = ['h1','h2','h3','h4','h5','h6','p','span','li','td','th','button','a','div','label']
@@ -200,9 +143,6 @@ export function CMSProvider({ children }) {
     document.querySelectorAll(tags.join(',')).forEach(el => {
       if (el.closest('[data-cms-ui]')) return
       if (el.closest('script,style,noscript,[data-no-cms]')) return
-      // ── STABLE KEY: if this element was already tagged, keep its existing key.
-      // Re-keying after a text override would assign a NEW slug (based on the
-      // overridden text) and orphan the saved override under the original key.
       if (el.getAttribute('data-cms-id')) return
       const text = el.innerText?.trim()
       if (!text || text.length < 1) return
@@ -212,10 +152,8 @@ export function CMSProvider({ children }) {
         .join('')
       if (!directText && el.children.length > 0) return
       const tag = el.tagName.toLowerCase()
-      // Stable namespace: elements outside the main outlet are "global" (navbar, sidebar, footer)
       const isInPage = outlet ? outlet.contains(el) : true
       const ns = isInPage ? page : 'global'
-      // Stable slug from text content (first 22 chars, alphanumeric only)
       const slug = directText.slice(0, 22).replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'el'
       const baseKey = `${ns}/${tag}/${slug}`
       slugCounters[baseKey] = (slugCounters[baseKey] || 0) + 1
@@ -223,7 +161,6 @@ export function CMSProvider({ children }) {
       const key = count === 1 ? baseKey : `${baseKey}${count}`
       el.setAttribute('data-cms-id', key)
     })
-    // Apply text/html overrides
     Object.entries(ovrs).forEach(([key, { text, html }]) => {
       const el = document.querySelector(`[data-cms-id="${key}"]`)
       if (!el) return
@@ -233,20 +170,8 @@ export function CMSProvider({ children }) {
     applyOverrideStyles(ovrs)
   }, [])
 
-  // Apply text overrides to DOM elements (alias used in CMS mode)
-  const applyOverrideTexts = useCallback((ovrs) => {
-    Object.entries(ovrs).forEach(([key, { text }]) => {
-      if (text == null) return
-      const el = document.querySelector(`[data-cms-id="${key}"]`)
-      if (el && el.innerText !== text) el.innerText = text
-    })
-  }, [])
-
-  // ── Attach MutationObservers so React re-renders can't permanently wipe overrides ──
-  // When React reconciles and resets innerHTML/innerText, the observer fires as a
-  // microtask and immediately re-applies the override — imperceptible to the user.
+  // ── MutationObserver: re-apply instantly when React reconciliation resets content ──
   const attachObservers = useCallback((ovrs) => {
-    // Disconnect all previous observers before re-attaching
     observersRef.current.forEach(obs => obs.disconnect())
     observersRef.current.clear()
     Object.entries(ovrs).forEach(([key, { text, html }]) => {
@@ -259,7 +184,6 @@ export function CMSProvider({ children }) {
         guard = true
         if (html != null) { if (el.innerHTML !== html) el.innerHTML = html }
         else if (text != null) { if (el.innerText !== text) el.innerText = text }
-        // Reset guard after current microtask batch so future React renders are caught
         Promise.resolve().then(() => { guard = false })
       }
       const obs = new MutationObserver(apply)
@@ -268,9 +192,7 @@ export function CMSProvider({ children }) {
     })
   }, [])
 
-  // ── Always tag + apply on page load for ALL users ─────────────────────────
-  // Runs on: overrides load from Supabase, AND on every SPA navigation (location.pathname)
-  // Triple-retry catches lazy-loaded React pages that render after the first timeout
+  // ── Tag + apply + attach on every page load / navigation ──────────────────
   useEffect(() => {
     const run = () => { tagAndApply(overrides); attachObservers(overrides) }
     const t1 = setTimeout(run, 400)
@@ -283,10 +205,9 @@ export function CMSProvider({ children }) {
     }
   }, [overrides, tagAndApply, attachObservers, location.pathname])
 
-  // ── Extra CMS edit-mode UI (hover outlines, click to select) ─────────────
+  // ── CMS edit-mode hover + click ───────────────────────────────────────────
   useEffect(() => {
     if (!cmsMode) {
-      // Remove edit-mode styling but keep data-cms-id tags (needed for style overrides)
       document.querySelectorAll('[data-cms-id]').forEach(el => {
         el.style.outline = ''
         el.style.outlineOffset = ''
@@ -295,19 +216,15 @@ export function CMSProvider({ children }) {
       setSelectedEl(null)
       return
     }
-    // Re-tag in case new elements rendered
     const timer = setTimeout(() => tagAndApply(overrides), 200)
     return () => clearTimeout(timer)
   }, [cmsMode, overrides, tagAndApply])
 
-  // ── Global hover + click handlers in CMS mode ──────────────────────────────
   useEffect(() => {
     if (!cmsMode) return
-
     const handleClick = (e) => {
       const el = e.target.closest('[data-cms-id]')
       if (!el || el.closest('[data-cms-ui]')) {
-        // Clicked outside any editable element — deselect
         if (!e.target.closest('[data-cms-ui]')) setSelectedEl(null)
         return
       }
@@ -319,9 +236,7 @@ export function CMSProvider({ children }) {
       el.style.outline = '2px solid #6366f1'
       el.style.outlineOffset = '3px'
       setSelectedEl({
-        element: el,
-        key,
-        rect,
+        element: el, key, rect,
         currentText: el.innerText,
         currentStyles: {
           fontSize: parseInt(computed.fontSize) || 16,
@@ -332,7 +247,6 @@ export function CMSProvider({ children }) {
         },
       })
     }
-
     const handleOver = (e) => {
       const el = e.target.closest('[data-cms-id]')
       if (el && !el.closest('[data-cms-ui]') && el.style.outline !== '2px solid #6366f1') {
@@ -341,7 +255,6 @@ export function CMSProvider({ children }) {
         el.style.cursor = 'pointer'
       }
     }
-
     const handleOut = (e) => {
       const el = e.target.closest('[data-cms-id]')
       if (el && !el.closest('[data-cms-ui]') && el !== selectedEl?.element) {
@@ -350,7 +263,6 @@ export function CMSProvider({ children }) {
         el.style.cursor = ''
       }
     }
-
     document.addEventListener('click', handleClick, true)
     document.addEventListener('mouseover', handleOver)
     document.addEventListener('mouseout', handleOut)
@@ -361,7 +273,7 @@ export function CMSProvider({ children }) {
     }
   }, [cmsMode, selectedEl])
 
-  // ── CMS field helpers (for pre-wrapped CMSField components) ───────────────
+  // ── CMS field helpers (CMSField components) ───────────────────────────────
   const get = useCallback((pageKey, blockKey, field, defaultValue = '') => {
     return content[`${pageKey}__${blockKey}__${field}`] ?? defaultValue
   }, [content])
@@ -370,15 +282,11 @@ export function CMSProvider({ children }) {
     const key = `${pageKey}__${blockKey}__${field}`
     setContent(prev => ({ ...prev, [key]: value }))
     setSaving(true)
-    await supabase.from('cms_content').upsert(
-      { page_key: pageKey, block_key: blockKey, field, value, updated_at: new Date().toISOString() },
-      { onConflict: 'page_key,block_key,field' }
-    )
+    await api.put('/cms/content', { page_key: pageKey, block_key: blockKey, field, value }).catch(() => {})
     setSaving(false)
   }, [])
 
-  // ── Element override save/delete ──────────────────────────────────────────
-  // html param: rich HTML from WYSIWYG editor (optional, falls back to text)
+  // ── Element override save / delete ────────────────────────────────────────
   const saveOverride = useCallback(async (key, text, styles, html) => {
     setSaving(true)
     const el = document.querySelector(`[data-cms-id="${key}"]`)
@@ -391,42 +299,40 @@ export function CMSProvider({ children }) {
     setOverrides(newOverrides)
     applyOverrideStyles(newOverrides)
     attachObservers(newOverrides)
-    const { error } = await supabase.from('cms_overrides').upsert(
-      { element_key: key, text_content: text, styles, html_content: html, updated_at: new Date().toISOString() },
-      { onConflict: 'element_key' }
-    )
-    setSaving(false)
-    if (error) {
-      console.error('[CMS] saveOverride failed:', error)
-      alert(`CMS save error: ${error.message}\n\nThis override was NOT saved to the database and will reset on refresh.\n\nCheck Supabase → cms_overrides table and RLS policies.`)
+    try {
+      await api.put(`/cms/overrides/${encodeURIComponent(key)}`, {
+        text_content: text ?? null,
+        html_content: html ?? null,
+        styles: styles || {},
+      })
+    } catch (e) {
+      console.error('[CMS] saveOverride failed:', e)
+      alert(`CMS save failed: ${e.response?.data?.error || e.message}\n\nThis change will reset on refresh.`)
     }
+    setSaving(false)
   }, [overrides, attachObservers])
 
   const deleteOverride = useCallback(async (key) => {
     const el = document.querySelector(`[data-cms-id="${key}"]`)
     if (el) {
       el.removeAttribute('style')
-      // Restore original text if override exists
       const orig = overrides[key]
-      if (orig) el.innerText = orig.text ?? el.innerText
+      if (orig?.text) el.innerText = orig.text
     }
     const newOverrides = { ...overrides }
     delete newOverrides[key]
     setOverrides(newOverrides)
     applyOverrideStyles(newOverrides)
-    await supabase.from('cms_overrides').delete().eq('element_key', key)
+    await api.delete(`/cms/overrides/${encodeURIComponent(key)}`).catch(() => {})
   }, [overrides])
 
-  // ── Hide / show / restore components ─────────────────────────────────────
+  // ── Hide / show components ────────────────────────────────────────────────
   const hideComponent = useCallback(async (key) => {
     const el = document.querySelector(`[data-cms-component="${key}"]`)
     if (el) el.style.display = 'none'
     const next = [...new Set([...hiddenComponents, key])]
     setHiddenComponents(next)
-    await supabase.from('cms_site_settings').upsert(
-      { key: 'hidden_components', value: next, updated_at: new Date().toISOString() },
-      { onConflict: 'key' }
-    )
+    await api.put('/cms/settings/hidden_components', { value: next }).catch(() => {})
   }, [hiddenComponents])
 
   const showComponent = useCallback(async (key) => {
@@ -434,43 +340,39 @@ export function CMSProvider({ children }) {
     if (el) el.style.display = ''
     const next = hiddenComponents.filter(k => k !== key)
     setHiddenComponents(next)
-    await supabase.from('cms_site_settings').upsert(
-      { key: 'hidden_components', value: next, updated_at: new Date().toISOString() },
-      { onConflict: 'key' }
-    )
+    await api.put('/cms/settings/hidden_components', { value: next }).catch(() => {})
   }, [hiddenComponents])
 
-  // ── Page block CRUD ──────────────────────────────────────────────────────
-  const addPageBlock = useCallback(async (type, content) => {
+  // ── Page blocks ───────────────────────────────────────────────────────────
+  const addPageBlock = useCallback(async (type, blockContent) => {
     const page = window.location.pathname.replace(/\//g, '') || 'home'
     const maxOrder = pageBlocks.reduce((m, b) => Math.max(m, b.order_index), 0)
     setSaving(true)
-    const { data } = await supabase.from('cms_page_blocks')
-      .insert({ page_key: page, block_type: type, content, order_index: maxOrder + 1 })
-      .select().single()
-    if (data) setPageBlocks(prev => [...prev, data])
+    try {
+      const { data } = await api.post('/cms/blocks', {
+        page_key: page, block_type: type, content: blockContent, order_index: maxOrder + 1,
+      })
+      if (data) setPageBlocks(prev => [...prev, data])
+    } catch (e) { console.error('[CMS] addPageBlock failed:', e) }
     setSaving(false)
   }, [pageBlocks])
 
   const deletePageBlock = useCallback(async (id) => {
     setPageBlocks(prev => prev.filter(b => b.id !== id))
-    await supabase.from('cms_page_blocks').delete().eq('id', id)
+    await api.delete(`/cms/blocks/${id}`).catch(() => {})
   }, [])
 
-  const updatePageBlock = useCallback(async (id, content) => {
-    setPageBlocks(prev => prev.map(b => b.id === id ? { ...b, content } : b))
+  const updatePageBlock = useCallback(async (id, blockContent) => {
+    setPageBlocks(prev => prev.map(b => b.id === id ? { ...b, content: blockContent } : b))
     setSaving(true)
-    await supabase.from('cms_page_blocks').update({ content, updated_at: new Date().toISOString() }).eq('id', id)
+    await api.put(`/cms/blocks/${id}`, { content: blockContent }).catch(() => {})
     setSaving(false)
   }, [])
 
-  // ── Save / clear site notification ───────────────────────────────────────
+  // ── Notification bar ──────────────────────────────────────────────────────
   const saveNotification = useCallback(async (data) => {
     setNotification(data)
-    await supabase.from('cms_site_settings').upsert(
-      { key: 'notification_bar', value: data, updated_at: new Date().toISOString() },
-      { onConflict: 'key' }
-    )
+    await api.put('/cms/settings/notification_bar', { value: data }).catch(() => {})
   }, [])
 
   const toggleCmsMode = useCallback(() => {
