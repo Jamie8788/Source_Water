@@ -189,14 +189,12 @@ class MapErrorBoundary extends Component {
 function MapPlatformContent() {
   const mapTex = useTexture(MAP_URL)
 
-  // Crop to Great Lakes / NE North America
-  // Equirectangular: U=(lon+180)/360, V=(lat+90)/180 (flipY=true default)
-  // Show lon -100W → -50W, lat 35N → 65N
+  // Full world map — show entire equirectangular projection
   useMemo(() => {
     mapTex.wrapS = THREE.ClampToEdgeWrapping
     mapTex.wrapT = THREE.ClampToEdgeWrapping
-    mapTex.offset.set(80 / 360, 125 / 180)  // (-100W start, 35N start)
-    mapTex.repeat.set(50 / 360, 30 / 180)   // 50° wide, 30° tall
+    mapTex.offset.set(0, 0)
+    mapTex.repeat.set(1, 1)
     mapTex.needsUpdate = true
   }, [mapTex])
 
@@ -208,9 +206,9 @@ function MapPlatformContent() {
         <meshStandardMaterial color="#05121e" roughness={1} metalness={0}/>
       </mesh>
 
-      {/* Map board sides — tall enough to show clearly above ocean (ocean at y=-1.1) */}
-      <mesh position={[0,-0.65,0]} receiveShadow castShadow>
-        <boxGeometry args={[29.2,1.45,29.2]}/>
+      {/* Map board sides — modest thickness, like a folded atlas on a table */}
+      <mesh position={[0,-0.22,0]} receiveShadow castShadow>
+        <boxGeometry args={[29.2,0.52,29.2]}/>
         <meshStandardMaterial color="#3a2508" roughness={0.96} metalness={0}/>
       </mesh>
       {/* Beveled top edge */}
@@ -587,7 +585,7 @@ function Ship({ shipRef }) {
     const s   = shipRef.current
     const t   = clock.getElapsedTime()
     const spd = Math.abs(s.speed ?? 0)
-    gRef.current.position.set(s.x, 0.5, s.z)
+    gRef.current.position.set(s.x, 0.28, s.z)
     gRef.current.rotation.y = -(s.angle - 90) * Math.PI / 180
     // Realistic ocean roll — more pronounced at speed
     gRef.current.rotation.z = Math.sin(t * 0.75) * (0.025 + spd * 0.08)
