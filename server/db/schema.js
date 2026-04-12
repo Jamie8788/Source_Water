@@ -347,8 +347,12 @@ async function initSchema() {
        WHERE table_schema='public' AND table_name='users' AND constraint_name='users_email_unique'`
     )
     if (!emailConstraint) {
+      // Nullify email on duplicate rows (keep lowest id per email).
+      // Can't DELETE because of FK constraints on activity_log etc.
+      // PostgreSQL UNIQUE ignores NULLs so multiple null-email rows are fine.
       await db.pool.query(
-        `DELETE FROM users WHERE id NOT IN (
+        `UPDATE users SET email = NULL
+         WHERE email IS NOT NULL AND id NOT IN (
            SELECT MIN(id) FROM users WHERE email IS NOT NULL GROUP BY email
          )`
       )
