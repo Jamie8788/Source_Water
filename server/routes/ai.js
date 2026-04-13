@@ -206,7 +206,7 @@ router.get('/suggestions', requireAuth, (req, res) => {
 // ── REAL ML PREDICTIONS — No fake data, uses analysis-service ─────────────
 // POST /api/ai/predict/:site_id
 // Fetches actual observations and runs real ML models: anomalies, trends, risk scores
-router.post('/predict/:site_id', requireAuth, async (req, res) => {
+router.post('/predict/:site_id', async (req, res) => {
   try {
     const { site_id } = req.params
     

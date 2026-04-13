@@ -360,7 +360,6 @@ export default function MapPage() {
       setDatasetSummary(null)
       return
     }
-    setDatasetLoading(false) // Skip for now - no backend endpoint yet
     setDatasetSummary({ capacity: 10000, capacity_used: observations.length, capacity_percent: Math.round((observations.length / 10000) * 100) })
   }, [selected?.id, observations.length])
 
