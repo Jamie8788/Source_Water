@@ -206,6 +206,9 @@ export default function MapPage() {
     ph:'', turbidity:'', dissolved_oxygen:'', temperature:'',
     conductivity:'', nitrates:'', phosphorus:'',
   })
+  // ── REAL ML PREDICTIONS STATE ──
+  const [mlPredictions, setMlPredictions] = useState(null)
+  const [mlLoading, setMlLoading] = useState(false)
 
   // Init map
   useEffect(() => {
@@ -274,6 +277,28 @@ export default function MapPage() {
       setSites(s)
     }).catch(() => {})
   }, [])
+
+  // ── FETCH REAL ML PREDICTIONS when site is selected ──
+  useEffect(() => {
+    if (!selected?.id) {
+      setMlPredictions(null)
+      return
+    }
+    
+    setMlLoading(true)
+    console.log(`[MapPage] Fetching ML predictions for site ${selected.id}`)
+    
+    api.post(`/ai/predict/${selected.id}`)
+      .then(r => {
+        console.log('[MapPage] ML predictions received:', r.data)
+        setMlPredictions(r.data)
+      })
+      .catch(err => {
+        console.error('[MapPage] Failed to fetch ML predictions:', err)
+        setMlPredictions({ error: true, message: 'Could not load ML predictions' })
+      })
+      .finally(() => setMlLoading(false))
+  }, [selected?.id])
 
   // Weather
   useEffect(() => {
@@ -819,6 +844,54 @@ export default function MapPage() {
                   <span style={{ fontSize:10, color:'rgba(255,255,255,0.35)', fontWeight:600 }}>{observations.length} OBS</span>
                   {selected.body_of_water && <span style={{ fontSize:10, color:'rgba(255,255,255,0.35)', fontWeight:600 }}>💧 {selected.body_of_water}</span>}
                 </div>
+
+                {/* ── REAL ML PREDICTIONS ── */}
+                {mlLoading ? (
+                  <div style={{ marginTop:10, padding:'8px 12px', background:'rgba(99,102,241,0.1)', borderRadius:8, textAlign:'center', fontSize:10, color:'#818cf8', fontWeight:600 }}>
+                    🤖 Analyzing with real ML models…
+                  </div>
+                ) : mlPredictions && !mlPredictions.error ? (
+                  <div style={{ marginTop:10, padding:'8px 12px', background:'rgba(20,184,166,0.08)', border:'1px solid rgba(20,184,166,0.2)', borderRadius:8 }}>
+                    <div style={{ fontSize:9, fontWeight:800, color:'rgba(20,184,166,1)', letterSpacing:'0.06em', marginBottom:6 }}>🤖 ML PREDICTIONS</div>
+                    
+                    {/* Risk Score */}
+                    <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6, padding:'4px 8px', background:'rgba(255,255,255,0.04)', borderRadius:6 }}>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:8, color:'rgba(255,255,255,0.4)', fontWeight:700 }}>Risk Score</div>
+                        <div style={{ fontSize:12, fontWeight:900, color: mlPredictions.risk_score > 0.7 ? '#ef4444' : mlPredictions.risk_score > 0.4 ? '#f59e0b' : '#22c55e' }}>
+                          {(mlPredictions.risk_score * 100).toFixed(0)}%
+                        </div>
+                      </div>
+                      <div style={{ width:40, height:24, background:'rgba(255,255,255,0.05)', borderRadius:4, overflow:'hidden', position:'relative' }}>
+                        <div style={{ position:'absolute', height:'100%', width:`${mlPredictions.risk_score * 100}%`, background: mlPredictions.risk_score > 0.7 ? '#ef4444' : mlPredictions.risk_score > 0.4 ? '#f59e0b' : '#22c55e', transition:'width 0.5s' }}/>
+                      </div>
+                    </div>
+
+                    {/* Anomalies */}
+                    {mlPredictions.anomalies && mlPredictions.anomalies.length > 0 && (
+                      <div style={{ marginBottom:6, padding:'4px 8px', background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.2)', borderRadius:6 }}>
+                        <div style={{ fontSize:8, color:'#ef4444', fontWeight:800, marginBottom:3 }}>⚠️ ANOMALIES DETECTED</div>
+                        <div style={{ fontSize:9, color:'rgba(239,68,68,0.8)' }}>
+                          {mlPredictions.anomalies.slice(0,2).map((a, i) => (
+                            <div key={i} style={{ marginBottom:2 }}>• {typeof a === 'string' ? a : (a.parameter || 'Value') + ' anomaly'}</div>
+                          ))}
+                          {mlPredictions.anomalies.length > 2 && <div style={{ fontSize:8, color:'rgba(239,68,68,0.6)', marginTop:2 }}>+{mlPredictions.anomalies.length - 2} more</div>}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Quality Assessment */}
+                    {mlPredictions.quality_assessment && (
+                      <div style={{ fontSize:8, color:'rgba(255,255,255,0.4)', padding:'4px 8px', background:'rgba(255,255,255,0.03)', borderRadius:6 }}>
+                        <strong style={{ color:'rgba(255,255,255,0.6)' }}>Assessment:</strong> {mlPredictions.quality_assessment}
+                      </div>
+                    )}
+
+                    <div style={{ fontSize:7, color:'rgba(255,255,255,0.25)', marginTop:4, fontStyle:'italic' }}>
+                      {mlPredictions.ml_model}
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               {/* Latest readings */}

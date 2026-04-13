@@ -96,6 +96,11 @@ class ReportRequest(BaseModel):
     output_format: Optional[str] = "text"  # "text" or "json"
 
 
+class AnalyzeObservationsRequest(BaseModel):
+    """Real ML analysis for raw water quality observations (NO FAKE DATA)"""
+    observations: List[Dict[str, Any]]  # List of observation dicts with water quality parameters
+
+
 # ── Keep-alive: ping self every 10 min so Render free tier never sleeps ───────
 @asynccontextmanager
 async def lifespan(application):
@@ -424,6 +429,102 @@ async def ask(request: AskRequest):
     except Exception as e:
         print(f"Ask error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── REAL ML ANALYSIS FOR RAW OBSERVATIONS (NO FAKE DATA) ───────────────────
+@app.post("/analyze")
+async def analyze_observations(request: AnalyzeObservationsRequest):
+    """
+    Real ML analysis for raw water quality observations.
+    Runs IsolationForest anomaly detection, trend analysis, risk scoring, quality assessment.
+    
+    NO FAKE DATA — Uses real scikit-learn ML models on actual observations.
+    
+    Returns: anomalies, trends, risk_score, quality_assessment
+    """
+    try:
+        if not request.observations or len(request.observations) == 0:
+            return {
+                "success": False,
+                "message": "No observations provided",
+                "anomalies_detected": [],
+                "risk_score": 0,
+            }
+        
+        # Convert observations to DataFrame for ML processing
+        df = pd.DataFrame(request.observations)
+        
+        if len(df) == 0:
+            return {
+                "success": False,
+                "message": "Could not parse observations",
+                "anomalies_detected": [],
+                "risk_score": 0,
+            }
+        
+        print(f"[ML] Analyzing {len(df)} observations for real ML predictions")
+        
+        # Run REAL ML models — NO FAKE DATA
+        anomalies_result = detect_anomalies(df)
+        risk_result = compute_risk_score(df, {})
+        trends_result = detect_trends(df)
+        quality_result = assess_data_quality(df, {})
+        
+        # Extract anomalies for reporting
+        anomalies_detected = []
+        if anomalies_result.get('global_anomalies'):
+            anomalies_detected = [f"Row {idx} is an outlier" for idx in anomalies_result['global_anomalies'][:5]]
+        
+        # Per-column anomalies
+        for col, col_anomalies in anomalies_result.get('per_column', {}).items():
+            if col_anomalies.get('outlier_count', 0) > 0:
+                anomalies_detected.append(f"{col}: {col_anomalies['outlier_count']} outliers ({col_anomalies['outlier_pct']:.1f}%)")
+        
+        # Extract trends
+        trends_found = []
+        for col, trend_info in trends_result.get('per_column', {}).items():
+            if trend_info.get('trend_detected'):
+                direction = trend_info.get('trend_direction', 'unknown')
+                strength = trend_info.get('trend_strength', 0)
+                trends_found.append(f"{col}: {direction} trend (strength={strength:.2f})")
+        
+        risk_score = risk_result.get('score', 0)
+        
+        response = {
+            "success": True,
+            "observation_count": len(df),
+            "risk_score": float(risk_score),
+            "status": "critical" if risk_score > 0.7 else "warning" if risk_score > 0.4 else "active",
+            "anomalies_detected": anomalies_detected[:10],  # Top 10
+            "anomaly_count": len(anomalies_detected),
+            "anomaly_rate": float(anomalies_result.get('anomaly_rate', 0)),
+            "trends": trends_found[:5],  # Top 5 trends
+            "quality_metrics": quality_result,
+            "ml_models_used": [
+                "IsolationForest (scikit-learn) for anomaly detection",
+                "Linear trend analysis (scipy) for trend detection",
+                "WHO-standard based risk scoring",
+                "Data quality assessment (completeness, validity)"
+            ],
+            "timestamp": datetime.now().isoformat(),
+            "data_integrity": "REAL ML — No synthetic or fake data",
+        }
+        
+        print(f"[ML] Analysis complete: risk_score={risk_score}, anomalies={len(anomalies_detected)}, trends={len(trends_found)}")
+        
+        return response
+    
+    except Exception as e:
+        print(f"[ML] Observation analysis error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": f"Analysis error: {str(e)}",
+            "anomalies_detected": [],
+            "risk_score": 0,
+            "error": str(e)
+        }
 
 
 @app.post("/ml/anomaly/{file_id}")
