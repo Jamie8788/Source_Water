@@ -111,6 +111,8 @@ router.post('/csv', async (req, res) => {
           else if (char.includes('Secchi')) dateMap.get(dateKey).secchi_depth = value
         }
 
+        console.log(`[IMPORT] Site ${siteData.name}: ${dateMap.size} unique dates, ${observations.length} rows`)
+
         // Create observations for each date
         for (const [dateStr, data] of dateMap.entries()) {
           try {
@@ -137,6 +139,7 @@ router.post('/csv', async (req, res) => {
             )
             results.observations_created++
           } catch (err) {
+            console.log(`[IMPORT ERROR] Observation for ${siteData.name} on ${dateStr}: ${err.message}`)
             results.errors.push(`Error creating observation for ${siteData.name} on ${dateStr}: ${err.message}`)
           }
         }
