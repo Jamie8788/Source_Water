@@ -193,6 +193,24 @@ function Ocean() {
   )
 }
 
+/* ─── Safe map surface loader with error catch ─ */
+function MapSurfaceWrapper() {
+  try {
+    return <MapSurface/>
+  } catch (err) {
+    console.error('[MapSurface error]', err)
+    // Return fallback mesh instead of crashing
+    return (
+      <group>
+        <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.08,0]}>
+          <planeGeometry args={[29,29,2,2]}/>
+          <meshStandardMaterial color="#1e3a5a" roughness={0.78} metalness={0}/>
+        </mesh>
+      </group>
+    )
+  }
+}
+
 /* ─── Geographic map surface — loads worldmap.jpg via R3F useLoader ─ */
 function MapSurface() {
   const { gl } = useThree()
@@ -227,7 +245,7 @@ function MapSurface() {
   }, [tex, gl])
   return (
     <group>
-      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.08,0]} receiveShadow>
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.08,0]}>
         <planeGeometry args={[29,29,180,180]}/>
         <meshStandardMaterial map={tex} displacementMap={tex} displacementScale={0.11} displacementBias={-0.055} roughness={0.58} metalness={0.06} color="#ffffff" polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1}/>
       </mesh>
@@ -272,7 +290,7 @@ function MapPlatform() {
           <meshStandardMaterial color="#1e3a5a" roughness={0.78} metalness={0}/>
         </mesh>
       }>
-        <MapSurface/>
+        <MapSurfaceWrapper/>
       </Suspense>
     </group>
   )
