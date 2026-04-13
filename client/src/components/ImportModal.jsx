@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import Papa from 'papaparse'
-import api from '../../utils/api'
+import api from '../utils/api'
 
 export default function ImportModal({ onClose, onSuccess }) {
   const [file, setFile] = useState(null)
