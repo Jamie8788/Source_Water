@@ -60,10 +60,8 @@ router.post('/csv', async (req, res) => {
       try {
         // Create site
         const site = await db.run(
-          `INSERT INTO sites (name, latitude, longitude, body_of_water, organization, water_body_type)
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT DO NOTHING
-           RETURNING id`,
+          `INSERT OR IGNORE INTO sites (name, latitude, longitude, body_of_water, organization, water_body_type)
+           VALUES (?, ?, ?, ?, ?, ?)`,
           [siteData.name, siteData.latitude, siteData.longitude, siteData.body_of_water, siteData.organization, siteData.water_body_type]
         )
 
@@ -100,7 +98,8 @@ router.post('/csv', async (req, res) => {
           else if (char.includes('Dissolved oxygen') || char.includes('DO')) dateMap.get(dateKey).dissolved_oxygen = value
           else if (char.includes('Conductivity')) dateMap.get(dateKey).conductivity = value
           else if (char.includes('Alkalinity')) dateMap.get(dateKey).alkalinity = value
-          else if (char.includes('hardness')) dateMap.get(dateKey).hardness = value
+          else if (char.includes('hardness') || char.includes('Hardness')) dateMap.get(dateKey).hardness = value
+          else if (char.includes('Chlorine')) dateMap.get(dateKey).chlorine = value
           else if (char.includes('Turbidity')) dateMap.get(dateKey).turbidity = value
           else if (char.includes('Nitrate')) dateMap.get(dateKey).nitrate_nitrogen = value
           else if (char.includes('Chlorophyll')) dateMap.get(dateKey).chlorophyll_a = value
@@ -120,14 +119,14 @@ router.post('/csv', async (req, res) => {
             await db.run(
               `INSERT INTO observations (
                 site_id, observed_at,
-                ph, dissolved_oxygen, water_temp, air_temp,
+                ph, dissolved_oxygen, chlorine, water_temp, air_temp,
                 conductivity, alkalinity, hardness, turbidity,
                 nitrate_nitrogen, chlorophyll_a, phosphorus,
                 chloride, nitrites, tds, secchi_depth
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [
                 siteId, dateObj,
-                data.ph || null, data.dissolved_oxygen || null,
+                data.ph || null, data.dissolved_oxygen || null, data.chlorine || null,
                 data.water_temp || null, data.air_temp || null,
                 data.conductivity || null, data.alkalinity || null,
                 data.hardness || null, data.turbidity || null,
