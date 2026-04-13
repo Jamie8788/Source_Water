@@ -1,6 +1,6 @@
 import { Canvas, useFrame, useThree, useLoader } from '@react-three/fiber'
-import { Sky, Cloud, Html, Trail, Billboard, Environment, OrbitControls } from '@react-three/drei'
-import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
+import { Sky, Cloud, Html, Trail, Billboard, Environment } from '@react-three/drei'
+import { EffectComposer, Bloom, Vignette, DepthOfField, Noise } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useRef, useState, useEffect, useMemo, useCallback, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -178,12 +178,53 @@ function Ocean() {
 
 /* ─── Geographic map surface — loads worldmap.jpg via R3F useLoader ─ */
 function MapSurface() {
+  const { gl } = useThree()
   const tex = useLoader(THREE.TextureLoader, '/textures/worldmap.jpg')
+  const detailTex = useMemo(() => {
+    const c = document.createElement('canvas')
+    c.width = 512
+    c.height = 512
+    const ctx = c.getContext('2d')
+    if (ctx) {
+      const img = ctx.createImageData(c.width, c.height)
+      for (let i = 0; i < img.data.length; i += 4) {
+        const n = 120 + Math.floor(Math.random() * 70)
+        img.data[i] = n
+        img.data[i + 1] = n
+        img.data[i + 2] = n
+        img.data[i + 3] = 255
+      }
+      ctx.putImageData(img, 0, 0)
+    }
+    const t = new THREE.CanvasTexture(c)
+    t.wrapS = t.wrapT = THREE.RepeatWrapping
+    t.repeat.set(10, 10)
+    t.needsUpdate = true
+    return t
+  }, [])
+  useMemo(() => {
+    tex.colorSpace = THREE.SRGBColorSpace
+    tex.anisotropy = gl.capabilities.getMaxAnisotropy()
+    tex.generateMipmaps = true
+    tex.needsUpdate = true
+  }, [tex, gl])
   return (
-    <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.08,0]} receiveShadow>
-      <planeGeometry args={[29,29,2,2]}/>
-      <meshStandardMaterial map={tex} roughness={0.78} metalness={0} color="#ffffff" polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1}/>
-    </mesh>
+    <group>
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.08,0]} receiveShadow>
+        <planeGeometry args={[29,29,180,180]}/>
+        <meshStandardMaterial map={tex} displacementMap={tex} displacementScale={0.11} displacementBias={-0.055} roughness={0.58} metalness={0.06} color="#ffffff" polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1}/>
+      </mesh>
+      {/* grain and micro-contrast for satellite-style detail */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.105,0]}>
+        <planeGeometry args={[29,29,1,1]}/>
+        <meshBasicMaterial map={detailTex} color="#d7dde5" transparent opacity={0.065} blending={THREE.MultiplyBlending} depthWrite={false}/>
+      </mesh>
+      {/* subtle glossy varnish for a richer map-board look */}
+      <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.11,0]}>
+        <planeGeometry args={[29,29,1,1]}/>
+        <meshPhysicalMaterial color="#8ec5ff" transparent opacity={0.06} roughness={0.12} metalness={0.25} clearcoat={1} clearcoatRoughness={0.14} depthWrite={false}/>
+      </mesh>
+    </group>
   )
 }
 
@@ -226,14 +267,14 @@ function SunShafts() {
   useFrame(({clock})=>{
     if(!g.current) return
     const t=clock.getElapsedTime()
-    g.current.children.forEach((m,i)=>{ if(m.material) m.material.opacity=0.018+Math.sin(t*0.35+i*1.2)*0.007 })
+    g.current.children.forEach((m,i)=>{ if(m.material) m.material.opacity=0.03+Math.sin(t*0.35+i*1.2)*0.012 })
   })
   return (
     <group ref={g} position={[-40,18,-48]} rotation={[0.18,-0.55,-0.04]}>
       {[0,1,2,3,4].map(i=>(
         <mesh key={i} rotation={[0,(i/5)*Math.PI*0.35,0]}>
           <coneGeometry args={[8+i*3,55,4,1,true]}/>
-          <meshBasicMaterial color="#ff8030" transparent opacity={0.015} depthWrite={false} side={THREE.BackSide} blending={THREE.AdditiveBlending}/>
+          <meshBasicMaterial color="#ff9f45" transparent opacity={0.03} depthWrite={false} side={THREE.BackSide} blending={THREE.AdditiveBlending}/>
         </mesh>
       ))}
     </group>
@@ -244,13 +285,13 @@ function SunShafts() {
 function LensFlare() {
   const ref = useRef()
   useFrame(({clock})=>{
-    if(ref.current) ref.current.material.opacity = 0.55+Math.sin(clock.getElapsedTime()*0.7)*0.15
+    if(ref.current) ref.current.material.opacity = 0.68+Math.sin(clock.getElapsedTime()*0.7)*0.18
   })
   return (
     <Billboard position={[-38,10,-48]}>
       <mesh ref={ref}>
         <planeGeometry args={[4,4]}/>
-        <meshBasicMaterial color="#ff8030" transparent opacity={0.22} depthWrite={false} blending={THREE.AdditiveBlending}/>
+        <meshBasicMaterial color="#ffb36b" transparent opacity={0.3} depthWrite={false} blending={THREE.AdditiveBlending}/>
       </mesh>
     </Billboard>
   )
@@ -266,6 +307,56 @@ function CloudLayer() {
       <Cloud position={[ 22,14,  7]} opacity={0.56} speed={0.07} width={12} depth={2}   segments={24} color="white"/>
       <Cloud position={[  2,16,-22]} opacity={0.46} speed={0.05} width={15} depth={2.2} segments={30} color="#f8f8ff"/>
       <Cloud position={[-22,11,  4]} opacity={0.52} speed={0.09} width={10} depth={1.6} segments={20} color="#eef2ff"/>
+    </group>
+  )
+}
+
+/* ─── Atmospheric haze and tiny glints ─────────────────────────── */
+function AtmosphereField() {
+  const hazeRef = useRef()
+  const glitterRef = useRef()
+
+  const hazePos = useMemo(() => {
+    const arr = new Float32Array(600 * 3)
+    for (let i = 0; i < 600; i++) {
+      arr[i * 3] = (Math.random() - 0.5) * 62
+      arr[i * 3 + 1] = 1.1 + Math.random() * 6.5
+      arr[i * 3 + 2] = (Math.random() - 0.5) * 62
+    }
+    return arr
+  }, [])
+
+  const glitterPos = useMemo(() => {
+    const arr = new Float32Array(120 * 3)
+    for (let i = 0; i < 120; i++) {
+      arr[i * 3] = (Math.random() - 0.5) * 34
+      arr[i * 3 + 1] = 0.28 + Math.random() * 0.35
+      arr[i * 3 + 2] = (Math.random() - 0.5) * 34
+    }
+    return arr
+  }, [])
+
+  useFrame(({ clock }) => {
+    const t = clock.getElapsedTime()
+    if (hazeRef.current) hazeRef.current.material.opacity = 0.12 + Math.sin(t * 0.27) * 0.02
+    if (glitterRef.current) glitterRef.current.material.opacity = 0.28 + Math.sin(t * 1.3) * 0.12
+  })
+
+  return (
+    <group>
+      <points ref={hazeRef}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" count={600} array={hazePos} itemSize={3}/>
+        </bufferGeometry>
+        <pointsMaterial size={0.23} color="#d2e7ff" transparent opacity={0.12} depthWrite={false} blending={THREE.AdditiveBlending}/>
+      </points>
+
+      <points ref={glitterRef}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" count={120} array={glitterPos} itemSize={3}/>
+        </bufferGeometry>
+        <pointsMaterial size={0.09} color="#b7f3ff" transparent opacity={0.3} depthWrite={false} blending={THREE.AdditiveBlending}/>
+      </points>
     </group>
   )
 }
@@ -305,21 +396,47 @@ function GreatLake({ lake }) {
 }
 
 /* ─── Ancient map location pin ───────────────────────────────────── */
-function MapBeacon({ portal, idx, onNav }) {
+function MapBeacon({ portal, idx, onNav, active, docking, dockPulse }) {
   const [hov, setHov] = useState(false)
   const pinHead = useRef(), beam = useRef(), ring = useRef()
+  const dockRingA = useRef(), dockRingB = useRef()
+  const dockTRef = useRef(-10)
   const isHub   = idx === 0
   const pinH    = isHub ? 2.8 : 2.0
   const headR   = isHub ? 0.28 : 0.20
 
+  useEffect(() => {
+    if (docking) dockTRef.current = performance.now()
+  }, [dockPulse, docking])
+
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime()
+    const selected = hov || active || docking
+    const dockAge = dockTRef.current > 0 ? (performance.now() - dockTRef.current) / 1000 : 999
+    const dockWave = dockAge < 1.15 ? (1 - dockAge / 1.15) : 0
+
     // Pin head gentle float
     if(pinHead.current) pinHead.current.position.y = pinH + headR + Math.sin(t*1.4+idx*0.7)*0.12
     // Pulse beam
-    if(beam.current) beam.current.material.opacity = (hov?0.50:0.22)+Math.sin(t*2+idx)*0.08
+    if(beam.current) {
+      beam.current.material.opacity = (selected ? 0.58 : 0.22) + Math.sin(t*2+idx)*0.08 + dockWave * 0.2
+      beam.current.scale.y = 1 + dockWave * 0.6
+    }
     // Ripple ring on map surface
-    if(ring.current){ ring.current.scale.x = ring.current.scale.z = 1+Math.sin(t*1.2+idx*0.5)*0.08; ring.current.material.opacity = (hov?0.7:0.35)+Math.sin(t*1.2+idx*0.5)*0.1 }
+    if(ring.current){
+      ring.current.scale.x = ring.current.scale.z = 1 + Math.sin(t*1.2+idx*0.5)*0.08 + (selected ? 0.12 : 0)
+      ring.current.material.opacity = (selected ? 0.78 : 0.35) + Math.sin(t*1.2+idx*0.5)*0.1
+    }
+    if (dockRingA.current) {
+      const s = 1 + (1 - dockWave) * 2.8
+      dockRingA.current.scale.setScalar(s)
+      dockRingA.current.material.opacity = dockWave * 0.65
+    }
+    if (dockRingB.current) {
+      const s = 1 + (1 - dockWave) * 4.4
+      dockRingB.current.scale.setScalar(s)
+      dockRingB.current.material.opacity = Math.max(0, dockWave - 0.2) * 0.42
+    }
   })
 
   return (
@@ -332,6 +449,14 @@ function MapBeacon({ portal, idx, onNav }) {
       <mesh ref={ring} rotation={[-Math.PI/2,0,0]} position={[0,0.01,0]}>
         <ringGeometry args={[headR*1.1, headR*1.6, 32]}/>
         <meshBasicMaterial color={portal.glow} transparent opacity={0.35} depthWrite={false} blending={THREE.AdditiveBlending}/>
+      </mesh>
+      <mesh ref={dockRingA} rotation={[-Math.PI/2,0,0]} position={[0,0.012,0]}>
+        <ringGeometry args={[headR*1.4, headR*2.2, 40]}/>
+        <meshBasicMaterial color="#ffffff" transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending}/>
+      </mesh>
+      <mesh ref={dockRingB} rotation={[-Math.PI/2,0,0]} position={[0,0.013,0]}>
+        <ringGeometry args={[headR*1.8, headR*2.9, 40]}/>
+        <meshBasicMaterial color={portal.glow} transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending}/>
       </mesh>
       {/* Base dot on map */}
       <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.02,0]}>
@@ -353,9 +478,9 @@ function MapBeacon({ portal, idx, onNav }) {
         </mesh>
         <mesh>
           <sphereGeometry args={[headR,16,16]}/>
-          <meshStandardMaterial color={portal.color} emissive={portal.glow} emissiveIntensity={hov?3:1.6} metalness={0.4} roughness={0.1}/>
+          <meshStandardMaterial color={portal.color} emissive={portal.glow} emissiveIntensity={selected?3.4:1.6} metalness={0.4} roughness={0.1}/>
         </mesh>
-        <pointLight color={portal.glow} intensity={hov?4:1.5} distance={5} decay={2}/>
+        <pointLight color={portal.glow} intensity={selected?4.6:1.5} distance={5} decay={2}/>
 
         {/* Light beam upward */}
         <mesh ref={beam} position={[0,5,0]}>
@@ -486,30 +611,37 @@ function Seagull({ offset=0 }) {
 const SPRAY_COUNT = 80
 function ShipSpray({ shipRef }) {
   const pts  = useRef()
+  const matRef = useRef()
   const pos  = useMemo(() => new Float32Array(SPRAY_COUNT * 3), [])
   const vel  = useRef(Array.from({ length: SPRAY_COUNT }, (_, i) => ({
     x:0, y:0, z:0, life: Math.random(), maxLife: 0.5 + Math.random() * 0.8
   })))
 
   useFrame(() => {
-    if (!shipRef.current || !pts.current) return
+    if (!shipRef.current || !pts.current || !matRef.current) return
     const s   = shipRef.current
     const spd = Math.abs(s.speed ?? 0)
-    if (spd < 0.01) return
     const rad = (s.angle - 90) * Math.PI / 180
-    const bx  = s.x - Math.cos(rad) * 0.8   // bow position
+    const bx  = s.x - Math.cos(rad) * 0.8
     const bz  = s.z - Math.sin(rad) * 0.8
+    const sx  = s.x + Math.cos(rad) * 1.65
+    const sz  = s.z + Math.sin(rad) * 1.65
+
+    matRef.current.opacity = THREE.MathUtils.lerp(matRef.current.opacity, 0.15 + spd * 1.1, 0.08)
+    matRef.current.size = THREE.MathUtils.lerp(matRef.current.size, 0.03 + spd * 0.08, 0.08)
 
     vel.current.forEach((v, i) => {
       v.life -= 0.025 * spd * 6
       if (v.life <= 0) {
-        // Reset at bow
-        pos[i*3]   = bx + (Math.random()-0.5)*0.5
+        const sternSpawn = Math.random() < 0.45
+        const baseX = sternSpawn ? sx : bx
+        const baseZ = sternSpawn ? sz : bz
+        pos[i*3]   = baseX + (Math.random()-0.5)*(sternSpawn?1.2:0.5)
         pos[i*3+1] = 0.7 + Math.random()*0.4
-        pos[i*3+2] = bz + (Math.random()-0.5)*0.5
-        v.x = (Math.random()-0.5)*0.06 - Math.cos(rad)*0.04*spd
+        pos[i*3+2] = baseZ + (Math.random()-0.5)*(sternSpawn?0.9:0.5)
+        v.x = (Math.random()-0.5)*(sternSpawn?0.08:0.06) - Math.cos(rad)*0.05*spd
         v.y = 0.04 + Math.random()*0.08
-        v.z = (Math.random()-0.5)*0.06 - Math.sin(rad)*0.04*spd
+        v.z = (Math.random()-0.5)*(sternSpawn?0.08:0.06) - Math.sin(rad)*0.05*spd
         v.life = v.maxLife
       }
       pos[i*3]   += v.x
@@ -524,7 +656,7 @@ function ShipSpray({ shipRef }) {
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" count={SPRAY_COUNT} array={pos} itemSize={3}/>
       </bufferGeometry>
-      <pointsMaterial color="#c8eeff" size={0.055} transparent opacity={0.55}
+      <pointsMaterial ref={matRef} color="#d7f3ff" size={0.055} transparent opacity={0.22}
         depthWrite={false} blending={THREE.AdditiveBlending}/>
     </points>
   )
@@ -534,6 +666,8 @@ function ShipSpray({ shipRef }) {
 function Ship({ shipRef }) {
   const gRef       = useRef()
   const trailTarget = useRef()
+  const trailL = useRef()
+  const trailR = useRef()
   const sail1Ref   = useRef()
   const sail2Ref   = useRef()
   const sail3Ref   = useRef()
@@ -556,12 +690,21 @@ function Ship({ shipRef }) {
     if (sail3Ref.current) sail3Ref.current.rotation.y = billow * 0.6 + 0.03
     // Flag whip
     if (flagRef.current) { flagRef.current.rotation.z = Math.sin(t * 4.2) * 0.18 + 0.25 }
+    if (trailTarget.current) trailTarget.current.position.set(0, -0.08, -1.95)
+    if (trailL.current) trailL.current.position.set(0.28, -0.1, -1.7)
+    if (trailR.current) trailR.current.position.set(-0.28, -0.1, -1.7)
   })
 
   return (
     <group ref={gRef}>
-      <Trail width={2.2} length={18} color={new THREE.Color('#70d8f8')} attenuation={t => t * t}>
+      <Trail width={2.4} length={24} color={new THREE.Color('#70d8f8')} attenuation={t => t * t}>
         <object3D ref={trailTarget} />
+      </Trail>
+      <Trail width={1.1} length={20} color={new THREE.Color('#b9edff')} attenuation={t => t * t}>
+        <object3D ref={trailL} />
+      </Trail>
+      <Trail width={1.1} length={20} color={new THREE.Color('#b9edff')} attenuation={t => t * t}>
+        <object3D ref={trailR} />
       </Trail>
 
       {/* ── Hull ── */}
@@ -724,32 +867,40 @@ function Ship({ shipRef }) {
   )
 }
 
-/* ─── Camera: OrbitControls + soft ship follow ───────────────────── */
+/* ─── Camera: cinematic chase with lag and banking ──────────────── */
 function CameraRig({ shipRef }) {
-  const orbitRef = useRef()
-  const targetV  = useRef(new THREE.Vector3(0, 0.5, 0))
+  const { camera } = useThree()
+  const camTarget = useRef(new THREE.Vector3(0, 1, 0))
+  const desiredPos = useRef(new THREE.Vector3(0, 6, 10))
+  const bankRef = useRef(0)
 
-  useFrame(() => {
-    if (!orbitRef.current || !shipRef.current) return
+  useFrame(({ clock }) => {
+    if (!shipRef.current) return
     const s = shipRef.current
-    targetV.current.lerp(new THREE.Vector3(s.x, 0.5, s.z), 0.04)
-    orbitRef.current.target.copy(targetV.current)
-    orbitRef.current.update()
-  })
+    const speed = Math.abs(s.speed || 0)
+    const yaw = (s.angle - 90) * Math.PI / 180
+    const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw))
+    const side = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw))
 
-  return (
-    <OrbitControls
-      ref={orbitRef}
-      makeDefault
-      target={[0, 0.5, 0]}
-      minDistance={4}
-      maxDistance={32}
-      maxPolarAngle={Math.PI / 2.05}
-      enablePan={false}
-      rotateSpeed={0.55}
-      zoomSpeed={0.9}
-    />
-  )
+    desiredPos.current
+      .set(s.x, 1.2, s.z)
+      .addScaledVector(forward, -6.6 - speed * 8.5)
+      .addScaledVector(side, Math.sin(clock.getElapsedTime() * 0.55) * 0.35)
+      .add(new THREE.Vector3(0, 3.1 + speed * 2.4, 0))
+
+    camTarget.current
+      .set(s.x, 0.65, s.z)
+      .addScaledVector(forward, 2.4 + speed * 3.1)
+
+    camera.position.lerp(desiredPos.current, 0.06)
+    camera.lookAt(camTarget.current)
+
+    const turn = THREE.MathUtils.clamp((s.turnRate || 0) / 4.2, -1, 1)
+    const targetBank = -turn * 0.14 + Math.sin(clock.getElapsedTime() * 0.8) * 0.01
+    bankRef.current = THREE.MathUtils.lerp(bankRef.current, targetBank, 0.08)
+    camera.rotation.z = bankRef.current
+  })
+  return null
 }
 
 /* ─── Connection lines ──────────────────────────────────────────── */
@@ -774,7 +925,7 @@ function ConnectionLines() {
 }
 
 /* ─── Scene ─────────────────────────────────────────────────────── */
-function Scene({ shipRef, navigate }) {
+function Scene({ shipRef, navigate, activeTargetLabel, dockedLabel, dockPulse }) {
   return (
     <>
       <color attach="background" args={['#0a0a14']}/>
@@ -787,28 +938,29 @@ function Scene({ shipRef, navigate }) {
       <Environment preset="sunset" background={false}/>
 
       {/* Warm overhead light — illuminates parchment map */}
-      <directionalLight position={[-30, 30, -20]} intensity={2.5} color="#ffd090" castShadow
+      <directionalLight position={[-30, 30, -20]} intensity={3.1} color="#ffd090" castShadow
         shadow-mapSize={[2048,2048]} shadow-camera-far={60}
         shadow-camera-left={-20} shadow-camera-right={20}
         shadow-camera-top={20} shadow-camera-bottom={-20}/>
       {/* Blue fill from opposite side */}
-      <directionalLight position={[30, 20, 20]} intensity={0.8} color="#6090cc"/>
-      <ambientLight intensity={0.55} color="#d4a850"/>
+      <directionalLight position={[30, 20, 20]} intensity={1.05} color="#7db3ff"/>
+      <ambientLight intensity={0.68} color="#d4a850"/>
       <hemisphereLight skyColor="#5a3a12" groundColor="#1a0e04" intensity={0.6}/>
       {/* Extra map fill light — ensures parchment texture is clearly visible */}
-      <pointLight position={[0, 22, 4]} intensity={3.5} color="#ffe4a0" distance={45}/>
+      <pointLight position={[0, 22, 4]} intensity={4.3} color="#ffe4a0" distance={45}/>
       <LensFlare/>
 
       <fog attach="fog" args={['#0a0a14', 40, 100]}/>
 
       <MapPlatform/>
       <Ocean/>
+      <AtmosphereField/>
       <CloudLayer/>
       <SunShafts/>
 
       {LAKES.map(l=><GreatLake key={l.name} lake={l}/>)}
       <ConnectionLines/>
-      {PORTALS.map((p,i)=><MapBeacon key={p.path} portal={p} idx={i} onNav={navigate}/>)}
+      {PORTALS.map((p,i)=><MapBeacon key={p.path} portal={p} idx={i} onNav={navigate} active={activeTargetLabel===p.label} docking={dockedLabel===p.label} dockPulse={dockPulse}/>) }
 
       {/* Wildlife */}
       <Dolphin offset={0}    radius={9}  speed={0.30} side={ 1}/>
@@ -824,8 +976,10 @@ function Scene({ shipRef, navigate }) {
       <CameraRig shipRef={shipRef}/>
 
       <EffectComposer>
-        <Bloom luminanceThreshold={0.28} luminanceSmoothing={0.80} intensity={0.65}/>
-        <Vignette eskil={false} offset={0.18} darkness={0.65}/>
+        <DepthOfField focusDistance={0.016} focalLength={0.024} bokehScale={1.35} height={480} />
+        <Bloom luminanceThreshold={0.18} luminanceSmoothing={0.66} intensity={0.95}/>
+        <Vignette eskil={false} offset={0.14} darkness={0.72}/>
+        <Noise opacity={0.03} premultiply />
       </EffectComposer>
     </>
   )
@@ -833,11 +987,11 @@ function Scene({ shipRef, navigate }) {
 
 /* ─── Ship controls ─────────────────────────────────────────────── */
 function useShipControls() {
-  const shipRef       = useRef({ x:0.4, z:-1.2, angle:-20, speed:0 })
+  const shipRef       = useRef({ x:0.4, z:-1.2, angle:-20, speed:0, turnRate:0 })
   const keys          = useRef({})
-  const stateRef      = useRef({ x:0.4, z:-1.2, angle:-20, speed:0 })
+  const stateRef      = useRef({ x:0.4, z:-1.2, angle:-20, speed:0, turnRate:0 })
   const autoTargetRef = useRef(null)
-  const [render, setRender]       = useState({ x:0.4, z:-1.2, angle:-20, speed:0 })
+  const [render, setRender]       = useState({ x:0.4, z:-1.2, angle:-20, speed:0, turnRate:0 })
   const [sailTarget, setSailTarget] = useState(null) // { label } for HUD
 
   const setAutoTarget = useCallback((target) => {
@@ -863,6 +1017,7 @@ function useShipControls() {
 
   useEffect(()=>{
     let raf
+    let prevAngle = stateRef.current.angle
     const loop=()=>{
       const k=keys.current, s=stateRef.current
       const auto = autoTargetRef.current
@@ -872,23 +1027,27 @@ function useShipControls() {
         const dx = auto.x - s.x
         const dz = auto.z - s.z
         const dist = Math.sqrt(dx*dx + dz*dz)
-        if (dist < 2.5) {
-          // Arrived — trigger navigation
-          autoTargetRef.current = null
-          setSailTarget(null)
-          auto.onArrive()
+        if (dist < 0.6) {
+          // slow to a stop very close to beacon before transitioning
+          if (Math.abs(s.speed) > 0.03) {
+            s.speed *= 0.82
+          } else {
+            autoTargetRef.current = null
+            setSailTarget(null)
+            auto.onArrive()
+          }
         } else {
           // Target heading: angle convention = atan2(dz,dx)*180/PI + 90
           const targetAngleDeg = Math.atan2(dz, dx) * 180 / Math.PI + 90
           // Shortest angular difference (-180..+180)
           const diff = ((targetAngleDeg - s.angle) % 360 + 540) % 360 - 180
-          // Steer toward target (max 3.5° per frame)
-          s.angle += Math.sign(diff) * Math.min(Math.abs(diff), 3.5)
+          // Steer toward target smoothly (max 2.2° per frame)
+          s.angle += Math.sign(diff) * Math.min(Math.abs(diff), 2.2)
           // Only accelerate when roughly facing target (<50°); crawl otherwise
           const absDiff = Math.abs(diff)
-          const alignFactor = Math.max(0, 1 - absDiff / 50)
-          const slowFactor  = Math.min(dist / 5, 1)  // slow near target
-          const wantSpeed   = 0.22 * alignFactor * slowFactor
+          const alignFactor = Math.max(0, 1 - absDiff / 55)
+          const slowFactor  = Math.min(dist / 3.2, 1)
+          const wantSpeed   = 0.28 * alignFactor * slowFactor
           s.speed += (wantSpeed - s.speed) * 0.08    // smooth lerp to target speed
         }
       } else {
@@ -906,6 +1065,9 @@ function useShipControls() {
       const rad = s.angle * Math.PI / 180
       s.x = Math.max(-18, Math.min(18, s.x + Math.cos(rad) * s.speed))
       s.z = Math.max(-18, Math.min(18, s.z - Math.sin(rad) * s.speed))
+      const dA = ((s.angle - prevAngle + 540) % 360) - 180
+      s.turnRate = dA
+      prevAngle = s.angle
       shipRef.current={...s}; setRender({...s})
       raf=requestAnimationFrame(loop)
     }
@@ -923,6 +1085,7 @@ export default function QuickActions() {
   const speed   = Math.abs(shipRender.speed)
   const heading = ((shipRender.angle%360)+360)%360
   const [flash, setFlash]       = useState(0)
+  const [dockFx, setDockFx]     = useState({ label:null, pulse:0 })
   const [directMode, setDirectMode] = useState(false)
   const [menuOpen, setMenuOpen]     = useState(false)
   const flashRef = useRef(null)
@@ -942,11 +1105,15 @@ export default function QuickActions() {
   // Click a beacon → direct (instant) or auto-sail depending on mode
   const handleNav = useCallback((path, beaconPos, label) => {
     if (directMode) { doFlashNav(path); return }
+    setDockFx({ label:null, pulse:0 })
     setAutoTarget({
       x: beaconPos[0],
       z: beaconPos[2],
       label,
-      onArrive: () => doFlashNav(path),
+      onArrive: () => {
+        setDockFx({ label, pulse: Date.now() })
+        setTimeout(() => doFlashNav(path), 420)
+      },
     })
   }, [setAutoTarget, doFlashNav, directMode])
 
@@ -961,10 +1128,10 @@ export default function QuickActions() {
 
       <Canvas dpr={[1,1.8]}
         camera={{ position:[0,5,9], fov:62, near:0.1, far:300 }}
-        gl={{ antialias:true, alpha:false, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:0.80 }}
+        gl={{ antialias:true, alpha:false, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:1.04 }}
         shadows style={{ position:'absolute', inset:0 }}>
         <Suspense fallback={null}>
-          <Scene shipRef={shipRef} navigate={handleNav}/>
+          <Scene shipRef={shipRef} navigate={handleNav} activeTargetLabel={sailTarget?.label || null} dockedLabel={dockFx.label} dockPulse={dockFx.pulse}/>
         </Suspense>
       </Canvas>
 
