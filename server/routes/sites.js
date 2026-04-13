@@ -7,15 +7,12 @@ const upload = require('../middleware/upload')
 router.get('/', requireAuth, async (req, res) => {
   const { community } = req.query
   const sites = community && community !== 'All'
-    ? await db.all('SELECT * FROM sites WHERE community=? ORDER BY name', [community])
-    : await db.all('SELECT * FROM sites ORDER BY name', [])
+    ? await db.all('SELECT id, name, latitude, longitude, body_of_water, organization, dataset_name, description, access_risk, created_at FROM sites WHERE community=? ORDER BY name', [community])
+    : await db.all('SELECT id, name, latitude, longitude, body_of_water, organization, dataset_name, description, access_risk, created_at FROM sites ORDER BY name', [])
 
   const enriched = await Promise.all(sites.map(async s => {
-    const [lastObs, obsRow] = await Promise.all([
-      db.get('SELECT * FROM observations WHERE site_id=? ORDER BY observed_at DESC LIMIT 1', [s.id]),
-      db.get('SELECT COUNT(*) as c FROM observations WHERE site_id=?', [s.id]),
-    ])
-    return { ...s, parameters_tested: s.parameters_tested ? JSON.parse(s.parameters_tested) : [], last_observation: lastObs, observation_count: parseInt(obsRow?.c ?? 0) }
+    const obsRow = await db.get('SELECT COUNT(*) as c FROM observations WHERE site_id=?', [s.id])
+    return { ...s, parameters_tested: [], observation_count: parseInt(obsRow?.c ?? 0) }
   }))
   res.json(enriched)
 })
@@ -58,18 +55,34 @@ router.delete('/:id', requireAuth, async (req, res) => {
   res.json({ success: true })
 })
 
-// GET /api/sites/geojson/export - Export all sites as GeoJSON
+// GET /api/sites/geojson/export - Export all sites as GeoJSON with latest measurements
 router.get('/geojson/export', requireAuth, async (req, res) => {
-  const sites = await db.all('SELECT id, name, latitude, longitude, status, body_of_water, organization FROM sites ORDER BY name', [])
-  const features = sites.map(s => ({
-    type: 'Feature',
-    geometry: { type: 'Point', coordinates: [s.longitude, s.latitude] },
-    properties: {
-      id: s.id,
-      name: s.name,
-      status: s.status || 'active',
-      type: s.body_of_water,
-      organization: s.organization
+  const sites = await db.all('SELECT id, name, latitude, longitude, body_of_water, organization, dataset_name FROM sites ORDER BY name', [])
+  const features = await Promise.all(sites.map(async s => {
+    const lastObs = await db.get(`
+      SELECT ph, dissolved_oxygen, chlorine, hardness, alkalinity, observed_at 
+      FROM observations WHERE site_id=? ORDER BY observed_at DESC LIMIT 1
+    `, [s.id])
+    const obsCount = await db.get('SELECT COUNT(*) as c FROM observations WHERE site_id=?', [s.id])
+    return {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [s.longitude, s.latitude] },
+      properties: {
+        id: s.id,
+        name: s.name,
+        organization: s.organization,
+        body_of_water: s.body_of_water,
+        dataset_name: s.dataset_name,
+        observation_count: parseInt(obsCount?.c ?? 0),
+        last_measurement: lastObs ? {
+          date: lastObs.observed_at,
+          ph: lastObs.ph,
+          dissolved_oxygen: lastObs.dissolved_oxygen,
+          chlorine: lastObs.chlorine,
+          hardness: lastObs.hardness,
+          alkalinity: lastObs.alkalinity
+        } : null
+      }
     }
   }))
   res.json({ type: 'FeatureCollection', features })

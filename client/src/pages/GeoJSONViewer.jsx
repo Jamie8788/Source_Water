@@ -109,12 +109,50 @@ export default function GeoJSONViewer({ onClose }) {
                 marginBottom: '16px'
               }}>
                 <p><strong>Total Sites:</strong> {geojson.features?.length}</p>
-                {geojson.features && geojson.features.slice(0, 5).map((f, i) => (
-                  <div key={i} style={{ marginTop: '8px', paddingLeft: '16px' }}>
-                    {f.properties.name}: [{f.geometry.coordinates[1].toFixed(4)}, {f.geometry.coordinates[0].toFixed(4)}]
-                  </div>
-                ))}
-                {geojson.features?.length > 5 && <div style={{ marginTop: '8px', color: '#666' }}>... and {geojson.features.length - 5} more</div>}
+                <div style={{ marginTop: '16px', display: 'grid', gap: '12px' }}>
+                  {geojson.features && geojson.features.slice(0, 10).map((f, i) => (
+                    <div key={i} style={{
+                      background: '#1a1a2e',
+                      padding: '10px',
+                      borderRadius: '4px',
+                      borderLeft: '3px solid #6366f1'
+                    }}>
+                      <div style={{ fontWeight: 'bold', color: '#6ef', marginBottom: '6px' }}>
+                        📍 {f.properties.name}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#999', marginBottom: '6px' }}>
+                        Coords: {f.geometry.coordinates[1].toFixed(4)}, {f.geometry.coordinates[0].toFixed(4)}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#999', marginBottom: '6px' }}>
+                        Organization: {f.properties.organization || 'N/A'}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#999', marginBottom: '6px' }}>
+                        Observations: {f.properties.observation_count}
+                      </div>
+                      {f.properties.last_measurement && (
+                        <div style={{
+                          marginTop: '8px',
+                          paddingTop: '8px',
+                          borderTop: '1px solid #333',
+                          fontSize: '11px'
+                        }}>
+                          <div style={{ color: '#6ef', fontWeight: 'bold', marginBottom: '4px' }}>Last Measurements:</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
+                            {f.properties.last_measurement.ph !== null && <div>pH: <span style={{ color: '#6ef' }}>{f.properties.last_measurement.ph}</span></div>}
+                            {f.properties.last_measurement.dissolved_oxygen !== null && <div>DO: <span style={{ color: '#6ef' }}>{f.properties.last_measurement.dissolved_oxygen}</span> mg/L</div>}
+                            {f.properties.last_measurement.chlorine !== null && <div>Chlorine: <span style={{ color: '#6ef' }}>{f.properties.last_measurement.chlorine}</span> ppm</div>}
+                            {f.properties.last_measurement.hardness !== null && <div>Hardness: <span style={{ color: '#6ef' }}>{f.properties.last_measurement.hardness}</span></div>}
+                            {f.properties.last_measurement.alkalinity !== null && <div>Alkalinity: <span style={{ color: '#6ef' }}>{f.properties.last_measurement.alkalinity}</span> mg/L</div>}
+                          </div>
+                          <div style={{ color: '#666', fontSize: '10px', marginTop: '4px' }}>
+                            Measured: {new Date(f.properties.last_measurement.date).toLocaleDateString()}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {geojson.features?.length > 10 && <div style={{ marginTop: '12px', color: '#666' }}>... and {geojson.features.length - 10} more</div>}
               </div>
             </>
           ) : (
