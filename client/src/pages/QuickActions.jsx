@@ -247,17 +247,17 @@ function MapSurface() {
     <group>
       <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.08,0]}>
         <planeGeometry args={[29,29,180,180]}/>
-        <meshStandardMaterial map={tex} displacementMap={tex} displacementScale={0.11} displacementBias={-0.055} roughness={0.58} metalness={0.06} color="#ffffff" polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1}/>
+        <meshStandardMaterial map={tex} displacementMap={tex} displacementScale={0.16} displacementBias={-0.08} roughness={0.68} metalness={0.03} color="#fafaf5" polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1}/>
       </mesh>
       {/* grain and micro-contrast for satellite-style detail */}
       <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.105,0]}>
         <planeGeometry args={[29,29,1,1]}/>
-        <meshBasicMaterial map={detailTex} color="#d7dde5" transparent opacity={0.065} blending={THREE.MultiplyBlending} depthWrite={false}/>
+        <meshBasicMaterial map={detailTex} color="#cfc8b8" transparent opacity={0.14} blending={THREE.MultiplyBlending} depthWrite={false}/>
       </mesh>
       {/* subtle glossy varnish for a richer map-board look */}
       <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.11,0]}>
         <planeGeometry args={[29,29,1,1]}/>
-        <meshPhysicalMaterial color="#8ec5ff" transparent opacity={0.06} roughness={0.12} metalness={0.25} clearcoat={1} clearcoatRoughness={0.14} depthWrite={false}/>
+        <meshPhysicalMaterial color="#90d8f5" transparent opacity={0.09} roughness={0.08} metalness={0.35} clearcoat={1.0} clearcoatRoughness={0.1} depthWrite={false}/>
       </mesh>
     </group>
   )
@@ -918,16 +918,16 @@ function CameraRig({ shipRef }) {
     const side = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw))
 
     desiredPos.current
-      .set(s.x, 1.2, s.z)
-      .addScaledVector(forward, -6.6 - speed * 8.5)
-      .addScaledVector(side, Math.sin(clock.getElapsedTime() * 0.55) * 0.35)
-      .add(new THREE.Vector3(0, 3.1 + speed * 2.4, 0))
+      .set(s.x, 1.5, s.z)
+      .addScaledVector(forward, -5.2 - speed * 5.5)
+      .addScaledVector(side, Math.sin(clock.getElapsedTime() * 0.55) * 0.2)
+      .add(new THREE.Vector3(0, 3.5 + speed * 1.8, 0))
 
     camTarget.current
-      .set(s.x, 0.65, s.z)
-      .addScaledVector(forward, 2.4 + speed * 3.1)
+      .set(s.x, 0.5, s.z)
+      .addScaledVector(forward, 1.2 + speed * 1.5)
 
-    camera.position.lerp(desiredPos.current, 0.06)
+    camera.position.lerp(desiredPos.current, 0.12)
     camera.lookAt(camTarget.current)
 
     const turn = THREE.MathUtils.clamp((s.turnRate || 0) / 4.2, -1, 1)
@@ -973,16 +973,16 @@ function Scene({ shipRef, navigate, activeTargetLabel, dockedLabel, dockPulse })
       <Environment preset="sunset" background={false}/>
 
       {/* Warm overhead light — illuminates parchment map */}
-      <directionalLight position={[-30, 30, -20]} intensity={3.1} color="#ffd090" castShadow
+      <directionalLight position={[-25, 40, -30]} intensity={3.2} color="#ffcd80" castShadow
         shadow-mapSize={[2048,2048]} shadow-camera-far={60}
         shadow-camera-left={-20} shadow-camera-right={20}
         shadow-camera-top={20} shadow-camera-bottom={-20}/>
       {/* Blue fill from opposite side */}
-      <directionalLight position={[30, 20, 20]} intensity={1.05} color="#7db3ff"/>
-      <ambientLight intensity={0.68} color="#d4a850"/>
-      <hemisphereLight skyColor="#5a3a12" groundColor="#1a0e04" intensity={0.6}/>
+      <directionalLight position={[35, 22, 25]} intensity={1.4} color="#8ac6ff"/>
+      <ambientLight intensity={0.82} color="#dab860"/>
+      <hemisphereLight skyColor="#5a3a12" groundColor="#1a0e04" intensity={0.7}/>
       {/* Extra map fill light — ensures parchment texture is clearly visible */}
-      <pointLight position={[0, 22, 4]} intensity={4.3} color="#ffe4a0" distance={45}/>
+      <pointLight position={[0, 24, 4]} intensity={5.2} color="#fff4d6" distance={50}/>
       <LensFlare/>
 
       <fog attach="fog" args={['#0a0a14', 40, 100]}/>
