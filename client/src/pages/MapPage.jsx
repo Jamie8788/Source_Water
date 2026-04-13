@@ -1,5 +1,6 @@
 import PageAmbience from '../components/layout/PageAmbience'
 import ImportModal from '../components/ImportModal'
+import GeoJSONViewer from './GeoJSONViewer'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -12,7 +13,7 @@ import {
   CheckCircle, Activity, Filter, ChevronDown, ChevronUp,
   Crosshair, Ruler, Route, ZoomIn, ZoomOut, RefreshCw,
   Cloud, Sun, Info, BarChart2, TrendingUp, MapPin, Flame,
-  Shield, FlaskConical, Users, Award,
+  Shield, FlaskConical, Users, Award, Database,
 } from 'lucide-react'
 
 const MAP_STYLES = {
@@ -265,6 +266,7 @@ export default function MapPage() {
   const [datasetSummary, setDatasetSummary] = useState(null)
   const [alerts, setAlerts] = useState([])
   const [showImportModal, setShowImportModal] = useState(false)
+  const [showGeoJSON, setShowGeoJSON] = useState(false)
 
   // Function to fetch sites (can be called after import)
   const fetchSites = useCallback(() => {
@@ -835,6 +837,12 @@ export default function MapPage() {
           <MapPin style={{ width:13, height:13 }}/> {createSiteMode ? 'Click map…' : 'Add Site'}
         </button>
 
+        {/* GeoJSON Viewer */}
+        <button onClick={() => setShowGeoJSON(true)}
+          style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 13px', ...panelBase, color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(99,102,241,0.18)', borderRadius:10, cursor:'pointer', fontSize:12, fontWeight:700 }}>
+          <Database style={{ width:13, height:13 }}/> GeoJSON
+        </button>
+
         {/* Log Obs */}
         <button onClick={() => setShowForm(true)}
           style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 16px', background:'linear-gradient(135deg,#6366f1,#14b8a6)', color:'white', border:'none', borderRadius:10, cursor:'pointer', fontSize:12, fontWeight:800, marginLeft:'auto', boxShadow:'0 0 20px rgba(99,102,241,0.4)', letterSpacing:'0.02em' }}>
@@ -1400,6 +1408,11 @@ export default function MapPage() {
           onClose={() => setShowImportModal(false)}
           onSuccess={fetchSites}
         />
+      )}
+
+      {/* ── GEOJSON VIEWER ── */}
+      {showGeoJSON && (
+        <GeoJSONViewer onClose={() => setShowGeoJSON(false)} />
       )}
     </div>
   )
