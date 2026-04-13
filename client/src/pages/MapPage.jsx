@@ -273,7 +273,6 @@ export default function MapPage() {
       setSites(s)
     }).catch(() => {})
   }, [])
-  const [showImportModal, setShowImportModal] = useState(false)
 
   // Init map
   useEffect(() => {
