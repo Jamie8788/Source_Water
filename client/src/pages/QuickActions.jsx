@@ -1,8 +1,25 @@
 import { Canvas, useFrame, useThree, useLoader } from '@react-three/fiber'
 import { Sky, Cloud, Html, Trail, Billboard, Environment } from '@react-three/drei'
-import { EffectComposer, Bloom, Vignette, DepthOfField, Noise } from '@react-three/postprocessing'
 import * as THREE from 'three'
-import { useRef, useState, useEffect, useMemo, useCallback, Suspense } from 'react'
+import { Component, useRef, useState, useEffect, useMemo, useCallback, Suspense } from 'react'
+
+class CanvasErrorBoundary extends Component {
+  constructor(p) { super(p); this.state = { err: null } }
+  static getDerivedStateFromError(err) { return { err } }
+  componentDidCatch(err, info) { console.error('[QuickActions Canvas crashed]', err, info) }
+  render() {
+    if (this.state.err) {
+      return (
+        <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:12, padding:24, background:'#0a0a14', color:'#e2e8f0', fontFamily:'system-ui', textAlign:'center' }}>
+          <div style={{ fontSize:18, fontWeight:700 }}>3D map failed to load</div>
+          <div style={{ fontSize:12, opacity:0.7, maxWidth:480 }}>{String(this.state.err?.message || this.state.err)}</div>
+          <button onClick={()=>this.setState({ err:null })} style={{ marginTop:8, padding:'8px 16px', background:'#1e40af', color:'#fff', border:0, borderRadius:8, cursor:'pointer', fontWeight:600 }}>Retry</button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 import { useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Sparkles as SparklesIcon, Map, BellRing, FileBarChart2,
@@ -974,13 +991,6 @@ function Scene({ shipRef, navigate, activeTargetLabel, dockedLabel, dockPulse })
       <Ship shipRef={shipRef}/>
       <ShipSpray shipRef={shipRef}/>
       <CameraRig shipRef={shipRef}/>
-
-      <EffectComposer>
-        <DepthOfField focusDistance={0.016} focalLength={0.024} bokehScale={1.35} />
-        <Bloom luminanceThreshold={0.18} luminanceSmoothing={0.66} intensity={0.95}/>
-        <Vignette eskil={false} offset={0.14} darkness={0.72}/>
-        <Noise opacity={0.03} premultiply />
-      </EffectComposer>
     </>
   )
 }
@@ -1126,14 +1136,16 @@ export default function QuickActions() {
           background:`rgba(255,240,180,${flash})`, borderRadius:16 }}/>
       )}
 
-      <Canvas dpr={[1,1.8]}
-        camera={{ position:[0,5,9], fov:62, near:0.1, far:300 }}
-        gl={{ antialias:true, alpha:false, toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:1.04 }}
-        shadows style={{ position:'absolute', inset:0 }}>
-        <Suspense fallback={null}>
-          <Scene shipRef={shipRef} navigate={handleNav} activeTargetLabel={sailTarget?.label || null} dockedLabel={dockFx.label} dockPulse={dockFx.pulse}/>
-        </Suspense>
-      </Canvas>
+      <CanvasErrorBoundary>
+        <Canvas dpr={[1,1.25]}
+          camera={{ position:[0,5,9], fov:62, near:0.1, far:300 }}
+          gl={{ antialias:false, alpha:false, powerPreference:'high-performance', toneMapping:THREE.ACESFilmicToneMapping, toneMappingExposure:1.04 }}
+          style={{ position:'absolute', inset:0 }}>
+          <Suspense fallback={null}>
+            <Scene shipRef={shipRef} navigate={handleNav} activeTargetLabel={sailTarget?.label || null} dockedLabel={dockFx.label} dockPulse={dockFx.pulse}/>
+          </Suspense>
+        </Canvas>
+      </CanvasErrorBoundary>
 
       {/* Title */}
       <div style={{ position:'absolute', top:16, left:'50%', transform:'translateX(-50%)', textAlign:'center', pointerEvents:'none', zIndex:10 }}>
