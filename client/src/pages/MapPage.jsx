@@ -241,7 +241,7 @@ export default function MapPage() {
   const [mapLoaded, setMapLoaded] = useState(false)
   const [showLayers, setShowLayers] = useState(false)
   const [statusFilter, setStatusFilter] = useState('all')
-  const [layers, setLayers] = useState({ heatmap: true, alertZones: true, labels: true, terrain: false })
+  const [layers, setLayers] = useState({ heatmap: false, alertZones: true, labels: true, terrain: false })
   const [patrolMode, setPatrolMode] = useState(false)
   const [patrolPoints, setPatrolPoints] = useState([])
   const [weather, setWeather] = useState(null)
@@ -584,7 +584,21 @@ export default function MapPage() {
     map.current.on('mouseenter', 'clusters', () => { map.current.getCanvas().style.cursor = 'pointer' })
     map.current.on('mouseleave', 'clusters', () => { map.current.getCanvas().style.cursor = '' })
 
-  }, [mapLoaded, sites, statusFilter])
+  }, [mapLoaded, sites, statusFilter, layers])
+
+  // Update layer opacity when visibility toggles change
+  useEffect(() => {
+    if (!mapLoaded || !map.current) return
+    try {
+      if (map.current.getLayer('heatmap')) {
+        map.current.setPaintProperty('heatmap', 'heatmap-opacity', layers.heatmap ? 0.75 : 0)
+      }
+      if (map.current.getLayer('alert-zones')) {
+        map.current.setPaintProperty('alert-zones', 'circle-opacity', layers.alertZones ? 0.08 : 0)
+        map.current.setPaintProperty('alert-zones', 'circle-stroke-opacity', layers.alertZones ? 0.5 : 0)
+      }
+    } catch {}
+  }, [mapLoaded, layers])
 
   // 3D buildings toggle
   useEffect(() => {
