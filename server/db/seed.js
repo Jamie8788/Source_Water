@@ -1,5 +1,4 @@
 const bcrypt = require('bcryptjs')
-const crypto = require('crypto')
 const db = require('./connection')
 
 async function seed() {
@@ -33,10 +32,9 @@ async function seed() {
   await db.run(`UPDATE users SET is_active=1 WHERE is_active=0`).catch(() => {})
 
   const existing = await db.get('SELECT COUNT(*) as c FROM users', [])
-  if (parseInt(existing?.c ?? 0) > 1) return console.log('DB already seeded.')
+  if (parseInt(existing?.c ?? 0) > 1) return console.log('✅ Database already initialized (no demo data)')
 
-  console.log('[seed] Production mode: Skipping demo data seeding. Admin user only.')
-      `INSERT INTO sites (name,latitude,longitude,body_of_water,water_body_type,access_risk,community,parameters_tested,created_by) VALUES (?,?,?,?,?,?,?,?,?)`,
+  console.log('[seed] ✅ Production ready: Admin user only, awaiting CSV import of real data')
 }
 
 module.exports = seed
