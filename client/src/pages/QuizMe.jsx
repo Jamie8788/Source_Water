@@ -321,7 +321,7 @@ function QuizBrowser({ onSelect }) {
                   {/* CTA */}
                   <button onClick={e => { e.stopPropagation(); onSelect(q) }} style={{
                     width:'100%', padding:'9px 0', borderRadius:6, fontWeight:700, fontSize:13,
-                    cursor:'pointer', border:'none',
+                    cursor:'pointer',
                     background: my ? 'var(--page-bg)' : '#006fbf',
                     color: my ? '#006fbf' : 'white',
                     border: my ? '1.5px solid rgba(0,111,191,0.3)' : 'none',

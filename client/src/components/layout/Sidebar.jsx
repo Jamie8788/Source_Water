@@ -138,7 +138,7 @@ function NavItem({ item, active, collapsed, onClick, onSubNav }) {
         style={{
           position: 'relative',
           display: 'flex', alignItems: 'center',
-          gap: 10, width: '100%', textAlign: 'left',
+          gap: 10, textAlign: 'left',
           padding: collapsed ? '9px 0' : '8px 10px',
           justifyContent: collapsed ? 'center' : 'flex-start',
           margin: '1px 6px',
