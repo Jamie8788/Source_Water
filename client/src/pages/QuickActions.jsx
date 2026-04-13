@@ -1065,8 +1065,9 @@ function useShipControls() {
             auto.onArrive()
           }
         } else {
-          // Target heading: angle convention = atan2(dz,dx)*180/PI + 90
-          const targetAngleDeg = Math.atan2(dz, dx) * 180 / Math.PI + 90
+          // Target heading: x+=cos(angle)*speed, z-=sin(angle)*speed
+          // So angle = atan2(-dz, dx)
+          const targetAngleDeg = Math.atan2(-dz, dx) * 180 / Math.PI
           // Shortest angular difference (-180..+180)
           const diff = ((targetAngleDeg - s.angle) % 360 + 540) % 360 - 180
           // Steer toward target smoothly (max 2.2° per frame)
