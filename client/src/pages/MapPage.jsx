@@ -21,13 +21,13 @@ const MAP_STYLES = {
     url: {
       version: 8,
       sources: {
-        osm: { type: 'raster', tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256 }
+        esri: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'], tileSize: 256 }
       },
       layers: [
         {
-          id: 'osm',
+          id: 'esri',
           type: 'raster',
-          source: 'osm',
+          source: 'esri',
           paint: { 'raster-fade-duration': 100 }
         }
       ]
@@ -39,13 +39,13 @@ const MAP_STYLES = {
     url: {
       version: 8,
       sources: {
-        osm: { type: 'raster', tiles: ['https://b.tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256 }
+        esri: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'], tileSize: 256 }
       },
       layers: [
         {
-          id: 'osm',
+          id: 'esri',
           type: 'raster',
-          source: 'osm',
+          source: 'esri',
           paint: { 'raster-fade-duration': 100 }
         }
       ]
