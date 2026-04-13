@@ -976,7 +976,7 @@ function Scene({ shipRef, navigate, activeTargetLabel, dockedLabel, dockPulse })
       <CameraRig shipRef={shipRef}/>
 
       <EffectComposer>
-        <DepthOfField focusDistance={0.016} focalLength={0.024} bokehScale={1.35} height={480} />
+        <DepthOfField focusDistance={0.016} focalLength={0.024} bokehScale={1.35} />
         <Bloom luminanceThreshold={0.18} luminanceSmoothing={0.66} intensity={0.95}/>
         <Vignette eskil={false} offset={0.14} darkness={0.72}/>
         <Noise opacity={0.03} premultiply />
