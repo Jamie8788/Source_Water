@@ -15,10 +15,60 @@ import {
 } from 'lucide-react'
 
 const MAP_STYLES = {
-  dark:     { label: 'Dark',     icon: '🌑',  url: 'https://tiles.openfreemap.org/styles/dark-matter' },
-  liberty:  { label: 'Street',   icon: '🗺️',  url: 'https://tiles.openfreemap.org/styles/liberty' },
-  bright:   { label: 'Bright',   icon: '☀️',  url: 'https://tiles.openfreemap.org/styles/bright' },
-  positron: { label: 'Clean',    icon: '🌐',  url: 'https://tiles.openfreemap.org/styles/positron' },
+  dark: {
+    label: 'Dark',
+    icon: '🌑',
+    url: {
+      version: 8,
+      sources: {
+        osm: { type: 'raster', tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256 }
+      },
+      layers: [
+        {
+          id: 'osm',
+          type: 'raster',
+          source: 'osm',
+          paint: { 'raster-fade-duration': 100 }
+        }
+      ]
+    }
+  },
+  light: {
+    label: 'Light',
+    icon: '☀️',
+    url: {
+      version: 8,
+      sources: {
+        osm: { type: 'raster', tiles: ['https://b.tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256 }
+      },
+      layers: [
+        {
+          id: 'osm',
+          type: 'raster',
+          source: 'osm',
+          paint: { 'raster-fade-duration': 100 }
+        }
+      ]
+    }
+  },
+  satellite: {
+    label: 'Satellite',
+    icon: '🛰️',
+    url: {
+      version: 8,
+      sources: {
+        sat: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256 }
+      },
+      layers: [
+        {
+          id: 'sat',
+          type: 'raster',
+          source: 'sat',
+          paint: { 'raster-fade-duration': 100 }
+        }
+      ]
+    }
+  }
 }
 
 const STATUS_COLORS = { active: '#22c55e', warning: '#f59e0b', critical: '#ef4444', inactive: '#94a3b8' }
@@ -570,7 +620,11 @@ export default function MapPage() {
     if (!map.current) return
     Object.values(markersRef.current).forEach(m => m.remove())
     markersRef.current = {}
-    map.current.setStyle(MAP_STYLES[styleKey].url)
+    try {
+      map.current.setStyle(MAP_STYLES[styleKey].url)
+    } catch (e) {
+      console.error('Style change error:', e)
+    }
     map.current.once('styledata', () => {
       setMapLoaded(false)
       setTimeout(() => setMapLoaded(true), 600)
@@ -687,7 +741,7 @@ export default function MapPage() {
               style={{ padding:'5px 10px', borderRadius:7, border:'none', cursor:'pointer', fontSize:14,
                 background: mapStyle === key ? 'rgba(99,102,241,0.4)' : 'transparent',
                 boxShadow: mapStyle === key ? '0 0 10px rgba(99,102,241,0.5)' : 'none',
-                transition:'all 0.2s' }}>
+                transition:'all 0.2s', color: mapStyle === key ? '#a5b4fc' : 'rgba(255,255,255,0.5)' }}>
               {s.icon}
             </button>
           ))}
