@@ -15,6 +15,14 @@ const { initSchema } = require('./db/schema')
 const { seed } = require('./db/seed')
 const ChatService = require('./services/chat')
 
+// Keep the process alive when a single request fails (e.g. transient pool errors)
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason?.message || reason)
+})
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err?.message || err)
+})
+
 const app = express()
 const server = http.createServer(app)
 const PORT = process.env.PORT || 3001

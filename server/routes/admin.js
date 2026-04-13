@@ -4,33 +4,39 @@ const { requireAuth, requireAdmin } = require('../middleware/auth')
 const upload = require('../middleware/upload')
 
 // GET /api/admin/stats
+// Single query: collapses 10 COUNT(*)s into ONE round-trip so the pg pool
+// only consumes one client per request (was 10 — exhausted Supabase pooler).
 router.get('/stats', requireAuth, requireAdmin, async (req, res) => {
-  const [total_users, active_users, total_posts, total_observations, total_sites,
-         total_quiz_attempts, active_alerts, total_resources, total_messages, new_users_today] =
-    await Promise.all([
-      db.get('SELECT COUNT(*) as c FROM users', []),
-      db.get(`SELECT COUNT(*) as c FROM users WHERE last_login > NOW() - INTERVAL '7 days'`, []),
-      db.get('SELECT COUNT(*) as c FROM posts', []),
-      db.get('SELECT COUNT(*) as c FROM observations', []),
-      db.get('SELECT COUNT(*) as c FROM sites', []),
-      db.get('SELECT COUNT(*) as c FROM quiz_attempts', []),
-      db.get('SELECT COUNT(*) as c FROM alerts WHERE active=1', []),
-      db.get('SELECT COUNT(*) as c FROM resources', []),
-      db.get('SELECT COUNT(*) as c FROM direct_messages', []),
-      db.get(`SELECT COUNT(*) as c FROM users WHERE created_at::date = CURRENT_DATE`, []),
-    ])
-  res.json({
-    total_users: parseInt(total_users?.c ?? 0),
-    active_users: parseInt(active_users?.c ?? 0),
-    total_posts: parseInt(total_posts?.c ?? 0),
-    total_observations: parseInt(total_observations?.c ?? 0),
-    total_sites: parseInt(total_sites?.c ?? 0),
-    total_quiz_attempts: parseInt(total_quiz_attempts?.c ?? 0),
-    active_alerts: parseInt(active_alerts?.c ?? 0),
-    total_resources: parseInt(total_resources?.c ?? 0),
-    total_messages: parseInt(total_messages?.c ?? 0),
-    new_users_today: parseInt(new_users_today?.c ?? 0),
-  })
+  try {
+    const row = await db.get(`
+      SELECT
+        (SELECT COUNT(*) FROM users)                                                    AS total_users,
+        (SELECT COUNT(*) FROM users WHERE last_login > NOW() - INTERVAL '7 days')       AS active_users,
+        (SELECT COUNT(*) FROM posts)                                                    AS total_posts,
+        (SELECT COUNT(*) FROM observations)                                             AS total_observations,
+        (SELECT COUNT(*) FROM sites)                                                    AS total_sites,
+        (SELECT COUNT(*) FROM quiz_attempts)                                            AS total_quiz_attempts,
+        (SELECT COUNT(*) FROM alerts WHERE active=1)                                    AS active_alerts,
+        (SELECT COUNT(*) FROM resources)                                                AS total_resources,
+        (SELECT COUNT(*) FROM direct_messages)                                          AS total_messages,
+        (SELECT COUNT(*) FROM users WHERE created_at::date = CURRENT_DATE)              AS new_users_today
+    `, [])
+    res.json({
+      total_users: parseInt(row?.total_users ?? 0),
+      active_users: parseInt(row?.active_users ?? 0),
+      total_posts: parseInt(row?.total_posts ?? 0),
+      total_observations: parseInt(row?.total_observations ?? 0),
+      total_sites: parseInt(row?.total_sites ?? 0),
+      total_quiz_attempts: parseInt(row?.total_quiz_attempts ?? 0),
+      active_alerts: parseInt(row?.active_alerts ?? 0),
+      total_resources: parseInt(row?.total_resources ?? 0),
+      total_messages: parseInt(row?.total_messages ?? 0),
+      new_users_today: parseInt(row?.new_users_today ?? 0),
+    })
+  } catch (err) {
+    console.error('[admin/stats]', err.message)
+    res.status(503).json({ error: 'stats unavailable' })
+  }
 })
 
 // GET /api/admin/activity-log

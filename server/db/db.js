@@ -24,12 +24,14 @@ if (USE_PG) {
       connString = u.toString()
     } catch {}
   }
+  // Supabase Session-mode pooler caps total clients (~15 on free plan).
+  // Keep our pool well below that so we never hit MaxClientsInSessionMode.
   pool = new Pool({
     connectionString: connString,
     ssl: connString.includes('localhost') ? false : { rejectUnauthorized: false },
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
+    max: 5,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 8000,
   })
   pool.on('error', (err) => console.error('[pg] pool error:', err.message))
   console.log('[db] PostgreSQL mode (Supabase)')
