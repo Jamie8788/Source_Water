@@ -1,7 +1,10 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { Canvas, useFrame } from '@react-three/fiber'
+import { Stars } from '@react-three/drei'
 import { useSound } from '../context/SoundContext'
 import api from '../utils/api'
 import { ArrowLeft, Trophy } from 'lucide-react'
+import * as THREE from 'three'
 
 const FACTS = [
   '🧪 pH 6.5–8.5 is safe for aquatic life — outside this, fish struggle.',
@@ -67,14 +70,14 @@ function PollutionBlaster({ onComplete }) {
     const W = 560, H = 460
     canvas.width = W; canvas.height = H
 
-    const PLAYER_Y = 408, COLS = 8, ROWS = 3
+    const PLAYER_Y = 408, COLS = 8
     const EW = 56, EH = 44
     const GRID_L = 18, GRID_T = 55
-    const EMOJIS = [['☠️','🏭'],['🛢️','🧪'],['🥤','🚮']]
-    const PTS = [30, 20, 10]
+    const EMOJIS = [['☠️','🏭'],['🛢️','🧪'],['🥤','🚮'],['🏗️','⛽'],['☣️','🔋']]
+    const PTS = [50, 30, 20, 15, 10]
 
     const makeEnemies = (lvl) => {
-      const rows = Math.min(2 + lvl, 5)
+      const rows = Math.min(lvl, 5)
       const out = []
       for (let r = 0; r < rows; r++)
         for (let c = 0; c < COLS; c++)
@@ -85,10 +88,10 @@ function PollutionBlaster({ onComplete }) {
     const stars = Array.from({length:70},()=>({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.4+0.3,t:Math.random()*Math.PI*2}))
 
     const s = {
-      enemies: makeEnemies(1), gridX:GRID_L, gridY:GRID_T, gridVX:1.6,
+      enemies: makeEnemies(1), gridX:GRID_L, gridY:GRID_T, gridVX:0.9,
       player:{x:W/2,bullets:[]}, eBullets:[], particles:[], floats:[],
-      score:0, lives:3, level:1, frame:0,
-      state:'playing', lvTimer:0, keys:{}, shootCD:0, eShootT:60,
+      score:0, lives:5, level:1, frame:0,
+      state:'playing', lvTimer:0, keys:{}, shootCD:0, eShootT:100,
       factIdx:0, fact:'', factTimer:0,
     }
 
@@ -108,10 +111,10 @@ function PollutionBlaster({ onComplete }) {
       const cols={}; for(const e of s.enemies){if(!e.alive)continue;if(cols[e.col]===undefined||e.row>cols[e.col].row)cols[e.col]=e}
       const shooters=Object.values(cols); if(!shooters.length)return
       const sh=shooters[Math.floor(Math.random()*shooters.length)]
-      s.eBullets.push({x:s.gridX+sh.col*EW+EW/2,y:s.gridY+sh.row*EH+EH,vy:2.6+s.level*0.35})
+      s.eBullets.push({x:s.gridX+sh.col*EW+EW/2,y:s.gridY+sh.row*EH+EH,vy:1.8+s.level*0.28})
     }
     const nextWave = () => {
-      s.level++; s.gridX=GRID_L; s.gridY=GRID_T; s.gridVX=1.6+s.level*0.5
+      s.level++; s.gridX=GRID_L; s.gridY=GRID_T; s.gridVX=0.9+s.level*0.35
       s.enemies=makeEnemies(s.level); s.eBullets=[]; s.player.bullets=[]; s.state='playing'
     }
 
@@ -119,8 +122,8 @@ function PollutionBlaster({ onComplete }) {
       s.keys[e.code]=e.type==='keydown'
       if(['Space','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault()
       if(e.type==='keydown'&&e.code==='Space'&&s.state==='playing'&&s.shootCD<=0){
-        s.player.bullets.push({x:s.player.x,y:PLAYER_Y-20,vy:-9})
-        s.shootCD=16; play('drop')
+        s.player.bullets.push({x:s.player.x,y:PLAYER_Y-20,vy:-10})
+        s.shootCD=10; play('drop')
       }
     }
     window.addEventListener('keydown',onKey); window.addEventListener('keyup',onKey)
@@ -142,7 +145,7 @@ function PollutionBlaster({ onComplete }) {
         ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.font='14px system-ui'
         ctx.fillText('Press SPACE to play again',W/2,H/2+44)
         ctx.textAlign='left'
-        if(s.keys['Space']){s.score=0;s.lives=3;s.level=1;s.enemies=makeEnemies(1);s.gridX=GRID_L;s.gridY=GRID_T;s.gridVX=1.6;s.eBullets=[];s.player.bullets=[];s.particles=[];s.floats=[];s.state='playing';s.keys={}}
+        if(s.keys['Space']){s.score=0;s.lives=5;s.level=1;s.enemies=makeEnemies(1);s.gridX=GRID_L;s.gridY=GRID_T;s.gridVX=0.9;s.eBullets=[];s.player.bullets=[];s.particles=[];s.floats=[];s.state='playing';s.keys={}}
         raf=requestAnimationFrame(loop);return
       }
 
@@ -162,14 +165,14 @@ function PollutionBlaster({ onComplete }) {
 
       /* ── PLAYING ── */
       s.shootCD=Math.max(0,s.shootCD-1)
-      if(s.keys['ArrowLeft']||s.keys['KeyA']) s.player.x=Math.max(22,s.player.x-4.8)
-      if(s.keys['ArrowRight']||s.keys['KeyD']) s.player.x=Math.min(W-22,s.player.x+4.8)
+      if(s.keys['ArrowLeft']||s.keys['KeyA']) s.player.x=Math.max(22,s.player.x-5.8)
+      if(s.keys['ArrowRight']||s.keys['KeyD']) s.player.x=Math.min(W-22,s.player.x+5.8)
 
       // grid move
       const b=bounds()
       if(b){
         const liveCount=alive().length
-        const speedMult=1+(1-liveCount/(COLS*Math.min(2+s.level,5)))*1.4
+        const speedMult=1+(1-liveCount/(COLS*Math.min(s.level,5)))*1.2
         s.gridX+=s.gridVX*speedMult
         if(b.r>=W-8||b.l<=8){s.gridVX*=-1;s.gridY+=16}
         if(b.b>=PLAYER_Y-28){s.lives=0;s.state='gameover';onComplete(s.score);raf=requestAnimationFrame(loop);return}
@@ -195,7 +198,7 @@ function PollutionBlaster({ onComplete }) {
 
       // enemy bullets
       s.eShootT--
-      if(s.eShootT<=0){shootEnemy();s.eShootT=Math.max(22,62-s.level*6)}
+      if(s.eShootT<=0){shootEnemy();s.eShootT=Math.max(32,100-s.level*7)}
       s.eBullets=s.eBullets.filter(b=>b.y<H)
       for(const eb of s.eBullets){
         eb.y+=eb.vy
@@ -291,12 +294,12 @@ function WaterRush({ onComplete }) {
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     const W=600,H=240; canvas.width=W; canvas.height=H
-    const FY=192,PS=22,PX=105,GRV=0.70,JVY=-13.5,DJVY=-10.5
+    const FY=192,PS=22,PX=105,GRV=0.52,JVY=-12.0,DJVY=-9.5
 
     const s={
       p:{y:FY-PS,vy:0,onGr:true,djLeft:1},
       obs:[],gems:[],parts:[],trail:[],
-      speed:4.5,frame:0,score:0,level:1,alive:true,started:false,
+      speed:2.5,frame:0,score:0,level:1,alive:true,started:false,
       nextObs:80,nextGem:50,lvTimer:0,lvFact:'',factIdx:0,
     }
 
@@ -309,7 +312,7 @@ function WaterRush({ onComplete }) {
     const restart=()=>{
       s.p={y:FY-PS,vy:0,onGr:true,djLeft:1}
       s.obs=[];s.gems=[];s.parts=[];s.trail=[]
-      s.speed=4.5;s.frame=0;s.score=0;s.level=1;s.alive=true;s.started=false
+      s.speed=2.5;s.frame=0;s.score=0;s.level=1;s.alive=true;s.started=false
       s.nextObs=80;s.nextGem=50;s.lvTimer=0;s.lvFact=''
     }
     const onKey=e=>{if(['Space','ArrowUp'].includes(e.code)||e.key===' '){e.preventDefault();jump()}}
@@ -346,9 +349,9 @@ function WaterRush({ onComplete }) {
         // spawn obstacles
         s.nextObs--
         if(s.nextObs<=0){
-          const h=26+Math.random()*(10+s.level*6);s.obs.push({x:W+10,w:28,h:Math.min(h,70)})
-          if(Math.random()<0.18+s.level*0.03) s.obs.push({x:W+80+Math.random()*30,w:22,h:24})
-          s.nextObs=Math.max(40,82-s.level*4)+Math.floor(Math.random()*35)
+          const h=14+Math.random()*(6+s.level*5);s.obs.push({x:W+10,w:28,h:Math.min(h,65)})
+          if(Math.random()<0.12+s.level*0.03) s.obs.push({x:W+90+Math.random()*30,w:22,h:20})
+          s.nextObs=Math.max(52,105-s.level*4)+Math.floor(Math.random()*40)
         }
         s.obs=s.obs.map(o=>({...o,x:o.x-s.speed})).filter(o=>o.x+o.w>-10)
 
@@ -375,7 +378,7 @@ function WaterRush({ onComplete }) {
           if(!g.col&&PX+PS>g.x-8&&PX<g.x+8&&s.p.y<g.y+8&&s.p.y+PS>g.y-8){
             g.col=true;s.score++;play('drop')
             for(let i=0;i<5;i++){const a=Math.random()*Math.PI*2;s.parts.push({x:g.x,y:g.y,vx:Math.cos(a)*2,vy:Math.sin(a)*2,life:16,max:16,col:'#fbbf24',r:3})}
-            if(s.score%12===0){s.level++;s.speed=Math.min(4.5+s.level*0.75,11);s.lvTimer=70;s.lvFact=FACTS[(s.factIdx++)%FACTS.length];play('levelUp')}
+            if(s.score%8===0){s.level++;s.speed=Math.min(2.5+s.level*0.55,10);s.lvTimer=70;s.lvFact=FACTS[(s.factIdx++)%FACTS.length];play('levelUp')}
           }
         }
 
@@ -460,20 +463,20 @@ const PH_Q=[
 ]
 const PH_COL={acid:'#ef4444',safe:'#22c55e',base:'#3b82f6'}
 const PH_LBL={acid:'🔴 ACID  (< 6.5)',safe:'🟢 SAFE  (6.5–8.5)',base:'🔵 BASE  (> 8.5)'}
-const TIME_LVL=[5200,4000,3000,2200,1600]
+const TIME_LVL=[8000,6000,4500,3200,2200]
 
 function PHPanic({ onComplete }) {
   const { play } = useSound()
   const [qIdx,setQIdx]=useState(()=>Math.floor(Math.random()*PH_Q.length))
   const [score,setScore]=useState(0)
   const [combo,setCombo]=useState(0)
-  const [lives,setLives]=useState(3)
+  const [lives,setLives]=useState(5)
   const [level,setLevel]=useState(1)
-  const [timeLeft,setTimeLeft]=useState(5200)
+  const [timeLeft,setTimeLeft]=useState(8000)
   const [fb,setFb]=useState(null)
   const [done,setDone]=useState(false)
   const [nCorrect,setNCorrect]=useState(0)
-  const scoreR=useRef(0),comboR=useRef(0),livesR=useRef(3),levelR=useRef(1),startR=useRef(Date.now()),phaseR=useRef('q')
+  const scoreR=useRef(0),comboR=useRef(0),livesR=useRef(5),levelR=useRef(1),startR=useRef(Date.now()),phaseR=useRef('q')
 
   const next=useCallback(()=>{
     setQIdx(Math.floor(Math.random()*PH_Q.length))
@@ -508,7 +511,7 @@ function PHPanic({ onComplete }) {
       const mult=Math.min(comboR.current,5)
       const pts=10*mult;scoreR.current+=pts;setScore(scoreR.current)
       setNCorrect(c=>c+1)
-      const newLvl=Math.min(Math.floor(scoreR.current/60)+1,5)
+      const newLvl=Math.min(Math.floor(scoreR.current/80)+1,5)
       if(newLvl>levelR.current){levelR.current=newLvl;setLevel(newLvl)}
       play('correct')
       const elapsed=Date.now()-startR.current
@@ -580,14 +583,14 @@ function PHPanic({ onComplete }) {
 /* ═══════════════════════════════════════════════════════════
    GAME 4 — TRIVIA BLITZ (4 levels, streaks, speed)
 ═══════════════════════════════════════════════════════════ */
-const DECAY=[1.0,1.3,1.75,2.3]
+const DECAY=[0.55,0.85,1.25,1.75]
 const LVL_NAMES=['💧 Water Basics','🧪 Chemistry','🌿 Ecology','🏔️ Northern ON Expert']
 
 function TriviaBlitz({ onComplete }) {
   const { play } = useSound()
   const [level,setLevel]=useState(1)
   const [qIdx,setQIdx]=useState(0)
-  const [lives,setLives]=useState(3)
+  const [lives,setLives]=useState(5)
   const [score,setScore]=useState(0)
   const [streak,setStreak]=useState(0)
   const [sel,setSel]=useState(null)
@@ -596,7 +599,7 @@ function TriviaBlitz({ onComplete }) {
   const [phase,setPhase]=useState('q') // q | fb | lvup
   const [nRight,setNRight]=useState(0)
 
-  const lR=useRef(3),sR=useRef(0),stR=useRef(0),phR=useRef('q'),lvR=useRef(1)
+  const lR=useRef(5),sR=useRef(0),stR=useRef(0),phR=useRef('q'),lvR=useRef(1)
   const QPL=5
 
   const levelQs=useMemo(()=>TRIVIA.filter(q=>q.lvl===lvR.current),[level])
@@ -748,8 +751,8 @@ function WaterSnake({ onComplete }) {
     const s={
       snake:[{x:10,y:10},{x:9,y:10},{x:8,y:10}],
       dir:{x:1,y:0},nextDir:{x:1,y:0},
-      food:[spawn()],poison:[spawn(),spawn()],
-      score:0,alive:true,started:false,frame:0,tickRate:8,level:1,factIdx:0,factTimer:0,fact:'',
+      food:[spawn()],poison:[spawn()],
+      score:0,alive:true,started:false,frame:0,tickRate:13,level:1,factIdx:0,factTimer:0,fact:'',
     }
     stateRef.current=s
 
@@ -807,10 +810,10 @@ function WaterSnake({ onComplete }) {
         if(fi!==-1){
           s.score++;setScore(s.score);play('correct')
           s.food.splice(fi,1);s.food.push(spawn())
-          if(s.score%3===0) s.poison.push(spawn())
-          if(s.score%5===0&&s.tickRate>3) s.tickRate--
-          // level up every 5 foods
-          const newLvl=Math.ceil(s.score/5)
+          if(s.score%5===0) s.poison.push(spawn())
+          if(s.score%4===0&&s.tickRate>5) s.tickRate--
+          // level up every 4 foods
+          const newLvl=Math.ceil(s.score/4)
           if(newLvl>s.level){
             s.level=newLvl;setLevel(newLvl)
             s.fact=FACTS[(s.factIdx++)%FACTS.length];s.factTimer=180
@@ -853,8 +856,8 @@ function WaterSnake({ onComplete }) {
     const s=stateRef.current; if(!s) return
     const rand=n=>Math.floor(Math.random()*n)
     s.snake=[{x:10,y:10},{x:9,y:10},{x:8,y:10}];s.dir={x:1,y:0};s.nextDir={x:1,y:0}
-    s.food=[{x:rand(20),y:rand(20)}];s.poison=[{x:rand(20),y:rand(20)},{x:rand(20),y:rand(20)}]
-    s.score=0;s.alive=true;s.started=true;s.frame=0;s.tickRate=8;s.level=1;s.factTimer=0;s.fact=''
+    s.food=[{x:rand(20),y:rand(20)}];s.poison=[{x:rand(20),y:rand(20)}]
+    s.score=0;s.alive=true;s.started=true;s.frame=0;s.tickRate=13;s.level=1;s.factTimer=0;s.fact=''
     setScore(0);setDead(false);setLevel(1);setFact('')
     const canvas=canvasRef.current; if(!canvas) return
     const ctx=canvas.getContext('2d')
@@ -869,7 +872,7 @@ function WaterSnake({ onComplete }) {
         if(s.snake.some(seg=>seg.x===next.x&&seg.y===next.y)||s.poison.some(p=>p.x===next.x&&p.y===next.y)){s.alive=false;setDead(true);return}
         s.snake.unshift(next)
         const fi=s.food.findIndex(f=>f.x===next.x&&f.y===next.y)
-        if(fi!==-1){s.score++;setScore(s.score);s.food.splice(fi,1);s.food.push({x:rand(20),y:rand(20)});if(s.score%3===0)s.poison.push({x:rand(20),y:rand(20)});if(s.score%5===0&&s.tickRate>3)s.tickRate--;const nl=Math.ceil(s.score/5);if(nl>s.level){s.level=nl;setLevel(nl)}}
+        if(fi!==-1){s.score++;setScore(s.score);s.food.splice(fi,1);s.food.push({x:rand(20),y:rand(20)});if(s.score%5===0)s.poison.push({x:rand(20),y:rand(20)});if(s.score%4===0&&s.tickRate>5)s.tickRate--;const nl=Math.ceil(s.score/4);if(nl>s.level){s.level=nl;setLevel(nl)}}
         else s.snake.pop()
       }
       for(let x=0;x<20;x++) for(let y=0;y<20;y++){ctx.fillStyle=(x+y)%2===0?'rgba(30,58,138,0.22)':'rgba(23,37,84,0.22)';ctx.fillRect(x*20,y*20,20,20)}
@@ -910,9 +913,9 @@ function FlappyFish({ onComplete }) {
     const canvas=canvasRef.current; if(!canvas) return
     const ctx=canvas.getContext('2d')
     const W=400,H=500; canvas.width=W; canvas.height=H
-    const PIPE_W=48,GRAVITY=0.20,JUMP=-5
+    const PIPE_W=48,GRAVITY=0.15,JUMP=-4.2
 
-    const s={fish:{x:80,y:H/2,vy:0,alive:true},pipes:[],score:0,frame:0,started:false,gap:240,speed:1.3,level:1,factIdx:0,fact:'',factTimer:0}
+    const s={fish:{x:80,y:H/2,vy:0,alive:true},pipes:[],score:0,frame:0,started:false,gap:290,speed:1.1,level:1,factIdx:0,fact:'',factTimer:0}
     stateRef.current=s
 
     const spawnPipe=()=>{const top=80+Math.random()*(H-s.gap-160);s.pipes.push({x:W,top,scored:false})}
@@ -945,7 +948,7 @@ function FlappyFish({ onComplete }) {
 
     const restart=()=>{
       s.fish.y=H/2;s.fish.vy=0;s.fish.alive=true;s.pipes=[];s.score=0;s.started=false;s.frame=0
-      s.gap=240;s.speed=1.3;s.level=1;s.fact='';s.factTimer=0
+      s.gap=290;s.speed=1.1;s.level=1;s.fact='';s.factTimer=0
       setScore(0);setDead(false);setStarted(false);setLevel(1)
     }
 
@@ -980,8 +983,8 @@ function FlappyFish({ onComplete }) {
         p.x-=s.speed
         if(!p.scored&&p.x+PIPE_W<s.fish.x){
           p.scored=true;s.score++;setScore(s.score);play('drop')
-          const nl=Math.floor(s.score/5)+1
-          if(nl>s.level){s.level=nl;setLevel(nl);s.gap=Math.max(155,240-(nl-1)*18);s.speed=Math.min(2.8,1.3+(nl-1)*0.22);s.fact=FACTS[(s.factIdx++)%FACTS.length];s.factTimer=150;play('levelUp')}
+          const nl=Math.floor(s.score/8)+1
+          if(nl>s.level){s.level=nl;setLevel(nl);s.gap=Math.max(170,290-(nl-1)*15);s.speed=Math.min(2.6,1.1+(nl-1)*0.18);s.fact=FACTS[(s.factIdx++)%FACTS.length];s.factTimer=150;play('levelUp')}
         }
         if(s.fish.x+14>p.x&&s.fish.x-14<p.x+PIPE_W){
           if(s.fish.y-12<p.top||s.fish.y+12>p.top+s.gap){s.fish.alive=false;setDead(true);play('wrong');cancelAnimationFrame(raf);onComplete(s.score*5);return}
@@ -1010,7 +1013,7 @@ function FlappyFish({ onComplete }) {
     <div className="flex flex-col items-center gap-3">
       {started&&!dead&&<div className="flex gap-4 text-sm font-bold"><span style={{color:'var(--text-muted)'}}>Score: <span style={{color:'#6366f1'}}>{score}</span></span><span style={{color:'#fbbf24'}}>Level {level}</span></div>}
       <canvas ref={canvasRef} style={{borderRadius:16,cursor:'pointer',border:'2px solid rgba(99,102,241,0.3)'}}/>
-      {dead&&<button onClick={()=>{const s=stateRef.current;if(!s)return;s.fish.y=250;s.fish.vy=0;s.fish.alive=true;s.pipes=[];s.score=0;s.started=false;s.frame=0;s.gap=240;s.speed=1.3;s.level=1;setScore(0);setDead(false);setStarted(false);setLevel(1)}} className="btn-primary px-6 py-2">🔄 Play Again</button>}
+      {dead&&<button onClick={()=>{const s=stateRef.current;if(!s)return;s.fish.y=250;s.fish.vy=0;s.fish.alive=true;s.pipes=[];s.score=0;s.started=false;s.frame=0;s.gap=290;s.speed=1.1;s.level=1;setScore(0);setDead(false);setStarted(false);setLevel(1)}} className="btn-primary px-6 py-2">🔄 Play Again</button>}
     </div>
   )
 }
