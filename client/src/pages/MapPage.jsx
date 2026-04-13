@@ -210,6 +210,7 @@ export default function MapPage() {
   // Init map
   useEffect(() => {
     if (map.current || !mapContainer.current) return
+    console.log('[MapPage] Initializing map, container:', mapContainer.current)
     try {
       map.current = new maplibregl.Map({
         container: mapContainer.current,
@@ -220,6 +221,7 @@ export default function MapPage() {
         bearing: 0,
         antialias: true,
       })
+      console.log('[MapPage] Map instance created:', map.current)
 
       map.current.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right')
       map.current.addControl(new maplibregl.GeolocateControl({
@@ -230,6 +232,7 @@ export default function MapPage() {
       map.current.addControl(new maplibregl.FullscreenControl(), 'top-right')
 
       map.current.on('load', () => {
+        console.log('[MapPage] Map loaded successfully')
         setMapLoaded(true)
         try {
           map.current.addSource('terrain', {
@@ -256,7 +259,7 @@ export default function MapPage() {
         setShowForm(true)
       })
     } catch (err) {
-      console.error('[MapPage] Failed to initialize map:', err)
+      console.error('[MapPage] Failed to initialize map:', err, err.stack)
     }
 
     return () => {
