@@ -209,51 +209,55 @@ export default function MapPage() {
 
   // Init map
   useEffect(() => {
-    if (map.current) return
-    map.current = new maplibregl.Map({
-      container: mapContainer.current,
-      style: MAP_STYLES.dark.url,
-      center: [-84.3, 46.5],
-      zoom: 6.5,
-      pitch: 0,
-      bearing: 0,
-      antialias: true,
-    })
+    if (map.current || !mapContainer.current) return
+    try {
+      map.current = new maplibregl.Map({
+        container: mapContainer.current,
+        style: MAP_STYLES.dark.url,
+        center: [-84.3, 46.5],
+        zoom: 6.5,
+        pitch: 0,
+        bearing: 0,
+        antialias: true,
+      })
 
-    map.current.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right')
-    map.current.addControl(new maplibregl.GeolocateControl({
-      positionOptions: { enableHighAccuracy: true },
-      trackUserLocation: true,
-    }), 'top-right')
-    map.current.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left')
-    map.current.addControl(new maplibregl.FullscreenControl(), 'top-right')
+      map.current.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right')
+      map.current.addControl(new maplibregl.GeolocateControl({
+        positionOptions: { enableHighAccuracy: true },
+        trackUserLocation: true,
+      }), 'top-right')
+      map.current.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left')
+      map.current.addControl(new maplibregl.FullscreenControl(), 'top-right')
 
-    map.current.on('load', () => {
-      setMapLoaded(true)
-      try {
-        map.current.addSource('terrain', {
-          type: 'raster-dem',
-          url: 'https://demotiles.maplibre.org/terrain-tiles/tiles.json',
-          tileSize: 256,
-        })
-      } catch {}
-    })
+      map.current.on('load', () => {
+        setMapLoaded(true)
+        try {
+          map.current.addSource('terrain', {
+            type: 'raster-dem',
+            url: 'https://demotiles.maplibre.org/terrain-tiles/tiles.json',
+            tileSize: 256,
+          })
+        } catch {}
+      })
 
-    map.current.on('click', (e) => {
-      if (createSiteModeRef.current) {
-        setCreateSitePos({ lat: e.lngLat.lat, lng: e.lngLat.lng })
-        setShowCreateSite(true)
-        setCreateSiteMode(false); createSiteModeRef.current = false
-        return
-      }
-      if (patrolMode) {
-        setPatrolPoints(p => [...p, [e.lngLat.lng, e.lngLat.lat]])
-        return
-      }
-      setClickedPos({ lat: e.lngLat.lat, lng: e.lngLat.lng })
-      setForm(f => ({ ...f, site_id: '' }))
-      setShowForm(true)
-    })
+      map.current.on('click', (e) => {
+        if (createSiteModeRef.current) {
+          setCreateSitePos({ lat: e.lngLat.lat, lng: e.lngLat.lng })
+          setShowCreateSite(true)
+          setCreateSiteMode(false); createSiteModeRef.current = false
+          return
+        }
+        if (patrolMode) {
+          setPatrolPoints(p => [...p, [e.lngLat.lng, e.lngLat.lat]])
+          return
+        }
+        setClickedPos({ lat: e.lngLat.lat, lng: e.lngLat.lng })
+        setForm(f => ({ ...f, site_id: '' }))
+        setShowForm(true)
+      })
+    } catch (err) {
+      console.error('[MapPage] Failed to initialize map:', err)
+    }
 
     return () => {
       if (map.current) { map.current.remove(); map.current = null }
