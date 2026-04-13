@@ -58,6 +58,23 @@ router.delete('/:id', requireAuth, async (req, res) => {
   res.json({ success: true })
 })
 
+// GET /api/sites/geojson/export - Export all sites as GeoJSON
+router.get('/geojson/export', requireAuth, async (req, res) => {
+  const sites = await db.all('SELECT id, name, latitude, longitude, status, body_of_water, organization FROM sites ORDER BY name', [])
+  const features = sites.map(s => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [s.longitude, s.latitude] },
+    properties: {
+      id: s.id,
+      name: s.name,
+      status: s.status || 'active',
+      type: s.body_of_water,
+      organization: s.organization
+    }
+  }))
+  res.json({ type: 'FeatureCollection', features })
+})
+
 // GET /api/sites/:id/observations
 router.get('/:id/observations', requireAuth, async (req, res) => {
   const obs = await db.all(
