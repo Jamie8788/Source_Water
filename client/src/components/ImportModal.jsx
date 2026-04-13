@@ -7,6 +7,7 @@ export default function ImportModal({ onClose, onSuccess }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState(null)
+  const [replaceExisting, setReplaceExisting] = useState(true)
 
   const handleFileChange = (e) => {
     const f = e.target.files?.[0]
@@ -34,9 +35,10 @@ export default function ImportModal({ onClose, onSuccess }) {
 
     setLoading(true)
     try {
-      const res = await api.post('/import/csv', { rows })
+      const res = await api.post('/import/csv', { rows, replaceExisting })
       setStatus(
         `✅ Import complete:\n` +
+        `${res.data.replaced_existing ? 'Existing sites cleared first\n' : ''}` +
         `${res.data.sites_created} sites created\n` +
         `${res.data.observations_created} observations created` +
         (res.data.errors.length > 0 ? `\n⚠️ ${res.data.errors.length} errors` : '')
@@ -97,6 +99,15 @@ export default function ImportModal({ onClose, onSuccess }) {
             <div style={{ fontSize: '11px', opacity: 0.7, marginTop: '4px' }}>
               Columns: {Object.keys(rows[0] || {}).slice(0, 5).join(', ')}...
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '12px' }}>
+              <input
+                type="checkbox"
+                checked={replaceExisting}
+                onChange={(e) => setReplaceExisting(e.target.checked)}
+                disabled={loading}
+              />
+              Replace existing sites before import
+            </label>
           </div>
         )}
 

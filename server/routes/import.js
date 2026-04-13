@@ -4,9 +4,14 @@ const db = require('../db/connection')
 // ── BULK CSV IMPORT ──────────────────────────────────────────────────
 router.post('/csv', async (req, res) => {
   try {
-    const { rows } = req.body // Array of CSV objects
+    const { rows, replaceExisting = true } = req.body // Array of CSV objects
     if (!rows || !Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({ error: 'No rows provided' })
+    }
+
+    if (replaceExisting) {
+      await db.run('DELETE FROM observations', [])
+      await db.run('DELETE FROM sites', [])
     }
 
     // Group by unique site (lat/lon)
@@ -60,9 +65,21 @@ router.post('/csv', async (req, res) => {
       try {
         // Create site
         const site = await db.run(
-          `INSERT OR IGNORE INTO sites (name, latitude, longitude, body_of_water, organization, water_body_type)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [siteData.name, siteData.latitude, siteData.longitude, siteData.body_of_water, siteData.organization, siteData.water_body_type]
+          `INSERT INTO sites (name, latitude, longitude, body_of_water, organization, water_body_type)
+           SELECT ?, ?, ?, ?, ?, ?
+           WHERE NOT EXISTS (
+             SELECT 1 FROM sites WHERE latitude = ? AND longitude = ?
+           )`,
+          [
+            siteData.name,
+            siteData.latitude,
+            siteData.longitude,
+            siteData.body_of_water,
+            siteData.organization,
+            siteData.water_body_type,
+            siteData.latitude,
+            siteData.longitude
+          ]
         )
 
         // Get site ID (either newly created or existing)
@@ -149,7 +166,7 @@ router.post('/csv', async (req, res) => {
       }
     }
 
-    res.json(results)
+    res.json({ ...results, replaced_existing: !!replaceExisting })
   } catch (err) {
     console.error('[Import] Error:', err)
     res.status(500).json({ error: err.message })
