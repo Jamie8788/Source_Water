@@ -35,86 +35,11 @@ async function seed() {
   const existing = await db.get('SELECT COUNT(*) as c FROM users', [])
   if (parseInt(existing?.c ?? 0) > 1) return console.log('DB already seeded.')
 
-  console.log('Seeding database...')
-
-  // Communities
-  const comms = ['Huron Shores','Thessalon','Sault Ste. Marie','Bruce Mines','Blind River','Elliot Lake','Iron Bridge','Wawa','White River','Chapleau','Hearst','Kapuskasing','Spanish','Manitoulin Island','Timmins']
-  for (const c of comms) {
-    await db.run('INSERT INTO communities (name) VALUES (?) ON CONFLICT DO NOTHING', [c])
-  }
-
-  // Site settings defaults
-  const settings = {
-    'site.title': 'SOURCE Water',
-    'site.subtitle': 'Water Quality Engagement Platform',
-    'site.tagline': 'Protecting Ontario\'s Water Together',
-    'site.description': 'Monitor, learn, and collaborate on water quality across Northern Ontario watersheds.',
-    'site.contact': 'info@nordikinstitute.com',
-    'site.sponsor_url': 'https://nordikinstitute.com/contact/',
-    'mascot.landing': 'Hi! I\'m Water 💧 To get started, create an account. I\'m excited to meet another water protector!',
-    'mascot.dashboard': 'Welcome back! Check out the latest water quality data from your community.',
-    'mascot.map': 'Explore monitoring sites across Northern Ontario! Click any marker to see water quality data.',
-    'mascot.quiz': 'Test your water knowledge! Every correct answer earns you XP and helps you become a water quality expert!',
-    'mascot.social': 'Share your water observations, ask questions, and connect with other water protectors!',
-    'mascot.ai': 'Ask me anything about water quality! I\'m here to help you understand our lakes and rivers.',
-    'mascot.games': 'Let\'s play and learn! These games teach real water quality concepts in a fun way!',
-    'alerts.header': 'Water Quality Alerts',
-    'alerts.description': 'Stay informed about water quality conditions across Northern Ontario monitoring sites.',
-    'reports.header': 'Water Quality Reports',
-    'reports.description': 'Generate comprehensive water quality reports for sites and regions.',
-    'nordik.logo': '',
-  }
-  for (const [k, v] of Object.entries(settings)) {
-    await db.run(
-      'INSERT INTO site_settings (key,value) VALUES (?,?) ON CONFLICT DO NOTHING',
-      [k, JSON.stringify(v)])
-  }
-
-  // Default resources
-  const resources = [
-    ['Water Rangers Training Protocol','Official training protocol for Water Rangers volunteer monitoring program','Guide','https://waterrangers.ca','Training','["water rangers","training","volunteer"]',1],
-    ['Ontario PWQO Standards','Provincial Water Quality Objectives — Ontario Ministry of Environment','Standards','https://www.ontario.ca/page/water-quality-ontario','Standards','["PWQO","Ontario","regulations"]',1],
-    ['CCME Water Quality Guidelines','Canadian Council of Ministers of the Environment water quality guidelines','Standards','https://www.ccme.ca/en/res/ceqg-rcqe_e.pdf','Standards','["CCME","Canada","guidelines"]',1],
-    ['Great Lakes Datastream','Access water quality data from across the Great Lakes basin','Data','https://greatlakesdatastream.ca','Data','["Great Lakes","datastream","open data"]',1],
-    ['First Nations Water Resources (IISD)','Indigenous and Northern Affairs water resources and stewardship information','Guide','https://www.iisd.org/topic/water','Indigenous','["First Nations","TEK","stewardship"]',1],
-  ]
-  for (const r of resources) {
-    await db.run(
-      `INSERT INTO resources (title,description,resource_type,external_url,category,tags,created_by) VALUES (?,?,?,?,?,?,?)`,
-      r)
-  }
-
-  // 5 Pre-made quizzes with full questions
-  await seedQuizzes()
-
-  // Sample monitoring sites in Northern Ontario
-  const params = JSON.stringify(['ph','dissolved_oxygen','turbidity','conductivity','water_temp'])
-  const sites = [
-    ['Garden River Site A',46.4833,-84.0833,'Garden River','River','Low','Sault Ste. Marie',params,1],
-    ['Lake Huron Shore Station',46.5200,-84.3500,'Lake Huron','Lake','Low','Sault Ste. Marie',params,1],
-    ['Mississagi River Monitor',46.0167,-83.0500,'Mississagi River','River','Medium','Blind River',params,1],
-    ['Thessalon River Site',46.2500,-83.5500,'Thessalon River','River','Low','Thessalon',params,1],
-    ['Chapleau Crown Game Preserve',47.8333,-83.4000,'Chapleau River','River','Medium','Chapleau',params,1],
-  ]
-  for (const s of sites) {
-    await db.run(
+  console.log('[seed] Production mode: Skipping demo data seeding. Admin user only.')
       `INSERT INTO sites (name,latitude,longitude,body_of_water,water_body_type,access_risk,community,parameters_tested,created_by) VALUES (?,?,?,?,?,?,?,?,?)`,
-      s)
-  }
-
-  // AI Knowledge base
-  await seedKnowledgeBase()
-
-  // Default sponsor
-  await db.run(
-    `INSERT INTO sponsors (name,website_url,tagline,tier,placement,status) VALUES (?,?,?,?,?,?)`,
-    ['NORDIK Institute','https://nordikinstitute.com/contact/','Research for People & Planet','Gold',
-      JSON.stringify(['Dashboard','Sidebar','All Pages']),'active'])
-
-  console.log('✅ Database seeded successfully!')
 }
 
-async function seedQuizzes() {
+module.exports = seed
   const quizzes = [
     {
       meta: ['Water Quality Fundamentals','Test your knowledge of essential water quality parameters and concepts.','Water Quality','Beginner',60,70,'published',1],
