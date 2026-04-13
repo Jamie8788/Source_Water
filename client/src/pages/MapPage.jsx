@@ -266,6 +266,15 @@ export default function MapPage() {
   const [alerts, setAlerts] = useState([])
   const [showImportModal, setShowImportModal] = useState(false)
 
+  // Function to fetch sites (can be called after import)
+  const fetchSites = useCallback(() => {
+    api.get('/sites').then(r => {
+      const s = Array.isArray(r.data) ? r.data : (r.data.sites || r.data || [])
+      setSites(s)
+    }).catch(() => {})
+  }, [])
+  const [showImportModal, setShowImportModal] = useState(false)
+
   // Init map
   useEffect(() => {
     if (map.current || !mapContainer.current) return
@@ -328,11 +337,8 @@ export default function MapPage() {
 
   // Load sites
   useEffect(() => {
-    api.get('/sites').then(r => {
-      const s = Array.isArray(r.data) ? r.data : (r.data.sites || r.data || [])
-      setSites(s)
-    }).catch(() => {})
-  }, [])
+    fetchSites()
+  }, [fetchSites])
 
   // ── FETCH REAL ML PREDICTIONS when site is selected ──
   useEffect(() => {
@@ -1360,10 +1366,7 @@ export default function MapPage() {
       {showImportModal && (
         <ImportModal
           onClose={() => setShowImportModal(false)}
-          onSuccess={() => {
-            // Refresh data
-            loadSites()
-          }}
+          onSuccess={fetchSites}
         />
       )}
     </div>

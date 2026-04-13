@@ -12,13 +12,22 @@ router.post('/csv', async (req, res) => {
     // Group by unique site (lat/lon)
     const siteMap = new Map()
     const siteToObservations = new Map()
+    let skipped = 0
 
     for (const row of rows) {
-      const lat = parseFloat(row.MonitoringLocationLatitude)
-      const lon = parseFloat(row.MonitoringLocationLongitude)
-      const siteName = row.MonitoringLocationName || `${lat.toFixed(4)}, ${lon.toFixed(4)}`
+      // Handle both column name formats for latitude/longitude
+      const lat = parseFloat(row.MonitoringLocationLatitude || row.latitude || row.lat)
+      const lon = parseFloat(row.MonitoringLocationLongitude || row.longitude || row.lon)
+
+      // Skip invalid coordinates
+      if (!lat || !lon || isNaN(lat) || isNaN(lon)) {
+        skipped++
+        continue
+      }
+
+      const siteName = (row.MonitoringLocationName || row.site_name || `${lat.toFixed(4)}, ${lon.toFixed(4)}`).split(':')[0]
       const siteKey = `${lat},${lon}`
-      const dataset = row.DatasetName || 'Community Dataset'
+      const dataset = row.DatasetName || row.dataset_name || 'Community Dataset'
 
       // Create or get site
       if (!siteMap.has(siteKey)) {
@@ -26,9 +35,9 @@ router.post('/csv', async (req, res) => {
           name: siteName,
           latitude: lat,
           longitude: lon,
-          body_of_water: row.MonitoringLocationType || 'Water Body',
+          body_of_water: row.MonitoringLocationType || row.location_type || 'Water Body',
           organization: dataset,
-          water_body_type: row.MonitoringLocationType || 'Lake/Pond'
+          water_body_type: row.MonitoringLocationType || row.location_type || 'Lake/Pond'
         })
       }
 
@@ -43,6 +52,7 @@ router.post('/csv', async (req, res) => {
     const results = {
       sites_created: 0,
       observations_created: 0,
+      skipped: skipped,
       errors: []
     }
 
