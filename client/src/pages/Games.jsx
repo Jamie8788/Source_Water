@@ -60,221 +60,254 @@ const TRIVIA = [
    GAME 1 — POLLUTION BLASTER (Space Invaders)
 ═══════════════════════════════════════════════════════════ */
 function PollutionBlaster({ onComplete }) {
-  const canvasRef = useRef(null)
   const { play } = useSound()
+  const [score, setScore] = useState(0)
+  const [level, setLevel] = useState(1)
+  const [lives, setLives] = useState(6)
+  const [status, setStatus] = useState('ready')
+  const [fact, setFact] = useState('')
+  const [tick, setTick] = useState(0)
+
+  const keysRef = useRef({ left:false, right:false, shoot:false })
+  const factIdxRef = useRef(0)
+  const completedRef = useRef(false)
+  const gameRef = useRef(null)
+
+  const makeEnemies = useCallback((lvl) => {
+    const rows = Math.min(2 + lvl, 6)
+    const cols = 8
+    const list = []
+    let id = 1
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        list.push({
+          id: `e_${lvl}_${id++}`,
+          x: -6.2 + c * 1.75,
+          y: 5.8 - r * 1.2,
+          hp: r >= 3 ? 2 : 1,
+        })
+      }
+    }
+    return list
+  }, [])
+
+  const resetGame = useCallback(() => {
+    gameRef.current = {
+      playerX: 0,
+      bullets: [],
+      enemyBullets: [],
+      enemies: makeEnemies(1),
+      dir: 1,
+      speed: 0.018,
+      level: 1,
+      score: 0,
+      lives: 6,
+      shootCd: 0,
+      enemyShootCd: 90,
+      waveTimer: 0,
+      overSent: false,
+    }
+    setScore(0)
+    setLevel(1)
+    setLives(6)
+    setFact('')
+    setStatus('playing')
+    completedRef.current = false
+  }, [makeEnemies])
 
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    const W = 560, H = 460
-    canvas.width = W; canvas.height = H
-
-    const PLAYER_Y = 408, COLS = 8
-    const EW = 56, EH = 44
-    const GRID_L = 18, GRID_T = 55
-    const EMOJIS = [['☠️','🏭'],['🛢️','🧪'],['🥤','🚮'],['🏗️','⛽'],['☣️','🔋']]
-    const PTS = [50, 30, 20, 15, 10]
-
-    const makeEnemies = (lvl) => {
-      const rows = Math.min(lvl, 5)
-      const out = []
-      for (let r = 0; r < rows; r++)
-        for (let c = 0; c < COLS; c++)
-          out.push({ col:c, row:r, emoji:EMOJIS[Math.min(r,2)][c%2], pts:PTS[Math.min(r,2)], alive:true })
-      return out
+    const onKey = (e) => {
+      const down = e.type === 'keydown'
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') keysRef.current.left = down
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') keysRef.current.right = down
+      if (e.code === 'Space') keysRef.current.shoot = down
+      if (['ArrowLeft','ArrowRight','Space','KeyA','KeyD'].includes(e.code)) e.preventDefault()
+      if (down && status !== 'playing' && e.code === 'Space') resetGame()
     }
-
-    const stars = Array.from({length:70},()=>({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.4+0.3,t:Math.random()*Math.PI*2}))
-
-    const s = {
-      enemies: makeEnemies(1), gridX:GRID_L, gridY:GRID_T, gridVX:0.9,
-      player:{x:W/2,bullets:[]}, eBullets:[], particles:[], floats:[],
-      score:0, lives:5, level:1, frame:0,
-      state:'playing', lvTimer:0, keys:{}, shootCD:0, eShootT:100,
-      factIdx:0, fact:'', factTimer:0,
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('keyup', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKey)
     }
+  }, [status, resetGame])
 
-    const alive = () => s.enemies.filter(e=>e.alive)
-    const bounds = () => {
-      const a = alive(); if(!a.length) return null
-      return {
-        l: Math.min(...a.map(e=>s.gridX+e.col*EW)),
-        r: Math.max(...a.map(e=>s.gridX+e.col*EW+EW)),
-        b: Math.max(...a.map(e=>s.gridY+e.row*EH+EH)),
-      }
-    }
-    const explode = (x,y,col) => {
-      for(let i=0;i<10;i++){const a=Math.random()*Math.PI*2,sp=2+Math.random()*3; s.particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:3+Math.random()*2,life:28,max:28,col}) }
-    }
-    const shootEnemy = () => {
-      const cols={}; for(const e of s.enemies){if(!e.alive)continue;if(cols[e.col]===undefined||e.row>cols[e.col].row)cols[e.col]=e}
-      const shooters=Object.values(cols); if(!shooters.length)return
-      const sh=shooters[Math.floor(Math.random()*shooters.length)]
-      s.eBullets.push({x:s.gridX+sh.col*EW+EW/2,y:s.gridY+sh.row*EH+EH,vy:1.8+s.level*0.28})
-    }
-    const nextWave = () => {
-      s.level++; s.gridX=GRID_L; s.gridY=GRID_T; s.gridVX=0.9+s.level*0.35
-      s.enemies=makeEnemies(s.level); s.eBullets=[]; s.player.bullets=[]; s.state='playing'
-    }
+  useEffect(() => {
+    if (status !== 'playing') return
+    const iv = setInterval(() => {
+      const g = gameRef.current
+      if (!g) return
 
-    const onKey = e => {
-      s.keys[e.code]=e.type==='keydown'
-      if(['Space','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault()
-      if(e.type==='keydown'&&e.code==='Space'&&s.state==='playing'&&s.shootCD<=0){
-        s.player.bullets.push({x:s.player.x,y:PLAYER_Y-20,vy:-10})
-        s.shootCD=10; play('drop')
-      }
-    }
-    window.addEventListener('keydown',onKey); window.addEventListener('keyup',onKey)
+      if (keysRef.current.left) g.playerX = Math.max(-7, g.playerX - 0.24)
+      if (keysRef.current.right) g.playerX = Math.min(7, g.playerX + 0.24)
+      if (g.shootCd > 0) g.shootCd--
+      if (g.enemyShootCd > 0) g.enemyShootCd--
 
-    let raf
-    const loop = () => {
-      s.frame++
-      ctx.fillStyle='#050c1a'; ctx.fillRect(0,0,W,H)
-      // stars
-      for(const st of stars){st.t+=0.025;ctx.fillStyle=`rgba(148,163,184,${0.35+Math.sin(st.t)*0.3})`;ctx.beginPath();ctx.arc(st.x,st.y,st.r,0,Math.PI*2);ctx.fill()}
-
-      /* ── GAME OVER ── */
-      if(s.state==='gameover'){
-        ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(0,0,W,H)
-        ctx.textAlign='center'; ctx.fillStyle='#ef4444'; ctx.font='bold 38px system-ui'
-        ctx.fillText('GAME OVER',W/2,H/2-28)
-        ctx.fillStyle='#fbbf24'; ctx.font='bold 22px system-ui'
-        ctx.fillText(`Score: ${s.score}  Level: ${s.level}`,W/2,H/2+10)
-        ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.font='14px system-ui'
-        ctx.fillText('Press SPACE to play again',W/2,H/2+44)
-        ctx.textAlign='left'
-        if(s.keys['Space']){s.score=0;s.lives=5;s.level=1;s.enemies=makeEnemies(1);s.gridX=GRID_L;s.gridY=GRID_T;s.gridVX=0.9;s.eBullets=[];s.player.bullets=[];s.particles=[];s.floats=[];s.state='playing';s.keys={}}
-        raf=requestAnimationFrame(loop);return
+      if (keysRef.current.shoot && g.shootCd <= 0) {
+        g.bullets.push({ id:`b_${Date.now()}_${Math.random()}`, x:g.playerX, y:-5.55 })
+        g.shootCd = 12
+        play('drop')
       }
 
-      /* ── LEVEL UP ── */
-      if(s.state==='lvup'){
-        s.lvTimer--
-        ctx.fillStyle='rgba(0,0,0,0.65)';ctx.fillRect(W/4-20,H/3-10,W/2+40,120)
-        ctx.textAlign='center'; ctx.fillStyle='#fbbf24'; ctx.font='bold 28px system-ui'
-        ctx.fillText(`⭐ WAVE ${s.level} CLEAR!`,W/2,H/3+28)
-        ctx.fillStyle='#38bdf8'; ctx.font='14px system-ui'
-        ctx.fillText(`Prepare for Wave ${s.level+1}`,W/2,H/3+58)
-        if(s.fact){ctx.fillStyle='rgba(255,255,255,0.6)';ctx.font='11px system-ui';ctx.fillText(`💡 ${s.fact.slice(0,70)}`,W/2,H/3+84)}
-        ctx.textAlign='left'
-        if(s.lvTimer<=0) nextWave()
-        raf=requestAnimationFrame(loop);return
+      if (g.waveTimer > 0) {
+        g.waveTimer--
+        if (g.waveTimer === 0) {
+          g.level += 1
+          g.enemies = makeEnemies(g.level)
+          g.enemyBullets = []
+          g.bullets = []
+          g.speed = Math.min(0.018 + g.level * 0.006, 0.06)
+          setLevel(g.level)
+          setFact(FACTS[(factIdxRef.current++) % FACTS.length])
+          play('levelUp')
+        }
+        setTick(t => t + 1)
+        return
       }
 
-      /* ── PLAYING ── */
-      s.shootCD=Math.max(0,s.shootCD-1)
-      if(s.keys['ArrowLeft']||s.keys['KeyA']) s.player.x=Math.max(22,s.player.x-5.8)
-      if(s.keys['ArrowRight']||s.keys['KeyD']) s.player.x=Math.min(W-22,s.player.x+5.8)
+      g.bullets = g.bullets.map(b => ({ ...b, y:b.y + 0.42 })).filter(b => b.y < 8)
+      g.enemyBullets = g.enemyBullets.map(b => ({ ...b, y:b.y - (0.18 + g.level * 0.012) })).filter(b => b.y > -7)
 
-      // grid move
-      const b=bounds()
-      if(b){
-        const liveCount=alive().length
-        const speedMult=1+(1-liveCount/(COLS*Math.min(s.level,5)))*1.2
-        s.gridX+=s.gridVX*speedMult
-        if(b.r>=W-8||b.l<=8){s.gridVX*=-1;s.gridY+=16}
-        if(b.b>=PLAYER_Y-28){s.lives=0;s.state='gameover';onComplete(s.score);raf=requestAnimationFrame(loop);return}
+      if (g.enemies.length) {
+        let minX = Infinity
+        let maxX = -Infinity
+        for (const e of g.enemies) {
+          e.x += g.dir * g.speed
+          minX = Math.min(minX, e.x)
+          maxX = Math.max(maxX, e.x)
+        }
+        if (maxX > 7 || minX < -7) {
+          g.dir *= -1
+          g.enemies.forEach(e => { e.y -= 0.28 })
+        }
       }
 
-      // player bullets
-      s.player.bullets=s.player.bullets.filter(b=>b.y>-10)
-      for(const pb of s.player.bullets){
-        pb.y+=pb.vy
-        for(const e of s.enemies){
-          if(!e.alive)continue
-          const ex=s.gridX+e.col*EW,ey=s.gridY+e.row*EH
-          if(pb.x>ex+4&&pb.x<ex+EW-4&&pb.y>ey&&pb.y<ey+EH){
-            e.alive=false;pb.y=-999;s.score+=e.pts
-            explode(pb.x,ey+EH/2,'#fbbf24')
-            s.floats.push({x:pb.x,y:ey,text:`+${e.pts}`,col:'#fbbf24',life:38,max:38})
-            play('correct')
-            if(s.score%50===0){s.fact=FACTS[(s.factIdx++)%FACTS.length];s.factTimer=240}
+      if (g.enemyShootCd <= 0 && g.enemies.length) {
+        const shooter = g.enemies[Math.floor(Math.random() * g.enemies.length)]
+        g.enemyBullets.push({ id:`eb_${Date.now()}_${Math.random()}`, x:shooter.x, y:shooter.y - 0.45 })
+        g.enemyShootCd = Math.max(30, 95 - g.level * 6)
+      }
+
+      const bulletsLeft = []
+      for (const b of g.bullets) {
+        let hit = false
+        for (let i = 0; i < g.enemies.length; i++) {
+          const e = g.enemies[i]
+          if (Math.abs(b.x - e.x) < 0.55 && Math.abs(b.y - e.y) < 0.48) {
+            hit = true
+            e.hp -= 1
+            if (e.hp <= 0) {
+              g.enemies.splice(i, 1)
+              g.score += 10 + g.level * 3
+              setScore(g.score)
+              play('correct')
+            }
             break
           }
         }
+        if (!hit) bulletsLeft.push(b)
       }
+      g.bullets = bulletsLeft
 
-      // enemy bullets
-      s.eShootT--
-      if(s.eShootT<=0){shootEnemy();s.eShootT=Math.max(32,100-s.level*7)}
-      s.eBullets=s.eBullets.filter(b=>b.y<H)
-      for(const eb of s.eBullets){
-        eb.y+=eb.vy
-        if(Math.abs(eb.x-s.player.x)<20&&eb.y>PLAYER_Y-22&&eb.y<PLAYER_Y+18){
-          s.eBullets=s.eBullets.filter(b=>b!==eb)
-          s.lives--;explode(s.player.x,PLAYER_Y,'#ef4444');play('wrong')
-          if(s.lives<=0){s.state='gameover';onComplete(s.score)}
+      const aliveEnemyBullets = []
+      for (const b of g.enemyBullets) {
+        if (Math.abs(b.x - g.playerX) < 0.65 && b.y < -5.25 && b.y > -6.2) {
+          g.lives -= 1
+          setLives(g.lives)
+          play('wrong')
+        } else {
+          aliveEnemyBullets.push(b)
         }
       }
+      g.enemyBullets = aliveEnemyBullets
 
-      // particles & floats
-      s.particles=s.particles.filter(p=>p.life-->0); s.particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vx*=0.93;p.vy*=0.93})
-      s.floats=s.floats.filter(f=>f.life-->0); s.floats.forEach(f=>{f.y-=0.7})
-      if(s.factTimer>0) s.factTimer--
+      if (g.enemies.some(e => e.y < -4.8)) g.lives = 0
 
-      // wave clear
-      if(alive().length===0){s.state='lvup';s.lvTimer=110;s.fact=FACTS[(s.factIdx++)%FACTS.length];play('levelUp')}
-
-      // draw enemies
-      ctx.font='28px serif';ctx.textAlign='center';ctx.textBaseline='middle'
-      for(const e of s.enemies){
-        if(!e.alive)continue
-        ctx.fillText(e.emoji,s.gridX+e.col*EW+EW/2,s.gridY+e.row*EH+EH/2-4)
-      }
-      ctx.textAlign='left';ctx.textBaseline='alphabetic'
-
-      // draw player
-      ctx.save();ctx.translate(s.player.x,PLAYER_Y)
-      ctx.shadowColor='#38bdf8';ctx.shadowBlur=18
-      ctx.fillStyle='#1d4ed8';ctx.beginPath();ctx.moveTo(0,-22);ctx.lineTo(16,10);ctx.lineTo(0,4);ctx.lineTo(-16,10);ctx.closePath();ctx.fill()
-      ctx.fillStyle='#7dd3fc';ctx.beginPath();ctx.moveTo(0,-12);ctx.lineTo(7,2);ctx.lineTo(0,-1);ctx.lineTo(-7,2);ctx.closePath();ctx.fill()
-      const fh=8+Math.sin(s.frame*0.35)*5
-      ctx.fillStyle='#fbbf24';ctx.beginPath();ctx.moveTo(-5,10);ctx.lineTo(5,10);ctx.lineTo(0,10+fh);ctx.closePath();ctx.fill()
-      ctx.shadowBlur=0;ctx.restore()
-
-      // draw bullets
-      for(const pb of s.player.bullets){
-        ctx.shadowColor='#38bdf8';ctx.shadowBlur=10
-        const g=ctx.createLinearGradient(0,pb.y-16,0,pb.y);g.addColorStop(0,'rgba(56,189,248,0)');g.addColorStop(1,'#38bdf8')
-        ctx.fillStyle=g;ctx.fillRect(pb.x-2,pb.y-16,4,16);ctx.shadowBlur=0
-      }
-      for(const eb of s.eBullets){
-        ctx.shadowColor='#f97316';ctx.shadowBlur=8
-        const g=ctx.createLinearGradient(0,eb.y,0,eb.y+14);g.addColorStop(0,'#f97316');g.addColorStop(1,'rgba(249,115,22,0)')
-        ctx.fillStyle=g;ctx.fillRect(eb.x-2,eb.y,4,14);ctx.shadowBlur=0
+      if (g.lives <= 0) {
+        if (!g.overSent) {
+          g.overSent = true
+          setStatus('gameover')
+          if (!completedRef.current) {
+            completedRef.current = true
+            onComplete(g.score)
+          }
+        }
+      } else if (g.enemies.length === 0 && g.waveTimer === 0) {
+        g.waveTimer = 70
       }
 
-      // particles
-      for(const p of s.particles){ctx.globalAlpha=p.life/p.max;ctx.fillStyle=p.col;ctx.beginPath();ctx.arc(p.x,p.y,p.r*(p.life/p.max),0,Math.PI*2);ctx.fill()}
-      ctx.globalAlpha=1
+      setTick(t => t + 1)
+    }, 16)
+    return () => clearInterval(iv)
+  }, [status, makeEnemies, onComplete, play])
 
-      // floats
-      ctx.textAlign='center'
-      for(const f of s.floats){ctx.globalAlpha=f.life/f.max;ctx.fillStyle=f.col;ctx.font='bold 14px system-ui';ctx.fillText(f.text,f.x,f.y)}
-      ctx.globalAlpha=1;ctx.textAlign='left'
+  useEffect(() => { resetGame() }, [resetGame])
 
-      // HUD
-      ctx.fillStyle='#94a3b8';ctx.font='bold 13px system-ui';ctx.fillText(`SCORE  ${s.score}`,12,22)
-      ctx.fillStyle='#fbbf24';ctx.fillText(`WAVE ${s.level}`,12,40)
-      ctx.textAlign='right';ctx.fillStyle='white';ctx.fillText(`${'❤️'.repeat(Math.max(0,s.lives))}`,W-12,22);ctx.textAlign='left'
-      if(s.factTimer>0&&s.fact){
-        ctx.fillStyle='rgba(0,0,0,0.65)';ctx.fillRect(0,H-36,W,36)
-        ctx.fillStyle='#38bdf8';ctx.font='11px system-ui';ctx.textAlign='center'
-        ctx.fillText(`💡 ${s.fact}`,W/2,H-13);ctx.textAlign='left'
-      }
+  const game = gameRef.current || { playerX:0, bullets:[], enemyBullets:[], enemies:[] }
 
-      raf=requestAnimationFrame(loop)
-    }
-    raf=requestAnimationFrame(loop)
-    return()=>{cancelAnimationFrame(raf);window.removeEventListener('keydown',onKey);window.removeEventListener('keyup',onKey)}
-  },[])
-
-  return(
+  return (
     <div className="flex flex-col items-center gap-3">
-      <canvas ref={canvasRef} style={{borderRadius:12,border:'2px solid rgba(56,189,248,0.25)'}}/>
-      <p className="text-sm font-medium text-center" style={{color:'var(--text-muted)'}}>← → to move · SPACE to shoot · clear all enemies to advance waves!</p>
+      <div className="w-full" style={{ height: 480, borderRadius:12, overflow:'hidden', border:'2px solid rgba(56,189,248,0.25)' }}>
+        <Canvas camera={{ position:[0, 0, 14], fov:58 }}>
+          <color attach="background" args={['#020617']} />
+          <fog attach="fog" args={['#020617', 14, 28]} />
+          <ambientLight intensity={0.6} />
+          <pointLight position={[0, 9, 8]} intensity={1.7} color="#7dd3fc" />
+          <pointLight position={[-8, -3, 6]} intensity={0.9} color="#f97316" />
+          <Stars radius={70} depth={30} count={1300} factor={2.6} fade speed={1.6} />
+
+          <mesh position={[game.playerX, -5.8, 0]}>
+            <coneGeometry args={[0.55, 1.25, 7]} />
+            <meshStandardMaterial color="#38bdf8" emissive="#0ea5e9" emissiveIntensity={0.45} metalness={0.2} roughness={0.35} />
+          </mesh>
+
+          {game.enemies.map((e) => (
+            <mesh key={e.id} position={[e.x, e.y, 0]} rotation={[tick * 0.01, tick * 0.015, 0]}>
+              <octahedronGeometry args={[0.42 + e.hp * 0.08, 0]} />
+              <meshStandardMaterial color={e.hp > 1 ? '#fb7185' : '#f43f5e'} emissive="#7f1d1d" emissiveIntensity={0.4} metalness={0.4} roughness={0.28} />
+            </mesh>
+          ))}
+
+          {game.bullets.map((b) => (
+            <mesh key={b.id} position={[b.x, b.y, 0]}>
+              <capsuleGeometry args={[0.08, 0.34, 3, 6]} />
+              <meshStandardMaterial color="#67e8f9" emissive="#22d3ee" emissiveIntensity={1.1} toneMapped={false} />
+            </mesh>
+          ))}
+
+          {game.enemyBullets.map((b) => (
+            <mesh key={b.id} position={[b.x, b.y, 0]}>
+              <sphereGeometry args={[0.11, 10, 10]} />
+              <meshStandardMaterial color="#fb923c" emissive="#f97316" emissiveIntensity={1} toneMapped={false} />
+            </mesh>
+          ))}
+
+          <mesh position={[0, -6.8, -1]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[18, 6]} />
+            <meshStandardMaterial color="#0f172a" metalness={0.1} roughness={0.9} />
+          </mesh>
+        </Canvas>
+      </div>
+
+      <div className="w-full flex items-center justify-between text-sm font-bold" style={{color:'var(--text)'}}>
+        <span>Score: <span style={{color:'#22d3ee'}}>{score}</span></span>
+        <span>Wave: <span style={{color:'#fbbf24'}}>{level}</span></span>
+        <span>Lives: {'❤️'.repeat(Math.max(0, lives))}</span>
+      </div>
+
+      {fact && status === 'playing' && (
+        <div className="w-full text-center text-xs" style={{color:'#38bdf8'}}>
+          {fact}
+        </div>
+      )}
+
+      {status === 'gameover' && (
+        <button onClick={resetGame} className="btn-primary px-6 py-2">Play Again</button>
+      )}
+
+      <p className="text-sm font-medium text-center" style={{color:'var(--text-muted)'}}>
+        A / D or ← / → to move · SPACE to fire · hold fire for arcade mode
+      </p>
     </div>
   )
 }
@@ -299,8 +332,8 @@ function WaterRush({ onComplete }) {
     const s={
       p:{y:FY-PS,vy:0,onGr:true,djLeft:1},
       obs:[],gems:[],parts:[],trail:[],
-      speed:2.5,frame:0,score:0,level:1,alive:true,started:false,
-      nextObs:80,nextGem:50,lvTimer:0,lvFact:'',factIdx:0,
+      speed:2.0,frame:0,score:0,level:1,alive:true,started:false,
+      nextObs:120,nextGem:50,lvTimer:0,lvFact:'',factIdx:0,
     }
 
     const jump=()=>{
@@ -312,8 +345,8 @@ function WaterRush({ onComplete }) {
     const restart=()=>{
       s.p={y:FY-PS,vy:0,onGr:true,djLeft:1}
       s.obs=[];s.gems=[];s.parts=[];s.trail=[]
-      s.speed=2.5;s.frame=0;s.score=0;s.level=1;s.alive=true;s.started=false
-      s.nextObs=80;s.nextGem=50;s.lvTimer=0;s.lvFact=''
+      s.speed=2.0;s.frame=0;s.score=0;s.level=1;s.alive=true;s.started=false
+      s.nextObs=120;s.nextGem=50;s.lvTimer=0;s.lvFact=''
     }
     const onKey=e=>{if(['Space','ArrowUp'].includes(e.code)||e.key===' '){e.preventDefault();jump()}}
     canvas.addEventListener('click',jump)
@@ -349,9 +382,9 @@ function WaterRush({ onComplete }) {
         // spawn obstacles
         s.nextObs--
         if(s.nextObs<=0){
-          const h=14+Math.random()*(6+s.level*5);s.obs.push({x:W+10,w:28,h:Math.min(h,65)})
+          const h=12+Math.random()*(5+s.level*4);s.obs.push({x:W+10,w:28,h:Math.min(h,58)})
           if(Math.random()<0.12+s.level*0.03) s.obs.push({x:W+90+Math.random()*30,w:22,h:20})
-          s.nextObs=Math.max(52,105-s.level*4)+Math.floor(Math.random()*40)
+          s.nextObs=Math.max(70,130-s.level*5)+Math.floor(Math.random()*45)
         }
         s.obs=s.obs.map(o=>({...o,x:o.x-s.speed})).filter(o=>o.x+o.w>-10)
 
@@ -378,7 +411,7 @@ function WaterRush({ onComplete }) {
           if(!g.col&&PX+PS>g.x-8&&PX<g.x+8&&s.p.y<g.y+8&&s.p.y+PS>g.y-8){
             g.col=true;s.score++;play('drop')
             for(let i=0;i<5;i++){const a=Math.random()*Math.PI*2;s.parts.push({x:g.x,y:g.y,vx:Math.cos(a)*2,vy:Math.sin(a)*2,life:16,max:16,col:'#fbbf24',r:3})}
-            if(s.score%8===0){s.level++;s.speed=Math.min(2.5+s.level*0.55,10);s.lvTimer=70;s.lvFact=FACTS[(s.factIdx++)%FACTS.length];play('levelUp')}
+            if(s.score%10===0){s.level++;s.speed=Math.min(2.0+s.level*0.45,8.5);s.lvTimer=70;s.lvFact=FACTS[(s.factIdx++)%FACTS.length];play('levelUp')}
           }
         }
 
@@ -463,7 +496,7 @@ const PH_Q=[
 ]
 const PH_COL={acid:'#ef4444',safe:'#22c55e',base:'#3b82f6'}
 const PH_LBL={acid:'🔴 ACID  (< 6.5)',safe:'🟢 SAFE  (6.5–8.5)',base:'🔵 BASE  (> 8.5)'}
-const TIME_LVL=[8000,6000,4500,3200,2200]
+const TIME_LVL=[12000,9000,6500,5000,3500]
 
 function PHPanic({ onComplete }) {
   const { play } = useSound()
@@ -583,14 +616,14 @@ function PHPanic({ onComplete }) {
 /* ═══════════════════════════════════════════════════════════
    GAME 4 — TRIVIA BLITZ (4 levels, streaks, speed)
 ═══════════════════════════════════════════════════════════ */
-const DECAY=[0.55,0.85,1.25,1.75]
+const DECAY=[0.35,0.65,0.95,1.35]
 const LVL_NAMES=['💧 Water Basics','🧪 Chemistry','🌿 Ecology','🏔️ Northern ON Expert']
 
 function TriviaBlitz({ onComplete }) {
   const { play } = useSound()
   const [level,setLevel]=useState(1)
   const [qIdx,setQIdx]=useState(0)
-  const [lives,setLives]=useState(5)
+  const [lives,setLives]=useState(6)
   const [score,setScore]=useState(0)
   const [streak,setStreak]=useState(0)
   const [sel,setSel]=useState(null)
@@ -599,7 +632,7 @@ function TriviaBlitz({ onComplete }) {
   const [phase,setPhase]=useState('q') // q | fb | lvup
   const [nRight,setNRight]=useState(0)
 
-  const lR=useRef(5),sR=useRef(0),stR=useRef(0),phR=useRef('q'),lvR=useRef(1)
+  const lR=useRef(6),sR=useRef(0),stR=useRef(0),phR=useRef('q'),lvR=useRef(1)
   const QPL=5
 
   const levelQs=useMemo(()=>TRIVIA.filter(q=>q.lvl===lvR.current),[level])
@@ -752,7 +785,7 @@ function WaterSnake({ onComplete }) {
       snake:[{x:10,y:10},{x:9,y:10},{x:8,y:10}],
       dir:{x:1,y:0},nextDir:{x:1,y:0},
       food:[spawn()],poison:[spawn()],
-      score:0,alive:true,started:false,frame:0,tickRate:13,level:1,factIdx:0,factTimer:0,fact:'',
+      score:0,alive:true,started:false,frame:0,tickRate:15,level:1,factIdx:0,factTimer:0,fact:'',
     }
     stateRef.current=s
 
@@ -857,7 +890,7 @@ function WaterSnake({ onComplete }) {
     const rand=n=>Math.floor(Math.random()*n)
     s.snake=[{x:10,y:10},{x:9,y:10},{x:8,y:10}];s.dir={x:1,y:0};s.nextDir={x:1,y:0}
     s.food=[{x:rand(20),y:rand(20)}];s.poison=[{x:rand(20),y:rand(20)}]
-    s.score=0;s.alive=true;s.started=true;s.frame=0;s.tickRate=13;s.level=1;s.factTimer=0;s.fact=''
+    s.score=0;s.alive=true;s.started=true;s.frame=0;s.tickRate=15;s.level=1;s.factTimer=0;s.fact=''
     setScore(0);setDead(false);setLevel(1);setFact('')
     const canvas=canvasRef.current; if(!canvas) return
     const ctx=canvas.getContext('2d')
@@ -904,116 +937,188 @@ function WaterSnake({ onComplete }) {
    GAME 6 — FLAPPY FISH (with levels)
 ═══════════════════════════════════════════════════════════ */
 function FlappyFish({ onComplete }) {
-  const canvasRef=useRef(null),stateRef=useRef(null)
-  const [score,setScore]=useState(0),[dead,setDead]=useState(false),[started,setStarted]=useState(false)
-  const [level,setLevel]=useState(1)
-  const { play }=useSound()
+  const { play } = useSound()
+  const [score, setScore] = useState(0)
+  const [level, setLevel] = useState(1)
+  const [status, setStatus] = useState('ready')
+  const [fact, setFact] = useState('')
+  const [tick, setTick] = useState(0)
 
-  useEffect(()=>{
-    const canvas=canvasRef.current; if(!canvas) return
-    const ctx=canvas.getContext('2d')
-    const W=400,H=500; canvas.width=W; canvas.height=H
-    const PIPE_W=48,GRAVITY=0.15,JUMP=-4.2
+  const stateRef = useRef(null)
+  const doneRef = useRef(false)
+  const factIdxRef = useRef(0)
 
-    const s={fish:{x:80,y:H/2,vy:0,alive:true},pipes:[],score:0,frame:0,started:false,gap:290,speed:1.1,level:1,factIdx:0,fact:'',factTimer:0}
-    stateRef.current=s
-
-    const spawnPipe=()=>{const top=80+Math.random()*(H-s.gap-160);s.pipes.push({x:W,top,scored:false})}
-    const jump=()=>{
-      if(!s.fish.alive){restart();return}
-      if(!s.started){s.started=true;setStarted(true)}
-      s.fish.vy=JUMP
+  const resetGame = useCallback(() => {
+    stateRef.current = {
+      y: 0,
+      vy: 0,
+      score: 0,
+      level: 1,
+      speed: 0.14,
+      gap: 3.6,
+      gates: [],
+      spawnCd: 95,
+      started: false,
+      frame: 0,
     }
-    const onKey=e=>{if(e.code==='Space'||e.key===' '||e.key==='ArrowUp'){e.preventDefault();jump()}}
-    window.addEventListener('keydown',onKey);canvas.addEventListener('click',jump)
+    doneRef.current = false
+    setScore(0)
+    setLevel(1)
+    setFact('')
+    setStatus('ready')
+  }, [])
 
-    const drawFish=(x,y,vy)=>{
-      ctx.save();ctx.translate(x,y);const tilt=Math.max(-25,Math.min(35,vy*3.5));ctx.rotate(tilt*Math.PI/180)
-      ctx.fillStyle='#38bdf8';ctx.beginPath();ctx.ellipse(0,0,18,12,0,0,Math.PI*2);ctx.fill()
-      ctx.fillStyle='#0ea5e9';ctx.beginPath();ctx.moveTo(-14,0);ctx.lineTo(-24,-10);ctx.lineTo(-24,10);ctx.closePath();ctx.fill()
-      ctx.fillStyle='white';ctx.beginPath();ctx.arc(8,-3,5,0,Math.PI*2);ctx.fill()
-      ctx.fillStyle='#0f172a';ctx.beginPath();ctx.arc(9,-3,2.5,0,Math.PI*2);ctx.fill()
-      ctx.fillStyle='rgba(255,255,255,0.5)';ctx.beginPath();ctx.arc(10,-4,1,0,Math.PI*2);ctx.fill()
-      ctx.fillStyle='#7dd3fc';ctx.beginPath();ctx.moveTo(2,-12);ctx.lineTo(10,-18);ctx.lineTo(14,-8);ctx.closePath();ctx.fill()
-      ctx.restore()
-    }
+  useEffect(() => { resetGame() }, [resetGame])
 
-    const drawPipe=(x,top)=>{
-      const g1=ctx.createLinearGradient(x,0,x+PIPE_W,0);g1.addColorStop(0,'#059669');g1.addColorStop(1,'#10b981')
-      ctx.fillStyle=g1;ctx.fillRect(x,0,PIPE_W,top);ctx.fillStyle='#047857';ctx.fillRect(x-4,top-20,PIPE_W+8,20)
-      const bot=top+s.gap
-      const g2=ctx.createLinearGradient(x,0,x+PIPE_W,0);g2.addColorStop(0,'#059669');g2.addColorStop(1,'#10b981')
-      ctx.fillStyle=g2;ctx.fillRect(x,bot,PIPE_W,H-bot);ctx.fillStyle='#047857';ctx.fillRect(x-4,bot,PIPE_W+8,20)
-    }
-
-    const restart=()=>{
-      s.fish.y=H/2;s.fish.vy=0;s.fish.alive=true;s.pipes=[];s.score=0;s.started=false;s.frame=0
-      s.gap=290;s.speed=1.1;s.level=1;s.fact='';s.factTimer=0
-      setScore(0);setDead(false);setStarted(false);setLevel(1)
-    }
-
-    let raf
-    const loop=()=>{
-      s.frame++
-      const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#0f172a');bg.addColorStop(0.4,'#0c4a6e');bg.addColorStop(1,'#164e63')
-      ctx.fillStyle=bg;ctx.fillRect(0,0,W,H)
-      ctx.fillStyle='rgba(148,163,184,0.1)';[40,120,200,280,360].forEach((bx,i)=>{const by=(s.frame*0.4+i*80)%H;ctx.beginPath();ctx.arc(bx,by,4+i%3,0,Math.PI*2);ctx.fill()})
-
-      if(!s.started){
-        drawFish(s.fish.x,s.fish.y+Math.sin(s.frame*0.07)*8,0)
-        ctx.fillStyle='rgba(0,0,0,0.55)';ctx.fillRect(W/2-100,H/2-50,200,80)
-        ctx.fillStyle='white';ctx.font='bold 18px system-ui';ctx.textAlign='center';ctx.fillText('🐟 Flappy Fish',W/2,H/2-18)
-        ctx.fillStyle='rgba(255,255,255,0.7)';ctx.font='13px system-ui';ctx.fillText('Click or Space to start',W/2,H/2+14)
-        ctx.textAlign='left';raf=requestAnimationFrame(loop);return
+  useEffect(() => {
+    const jump = () => {
+      const s = stateRef.current
+      if (!s) return
+      if (status === 'gameover') {
+        resetGame()
+        return
       }
-      if(!s.fish.alive){
-        s.pipes.forEach(p=>drawPipe(p.x,p.top));drawFish(s.fish.x,s.fish.y,s.fish.vy)
-        ctx.fillStyle='rgba(0,0,0,0.65)';ctx.fillRect(W/2-90,H/2-55,180,110)
-        ctx.fillStyle='white';ctx.font='bold 20px system-ui';ctx.textAlign='center';ctx.fillText('💀 Game Over',W/2,H/2-18)
-        ctx.fillStyle='#fbbf24';ctx.font='bold 22px system-ui';ctx.fillText(`Score: ${s.score}`,W/2,H/2+10)
-        ctx.fillStyle='rgba(255,255,255,0.65)';ctx.font='12px system-ui';ctx.fillText(`Level ${s.level} reached — click to retry`,W/2,H/2+40)
-        ctx.textAlign='left';cancelAnimationFrame(raf);return
+      if (status === 'ready') setStatus('playing')
+      s.started = true
+      s.vy = 0.28
+      play('drop')
+    }
+    const onKey = (e) => {
+      if (e.code === 'Space' || e.code === 'ArrowUp') {
+        e.preventDefault()
+        jump()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [status, play, resetGame])
+
+  useEffect(() => {
+    if (status !== 'playing') return
+    const iv = setInterval(() => {
+      const s = stateRef.current
+      if (!s) return
+
+      s.frame += 1
+      s.vy -= 0.022
+      s.y += s.vy
+      s.y = THREE.MathUtils.clamp(s.y, -4.6, 4.6)
+
+      s.spawnCd -= 1
+      if (s.spawnCd <= 0) {
+        s.gates.push({ id:`g_${Date.now()}_${Math.random()}`, x: 12, gapY: (Math.random() * 5.2) - 2.6, scored:false })
+        s.spawnCd = Math.max(62, 94 - s.level * 4)
       }
 
-      s.fish.vy+=GRAVITY;s.fish.y+=s.fish.vy
-      if(s.fish.y>H-16||s.fish.y<16){s.fish.alive=false;setDead(true);play('wrong');onComplete(s.score*5);cancelAnimationFrame(raf);return}
-      if(s.frame%90===0) spawnPipe()
-      s.pipes=s.pipes.filter(p=>p.x>-PIPE_W)
-      s.pipes.forEach(p=>{
-        p.x-=s.speed
-        if(!p.scored&&p.x+PIPE_W<s.fish.x){
-          p.scored=true;s.score++;setScore(s.score);play('drop')
-          const nl=Math.floor(s.score/8)+1
-          if(nl>s.level){s.level=nl;setLevel(nl);s.gap=Math.max(170,290-(nl-1)*15);s.speed=Math.min(2.6,1.1+(nl-1)*0.18);s.fact=FACTS[(s.factIdx++)%FACTS.length];s.factTimer=150;play('levelUp')}
+      s.gates = s.gates.filter(g => g.x > -9)
+      s.gates.forEach(g => {
+        g.x -= s.speed
+        if (!g.scored && g.x < -2.3) {
+          g.scored = true
+          s.score += 1
+          setScore(s.score)
+          play('correct')
+
+          const nextLevel = Math.floor(s.score / 8) + 1
+          if (nextLevel > s.level) {
+            s.level = nextLevel
+            s.speed = Math.min(0.32, 0.14 + (nextLevel - 1) * 0.018)
+            s.gap = Math.max(2.6, 3.6 - (nextLevel - 1) * 0.11)
+            setLevel(nextLevel)
+            setFact(FACTS[(factIdxRef.current++) % FACTS.length])
+            play('levelUp')
+          }
         }
-        if(s.fish.x+14>p.x&&s.fish.x-14<p.x+PIPE_W){
-          if(s.fish.y-12<p.top||s.fish.y+12>p.top+s.gap){s.fish.alive=false;setDead(true);play('wrong');cancelAnimationFrame(raf);onComplete(s.score*5);return}
+
+        const nearX = Math.abs(g.x + 2.0) < 0.8
+        const inGap = s.y > (g.gapY - s.gap / 2) && s.y < (g.gapY + s.gap / 2)
+        if (nearX && !inGap) {
+          setStatus('gameover')
+          if (!doneRef.current) {
+            doneRef.current = true
+            onComplete(s.score * 6)
+          }
         }
-        drawPipe(p.x,p.top)
       })
-      drawFish(s.fish.x,s.fish.y,s.fish.vy)
-      if(s.factTimer>0) s.factTimer--
 
-      // HUD
-      ctx.fillStyle='rgba(0,0,0,0.4)';ctx.fillRect(W/2-50,10,100,54)
-      ctx.fillStyle='white';ctx.font='bold 24px system-ui';ctx.textAlign='center';ctx.fillText(s.score,W/2,38)
-      ctx.fillStyle='#fbbf24';ctx.font='bold 11px system-ui';ctx.fillText(`LEVEL ${s.level}`,W/2,56);ctx.textAlign='left'
-      if(s.factTimer>0&&s.fact){
-        ctx.fillStyle='rgba(0,0,0,0.65)';ctx.fillRect(0,H-34,W,34)
-        ctx.fillStyle='#38bdf8';ctx.font='10px system-ui';ctx.textAlign='center';ctx.fillText(`💡 ${s.fact.slice(0,65)}`,W/2,H-13);ctx.textAlign='left'
+      if (Math.abs(s.y) > 4.5) {
+        setStatus('gameover')
+        if (!doneRef.current) {
+          doneRef.current = true
+          onComplete(s.score * 6)
+        }
       }
 
-      raf=requestAnimationFrame(loop)
-    }
-    raf=requestAnimationFrame(loop)
-    return()=>{cancelAnimationFrame(raf);window.removeEventListener('keydown',onKey);canvas.removeEventListener('click',jump)}
-  },[])
+      setTick(t => t + 1)
+    }, 16)
+    return () => clearInterval(iv)
+  }, [status, onComplete, play])
+
+  const s = stateRef.current || { y:0, gates:[] }
 
   return(
     <div className="flex flex-col items-center gap-3">
-      {started&&!dead&&<div className="flex gap-4 text-sm font-bold"><span style={{color:'var(--text-muted)'}}>Score: <span style={{color:'#6366f1'}}>{score}</span></span><span style={{color:'#fbbf24'}}>Level {level}</span></div>}
-      <canvas ref={canvasRef} style={{borderRadius:16,cursor:'pointer',border:'2px solid rgba(99,102,241,0.3)'}}/>
-      {dead&&<button onClick={()=>{const s=stateRef.current;if(!s)return;s.fish.y=250;s.fish.vy=0;s.fish.alive=true;s.pipes=[];s.score=0;s.started=false;s.frame=0;s.gap=290;s.speed=1.1;s.level=1;setScore(0);setDead(false);setStarted(false);setLevel(1)}} className="btn-primary px-6 py-2">🔄 Play Again</button>}
+      <div className="w-full" style={{ height: 500, borderRadius:16, overflow:'hidden', border:'2px solid rgba(99,102,241,0.3)' }} onClick={() => {
+        if (status === 'gameover') resetGame()
+        else {
+          const st = stateRef.current
+          if (!st) return
+          if (status === 'ready') setStatus('playing')
+          st.started = true
+          st.vy = 0.28
+          play('drop')
+        }
+      }}>
+        <Canvas camera={{ position:[0, 0, 12], fov:58 }}>
+          <color attach="background" args={['#031525']} />
+          <fog attach="fog" args={['#031525', 12, 25]} />
+          <ambientLight intensity={0.55} />
+          <directionalLight position={[2, 4, 5]} intensity={1.4} color="#93c5fd" />
+          <pointLight position={[-6, -1, 3]} intensity={1} color="#22d3ee" />
+          <Stars radius={80} depth={40} count={1000} factor={2.2} fade speed={1.2} />
+
+          <mesh position={[-2, s.y, 0]} rotation={[0.2, 0, Math.max(-0.45, Math.min(0.45, s.vy * 1.7))]}>
+            <sphereGeometry args={[0.42, 24, 24]} />
+            <meshStandardMaterial color="#38bdf8" emissive="#0ea5e9" emissiveIntensity={0.6} metalness={0.2} roughness={0.3} />
+          </mesh>
+          <mesh position={[-2.45, s.y, 0]}>
+            <coneGeometry args={[0.2, 0.45, 10]} />
+            <meshStandardMaterial color="#bae6fd" emissive="#67e8f9" emissiveIntensity={0.7} />
+          </mesh>
+
+          {s.gates.map((g) => {
+            const topH = 8 - (g.gapY + s.gap / 2)
+            const botH = 8 + (g.gapY - s.gap / 2)
+            return (
+              <group key={g.id} position={[g.x, 0, 0]}>
+                <mesh position={[0, g.gapY + s.gap / 2 + topH / 2, 0]}>
+                  <boxGeometry args={[1.1, Math.max(0.1, topH), 1.1]} />
+                  <meshStandardMaterial color="#10b981" emissive="#065f46" emissiveIntensity={0.4} metalness={0.2} roughness={0.35} />
+                </mesh>
+                <mesh position={[0, -8 + botH / 2, 0]}>
+                  <boxGeometry args={[1.1, Math.max(0.1, botH), 1.1]} />
+                  <meshStandardMaterial color="#10b981" emissive="#065f46" emissiveIntensity={0.4} metalness={0.2} roughness={0.35} />
+                </mesh>
+              </group>
+            )
+          })}
+
+          <mesh position={[0, -8.1, -2]} rotation={[-Math.PI/2,0,0]}>
+            <planeGeometry args={[30, 18]} />
+            <meshStandardMaterial color="#082f49" roughness={1} />
+          </mesh>
+        </Canvas>
+      </div>
+
+      <div className="flex gap-4 text-sm font-bold">
+        <span style={{color:'var(--text-muted)'}}>Score: <span style={{color:'#6366f1'}}>{score}</span></span>
+        <span style={{color:'#fbbf24'}}>Level {level}</span>
+        <span style={{color:'var(--text-muted)'}}>Mode: 3D</span>
+      </div>
+
+      {fact && status === 'playing' && <div className="text-xs text-center" style={{color:'#38bdf8'}}>{fact}</div>}
+      {status === 'ready' && <div className="text-sm" style={{color:'var(--text-muted)'}}>Click canvas or press SPACE to boost upward</div>}
+      {status === 'gameover' && <button onClick={resetGame} className="btn-primary px-6 py-2">🔄 Play Again</button>}
     </div>
   )
 }
@@ -1022,12 +1127,12 @@ function FlappyFish({ onComplete }) {
    HUB
 ═══════════════════════════════════════════════════════════ */
 const GAMES=[
-  {id:'blaster',title:'Pollution Blaster',emoji:'🎯',desc:'Space Invaders — shoot waves of pollution. Faster each level. Earn facts on every kill!',points:'Unlimited',badge:'🔥 NEW',component:PollutionBlaster},
+  {id:'blaster',title:'Pollution Blaster',emoji:'🎯',desc:'3D arcade space shooter — destroy pollution drones, survive enemy fire, and clear escalating waves.',points:'Unlimited',badge:'🛰️ 3D',component:PollutionBlaster},
   {id:'rush',   title:'Water Rush',       emoji:'💧',desc:'Geometry Dash runner — jump over pollution spikes, collect gems, survive 8 speed levels!',points:'Unlimited',badge:'⚡ FAST',component:WaterRush},
   {id:'panic',  title:'pH Panic',         emoji:'⚗️', desc:'React fast — sort falling pH values into ACID, SAFE, or BASE before time runs out!',points:'Combo pts',badge:'🧪 LEARN',component:PHPanic},
   {id:'trivia', title:'Trivia Blitz',     emoji:'🎓',desc:'4 levels of water science — streaks multiply your score. Beat Grade S!',points:'Streak pts',badge:'🏆 XP',component:TriviaBlitz},
   {id:'snake',  title:'Water Snake',      emoji:'🐍',desc:'Classic snake — eat 💧 avoid ☠️ — speeds up each level. Water facts on every level-up!',points:'Unlimited',component:WaterSnake},
-  {id:'flappy', title:'Flappy Fish',      emoji:'🐟',desc:'Navigate a fish through shrinking gaps. Gap tightens and speed rises each level!',points:'Score × 5',badge:'😅 HARD',component:FlappyFish},
+  {id:'flappy', title:'Flappy Fish',      emoji:'🐟',desc:'3D reef runner — boost through moving gate tunnels as speed ramps and gaps tighten by level.',points:'Score × 6',badge:'🌌 3D',component:FlappyFish},
 ]
 
 export default function Games() {
