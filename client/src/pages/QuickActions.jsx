@@ -439,6 +439,7 @@ function MapBeacon({ portal, idx, onNav, active, docking, dockPulse }) {
   const isHub   = idx === 0
   const pinH    = isHub ? 2.8 : 2.0
   const headR   = isHub ? 0.28 : 0.20
+  const selected = hov || active || docking
 
   useEffect(() => {
     if (docking) dockTRef.current = performance.now()
@@ -446,7 +447,6 @@ function MapBeacon({ portal, idx, onNav, active, docking, dockPulse }) {
 
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime()
-    const selected = hov || active || docking
     const dockAge = dockTRef.current > 0 ? (performance.now() - dockTRef.current) / 1000 : 999
     const dockWave = dockAge < 1.15 ? (1 - dockAge / 1.15) : 0
 
