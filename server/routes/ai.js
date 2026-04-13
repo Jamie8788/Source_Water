@@ -214,7 +214,7 @@ router.post('/predict/:site_id', async (req, res) => {
     const observations = await db.all(
       `SELECT 
         observed_at, 
-        ph, dissolved_oxygen, temperature, turbidity,
+        ph, dissolved_oxygen, water_temp, turbidity,
         conductivity, nitrate_nitrogen, phosphorus,
         water_color, notes
       FROM observations 
@@ -241,7 +241,7 @@ router.post('/predict/:site_id', async (req, res) => {
         date: o.observed_at,
         ph: o.ph ? parseFloat(o.ph) : null,
         dissolved_oxygen: o.dissolved_oxygen ? parseFloat(o.dissolved_oxygen) : null,
-        temperature: o.temperature ? parseFloat(o.temperature) : null,
+        temperature: o.water_temp ? parseFloat(o.water_temp) : null,
         turbidity: o.turbidity ? parseFloat(o.turbidity) : null,
         conductivity: o.conductivity ? parseFloat(o.conductivity) : null,
         nitrate_nitrogen: o.nitrate_nitrogen ? parseFloat(o.nitrate_nitrogen) : null,

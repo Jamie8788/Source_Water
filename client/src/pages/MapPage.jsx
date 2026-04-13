@@ -1,4 +1,5 @@
 import PageAmbience from '../components/layout/PageAmbience'
+import ImportModal from '../components/ImportModal'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -263,6 +264,7 @@ export default function MapPage() {
   const [sidebarTab, setSidebarTab] = useState('observations')
   const [datasetSummary, setDatasetSummary] = useState(null)
   const [alerts, setAlerts] = useState([])
+  const [showImportModal, setShowImportModal] = useState(false)
 
   // Init map
   useEffect(() => {
@@ -1054,6 +1056,10 @@ export default function MapPage() {
                         style={{ width:'100%', padding:'9px 0', background:'linear-gradient(135deg,#6366f1,#14b8a6)', color:'white', border:'none', borderRadius:10, cursor:'pointer', fontSize:12, fontWeight:800, marginTop:10, boxShadow:'0 4px 16px rgba(99,102,241,0.3)' }}>
                         <Plus style={{ width:11, height:11, display:'inline', marginRight:5 }}/>Add Observation
                       </button>
+                      <button onClick={() => setShowImportModal(true)}
+                        style={{ width:'100%', padding:'9px 0', background:'rgba(139,92,246,0.2)', color:'#c4b5fd', border:'1px solid rgba(139,92,246,0.4)', borderRadius:10, cursor:'pointer', fontSize:12, fontWeight:800, marginTop:8 }}>
+                        📊 Import Dataset (CSV)
+                      </button>
                     </div>
                   </>
                 )}
@@ -1348,6 +1354,17 @@ export default function MapPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* ── IMPORT MODAL ── */}
+      {showImportModal && (
+        <ImportModal
+          onClose={() => setShowImportModal(false)}
+          onSuccess={() => {
+            // Refresh data
+            loadSites()
+          }}
+        />
       )}
     </div>
   )
