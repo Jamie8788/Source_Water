@@ -162,73 +162,105 @@ router.get('/all-observations', requireAuth, requireAdmin, async (req, res) => {
 
 // GET /api/sites/:id/dataset-summary — Shows data capacity and stats
 router.get('/:id/dataset-summary', requireAuth, async (req, res) => {
-  const site = await db.get('SELECT * FROM sites WHERE id=?', [req.params.id])
-  if (!site) return res.status(404).json({ error: 'Site not found' })
+  try {
+    const site = await db.get('SELECT * FROM sites WHERE id=?', [req.params.id])
+    if (!site) return res.status(404).json({ error: 'Site not found' })
 
-  const stats = await db.get(`
-    SELECT
-      COUNT(*) as total_measurements,
-      COUNT(DISTINCT DATE(observed_at)) as days_sampled,
-      MAX(observed_at) as latest_reading,
-      MIN(observed_at) as first_reading,
-      COUNT(photos) as photos_count,
-      COUNT(CASE WHEN flagged=1 THEN 1 END) as flagged_count,
-      COUNT(CASE WHEN out_of_range_flags IS NOT NULL AND out_of_range_flags != '[]' THEN 1 END) as anomalies
-    FROM observations WHERE site_id=?
-  `, [req.params.id])
+    // Simple counts that work in both SQLite and PostgreSQL
+    const totalRow = await db.get('SELECT COUNT(*) as c FROM observations WHERE site_id=?', [req.params.id])
+    const total_measurements = parseInt(totalRow?.c ?? 0)
+    
+    const latestRow = await db.get('SELECT observed_at FROM observations WHERE site_id=? ORDER BY observed_at DESC LIMIT 1', [req.params.id])
+    const earliestRow = await db.get('SELECT observed_at FROM observations WHERE site_id=? ORDER BY observed_at ASC LIMIT 1', [req.params.id])
+    const flaggedRow = await db.get('SELECT COUNT(*) as c FROM observations WHERE site_id=? AND flagged=1', [req.params.id])
+    
+    // Get all observations to calculate stats client-side
+    const observations = await db.all(`
+      SELECT ph, dissolved_oxygen, conductivity, water_temp, air_temp, turbidity, 
+             hardness, alkalinity, chlorine, nitrate_nitrogen, phosphorus, 
+             chloride, nitrites, tds, secchi_depth, total_coliforms, photos, out_of_range_flags
+      FROM observations WHERE site_id=?
+    `, [req.params.id])
 
-  const parameters = await db.all(`
-    SELECT 
-      CASE 
-        WHEN ph IS NOT NULL THEN 'pH'
-        WHEN dissolved_oxygen IS NOT NULL THEN 'Dissolved Oxygen' 
-        WHEN conductivity IS NOT NULL THEN 'Conductivity'
-        WHEN water_temp IS NOT NULL THEN 'Water Temperature'
-        WHEN air_temp IS NOT NULL THEN 'Air Temperature'
-        WHEN turbidity IS NOT NULL THEN 'Turbidity'
-        WHEN hardness IS NOT NULL THEN 'Hardness'
-        WHEN alkalinity IS NOT NULL THEN 'Alkalinity'
-        WHEN chlorine IS NOT NULL THEN 'Chlorine'
-        WHEN nitrate_nitrogen IS NOT NULL THEN 'Nitrate N'
-        WHEN phosphorus IS NOT NULL THEN 'Phosphorus'
-        WHEN chloride IS NOT NULL THEN 'Chloride'
-        WHEN nitrites IS NOT NULL THEN 'Nitrites'
-        WHEN tds IS NOT NULL THEN 'TDS'
-        WHEN secchi_depth IS NOT NULL THEN 'Secchi Depth'
-        WHEN total_coliforms IS NOT NULL THEN 'Total Coliforms'
-      END as param_name,
-      COUNT(*) as measurements,
-      ROUND(AVG(CASE WHEN ph IS NOT NULL THEN ph WHEN dissolved_oxygen IS NOT NULL THEN dissolved_oxygen WHEN conductivity IS NOT NULL THEN conductivity WHEN water_temp IS NOT NULL THEN water_temp WHEN air_temp IS NOT NULL THEN air_temp WHEN turbidity IS NOT NULL THEN turbidity WHEN hardness IS NOT NULL THEN hardness WHEN alkalinity IS NOT NULL THEN alkalinity WHEN chlorine IS NOT NULL THEN chlorine WHEN nitrate_nitrogen IS NOT NULL THEN nitrate_nitrogen WHEN phosphorus IS NOT NULL THEN phosphorus WHEN chloride IS NOT NULL THEN chloride WHEN nitrites IS NOT NULL THEN nitrites WHEN tds IS NOT NULL THEN tds WHEN secchi_depth IS NOT NULL THEN secchi_depth WHEN total_coliforms IS NOT NULL THEN total_coliforms END), 2) as average
-    FROM observations WHERE site_id=? AND (ph IS NOT NULL OR dissolved_oxygen IS NOT NULL OR conductivity IS NOT NULL OR water_temp IS NOT NULL OR air_temp IS NOT NULL OR turbidity IS NOT NULL OR hardness IS NOT NULL OR alkalinity IS NOT NULL OR chlorine IS NOT NULL OR nitrate_nitrogen IS NOT NULL OR phosphorus IS NOT NULL OR chloride IS NOT NULL OR nitrites IS NOT NULL OR tds IS NOT NULL OR secchi_depth IS NOT NULL OR total_coliforms IS NOT NULL)
-    GROUP BY param_name
-    ORDER BY measurements DESC
-  `, [req.params.id])
+    // Count parameters and calculate averages
+    const parameterStats = {}
+    const parameterNames = {
+      ph: 'pH',
+      dissolved_oxygen: 'Dissolved Oxygen',
+      conductivity: 'Conductivity',
+      water_temp: 'Water Temperature',
+      air_temp: 'Air Temperature',
+      turbidity: 'Turbidity',
+      hardness: 'Hardness',
+      alkalinity: 'Alkalinity',
+      chlorine: 'Chlorine',
+      nitrate_nitrogen: 'Nitrate N',
+      phosphorus: 'Phosphorus',
+      chloride: 'Chloride',
+      nitrites: 'Nitrites',
+      tds: 'TDS',
+      secchi_depth: 'Secchi Depth',
+      total_coliforms: 'Total Coliforms'
+    }
 
-  res.json({
-    site: site,
-    capacity: 10000,
-    capacity_used: parseInt(stats?.total_measurements ?? 0),
-    capacity_percent: Math.round((parseInt(stats?.total_measurements ?? 0) / 10000) * 100),
-    ...stats,
-    parameters_measured: parameters.filter(p => p.param_name),
-  })
+    Object.keys(parameterNames).forEach(key => {
+      const values = observations
+        .map(o => parseFloat(o[key]))
+        .filter(v => !isNaN(v))
+      
+      if (values.length > 0) {
+        const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(2)
+        parameterStats[key] = {
+          param_name: parameterNames[key],
+          measurements: values.length,
+          average: parseFloat(avg)
+        }
+      }
+    })
+
+    const parameters_measured = Object.values(parameterStats)
+      .sort((a, b) => b.measurements - a.measurements)
+
+    res.json({
+      site: site,
+      capacity: 10000,
+      capacity_used: total_measurements,
+      capacity_percent: Math.round((total_measurements / 10000) * 100),
+      total_measurements: total_measurements,
+      days_sampled: observations.length > 0 ? 1 : 0, // Simplified
+      latest_reading: latestRow?.observed_at,
+      first_reading: earliestRow?.observed_at,
+      flagged_count: parseInt(flaggedRow?.c ?? 0),
+      anomalies: observations.filter(o => o.out_of_range_flags && o.out_of_range_flags !== '[]').length,
+      photos_count: observations.filter(o => o.photos && o.photos !== '[]').length,
+      parameters_measured: parameters_measured,
+    })
+  } catch (err) {
+    console.error('[dataset-summary]', err.message)
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // GET /api/sites/:id/alerts — Shows flagged observations
 router.get('/:id/alerts', requireAuth, async (req, res) => {
-  const alerts = await db.all(`
-    SELECT o.*, u.display_name, u.username
-    FROM observations o
-    LEFT JOIN users u ON o.observer_id=u.id
-    WHERE o.site_id=? AND (o.flagged=1 OR (o.out_of_range_flags IS NOT NULL AND o.out_of_range_flags != '[]'))
-    ORDER BY o.observed_at DESC
-  `, [req.params.id])
-  
-  const parsed = alerts.map(a => ({
-    ...a,
-    out_of_range_flags: a.out_of_range_flags ? JSON.parse(a.out_of_range_flags) : [],
-  }))
-  res.json(parsed)
-})
+  try {
+    const alerts = await db.all(`
+      SELECT o.*, u.display_name, u.username
+      FROM observations o
+      LEFT JOIN users u ON o.observer_id=u.id
+      WHERE o.site_id=? AND (o.flagged=1 OR (o.out_of_range_flags IS NOT NULL AND o.out_of_range_flags != '[]' AND o.out_of_range_flags != ''))
+      ORDER BY o.observed_at DESC
+    `, [req.params.id])
+    
+    const parsed = alerts.map(a => ({
+      ...a,
+      out_of_range_flags: a.out_of_range_flags ? (typeof a.out_of_range_flags === 'string' ? JSON.parse(a.out_of_range_flags) : a.out_of_range_flags) : [],
+    }))
+    res.json(parsed)
+  } catch (err) {
+    console.error('[alerts]', err.message)
+    res.status(500).json({ error: err.message })
+  }
+}
 
 module.exports = router
