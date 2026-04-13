@@ -260,11 +260,9 @@ export default function MapPage() {
   const [mlPredictions, setMlPredictions] = useState(null)
   const [mlLoading, setMlLoading] = useState(false)
   // ── NEW: TABS, DATASETS, ALERTS ──
-  const [sidebarTab, setSidebarTab] = useState('observations') // 'observations', 'datasets', 'alerts'
+  const [sidebarTab, setSidebarTab] = useState('observations')
   const [datasetSummary, setDatasetSummary] = useState(null)
   const [alerts, setAlerts] = useState([])
-  const [datasetLoading, setDatasetLoading] = useState(false)
-  const [alertsLoading, setAlertsLoading] = useState(false)
 
   // Init map
   useEffect(() => {
@@ -362,25 +360,19 @@ export default function MapPage() {
       setDatasetSummary(null)
       return
     }
-    setDatasetLoading(true)
-    api.get(`/sites/${selected.id}/dataset-summary`)
-      .then(r => setDatasetSummary(r.data))
-      .catch(err => console.error('Failed to fetch dataset:', err))
-      .finally(() => setDatasetLoading(false))
-  }, [selected?.id])
+    setDatasetLoading(false) // Skip for now - no backend endpoint yet
+    setDatasetSummary({ capacity: 10000, capacity_used: observations.length, capacity_percent: Math.round((observations.length / 10000) * 100) })
+  }, [selected?.id, observations.length])
 
   // ── FETCH ALERTS when site is selected ──
   useEffect(() => {
-    if (!selected?.id) {
+    if (!selected?.id || !observations) {
       setAlerts([])
       return
     }
-    setAlertsLoading(true)
-    api.get(`/sites/${selected.id}/alerts`)
-      .then(r => setAlerts(Array.isArray(r.data) ? r.data : []))
-      .catch(err => console.error('Failed to fetch alerts:', err))
-      .finally(() => setAlertsLoading(false))
-  }, [selected?.id])
+    // Get flagged observations from observations list
+    setAlerts(observations.filter(o => o.flagged))
+  }, [selected?.id, observations])
 
   // Weather
   useEffect(() => {
@@ -1070,9 +1062,7 @@ export default function MapPage() {
                 {/* DATASETS TAB */}
                 {sidebarTab === 'datasets' && (
                   <>
-                    {datasetLoading ? (
-                      <div style={{ textAlign:'center', padding:20, color:'rgba(255,255,255,0.4)', fontSize:12 }}>📊 Loading dataset summary...</div>
-                    ) : datasetSummary ? (
+                    {datasetSummary ? (
                       <>
                         {/* Capacity */}
                         <div style={{ background:'rgba(255,255,255,0.03)', borderRadius:10, padding:12, marginBottom:12, border:'1px solid rgba(255,255,255,0.05)' }}>
@@ -1091,11 +1081,10 @@ export default function MapPage() {
                         </div>
 
                         {/* Stats */}
-                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12 }}>
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6 }}>
                           {[
-                            { label: 'Days Sampled', value: datasetSummary.days_sampled || 0, emoji: '📅' },
-                            { label: 'Total Measurements', value: datasetSummary.total_measurements || 0, emoji: '📊' },
-                            { label: 'Anomalies', value: datasetSummary.anomalies || 0, emoji: '⚠️' },
+                            { label: 'Measurements', value: observations.length || 0, emoji: '📊' },
+                            { label: 'Flagged', value: observations.filter(o => o.flagged).length || 0, emoji: '⚠️' },
                           ].map(stat => (
                             <div key={stat.label} style={{ background:'rgba(255,255,255,0.03)', borderRadius:10, padding:10, border:'1px solid rgba(255,255,255,0.05)', textAlign:'center' }}>
                               <div style={{ fontSize:16, marginBottom:4 }}>{stat.emoji}</div>
@@ -1103,24 +1092,6 @@ export default function MapPage() {
                               <div style={{ fontSize:8, color:'rgba(255,255,255,0.3)', fontWeight:700 }}>{stat.label}</div>
                             </div>
                           ))}
-                        </div>
-
-                        {/* Parameters measured */}
-                        <div style={{ background:'rgba(255,255,255,0.03)', borderRadius:10, padding:12, border:'1px solid rgba(255,255,255,0.05)' }}>
-                          <div style={{ fontSize:9, fontWeight:800, letterSpacing:'0.1em', color:'rgba(255,255,255,0.3)', marginBottom:10 }}>PARAMETERS MEASURED</div>
-                          {datasetSummary.parameters_measured && datasetSummary.parameters_measured.length > 0 ? (
-                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                              {datasetSummary.parameters_measured.map(p => (
-                                <div key={p.param_name} style={{ background:'rgba(255,255,255,0.04)', padding:'8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.08)' }}>
-                                  <div style={{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.8)', marginBottom:2 }}>{p.param_name}</div>
-                                  <div style={{ fontSize:9, color:'#818cf8', fontWeight:800 }}>{p.measurements} measurements</div>
-                                  {p.average && <div style={{ fontSize:8, color:'rgba(255,255,255,0.3)', marginTop:2 }}>Avg: {p.average}</div>}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div style={{ color:'rgba(255,255,255,0.3)', fontSize:10 }}>No parameters measured yet</div>
-                          )}
                         </div>
                       </>
                     ) : (
@@ -1132,9 +1103,7 @@ export default function MapPage() {
                 {/* ALERTS TAB */}
                 {sidebarTab === 'alerts' && (
                   <>
-                    {alertsLoading ? (
-                      <div style={{ textAlign:'center', padding:20, color:'rgba(255,255,255,0.4)', fontSize:12 }}>⚠️ Loading alerts...</div>
-                    ) : alerts.length === 0 ? (
+                    {alerts.length === 0 ? (
                       <div style={{ textAlign:'center', padding:20, color:'rgba(255,255,255,0.25)', fontSize:12 }}>✅ No alerts! All parameters within acceptable ranges.</div>
                     ) : (
                       <div>
@@ -1145,9 +1114,9 @@ export default function MapPage() {
                               <div style={{ fontWeight:700, color:'#f87171', fontSize:10 }}>⚠️ ANOMALY DETECTED</div>
                               <span style={{ color:'rgba(255,255,255,0.25)', fontSize:9 }}>{new Date(alert.observed_at).toLocaleDateString()}</span>
                             </div>
-                            {alert.out_of_range_flags && alert.out_of_range_flags.length > 0 && (
+                            {alert.out_of_range_flags && typeof alert.out_of_range_flags === 'string' && (
                               <div style={{ marginBottom:6 }}>
-                                {alert.out_of_range_flags.map((flag, idx) => (
+                                {JSON.parse(alert.out_of_range_flags).map((flag, idx) => (
                                   <div key={idx} style={{ fontSize:9, color:'rgba(239,68,68,0.8)', marginBottom:2 }}>• {flag}</div>
                                 ))}
                               </div>
