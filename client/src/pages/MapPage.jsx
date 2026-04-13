@@ -259,6 +259,12 @@ export default function MapPage() {
   // ── REAL ML PREDICTIONS STATE ──
   const [mlPredictions, setMlPredictions] = useState(null)
   const [mlLoading, setMlLoading] = useState(false)
+  // ── NEW: TABS, DATASETS, ALERTS ──
+  const [sidebarTab, setSidebarTab] = useState('observations') // 'observations', 'datasets', 'alerts'
+  const [datasetSummary, setDatasetSummary] = useState(null)
+  const [alerts, setAlerts] = useState([])
+  const [datasetLoading, setDatasetLoading] = useState(false)
+  const [alertsLoading, setAlertsLoading] = useState(false)
 
   // Init map
   useEffect(() => {
@@ -350,6 +356,32 @@ export default function MapPage() {
       .finally(() => setMlLoading(false))
   }, [selected?.id])
 
+  // ── FETCH DATASET SUMMARY when site is selected ──
+  useEffect(() => {
+    if (!selected?.id) {
+      setDatasetSummary(null)
+      return
+    }
+    setDatasetLoading(true)
+    api.get(`/sites/${selected.id}/dataset-summary`)
+      .then(r => setDatasetSummary(r.data))
+      .catch(err => console.error('Failed to fetch dataset:', err))
+      .finally(() => setDatasetLoading(false))
+  }, [selected?.id])
+
+  // ── FETCH ALERTS when site is selected ──
+  useEffect(() => {
+    if (!selected?.id) {
+      setAlerts([])
+      return
+    }
+    setAlertsLoading(true)
+    api.get(`/sites/${selected.id}/alerts`)
+      .then(r => setAlerts(Array.isArray(r.data) ? r.data : []))
+      .catch(err => console.error('Failed to fetch alerts:', err))
+      .finally(() => setAlertsLoading(false))
+  }, [selected?.id])
+
   // Weather
   useEffect(() => {
     fetch('https://api.open-meteo.com/v1/forecast?latitude=46.5&longitude=-84.3&current=temperature_2m,wind_speed_10m,weathercode&timezone=America/Toronto')
@@ -395,6 +427,7 @@ export default function MapPage() {
       el.addEventListener('click', (e) => {
         e.stopPropagation()
         setSelected(site)
+        setSidebarTab('observations') // Reset to observations tab
         api.get(`/sites/${site.id}/observations`).then(r => {
           setObservations(r.data.observations || [])
         }).catch(() => {})
@@ -899,6 +932,27 @@ export default function MapPage() {
                   {selected.body_of_water && <span style={{ fontSize:10, color:'rgba(255,255,255,0.35)', fontWeight:600 }}>💧 {selected.body_of_water}</span>}
                 </div>
 
+                {/* TAB NAVIGATION */}
+                <div style={{ display:'flex', gap:6, marginTop:12, borderBottom:'1px solid rgba(255,255,255,0.1)', paddingBottom:10 }}>
+                  {[
+                    { key: 'observations', label: '📊 Observations', icon: Activity },
+                    { key: 'datasets', label: '📈 Datasets', icon: BarChart2 },
+                    { key: 'alerts', label: '⚠️ Alerts', icon: AlertTriangle }
+                  ].map(tab => (
+                    <button key={tab.key} onClick={() => setSidebarTab(tab.key)}
+                      style={{ 
+                        flex: 1, padding: '6px 10px', fontSize: 10, fontWeight: 700, borderRadius: 6,
+                        border: sidebarTab === tab.key ? '1px solid rgba(99,102,241,0.5)' : '1px solid rgba(255,255,255,0.1)',
+                        background: sidebarTab === tab.key ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.03)',
+                        color: sidebarTab === tab.key ? '#818cf8' : 'rgba(255,255,255,0.5)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}>
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
                 {/* ── REAL ML PREDICTIONS ── */}
                 {mlLoading ? (
                   <div style={{ marginTop:10, padding:'8px 12px', background:'rgba(99,102,241,0.1)', borderRadius:8, textAlign:'center', fontSize:10, color:'#818cf8', fontWeight:600 }}>
@@ -948,60 +1002,165 @@ export default function MapPage() {
                 ) : null}
               </div>
 
-              {/* Latest readings */}
-              {latestObs ? (
-                <div style={{ padding:'12px 14px', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-                    <span style={{ fontSize:9, fontWeight:800, letterSpacing:'0.1em', color:'rgba(255,255,255,0.3)' }}>LATEST READING</span>
-                    <span style={{ fontSize:9, color:'rgba(255,255,255,0.25)', fontWeight:600 }}>{new Date(latestObs.collected_at).toLocaleDateString()}</span>
-                  </div>
-                  {Object.keys(WHO).map(param => latestObs[param] ? <ParamGauge key={param} param={param} value={latestObs[param]}/> : null)}
-                </div>
-              ) : (
-                <div style={{ padding:'16px', borderBottom:'1px solid rgba(255,255,255,0.05)', textAlign:'center', color:'rgba(255,255,255,0.3)', fontSize:12 }}>
-                  No readings yet
-                </div>
-              )}
+              {/* TAB CONTENT */}
+              <div style={{ padding:'12px 14px', flex: 1, overflow: 'auto', scrollbarWidth: 'none' }}>
+                
+                {/* OBSERVATIONS TAB */}
+                {sidebarTab === 'observations' && (
+                  <>
+                    {/* Latest readings */}
+                    {latestObs ? (
+                      <div style={{ marginBottom:12 }}>
+                        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+                          <span style={{ fontSize:9, fontWeight:800, letterSpacing:'0.1em', color:'rgba(255,255,255,0.3)' }}>LATEST READING</span>
+                          <span style={{ fontSize:9, color:'rgba(255,255,255,0.25)', fontWeight:600 }}>{new Date(latestObs.collected_at || latestObs.observed_at).toLocaleDateString()}</span>
+                        </div>
+                        {Object.keys(WHO).map(param => latestObs[param] ? <ParamGauge key={param} param={param} value={latestObs[param]}/> : null)}
+                      </div>
+                    ) : (
+                      <div style={{ textAlign:'center', padding:20, color:'rgba(255,255,255,0.3)', fontSize:12, marginBottom:12 }}>
+                        No readings yet
+                      </div>
+                    )}
 
-              {/* pH trend */}
-              {phTrend.length >= 3 && (
-                <div style={{ padding:'10px 14px', borderBottom:'1px solid rgba(255,255,255,0.05)', display:'flex', alignItems:'center', gap:10 }}>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:9, fontWeight:800, color:'rgba(255,255,255,0.3)', letterSpacing:'0.1em' }}>pH TREND</div>
-                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)', fontWeight:600, marginTop:2 }}>Last {phTrend.length} samples</div>
-                  </div>
-                  <Sparkline data={phTrend} color="#818cf8"/>
-                </div>
-              )}
+                    {/* pH trend */}
+                    {phTrend.length >= 3 && (
+                      <div style={{ marginBottom:12, display:'flex', alignItems:'center', gap:10, padding:'10px', background:'rgba(255,255,255,0.03)', borderRadius:8 }}>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:9, fontWeight:800, color:'rgba(255,255,255,0.3)', letterSpacing:'0.1em' }}>pH TREND</div>
+                          <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)', fontWeight:600, marginTop:2 }}>Last {phTrend.length} samples</div>
+                        </div>
+                        <Sparkline data={phTrend} color="#818cf8"/>
+                      </div>
+                    )}
 
-              {/* Recent observations */}
-              <div style={{ padding:'10px 14px' }}>
-                <div style={{ fontSize:9, fontWeight:800, letterSpacing:'0.1em', color:'rgba(255,255,255,0.3)', marginBottom:10 }}>RECENT OBSERVATIONS</div>
-                {observations.length === 0 ? (
-                  <div style={{ textAlign:'center', padding:20, color:'rgba(255,255,255,0.25)', fontSize:12 }}>No observations yet 🌊</div>
-                ) : observations.slice(0,4).map(obs => (
-                  <div key={obs.id} style={{ background:'rgba(255,255,255,0.03)', borderRadius:10, padding:'8px 10px', marginBottom:6, border:'1px solid rgba(255,255,255,0.05)', fontSize:11 }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
-                      <span style={{ fontWeight:700, color:'rgba(255,255,255,0.75)' }}>{obs.sampler_name || obs.display_name || 'Anonymous'}</span>
-                      <span style={{ color:'rgba(255,255,255,0.25)', fontSize:10 }}>{new Date(obs.collected_at).toLocaleDateString()}</span>
+                    {/* Observations history */}
+                    <div>
+                      <div style={{ fontSize:9, fontWeight:800, letterSpacing:'0.1em', color:'rgba(255,255,255,0.3)', marginBottom:10 }}>OBSERVATION HISTORY</div>
+                      {observations.length === 0 ? (
+                        <div style={{ textAlign:'center', padding:20, color:'rgba(255,255,255,0.25)', fontSize:12 }}>No observations yet 🌊</div>
+                      ) : observations.map(obs => (
+                        <div key={obs.id} style={{ background:'rgba(255,255,255,0.03)', borderRadius:10, padding:'8px 10px', marginBottom:6, border:'1px solid rgba(255,255,255,0.05)', fontSize:11 }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
+                            <span style={{ fontWeight:700, color:'rgba(255,255,255,0.75)' }}>{obs.sampler_name || obs.display_name || 'Anonymous'}</span>
+                            <span style={{ color:'rgba(255,255,255,0.25)', fontSize:10 }}>{new Date(obs.collected_at || obs.observed_at).toLocaleDateString()}</span>
+                          </div>
+                          <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                            {['ph','temperature','dissolved_oxygen','turbidity','conductivity'].filter(p => obs[p]).map(p => {
+                              const status = whoStatus(p, parseFloat(obs[p]))
+                              return (
+                                <span key={p} style={{ padding:'2px 8px', borderRadius:20, background:`${status?.color || '#6366f1'}18`, color: status?.color || '#818cf8', fontWeight:700, fontSize:10, border:`1px solid ${status?.color || '#6366f1'}30` }}>
+                                  {WHO[p].emoji} {obs[p]}{WHO[p].unit}
+                                </span>
+                              )
+                            })}
+                          </div>
+                          {obs.notes && <div style={{ marginTop:5, color:'rgba(255,255,255,0.3)', fontStyle:'italic', fontSize:10 }}>"{obs.notes}"</div>}
+                          {obs.flagged && <div style={{ marginTop:5, padding:'4px 8px', background:'rgba(239,68,68,0.15)', borderRadius:6, fontSize:9, color:'#f87171', fontWeight:700 }}>⚠️ FLAGGED</div>}
+                        </div>
+                      ))}
+                      <button onClick={() => { setForm(f => ({ ...f, site_id: selected.id })); setShowForm(true) }}
+                        style={{ width:'100%', padding:'9px 0', background:'linear-gradient(135deg,#6366f1,#14b8a6)', color:'white', border:'none', borderRadius:10, cursor:'pointer', fontSize:12, fontWeight:800, marginTop:10, boxShadow:'0 4px 16px rgba(99,102,241,0.3)' }}>
+                        <Plus style={{ width:11, height:11, display:'inline', marginRight:5 }}/>Add Observation
+                      </button>
                     </div>
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
-                      {['ph','temperature','dissolved_oxygen','turbidity'].filter(p => obs[p]).map(p => {
-                        const status = whoStatus(p, parseFloat(obs[p]))
-                        return (
-                          <span key={p} style={{ padding:'2px 8px', borderRadius:20, background:`${status?.color || '#6366f1'}18`, color: status?.color || '#818cf8', fontWeight:700, fontSize:10, border:`1px solid ${status?.color || '#6366f1'}30` }}>
-                            {WHO[p].emoji} {obs[p]}{WHO[p].unit}
-                          </span>
-                        )
-                      })}
-                    </div>
-                    {obs.notes && <div style={{ marginTop:5, color:'rgba(255,255,255,0.3)', fontStyle:'italic', fontSize:10 }}>"{obs.notes}"</div>}
-                  </div>
-                ))}
-                <button onClick={() => { setForm(f => ({ ...f, site_id: selected.id })); setShowForm(true) }}
-                  style={{ width:'100%', padding:'9px 0', background:'linear-gradient(135deg,#6366f1,#14b8a6)', color:'white', border:'none', borderRadius:10, cursor:'pointer', fontSize:12, fontWeight:800, marginTop:6, boxShadow:'0 4px 16px rgba(99,102,241,0.3)' }}>
-                  <Plus style={{ width:11, height:11, display:'inline', marginRight:5 }}/>Add Observation
-                </button>
+                  </>
+                )}
+
+                {/* DATASETS TAB */}
+                {sidebarTab === 'datasets' && (
+                  <>
+                    {datasetLoading ? (
+                      <div style={{ textAlign:'center', padding:20, color:'rgba(255,255,255,0.4)', fontSize:12 }}>📊 Loading dataset summary...</div>
+                    ) : datasetSummary ? (
+                      <>
+                        {/* Capacity */}
+                        <div style={{ background:'rgba(255,255,255,0.03)', borderRadius:10, padding:12, marginBottom:12, border:'1px solid rgba(255,255,255,0.05)' }}>
+                          <div style={{ fontSize:9, fontWeight:800, letterSpacing:'0.1em', color:'rgba(255,255,255,0.3)', marginBottom:8 }}>STORAGE CAPACITY</div>
+                          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                            <div style={{ flex:1 }}>
+                              <div style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.8)', marginBottom:4 }}>
+                                {datasetSummary.capacity_used} / {datasetSummary.capacity} measurements
+                              </div>
+                              <div style={{ height:6, background:'rgba(255,255,255,0.08)', borderRadius:4, overflow:'hidden' }}>
+                                <div style={{ height:'100%', width:`${datasetSummary.capacity_percent}%`, background:'linear-gradient(90deg, #6366f1, #14b8a6)', transition:'width 0.5s' }}/>
+                              </div>
+                              <div style={{ fontSize:8, color:'rgba(255,255,255,0.3)', marginTop:4 }}>{datasetSummary.capacity_percent}% full</div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Stats */}
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12 }}>
+                          {[
+                            { label: 'Days Sampled', value: datasetSummary.days_sampled || 0, emoji: '📅' },
+                            { label: 'Total Measurements', value: datasetSummary.total_measurements || 0, emoji: '📊' },
+                            { label: 'Anomalies', value: datasetSummary.anomalies || 0, emoji: '⚠️' },
+                          ].map(stat => (
+                            <div key={stat.label} style={{ background:'rgba(255,255,255,0.03)', borderRadius:10, padding:10, border:'1px solid rgba(255,255,255,0.05)', textAlign:'center' }}>
+                              <div style={{ fontSize:16, marginBottom:4 }}>{stat.emoji}</div>
+                              <div style={{ fontSize:12, fontWeight:900, color:'#818cf8', marginBottom:2 }}>{stat.value}</div>
+                              <div style={{ fontSize:8, color:'rgba(255,255,255,0.3)', fontWeight:700 }}>{stat.label}</div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Parameters measured */}
+                        <div style={{ background:'rgba(255,255,255,0.03)', borderRadius:10, padding:12, border:'1px solid rgba(255,255,255,0.05)' }}>
+                          <div style={{ fontSize:9, fontWeight:800, letterSpacing:'0.1em', color:'rgba(255,255,255,0.3)', marginBottom:10 }}>PARAMETERS MEASURED</div>
+                          {datasetSummary.parameters_measured && datasetSummary.parameters_measured.length > 0 ? (
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                              {datasetSummary.parameters_measured.map(p => (
+                                <div key={p.param_name} style={{ background:'rgba(255,255,255,0.04)', padding:'8px', borderRadius:6, border:'1px solid rgba(255,255,255,0.08)' }}>
+                                  <div style={{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.8)', marginBottom:2 }}>{p.param_name}</div>
+                                  <div style={{ fontSize:9, color:'#818cf8', fontWeight:800 }}>{p.measurements} measurements</div>
+                                  {p.average && <div style={{ fontSize:8, color:'rgba(255,255,255,0.3)', marginTop:2 }}>Avg: {p.average}</div>}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div style={{ color:'rgba(255,255,255,0.3)', fontSize:10 }}>No parameters measured yet</div>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ textAlign:'center', padding:20, color:'rgba(255,255,255,0.25)', fontSize:12 }}>No dataset information available</div>
+                    )}
+                  </>
+                )}
+
+                {/* ALERTS TAB */}
+                {sidebarTab === 'alerts' && (
+                  <>
+                    {alertsLoading ? (
+                      <div style={{ textAlign:'center', padding:20, color:'rgba(255,255,255,0.4)', fontSize:12 }}>⚠️ Loading alerts...</div>
+                    ) : alerts.length === 0 ? (
+                      <div style={{ textAlign:'center', padding:20, color:'rgba(255,255,255,0.25)', fontSize:12 }}>✅ No alerts! All parameters within acceptable ranges.</div>
+                    ) : (
+                      <div>
+                        <div style={{ fontSize:9, fontWeight:800, letterSpacing:'0.1em', color:'rgba(255,255,255,0.3)', marginBottom:10 }}>FLAGGED MEASUREMENTS ({alerts.length})</div>
+                        {alerts.map(alert => (
+                          <div key={alert.id} style={{ background:'rgba(239,68,68,0.08)', borderRadius:10, padding:'10px', marginBottom:8, border:'1px solid rgba(239,68,68,0.2)' }}>
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
+                              <div style={{ fontWeight:700, color:'#f87171', fontSize:10 }}>⚠️ ANOMALY DETECTED</div>
+                              <span style={{ color:'rgba(255,255,255,0.25)', fontSize:9 }}>{new Date(alert.observed_at).toLocaleDateString()}</span>
+                            </div>
+                            {alert.out_of_range_flags && alert.out_of_range_flags.length > 0 && (
+                              <div style={{ marginBottom:6 }}>
+                                {alert.out_of_range_flags.map((flag, idx) => (
+                                  <div key={idx} style={{ fontSize:9, color:'rgba(239,68,68,0.8)', marginBottom:2 }}>• {flag}</div>
+                                ))}
+                              </div>
+                            )}
+                            <div style={{ fontSize:9, color:'rgba(255,255,255,0.4)', paddingTop:6, borderTop:'1px solid rgba(239,68,68,0.1)' }}>
+                              Recorded by: <strong style={{ color:'rgba(255,255,255,0.6)' }}>{alert.username || 'Unknown'}</strong>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           ) : (
@@ -1033,6 +1192,7 @@ export default function MapPage() {
                 {sites.map(site => (
                   <div key={site.id} onClick={() => {
                     setSelected(site)
+                    setSidebarTab('observations')
                     api.get(`/sites/${site.id}/observations`).then(r => setObservations(r.data.observations || [])).catch(() => {})
                     map.current?.flyTo({ center:[site.longitude, site.latitude], zoom:13, speed:1.4, pitch: is3D ? 55 : 35, duration:1200 })
                   }}

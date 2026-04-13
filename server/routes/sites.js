@@ -120,6 +120,8 @@ router.post('/:id/observations', requireAuth, upload.array('photos', 10), async 
         db.run('INSERT INTO alerts (site_id,parameter,message,severity,created_by) VALUES (?,?,?,?,?)',
           [req.params.id, 'multi', flag, 'warning', req.user.id])
       ))
+      // Mark observation as flagged
+      await db.run('UPDATE observations SET flagged=1 WHERE id=?', [lastInsertRowid])
     }
 
     await Promise.all([
@@ -156,6 +158,77 @@ router.get('/all-observations', requireAuth, requireAdmin, async (req, res) => {
       : db.get('SELECT COUNT(*) as c FROM observations', []),
   ])
   res.json({ observations, total: parseInt(totalRow?.c ?? 0) })
+})
+
+// GET /api/sites/:id/dataset-summary — Shows data capacity and stats
+router.get('/:id/dataset-summary', requireAuth, async (req, res) => {
+  const site = await db.get('SELECT * FROM sites WHERE id=?', [req.params.id])
+  if (!site) return res.status(404).json({ error: 'Site not found' })
+
+  const stats = await db.get(`
+    SELECT
+      COUNT(*) as total_measurements,
+      COUNT(DISTINCT DATE(observed_at)) as days_sampled,
+      MAX(observed_at) as latest_reading,
+      MIN(observed_at) as first_reading,
+      COUNT(photos) as photos_count,
+      COUNT(CASE WHEN flagged=1 THEN 1 END) as flagged_count,
+      COUNT(CASE WHEN out_of_range_flags IS NOT NULL AND out_of_range_flags != '[]' THEN 1 END) as anomalies
+    FROM observations WHERE site_id=?
+  `, [req.params.id])
+
+  const parameters = await db.all(`
+    SELECT 
+      CASE 
+        WHEN ph IS NOT NULL THEN 'pH'
+        WHEN dissolved_oxygen IS NOT NULL THEN 'Dissolved Oxygen' 
+        WHEN conductivity IS NOT NULL THEN 'Conductivity'
+        WHEN water_temp IS NOT NULL THEN 'Water Temperature'
+        WHEN air_temp IS NOT NULL THEN 'Air Temperature'
+        WHEN turbidity IS NOT NULL THEN 'Turbidity'
+        WHEN hardness IS NOT NULL THEN 'Hardness'
+        WHEN alkalinity IS NOT NULL THEN 'Alkalinity'
+        WHEN chlorine IS NOT NULL THEN 'Chlorine'
+        WHEN nitrate_nitrogen IS NOT NULL THEN 'Nitrate N'
+        WHEN phosphorus IS NOT NULL THEN 'Phosphorus'
+        WHEN chloride IS NOT NULL THEN 'Chloride'
+        WHEN nitrites IS NOT NULL THEN 'Nitrites'
+        WHEN tds IS NOT NULL THEN 'TDS'
+        WHEN secchi_depth IS NOT NULL THEN 'Secchi Depth'
+        WHEN total_coliforms IS NOT NULL THEN 'Total Coliforms'
+      END as param_name,
+      COUNT(*) as measurements,
+      ROUND(AVG(CASE WHEN ph IS NOT NULL THEN ph WHEN dissolved_oxygen IS NOT NULL THEN dissolved_oxygen WHEN conductivity IS NOT NULL THEN conductivity WHEN water_temp IS NOT NULL THEN water_temp WHEN air_temp IS NOT NULL THEN air_temp WHEN turbidity IS NOT NULL THEN turbidity WHEN hardness IS NOT NULL THEN hardness WHEN alkalinity IS NOT NULL THEN alkalinity WHEN chlorine IS NOT NULL THEN chlorine WHEN nitrate_nitrogen IS NOT NULL THEN nitrate_nitrogen WHEN phosphorus IS NOT NULL THEN phosphorus WHEN chloride IS NOT NULL THEN chloride WHEN nitrites IS NOT NULL THEN nitrites WHEN tds IS NOT NULL THEN tds WHEN secchi_depth IS NOT NULL THEN secchi_depth WHEN total_coliforms IS NOT NULL THEN total_coliforms END), 2) as average
+    FROM observations WHERE site_id=? AND (ph IS NOT NULL OR dissolved_oxygen IS NOT NULL OR conductivity IS NOT NULL OR water_temp IS NOT NULL OR air_temp IS NOT NULL OR turbidity IS NOT NULL OR hardness IS NOT NULL OR alkalinity IS NOT NULL OR chlorine IS NOT NULL OR nitrate_nitrogen IS NOT NULL OR phosphorus IS NOT NULL OR chloride IS NOT NULL OR nitrites IS NOT NULL OR tds IS NOT NULL OR secchi_depth IS NOT NULL OR total_coliforms IS NOT NULL)
+    GROUP BY param_name
+    ORDER BY measurements DESC
+  `, [req.params.id])
+
+  res.json({
+    site: site,
+    capacity: 10000,
+    capacity_used: parseInt(stats?.total_measurements ?? 0),
+    capacity_percent: Math.round((parseInt(stats?.total_measurements ?? 0) / 10000) * 100),
+    ...stats,
+    parameters_measured: parameters.filter(p => p.param_name),
+  })
+})
+
+// GET /api/sites/:id/alerts — Shows flagged observations
+router.get('/:id/alerts', requireAuth, async (req, res) => {
+  const alerts = await db.all(`
+    SELECT o.*, u.display_name, u.username
+    FROM observations o
+    LEFT JOIN users u ON o.observer_id=u.id
+    WHERE o.site_id=? AND (o.flagged=1 OR (o.out_of_range_flags IS NOT NULL AND o.out_of_range_flags != '[]'))
+    ORDER BY o.observed_at DESC
+  `, [req.params.id])
+  
+  const parsed = alerts.map(a => ({
+    ...a,
+    out_of_range_flags: a.out_of_range_flags ? JSON.parse(a.out_of_range_flags) : [],
+  }))
+  res.json(parsed)
 })
 
 module.exports = router

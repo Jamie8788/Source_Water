@@ -413,34 +413,41 @@ function UsersPanel() {
                       </button>
                     </td>
 
-                    {/* Status */}
+                    {/* Status + toggle */}
                     <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 5,
-                        padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-                        background: u.is_active ? 'rgba(16,185,129,0.12)' : 'rgba(100,116,139,0.12)',
-                        color: u.is_active ? '#10b981' : '#64748b',
-                      }}>
-                        {u.is_active ? <><PulseDot color="#10b981"/> Active</> : 'Suspended'}
-                      </span>
+                      <button
+                        onClick={() => toggleActive(u)}
+                        disabled={isSaving}
+                        title={u.is_active ? 'Click to suspend this user' : 'Click to reinstate this user'}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700,
+                          cursor: 'pointer', border: 'none', transition: 'all 0.15s',
+                          background: u.is_active ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.1)',
+                          color: u.is_active ? '#10b981' : '#ef4444',
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.background = u.is_active ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)'
+                          e.currentTarget.style.color = u.is_active ? '#ef4444' : '#10b981'
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.background = u.is_active ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.1)'
+                          e.currentTarget.style.color = u.is_active ? '#10b981' : '#ef4444'
+                        }}>
+                        {u.is_active
+                          ? <><PulseDot color="#10b981"/> Active — click to suspend</>
+                          : <>⛔ Suspended — click to reinstate</>}
+                      </button>
                     </td>
 
                     {/* Actions */}
                     <td style={{ padding: '10px 16px' }}>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <button title={u.is_active ? 'Suspend' : 'Reactivate'} onClick={() => toggleActive(u)} disabled={isSaving}
-                          style={{ padding: 6, borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
-                          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.1)'; e.currentTarget.style.color = '#f59e0b' }}
-                          onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)' }}>
-                          {u.is_active ? <Lock style={{ width: 14, height: 14 }}/> : <Unlock style={{ width: 14, height: 14 }}/>}
-                        </button>
-                        <button title="Delete user" onClick={() => deleteUser(u)} disabled={isSaving}
-                          style={{ padding: 6, borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
-                          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; e.currentTarget.style.color = '#ef4444' }}
-                          onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)' }}>
-                          <Trash2 style={{ width: 14, height: 14 }}/>
-                        </button>
-                      </div>
+                      <button title="Permanently delete user" onClick={() => deleteUser(u)} disabled={isSaving}
+                        style={{ padding: 6, borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; e.currentTarget.style.color = '#ef4444' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)' }}>
+                        <Trash2 style={{ width: 14, height: 14 }}/>
+                      </button>
                     </td>
                   </tr>
                 )
