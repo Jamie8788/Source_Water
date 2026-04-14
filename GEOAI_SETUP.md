@@ -1,12 +1,12 @@
-# Full GeoAI Integration - Complete Setup Guide
+# GeoAI Integration - Honest Implementation Guide
 
 ## 🎯 What's Built
 
-✅ **Completely Isolated GeoAI Microservice** (`/geoai-service/`)
-- Python Flask server with 6+ geospatial endpoints
+✅ **Isolated GeoAI Microservice** (`/geoai-service/`)
+- Python Flask server with explicit processing-mode labels per endpoint
 - No database access — zero impact on existing users/data
-- Runs on separate port (8002)
-- Docker-ready with health checks
+- Runs on separate port (8000/Render `$PORT`)
+- Health + capabilities endpoints available
 
 ✅ **Express Proxy Routes** (`/server/routes/geoai.js`)
 - Forwards requests from main API to GeoAI service
@@ -14,10 +14,10 @@
 - Clean endpoint architecture
 
 ✅ **React GeoAnalytics Page** (`/client/src/pages/GeoAnalytics.jsx`)
-- Full-featured UI with 6 analysis tabs
-- Interactive forms for each GeoAI capability
-- Real-time API integration
-- Beautiful gradient UI matching your design system
+- 6 analysis tabs with explicit trust badges
+- Visual validation previews (RGB / NDWI / mask)
+- Warnings and limitations always shown
+- Raw payload is collapsible instead of primary display
 
 ✅ **Zero Breaking Changes**
 - Existing 10k+ users completely unaffected
@@ -80,11 +80,11 @@ http://localhost:5173/geoanalytics
 
 ---
 
-## 🌍 Available Endpoints
+## 🌍 Available Endpoints and Modes
 
 All accessible via `/api/geoai/*` from the main server:
 
-### Water Detection
+### Water Detection (`mode: rule_based`, `implementation_status: real_computed`)
 ```
 POST /api/geoai/detect-water
 Body: {
@@ -95,7 +95,7 @@ Body: {
 }
 ```
 
-### Wetland Mapping
+### Wetland Mapping (`mode: rule_based`, `implementation_status: experimental`)
 ```
 POST /api/geoai/map-wetlands
 Body: {
@@ -105,7 +105,7 @@ Body: {
 }
 ```
 
-### Change Detection
+### Change Detection (`mode: rule_based`, `implementation_status: real_computed`)
 ```
 POST /api/geoai/detect-changes
 Body: {
@@ -117,7 +117,7 @@ Body: {
 }
 ```
 
-### Quality Prediction
+### Quality Prediction (`mode: demo_placeholder`, `implementation_status: not_implemented`)
 ```
 POST /api/geoai/predict-quality
 Body: {
@@ -127,7 +127,7 @@ Body: {
 }
 ```
 
-### Land Cover Classification
+### Land Cover Classification (`mode: demo_placeholder`, `implementation_status: not_implemented`)
 ```
 POST /api/geoai/classify-landcover
 Body: {
@@ -137,7 +137,7 @@ Body: {
 }
 ```
 
-### Sentinel-2 Downloads
+### Sentinel-2 Downloads (`mode: real_computed`, `implementation_status: real_computed`)
 ```
 POST /api/geoai/download-sentinel
 Body: {
@@ -179,63 +179,13 @@ source-water/
 
 ---
 
-## 🔬 Next Steps for Real Geo AI Integration
+## 🔬 Scientific Honesty Notes
 
-Currently, the GeoAI service returns **placeholder data** for demonstration. To integrate real capabilities:
-
-### 1. Install Actual GeoAI Library
-```bash
-pip install geoai  # or opengeos/geoai variant
-```
-
-### 2. Add Real Satellite Data (Choice of 1+):
-
-**Option A: Sentinel Hub**
-```bash
-pip install sentinelhub
-# Set SENTINELHUB_CLIENT_ID and SENTINELHUB_CLIENT_SECRET in .env
-```
-
-**Option B: Google Earth Engine**
-```bash
-pip install earthengine-api
-# Authenticate: earthengine authenticate
-```
-
-**Option C: USGS Landscan**
-```bash
-pip install usgsimagedata
-# Set USGS_API_KEY in .env
-```
-
-### 3. Update `/geoai-service/main.py`
-
-Replace placeholder functions with real implementations:
-```python
-# Example: Real water detection from Sentinel-2
-@app.route('/api/geoai/detect-water', methods=['POST'])
-def detect_water():
-    data = request.get_json()
-    
-    # Use actual library instead of placeholder
-    from geoai import water_detection_sentinel2
-    
-    result = water_detection_sentinel2(
-        lat=data['latitude'],
-        lng=data['longitude'],
-        start_date=data['date_start'],
-        end_date=data['date_end']
-    )
-    
-    return jsonify(result)
-```
-
-### 4. Fine-tune Models
-
-Train on Missanabie water data:
-```bash
-python geoai-service/train_models.py --dataset missanabie --output models/
-```
+- The service does **not** claim ML inference unless an actual model path is used.
+- Water detection is explicitly labeled **rule-based spectral detection**.
+- Wetland mapping is explicitly labeled **experimental heuristic**.
+- Water quality and land-cover endpoints return **not_implemented** responses by design.
+- Each response includes: `mode`, `processing_mode`, `implementation_status`, `api_version`, and warnings.
 
 ---
 

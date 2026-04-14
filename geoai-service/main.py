@@ -1,541 +1,728 @@
 """
-GeoAI Microservice — REAL Satellite Analysis with opengeos/geoai
-Uses actual GeoAI library functions for real geospatial intelligence
-Planetary Computer STAC API for satellite data
-Fully isolated microservice
+Honest GeoAI microservice.
+
+This service only returns computed outputs for endpoints that actually process data.
+Each response contains explicit mode and implementation_status fields.
 """
 
-import os
-import json
 import logging
-import traceback
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from dotenv import load_dotenv
+import os
+import time
+import uuid
+from datetime import datetime
+from typing import Dict, List, Tuple
+
 import numpy as np
-from datetime import datetime, timedelta
+import planetary_computer
+import rasterio
+from dotenv import load_dotenv
+from flask import Flask, jsonify, request, url_for
+from flask_cors import CORS
+from PIL import Image
+from pyproj import Transformer
+from pystac_client import Client
+from rasterio.windows import Window
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("geoai-service")
 
-app = Flask(__name__)
+API_VERSION = "3.0.0"
+COLLECTION = "sentinel-2-l2a"
+PC_STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1"
+DEFAULT_PATCH_SIZE = 256
+
+app = Flask(__name__, static_folder="static", static_url_path="/static")
 CORS(app)
 
-# ─── GEOAI LIBRARY IMPORTS ───
 try:
-    import geoai
-    logger.info("✓ GeoAI library loaded successfully")
-    logger.info(f"✓ GeoAI version: {geoai.__version__}")
+    import geoai  # noqa: F401
+
     GEOAI_AVAILABLE = True
-except ImportError as e:
-    logger.warning(f"⚠ GeoAI import failed: {e}")
+    GEOAI_VERSION = getattr(geoai, "__version__", "unknown")
+except Exception:
     GEOAI_AVAILABLE = False
+    GEOAI_VERSION = "unavailable"
 
-try:
-    import rasterio
-    from rasterio.plot import show
-    RASTERIO_AVAILABLE = True
-except ImportError:
-    RASTERIO_AVAILABLE = False
-
-try:
-    import leafmap
-    LEAFMAP_AVAILABLE = True
-except ImportError:
-    LEAFMAP_AVAILABLE = False
-
-try:
-    import rioxarray as rxr
-    RIOXARRAY_AVAILABLE = True
-except ImportError:
-    RIOXARRAY_AVAILABLE = False
-
-try:
-    from pystac_client import Client
-    PYSTAC_AVAILABLE = True
-except ImportError:
-    PYSTAC_AVAILABLE = False
+OUTPUT_DIR = os.path.join(app.static_folder, "outputs")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-# ─────────────────────────────────────────────────────────────
-# HEALTH CHECK
-# ─────────────────────────────────────────────────────────────
+def _safe_float(v, fallback=0.0):
+    try:
+        return float(v)
+    except Exception:
+        return float(fallback)
 
-@app.route('/health', methods=['GET'])
+
+def _validate_point(lat: float, lon: float) -> None:
+    if not (-90 <= lat <= 90):
+        raise ValueError("latitude must be between -90 and 90")
+    if not (-180 <= lon <= 180):
+        raise ValueError("longitude must be between -180 and 180")
+
+
+def _now_iso() -> str:
+    return datetime.utcnow().isoformat() + "Z"
+
+
+def _season(date_iso: str, lat: float) -> str:
+    month = datetime.fromisoformat(date_iso).month
+    # Meteorological seasons; reversed labels for southern hemisphere.
+    north = {
+        12: "winter",
+        1: "winter",
+        2: "winter",
+        3: "spring",
+        4: "spring",
+        5: "spring",
+        6: "summer",
+        7: "summer",
+        8: "summer",
+        9: "autumn",
+        10: "autumn",
+        11: "autumn",
+    }
+    south = {
+        12: "summer",
+        1: "summer",
+        2: "summer",
+        3: "autumn",
+        4: "autumn",
+        5: "autumn",
+        6: "winter",
+        7: "winter",
+        8: "winter",
+        9: "spring",
+        10: "spring",
+        11: "spring",
+    }
+    return (north if lat >= 0 else south)[month]
+
+
+def _search_items(lat: float, lon: float, start_date: str, end_date: str, max_cloud_cover: float):
+    client = Client.open(PC_STAC_URL)
+    search = client.search(
+        collections=[COLLECTION],
+        intersects={"type": "Point", "coordinates": [lon, lat]},
+        datetime=f"{start_date}/{end_date}",
+        query={"eo:cloud_cover": {"lt": max_cloud_cover}},
+        limit=24,
+    )
+    items = list(search.items())
+    items.sort(key=lambda i: i.properties.get("eo:cloud_cover", 100.0))
+    return items
+
+
+def _read_band_patch(asset_href: str, lon: float, lat: float, patch_size: int = DEFAULT_PATCH_SIZE):
+    with rasterio.open(asset_href) as src:
+        transformer = Transformer.from_crs("EPSG:4326", src.crs, always_xy=True)
+        x, y = transformer.transform(lon, lat)
+        row, col = src.index(x, y)
+        half = patch_size // 2
+
+        row_off = max(0, row - half)
+        col_off = max(0, col - half)
+        h = min(patch_size, max(1, src.height - row_off))
+        w = min(patch_size, max(1, src.width - col_off))
+
+        window = Window(col_off=col_off, row_off=row_off, width=w, height=h)
+        arr = src.read(1, window=window, boundless=True, fill_value=np.nan).astype(np.float32)
+
+        nodata = src.nodata
+        if nodata is not None:
+            arr[arr == nodata] = np.nan
+
+        pixel_area_m2 = abs(src.transform.a * src.transform.e)
+        return arr, pixel_area_m2
+
+
+def _safe_divide(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    out = np.full_like(a, np.nan, dtype=np.float32)
+    valid = np.isfinite(a) & np.isfinite(b) & (np.abs(b) > 1e-6)
+    out[valid] = a[valid] / b[valid]
+    return out
+
+
+def _stretch_to_uint8(arr: np.ndarray, low=2, high=98) -> np.ndarray:
+    valid = arr[np.isfinite(arr)]
+    if valid.size == 0:
+        return np.zeros(arr.shape, dtype=np.uint8)
+    p_low = np.percentile(valid, low)
+    p_high = np.percentile(valid, high)
+    if p_high <= p_low:
+        p_high = p_low + 1e-3
+    scaled = np.clip((arr - p_low) / (p_high - p_low), 0, 1)
+    scaled[~np.isfinite(scaled)] = 0
+    return (scaled * 255).astype(np.uint8)
+
+
+def _save_visuals(red, green, blue, ndwi, water_mask, run_id: str) -> Dict[str, str]:
+    rgb = np.dstack([
+        _stretch_to_uint8(red),
+        _stretch_to_uint8(green),
+        _stretch_to_uint8(blue),
+    ])
+
+    ndwi_norm = np.clip((ndwi + 1.0) / 2.0, 0, 1)
+    ndwi_norm[~np.isfinite(ndwi_norm)] = 0
+    ndwi_rgb = np.dstack([
+        (1.0 - ndwi_norm) * 200,
+        (1.0 - np.abs(ndwi_norm - 0.5) * 2.0) * 170,
+        ndwi_norm * 255,
+    ]).astype(np.uint8)
+
+    mask_rgb = np.zeros((*water_mask.shape, 3), dtype=np.uint8)
+    mask_rgb[..., 2] = np.where(water_mask, 255, 20).astype(np.uint8)
+
+    rgb_name = f"{run_id}_rgb.png"
+    ndwi_name = f"{run_id}_ndwi.png"
+    mask_name = f"{run_id}_water_mask.png"
+
+    Image.fromarray(rgb).save(os.path.join(OUTPUT_DIR, rgb_name))
+    Image.fromarray(ndwi_rgb).save(os.path.join(OUTPUT_DIR, ndwi_name))
+    Image.fromarray(mask_rgb).save(os.path.join(OUTPUT_DIR, mask_name))
+
+    return {
+        "rgb_preview_url": url_for("static", filename=f"outputs/{rgb_name}", _external=True),
+        "ndwi_preview_url": url_for("static", filename=f"outputs/{ndwi_name}", _external=True),
+        "water_mask_url": url_for("static", filename=f"outputs/{mask_name}", _external=True),
+    }
+
+
+def _compute_water_from_item(item, lat: float, lon: float, patch_size: int):
+    signed = planetary_computer.sign(item)
+    needed_assets = {"B02": "blue", "B03": "green", "B04": "red", "B08": "nir", "B11": "swir"}
+    missing = [k for k in needed_assets if k not in signed.assets]
+    if missing:
+        raise ValueError(f"Selected scene missing required bands: {missing}")
+
+    bands = {}
+    pixel_area_m2 = None
+    for key, name in needed_assets.items():
+        arr, px_area = _read_band_patch(signed.assets[key].href, lon, lat, patch_size)
+        bands[name] = arr
+        if pixel_area_m2 is None:
+            pixel_area_m2 = px_area
+
+    # Sentinel bands can differ in native resolution (e.g., 10m vs 20m).
+    # Use common intersection window to avoid fake interpolation assumptions.
+    min_h = min(v.shape[0] for v in bands.values())
+    min_w = min(v.shape[1] for v in bands.values())
+    bands = {k: v[:min_h, :min_w] for k, v in bands.items()}
+
+    ndwi = _safe_divide(bands["green"] - bands["nir"], bands["green"] + bands["nir"])
+    mndwi = _safe_divide(bands["green"] - bands["swir"], bands["green"] + bands["swir"])
+    ndvi = _safe_divide(bands["nir"] - bands["red"], bands["nir"] + bands["red"])
+
+    valid = np.isfinite(ndwi) & np.isfinite(mndwi) & np.isfinite(ndvi)
+    water_mask = valid & ((mndwi > 0.12) | ((ndwi > 0.15) & (ndvi < 0.30)))
+
+    water_pixels = int(np.sum(water_mask))
+    area_km2 = float(water_pixels * pixel_area_m2 / 1_000_000.0)
+
+    return {
+        "bands": bands,
+        "indices": {"ndwi": ndwi, "mndwi": mndwi, "ndvi": ndvi},
+        "water_mask": water_mask,
+        "valid_pixels": int(np.sum(valid)),
+        "water_pixels": water_pixels,
+        "area_km2": area_km2,
+        "pixel_area_m2": float(pixel_area_m2),
+    }
+
+
+def _index_summary(arr: np.ndarray) -> Dict[str, float]:
+    valid = arr[np.isfinite(arr)]
+    if valid.size == 0:
+        return {"mean": np.nan, "p10": np.nan, "p90": np.nan}
+    return {
+        "mean": float(np.nanmean(valid)),
+        "p10": float(np.nanpercentile(valid, 10)),
+        "p90": float(np.nanpercentile(valid, 90)),
+    }
+
+
+def _quality_warnings(lat: float, scene_date: str, ndvi_mean: float, cloud_cover: float, scene_count: int) -> List[str]:
+    warnings = []
+    if scene_count < 2:
+        warnings.append("Low scene availability in requested date range; robustness is reduced.")
+    if cloud_cover > 20:
+        warnings.append("Selected scene cloud cover is high; water area may be underestimated.")
+    season = _season(scene_date, lat)
+    if season == "winter":
+        warnings.append("Winter season detected; snow/ice can bias spectral water metrics.")
+    if abs(lat) >= 60 and season == "winter" and ndvi_mean > 0.55:
+        warnings.append("Impossible-output check: unusually high NDVI for Arctic/sub-Arctic winter; review result.")
+    return warnings
+
+
+def _stac_item_to_dict(item):
+    return {
+        "id": item.id,
+        "datetime": item.datetime.isoformat() if item.datetime else None,
+        "cloud_cover": item.properties.get("eo:cloud_cover"),
+        "collection": item.collection_id,
+        "platform": item.properties.get("platform"),
+    }
+
+
+@app.route("/", methods=["GET", "HEAD"])
+def root():
+    return jsonify(
+        {
+            "service": "source-water-geoai",
+            "status": "ok",
+            "api_version": API_VERSION,
+            "processing_mode": "mixed",
+            "message": "Use /health and /capabilities for service metadata.",
+        }
+    )
+
+
+@app.route("/health", methods=["GET"])
 def health():
-    """Health check with GeoAI library status"""
-    return jsonify({
-        'status': 'healthy',
-        'service': 'geoai-service',
-        'geoai_available': GEOAI_AVAILABLE,
-        'geoai_version': geoai.__version__ if GEOAI_AVAILABLE else 'N/A',
-        'rasterio_available': RASTERIO_AVAILABLE,
-        'leafmap_available': LEAFMAP_AVAILABLE,
-        'pystac_available': PYSTAC_AVAILABLE,
-        'version': '2.0.0-real'
-    }), 200
-
-
-# ─────────────────────────────────────────────────────────────
-# WATER DETECTION (Real GeoAI + Sentinel-2)
-# ─────────────────────────────────────────────────────────────
-
-@app.route('/api/geoai/detect-water', methods=['POST'])
-def detect_water():
-    """
-    Detect water bodies using real Sentinel-2 + GeoAI segmentation
-    """
-    try:
-        data = request.get_json()
-        lat = data.get('latitude', 0)
-        lng = data.get('longitude', 0)
-        date_start = data.get('date_start', None)
-        date_end = data.get('date_end', None)
-        
-        if not date_start:
-            date_end = datetime.now().date().isoformat()
-            date_start = (datetime.now() - timedelta(days=30)).date().isoformat()
-        
-        logger.info(f"🛰️  Water detection: lat={lat}, lng={lng}, {date_start} to {date_end}")
-        
-        if not GEOAI_AVAILABLE:
-            return jsonify({'error': 'GeoAI not available', 'status': 'unavailable'}), 503
-        
-        # Real GeoAI: Uses actual library functions
-        result = {
-            'status': 'success',
-            'method': 'Sentinel-2 + GeoAI Segmentation (REAL)',
-            'location': {'latitude': lat, 'longitude': lng},
-            'period': {'start': date_start, 'end': date_end},
-            'imagery_source': 'Sentinel-2 L2A (Planetary Computer)',
-            'model_used': 'geoai.segment_water()',
-            'water_detected': True,
-            'confidence': 0.89,
-            'area_km2': 5.42,
-            'spectral_indices': {
-                'ndwi': 0.68,
-                'ndvi': 0.65,
-                'mndwi': 0.71
-            },
-            'classification': {
-                'open_water_km2': 4.2,
-                'shallow_water_km2': 0.8,
-                'water_with_vegetation_km2': 0.42
-            },
-            'metadata': {
-                'cloud_cover': 5.2,
-                'image_count': 12,
-                'temporal_resolution': 'daily',
-                'spatial_resolution_m': 10
-            }
+    return jsonify(
+        {
+            "status": "healthy",
+            "service": "geoai-service",
+            "timestamp": _now_iso(),
+            "geoai_available": GEOAI_AVAILABLE,
+            "geoai_version": GEOAI_VERSION,
+            "api_version": API_VERSION,
         }
-        
-        logger.info(f"✓ Water detection complete: {result['area_km2']}km² detected")
-        return jsonify(result), 200
-    
-    except Exception as e:
-        logger.error(f"❌ Water detection failed: {str(e)}\n{traceback.format_exc()}")
-        return jsonify({'error': str(e), 'status': 'failed'}), 400
+    )
 
 
-# ─────────────────────────────────────────────────────────────
-# WETLAND MAPPING (Real GeoAI Segmentation)
-# ─────────────────────────────────────────────────────────────
-
-@app.route('/api/geoai/map-wetlands', methods=['POST'])
-def map_wetlands():
-    """
-    Map wetlands using GeoAI semantic segmentation
-    """
-    try:
-        data = request.get_json()
-        lat = data.get('latitude', 0)
-        lng = data.get('longitude', 0)
-        radius = data.get('area_km_radius', 5)
-        
-        logger.info(f"🌿 Wetland mapping: lat={lat}, lng={lng}, radius={radius}km")
-        
-        if not GEOAI_AVAILABLE:
-            return jsonify({'error': 'GeoAI not available'}), 503
-        
-        # Real GeoAI: Semantic segmentation
-        result = {
-            'status': 'success',
-            'method': 'GeoAI Semantic Segmentation (REAL)',
-            'model_used': 'geoai.semantic_segmentation()',
-            'model_backbone': 'ResNet50 (Prithvi)',
-            'location': {'latitude': lat, 'longitude': lng},
-            'search_radius_km': radius,
-            'features_found': 5,
-            'total_area_km2': 12.3,
-            'classification': {
-                'marsh_km2': 3.4,
-                'swamp_km2': 5.2,
-                'fen_km2': 2.1,
-                'bog_km2': 1.6
-            },
-            'segments': [
-                {
-                    'id': 'wetland_001',
-                    'type': 'marsh',
-                    'area_km2': 2.1,
-                    'ndvi': 0.65,
-                    'confidence': 0.87
+@app.route("/capabilities", methods=["GET"])
+def capabilities():
+    return jsonify(
+        {
+            "service": "source-water-geoai",
+            "api_version": API_VERSION,
+            "endpoints": {
+                "detect-water": {
+                    "mode": "rule_based",
+                    "implementation_status": "real_computed",
+                    "summary": "Sentinel-2 spectral water detection with NDWI/MNDWI thresholds",
                 },
-                {
-                    'id': 'wetland_002',
-                    'type': 'swamp',
-                    'area_km2': 3.5,
-                    'ndvi': 0.72,
-                    'confidence': 0.91
-                }
-            ],
-            'metrics': {
-                'accuracy': 0.88,
-                'iou': 0.82,
-                'biodiversity_score': 0.78
-            }
-        }
-        
-        logger.info(f"✓ Wetland mapping complete: {result['features_found']} wetlands")
-        return jsonify(result), 200
-    
-    except Exception as e:
-        logger.error(f"❌ Wetland mapping failed: {str(e)}")
-        return jsonify({'error': str(e), 'status': 'failed'}), 400
-
-
-# ─────────────────────────────────────────────────────────────
-# CHANGE DETECTION (Real GeoAI Multi-Temporal)
-# ─────────────────────────────────────────────────────────────
-
-@app.route('/api/geoai/detect-changes', methods=['POST'])
-def detect_changes():
-    """
-    Detect temporal changes using GeoAI ChangeSTAR or custom models
-    """
-    try:
-        data = request.get_json()
-        lat = data.get('latitude', 0)
-        lng = data.get('longitude', 0)
-        date_start = data.get('date_start', '2023-01-01')
-        date_end = data.get('date_end', '2024-01-01')
-        interval = data.get('comparison_interval', 'monthly')
-        
-        logger.info(f"📊 Change detection: {date_start} to {date_end}, interval: {interval}")
-        
-        if not GEOAI_AVAILABLE:
-            return jsonify({'error': 'GeoAI not available'}), 503
-        
-        # Real GeoAI: ChangeSTAR multi-temporal analysis
-        result = {
-            'status': 'success',
-            'method': 'GeoAI Multi-Temporal Change Detection (REAL)',
-            'model_used': 'geoai.changestar_detect()',
-            'model': 'ChangeSTAR',
-            'location': {'latitude': lat, 'longitude': lng},
-            'period': {'start': date_start, 'end': date_end},
-            'interval': interval,
-            'temporal_series': [
-                {
-                    'date': '2023-03-01',
-                    'ndwi': 0.68,
-                    'ndvi': 0.62,
-                    'water_area_km2': 5.1,
-                    'vegetation_coverage': 0.62,
-                    'change_percent': -3.0,
-                    'season': 'Spring'
+                "map-wetlands": {
+                    "mode": "rule_based",
+                    "implementation_status": "experimental",
+                    "summary": "Heuristic wetland proxy from water+vegetation overlap",
                 },
-                {
-                    'date': '2023-06-01',
-                    'ndwi': 0.64,
-                    'ndvi': 0.78,
-                    'water_area_km2': 4.8,
-                    'vegetation_coverage': 0.78,
-                    'change_percent': -5.9,
-                    'season': 'Summer'
+                "detect-changes": {
+                    "mode": "rule_based",
+                    "implementation_status": "real_computed",
+                    "summary": "Multi-temporal spectral change analysis",
                 },
-                {
-                    'date': '2023-09-01',
-                    'ndwi': 0.55,
-                    'ndvi': 0.45,
-                    'water_area_km2': 4.2,
-                    'vegetation_coverage': 0.45,
-                    'change_percent': -12.5,
-                    'season': 'Fall'
+                "predict-quality": {
+                    "mode": "demo_placeholder",
+                    "implementation_status": "not_implemented",
+                    "summary": "Disabled until validated training data/model are available",
                 },
-                {
-                    'date': '2024-01-01',
-                    'ndwi': 0.71,
-                    'ndvi': 0.35,
-                    'water_area_km2': 6.1,
-                    'vegetation_coverage': 0.35,
-                    'change_percent': +13.0,
-                    'season': 'Winter'
-                }
-            ],
-            'trend': {
-                'water': 'increasing_seasonally',
-                'vegetation': 'seasonal_cycle',
-                'rate': '+0.25 km²/month',
-                'confidence': 0.89
-            }
+                "classify-landcover": {
+                    "mode": "demo_placeholder",
+                    "implementation_status": "not_implemented",
+                    "summary": "Disabled until verified land-cover model inference path is wired",
+                },
+                "download-sentinel": {
+                    "mode": "real_computed",
+                    "implementation_status": "real_computed",
+                    "summary": "Live STAC search for Sentinel-2 scenes",
+                },
+            },
         }
-        
-        logger.info(f"✓ Change detection complete")
-        return jsonify(result), 200
-    
-    except Exception as e:
-        logger.error(f"❌ Change detection failed: {str(e)}")
-        return jsonify({'error': str(e), 'status': 'failed'}), 400
+    )
 
 
-# ─────────────────────────────────────────────────────────────
-# WATER QUALITY PREDICTION (Real GeoAI ML)
-# ─────────────────────────────────────────────────────────────
-
-@app.route('/api/geoai/predict-quality', methods=['POST'])
-def predict_quality():
-    """
-    Predict water quality using GeoAI spectral indices + ML models
-    """
-    try:
-        data = request.get_json()
-        lat = data.get('latitude', 0)
-        lng = data.get('longitude', 0)
-        
-        logger.info(f"🔮 Water quality prediction using ML")
-        
-        if not GEOAI_AVAILABLE:
-            return jsonify({'error': 'GeoAI not available'}), 503
-        
-        # Real GeoAI: Spectral indices + ML prediction
-        result = {
-            'status': 'success',
-            'method': 'GeoAI ML Prediction (REAL)',
-            'model_used': 'Random Forest / XGBoost',
-            'training_data': 'USGS WQP + Sentinel-2',
-            'location': {'latitude': lat, 'longitude': lng},
-            'spectral_indices': {
-                'ndwi': 0.68,
-                'ndvi': 0.65,
-                'ndbi': 0.15,
-                'bsi': 0.22,
-                'gci': 0.35
-            },
-            'predictions': {
-                'ph': {'value': 7.15, 'unit': 'pH', 'confidence': 0.78},
-                'turbidity': {'value': 1.8, 'unit': 'NTU', 'confidence': 0.82},
-                'dissolved_oxygen': {'value': 8.2, 'unit': 'mg/L', 'confidence': 0.85},
-                'temperature': {'value': 12.5, 'unit': '°C', 'confidence': 0.91},
-                'conductivity': {'value': 450, 'unit': 'µS/cm', 'confidence': 0.76},
-                'chlorophyll_a': {'value': 2.15, 'unit': 'µg/L', 'confidence': 0.79}
-            },
-            'quality_assessment': {
-                'overall_quality': 'Good',
-                'index': 78,
-                'status': 'Oligotrophic to Mesotrophic',
-                'pollution_risk': 'Low'
-            },
-            'model_performance': {
-                'r2': 0.87,
-                'rmse': 0.34,
-                'cv_score': 0.85
-            }
-        }
-        
-        logger.info(f"✓ Quality prediction complete: {result['quality_assessment']['overall_quality']}")
-        return jsonify(result), 200
-    
-    except Exception as e:
-        logger.error(f"❌ Quality prediction failed: {str(e)}")
-        return jsonify({'error': str(e), 'status': 'failed'}), 400
-
-
-# ─────────────────────────────────────────────────────────────
-# LAND COVER CLASSIFICATION (Real GeoAI CNN)
-# ─────────────────────────────────────────────────────────────
-
-@app.route('/api/geoai/classify-landcover', methods=['POST'])
-def classify_landcover():
-    """
-    Classify LULC using GeoAI CNN (Prithvi or Timm models)
-    """
-    try:
-        data = request.get_json()
-        lat = data.get('latitude', 0)
-        lng = data.get('longitude', 0)
-        zoom = data.get('zoom_level', 13)
-        
-        logger.info(f"🗺️  LULC Classification: lat={lat}, lng={lng}")
-        
-        if not GEOAI_AVAILABLE:
-            return jsonify({'error': 'GeoAI not available'}), 503
-        
-        # Real GeoAI: CNN classification
-        result = {
-            'status': 'success',
-            'method': 'GeoAI CNN Classification (REAL)',
-            'model_used': 'geoai.classify_image() - Prithvi/ResNet50',
-            'location': {'latitude': lat, 'longitude': lng},
-            'zoom': zoom,
-            'imagery': 'Sentinel-2',
-            'classification': {
-                'water': 18.5,
-                'dense_vegetation': 25.6,
-                'urban': 22.1,
-                'agriculture': 12.4,
-                'barren': 4.7,
-                'clouds': 2.3,
-                'shadows': 3.1,
-                'sparse_vegetation': 11.3
-            },
-            'class_details': [
-                {'name': 'Water', 'coverage': 18.5, 'confidence': 0.94},
-                {'name': 'Dense Vegetation', 'coverage': 25.6, 'confidence': 0.89},
-                {'name': 'Urban', 'coverage': 22.1, 'confidence': 0.91},
-                {'name': 'Agriculture', 'coverage': 12.4, 'confidence': 0.85},
-                {'name': 'Barren', 'coverage': 4.7, 'confidence': 0.87}
-            ],
-            'summary': {
-                'dominant': 'Dense Vegetation',
-                'urban_pressure': 'Moderate',
-                'natural_cover': 55.4,
-                'human_modified': 34.5
-            },
-            'metrics': {
-                'accuracy': 0.88,
-                'kappa': 0.84
-            }
-        }
-        
-        logger.info(f"✓ LULC classification complete")
-        return jsonify(result), 200
-    
-    except Exception as e:
-        logger.error(f"❌ LULC classification failed: {str(e)}")
-        return jsonify({'error': str(e), 'status': 'failed'}), 400
-
-
-# ─────────────────────────────────────────────────────────────
-# SENTINEL-2 IMAGERY SEARCH (Real STAC / Planetary Computer)
-# ─────────────────────────────────────────────────────────────
-
-@app.route('/api/geoai/download-sentinel', methods=['POST'])
+@app.route("/api/geoai/download-sentinel", methods=["POST"])
 def download_sentinel():
-    """
-    Search available Sentinel-2 imagery via Planetary Computer STAC
-    Uses geoai.pc_stac_search() for real satellite data discovery
-    """
-    try:
-        data = request.get_json()
-        lat = data.get('latitude', 0)
-        lng = data.get('longitude', 0)
-        date_start = data.get('date_start', '2024-01-01')
-        date_end = data.get('date_end', '2024-03-31')
-        cloud_cover = data.get('max_cloud_cover', 20)
-        
-        logger.info(f"📥 Sentinel-2 STAC search: {date_start} to {date_end}, cloud<{cloud_cover}%")
-        
-        if not GEOAI_AVAILABLE:
-            return jsonify({'error': 'GeoAI not available'}), 503
-        
-        # Real GeoAI: pc_stac_search() to Planetary Computer
-        result = {
-            'status': 'success',
-            'method': 'GeoAI Planetary Computer STAC (REAL)',
-            'functions_used': ['geoai.pc_stac_search()', 'geoai.pc_collection_list()'],
-            'location': {'latitude': lat, 'longitude': lng},
-            'bbox': [lng - 0.05, lat - 0.05, lng + 0.05, lat + 0.05],
-            'search_params': {
-                'period': {'start': date_start, 'end': date_end},
-                'max_cloud_cover': cloud_cover,
-                'collection': 'sentinel-2-l2a'
+    started = time.time()
+    payload = request.get_json(silent=True) or {}
+
+    lat = _safe_float(payload.get("latitude"))
+    lon = _safe_float(payload.get("longitude"))
+    start_date = payload.get("date_start")
+    end_date = payload.get("date_end")
+    cloud = _safe_float(payload.get("max_cloud_cover", 20), 20)
+
+    _validate_point(lat, lon)
+    if not start_date or not end_date:
+        raise ValueError("date_start and date_end are required")
+
+    items = _search_items(lat, lon, start_date, end_date, cloud)
+
+    duration = round(time.time() - started, 3)
+    return jsonify(
+        {
+            "status": "success",
+            "mode": "real_computed",
+            "processing_mode": "real_computed",
+            "implementation_status": "real_computed",
+            "api_version": API_VERSION,
+            "imagery_source": {
+                "stac_api": PC_STAC_URL,
+                "collection": COLLECTION,
             },
-            'total_items': 8,
-            'items': [
-                {
-                    'id': 'S2A_MSIL2A_20240115T155751_R097_T23UNQ_20240115T160320',
-                    'date': '2024-01-15',
-                    'cloud_cover': 8.5,
-                    'resolution': 10,
-                    'source': 'Sentinel-2A',
-                    'available_bands': ['B2', 'B3', 'B4', 'B5-B11'],
-                    'pc_link': 'https://planetarycomputer.microsoft.com/api/stac/v1/collections/sentinel-2-l2a'
-                },
-                {
-                    'id': 'S2B_MSIL2A_20240125T155801_R097_T23UNQ_20240125T160247',
-                    'date': '2024-01-25',
-                    'cloud_cover': 15.2,
-                    'resolution': 10,
-                    'source': 'Sentinel-2B',
-                    'available_bands': ['B2', 'B3', 'B4', 'B5-B11'],
-                    'pc_link': 'https://planetarycomputer.microsoft.com/api/stac/v1/collections/sentinel-2-l2a'
-                },
-                {
-                    'id': 'S2A_MSIL2A_20240204T155751_R097_T23UNQ_20240204T160320',
-                    'date': '2024-02-04',
-                    'cloud_cover': 5.8,
-                    'resolution': 10,
-                    'source': 'Sentinel-2A',
-                    'available_bands': ['B2', 'B3', 'B4', 'B5-B11'],
-                    'pc_link': 'https://planetarycomputer.microsoft.com/api/stac/v1/collections/sentinel-2-l2a'
-                },
-                {
-                    'id': 'S2B_MSIL2A_20240214T155801_R097_T23UNQ_20240214T160247',
-                    'date': '2024-02-14',
-                    'cloud_cover': 12.1,
-                    'resolution': 10,
-                    'source': 'Sentinel-2B',
-                    'available_bands': ['B2', 'B3', 'B4', 'B5-B11'],
-                    'pc_link': 'https://planetarycomputer.microsoft.com/api/stac/v1/collections/sentinel-2-l2a'
-                }
-            ],
-            'metadata': {
-                'total_size_gb': 42.5,
-                'avg_cloud_cover': 11.1,
-                'best_image': {
-                    'date': '2024-02-04',
-                    'cloud_cover': 5.8
-                }
-            }
+            "request": {
+                "latitude": lat,
+                "longitude": lon,
+                "date_start": start_date,
+                "date_end": end_date,
+                "max_cloud_cover": cloud,
+            },
+            "scene_count": len(items),
+            "scenes": [_stac_item_to_dict(i) for i in items[:20]],
+            "warnings": ["No scenes found for filter constraints."] if not items else [],
+            "processing_summary": {
+                "duration_seconds": duration,
+                "scene_ids": [i.id for i in items[:20]],
+            },
         }
-        
-        logger.info(f"✓ STAC search complete: {result['total_items']} items")
-        return jsonify(result), 200
-    
-    except Exception as e:
-        logger.error(f"❌ STAC search failed: {str(e)}")
-        return jsonify({'error': str(e), 'status': 'failed'}), 400
+    )
 
 
-# ─────────────────────────────────────────────────────────────
-# ERROR HANDLERS
-# ─────────────────────────────────────────────────────────────
+@app.route("/api/geoai/detect-water", methods=["POST"])
+def detect_water():
+    started = time.time()
+    payload = request.get_json(silent=True) or {}
 
-@app.errorhandler(404)
-def not_found(e):
-    return jsonify({'error': 'Endpoint not found', 'status': 404}), 404
+    lat = _safe_float(payload.get("latitude"))
+    lon = _safe_float(payload.get("longitude"))
+    start_date = payload.get("date_start")
+    end_date = payload.get("date_end")
+    cloud = _safe_float(payload.get("max_cloud_cover", 20), 20)
+    patch_size = int(payload.get("patch_size", DEFAULT_PATCH_SIZE))
 
-@app.errorhandler(500)
-def server_error(e):
-    logger.error(f"Server error: {str(e)}")
-    return jsonify({'error': 'Internal server error', 'status': 500}), 500
+    _validate_point(lat, lon)
+    if not start_date or not end_date:
+        raise ValueError("date_start and date_end are required")
+
+    logger.info(
+        "water_request lat=%s lon=%s start=%s end=%s cloud=%s",
+        lat,
+        lon,
+        start_date,
+        end_date,
+        cloud,
+    )
+
+    items = _search_items(lat, lon, start_date, end_date, cloud)
+    if not items:
+        return jsonify(
+            {
+                "status": "no_imagery",
+                "mode": "rule_based",
+                "processing_mode": "rule_based",
+                "implementation_status": "real_computed",
+                "api_version": API_VERSION,
+                "water_detected": False,
+                "area_km2": 0.0,
+                "scene_count": 0,
+                "warnings": ["No Sentinel-2 scenes found for this location/date/cloud filter."],
+                "uncertainty": {
+                    "level": "high",
+                    "reasons": ["imagery_unavailable"],
+                },
+            }
+        )
+
+    selected = items[0]
+    computed = _compute_water_from_item(selected, lat, lon, patch_size)
+
+    ndwi_summary = _index_summary(computed["indices"]["ndwi"])
+    mndwi_summary = _index_summary(computed["indices"]["mndwi"])
+    ndvi_summary = _index_summary(computed["indices"]["ndvi"])
+
+    warnings = _quality_warnings(
+        lat=lat,
+        scene_date=(selected.datetime.date().isoformat() if selected.datetime else start_date),
+        ndvi_mean=ndvi_summary["mean"],
+        cloud_cover=float(selected.properties.get("eo:cloud_cover", np.nan)),
+        scene_count=len(items),
+    )
+
+    run_id = uuid.uuid4().hex[:10]
+    visuals = _save_visuals(
+        red=computed["bands"]["red"],
+        green=computed["bands"]["green"],
+        blue=computed["bands"]["blue"],
+        ndwi=computed["indices"]["ndwi"],
+        water_mask=computed["water_mask"],
+        run_id=run_id,
+    )
+
+    confidence_basis = {
+        "scene_count": len(items),
+        "selected_scene_cloud_cover": selected.properties.get("eo:cloud_cover"),
+        "valid_pixel_ratio": (
+            float(computed["valid_pixels"] / (patch_size * patch_size)) if patch_size > 0 else None
+        ),
+        "note": "No ML confidence score is used; basis is scene quality and valid-pixel coverage.",
+    }
+
+    duration = round(time.time() - started, 3)
+
+    return jsonify(
+        {
+            "status": "success",
+            "mode": "rule_based",
+            "processing_mode": "rule_based",
+            "implementation_status": "real_computed",
+            "api_version": API_VERSION,
+            "method": "rule_based spectral water detection",
+            "water_detected": bool(computed["water_pixels"] > 0),
+            "area_km2": round(computed["area_km2"], 6),
+            "spectral_indices": {
+                "ndwi": ndwi_summary,
+                "mndwi": mndwi_summary,
+                "ndvi": ndvi_summary,
+            },
+            "threshold_info": {
+                "water_rule": "(MNDWI > 0.12) OR (NDWI > 0.15 AND NDVI < 0.30)",
+                "index_formulas": {
+                    "ndwi": "(Green - NIR) / (Green + NIR)",
+                    "mndwi": "(Green - SWIR1) / (Green + SWIR1)",
+                    "ndvi": "(NIR - Red) / (NIR + Red)",
+                },
+            },
+            "imagery_source": {
+                "collection": COLLECTION,
+                "stac_api": PC_STAC_URL,
+                "selected_scene": _stac_item_to_dict(selected),
+                "scene_count": len(items),
+                "scene_ids": [i.id for i in items[:12]],
+                "cloud_filter": cloud,
+                "composite_mode": "single_scene_min_cloud",
+                "pixel_resolution_m": round(np.sqrt(computed["pixel_area_m2"]), 3),
+            },
+            "visual_validation": visuals,
+            "warnings": warnings,
+            "confidence_basis": confidence_basis,
+            "uncertainty": {
+                "level": "medium" if warnings else "low",
+                "reasons": ["seasonal_effects"] if warnings else [],
+            },
+            "processing_summary": {
+                "duration_seconds": duration,
+                "patch_size_px": patch_size,
+                "water_pixels": computed["water_pixels"],
+                "valid_pixels": computed["valid_pixels"],
+            },
+        }
+    )
 
 
-# ─────────────────────────────────────────────────────────────
-# RUN
-# ─────────────────────────────────────────────────────────────
+@app.route("/api/geoai/map-wetlands", methods=["POST"])
+def map_wetlands():
+    payload = request.get_json(silent=True) or {}
+    lat = _safe_float(payload.get("latitude"))
+    lon = _safe_float(payload.get("longitude"))
+    start_date = payload.get("date_start")
+    end_date = payload.get("date_end")
+    cloud = _safe_float(payload.get("max_cloud_cover", 20), 20)
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8000))
-    logger.info(f"🚀 GeoAI Service v2.0 (REAL) starting on port {port}")
-    logger.info("✓ Real GeoAI endpoints ready:")
-    logger.info("  ✓ POST /api/geoai/detect-water — Sentinel-2 water detection")
-    logger.info("  ✓ POST /api/geoai/map-wetlands — GeoAI segmentation")
-    logger.info("  ✓ POST /api/geoai/detect-changes — Multi-temporal analysis")
-    logger.info("  ✓ POST /api/geoai/predict-quality — ML-based quality prediction")
-    logger.info("  ✓ POST /api/geoai/classify-landcover — CNN LULC classification")
-    logger.info("  ✓ POST /api/geoai/download-sentinel — PC STAC search")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    _validate_point(lat, lon)
+    if not start_date or not end_date:
+        end_date = datetime.utcnow().date().isoformat()
+        start_date = (datetime.utcnow().date().replace(day=1)).isoformat()
+
+    items = _search_items(lat, lon, start_date, end_date, cloud)
+    if not items:
+        return jsonify(
+            {
+                "status": "no_imagery",
+                "mode": "rule_based",
+                "processing_mode": "rule_based",
+                "implementation_status": "experimental",
+                "api_version": API_VERSION,
+                "warnings": ["No scenes found. Wetland heuristic could not run."],
+            }
+        )
+
+    selected = items[0]
+    computed = _compute_water_from_item(selected, lat, lon, DEFAULT_PATCH_SIZE)
+    ndvi = computed["indices"]["ndvi"]
+    mndwi = computed["indices"]["mndwi"]
+    valid = np.isfinite(ndvi) & np.isfinite(mndwi)
+    wetland_mask = valid & (mndwi > 0.05) & (ndvi > 0.25)
+
+    wetland_pixels = int(np.sum(wetland_mask))
+    wetland_area_km2 = float(wetland_pixels * computed["pixel_area_m2"] / 1_000_000.0)
+
+    return jsonify(
+        {
+            "status": "success",
+            "mode": "rule_based",
+            "processing_mode": "rule_based",
+            "implementation_status": "experimental",
+            "api_version": API_VERSION,
+            "method": "heuristic wetland proxy",
+            "heuristic": "wetland := (MNDWI > 0.05) AND (NDVI > 0.25)",
+            "wetland_area_km2": round(wetland_area_km2, 6),
+            "scene": _stac_item_to_dict(selected),
+            "warnings": [
+                "This is not a validated wetland ML classifier.",
+                "Treat output as exploratory screening only.",
+            ],
+        }
+    )
+
+
+@app.route("/api/geoai/detect-changes", methods=["POST"])
+def detect_changes():
+    started = time.time()
+    payload = request.get_json(silent=True) or {}
+
+    lat = _safe_float(payload.get("latitude"))
+    lon = _safe_float(payload.get("longitude"))
+    period_a_start = payload.get("period_a_start") or payload.get("date_start")
+    period_a_end = payload.get("period_a_end")
+    period_b_start = payload.get("period_b_start")
+    period_b_end = payload.get("period_b_end") or payload.get("date_end")
+    cloud = _safe_float(payload.get("max_cloud_cover", 20), 20)
+
+    _validate_point(lat, lon)
+    if period_a_start and period_b_end and (not period_a_end or not period_b_start):
+        a_start_dt = datetime.fromisoformat(period_a_start)
+        b_end_dt = datetime.fromisoformat(period_b_end)
+        midpoint = a_start_dt + (b_end_dt - a_start_dt) / 2
+        period_a_end = period_a_end or midpoint.date().isoformat()
+        period_b_start = period_b_start or midpoint.date().isoformat()
+
+    if not (period_a_start and period_a_end and period_b_start and period_b_end):
+        raise ValueError("period_a_start, period_a_end, period_b_start, period_b_end are required")
+
+    items_a = _search_items(lat, lon, period_a_start, period_a_end, cloud)
+    items_b = _search_items(lat, lon, period_b_start, period_b_end, cloud)
+
+    if not items_a or not items_b:
+        return jsonify(
+            {
+                "status": "insufficient_imagery",
+                "mode": "rule_based",
+                "processing_mode": "rule_based",
+                "implementation_status": "real_computed",
+                "api_version": API_VERSION,
+                "warnings": ["One or both periods returned no scenes."],
+            }
+        )
+
+    a = _compute_water_from_item(items_a[0], lat, lon, DEFAULT_PATCH_SIZE)
+    b = _compute_water_from_item(items_b[0], lat, lon, DEFAULT_PATCH_SIZE)
+
+    area_a = a["area_km2"]
+    area_b = b["area_km2"]
+    delta = area_b - area_a
+
+    before_after = {
+        "period_a_scene": _stac_item_to_dict(items_a[0]),
+        "period_b_scene": _stac_item_to_dict(items_b[0]),
+        "water_area_period_a_km2": round(area_a, 6),
+        "water_area_period_b_km2": round(area_b, 6),
+        "change_km2": round(delta, 6),
+        "change_percent": round((delta / area_a) * 100.0, 3) if area_a > 0 else None,
+    }
+
+    run_id = uuid.uuid4().hex[:10]
+    visuals_a = _save_visuals(
+        red=a["bands"]["red"],
+        green=a["bands"]["green"],
+        blue=a["bands"]["blue"],
+        ndwi=a["indices"]["ndwi"],
+        water_mask=a["water_mask"],
+        run_id=f"{run_id}_a",
+    )
+    visuals_b = _save_visuals(
+        red=b["bands"]["red"],
+        green=b["bands"]["green"],
+        blue=b["bands"]["blue"],
+        ndwi=b["indices"]["ndwi"],
+        water_mask=b["water_mask"],
+        run_id=f"{run_id}_b",
+    )
+
+    duration = round(time.time() - started, 3)
+    return jsonify(
+        {
+            "status": "success",
+            "mode": "rule_based",
+            "processing_mode": "rule_based",
+            "implementation_status": "real_computed",
+            "api_version": API_VERSION,
+            "method": "multi-temporal spectral change analysis",
+            "before_after": before_after,
+            "visual_validation": {
+                "period_a": visuals_a,
+                "period_b": visuals_b,
+            },
+            "warnings": [
+                "This endpoint does not use an ML change model; it compares spectral rule-based water masks.",
+            ],
+            "processing_summary": {
+                "duration_seconds": duration,
+                "scene_ids_period_a": [i.id for i in items_a[:8]],
+                "scene_ids_period_b": [i.id for i in items_b[:8]],
+            },
+        }
+    )
+
+
+@app.route("/api/geoai/predict-quality", methods=["POST"])
+def predict_quality():
+    return (
+        jsonify(
+            {
+                "status": "not_implemented",
+                "mode": "demo_placeholder",
+                "processing_mode": "demo_placeholder",
+                "implementation_status": "not_implemented",
+                "api_version": API_VERSION,
+                "message": "Water quality prediction is disabled: no validated model+training data pipeline is configured.",
+                "warnings": ["No prediction was computed."],
+            }
+        ),
+        501,
+    )
+
+
+@app.route("/api/geoai/classify-landcover", methods=["POST"])
+def classify_landcover():
+    return (
+        jsonify(
+            {
+                "status": "not_implemented",
+                "mode": "demo_placeholder",
+                "processing_mode": "demo_placeholder",
+                "implementation_status": "not_implemented",
+                "api_version": API_VERSION,
+                "message": "Land-cover classification is disabled until a verified model inference path is wired.",
+                "warnings": ["No land-cover classes were computed."],
+            }
+        ),
+        501,
+    )
+
+
+@app.errorhandler(Exception)
+def handle_error(exc):
+    logger.exception("request_failed: %s", exc)
+    return (
+        jsonify(
+            {
+                "status": "failed",
+                "mode": "real_computed",
+                "implementation_status": "real_computed",
+                "api_version": API_VERSION,
+                "error": str(exc),
+            }
+        ),
+        400,
+    )
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    logger.info("GeoAI service starting on port %s", port)
+    app.run(host="0.0.0.0", port=port, debug=False)

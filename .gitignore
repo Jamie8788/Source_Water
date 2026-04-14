@@ -30,6 +30,7 @@ uploads/
 analysis-service/data/uploads/
 analysis-service/data/indexes/
 analysis-service/data/files.json
+geoai-service/static/outputs/
 
 # Build output
 client/dist/

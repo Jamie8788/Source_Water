@@ -12,6 +12,27 @@ const GEOAI_TABS = {
   satellite: { label: '⬇️ Satellite Data', icon: '📡' }
 }
 
+const MODE_LABELS = {
+  real_computed: { label: 'REAL COMPUTED', cls: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40' },
+  rule_based: { label: 'RULE-BASED', cls: 'bg-amber-500/20 text-amber-200 border-amber-400/40' },
+  ml_inference: { label: 'ML INFERENCE', cls: 'bg-cyan-500/20 text-cyan-200 border-cyan-400/40' },
+  demo_placeholder: { label: 'DEMO PLACEHOLDER', cls: 'bg-rose-500/20 text-rose-200 border-rose-400/40' }
+}
+
+const STATUS_LABELS = {
+  real_computed: { label: 'REAL COMPUTED', cls: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40' },
+  experimental: { label: 'EXPERIMENTAL', cls: 'bg-orange-500/20 text-orange-200 border-orange-400/40' },
+  not_implemented: { label: 'NOT IMPLEMENTED', cls: 'bg-rose-500/20 text-rose-200 border-rose-400/40' }
+}
+
+function Badge({ text, className }) {
+  return (
+    <span className={`px-2 py-1 text-[10px] font-semibold rounded border ${className}`}>
+      {text}
+    </span>
+  )
+}
+
 function ResultCard({ title, icon, data, loading }) {
   if (loading) {
     return (
@@ -40,15 +61,102 @@ function ResultCard({ title, icon, data, loading }) {
     )
   }
 
+  const modeMeta = MODE_LABELS[data.mode]
+  const statusMeta = STATUS_LABELS[data.implementation_status]
+  const warnings = Array.isArray(data.warnings) ? data.warnings : []
+  const visuals = data.visual_validation || null
+  const summary = data.processing_summary || null
+  const sceneCount = data.scene_count ?? data.imagery_source?.scene_count ?? null
+
+  const visualBlocks = []
+  if (visuals?.rgb_preview_url) {
+    visualBlocks.push({ label: 'RGB Preview', url: visuals.rgb_preview_url })
+  }
+  if (visuals?.ndwi_preview_url) {
+    visualBlocks.push({ label: 'NDWI Preview', url: visuals.ndwi_preview_url })
+  }
+  if (visuals?.water_mask_url) {
+    visualBlocks.push({ label: 'Water Mask', url: visuals.water_mask_url })
+  }
+
+  if (visuals?.period_a?.water_mask_url) {
+    visualBlocks.push({ label: 'Period A Mask', url: visuals.period_a.water_mask_url })
+  }
+  if (visuals?.period_b?.water_mask_url) {
+    visualBlocks.push({ label: 'Period B Mask', url: visuals.period_b.water_mask_url })
+  }
+
   return (
     <div className="p-6 rounded-lg bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 hover:border-indigo-500/40 transition-all">
       <div className="flex items-center gap-3 mb-4">
         <span className="text-2xl">{icon}</span>
         <h3 className="text-lg font-semibold text-white">{title}</h3>
       </div>
-      <pre className="text-xs text-slate-300 overflow-auto max-h-48 bg-slate-900/50 p-3 rounded border border-slate-700/50">
-        {JSON.stringify(data, null, 2)}
-      </pre>
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        {modeMeta && <Badge text={modeMeta.label} className={modeMeta.cls} />}
+        {statusMeta && <Badge text={statusMeta.label} className={statusMeta.cls} />}
+      </div>
+
+      {(data.message || data.method) && (
+        <p className="text-sm text-slate-200 mb-3">
+          {data.method || data.message}
+        </p>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div className="bg-slate-900/50 rounded border border-slate-700/50 p-2">
+          <p className="text-[11px] text-slate-400">Status</p>
+          <p className="text-sm text-white font-semibold">{data.status || 'unknown'}</p>
+        </div>
+        <div className="bg-slate-900/50 rounded border border-slate-700/50 p-2">
+          <p className="text-[11px] text-slate-400">Water Area</p>
+          <p className="text-sm text-white font-semibold">{data.area_km2 ?? data.before_after?.change_km2 ?? 'n/a'}</p>
+        </div>
+        <div className="bg-slate-900/50 rounded border border-slate-700/50 p-2">
+          <p className="text-[11px] text-slate-400">Scenes</p>
+          <p className="text-sm text-white font-semibold">{sceneCount ?? 'n/a'}</p>
+        </div>
+        <div className="bg-slate-900/50 rounded border border-slate-700/50 p-2">
+          <p className="text-[11px] text-slate-400">API Version</p>
+          <p className="text-sm text-white font-semibold">{data.api_version || 'n/a'}</p>
+        </div>
+      </div>
+
+      {summary && (
+        <div className="mb-4 p-3 rounded border border-slate-700/50 bg-slate-900/40">
+          <h4 className="text-xs text-slate-300 uppercase tracking-wide mb-1">Processing Summary</h4>
+          <pre className="text-xs text-slate-300 overflow-auto max-h-28">{JSON.stringify(summary, null, 2)}</pre>
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="mb-4 p-3 rounded border border-amber-400/30 bg-amber-500/10">
+          <h4 className="text-xs text-amber-200 uppercase tracking-wide mb-1">Warnings & Limitations</h4>
+          <ul className="text-xs text-amber-100 space-y-1">
+            {warnings.map((w, idx) => <li key={idx}>• {w}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {visualBlocks.length > 0 && (
+        <div className="mb-4">
+          <h4 className="text-xs text-slate-300 uppercase tracking-wide mb-2">Visual Validation</h4>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {visualBlocks.map((block, idx) => (
+              <a key={idx} href={block.url} target="_blank" rel="noreferrer" className="block border border-slate-700/60 rounded overflow-hidden bg-slate-900/40 hover:border-cyan-400/50 transition-colors">
+                <img src={block.url} alt={block.label} className="w-full h-36 object-cover" />
+                <p className="text-xs text-slate-200 px-2 py-1">{block.label}</p>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <details className="text-xs text-slate-300 bg-slate-900/50 p-3 rounded border border-slate-700/50">
+        <summary className="cursor-pointer text-slate-200">Raw Payload</summary>
+        <pre className="overflow-auto max-h-56 mt-2">{JSON.stringify(data, null, 2)}</pre>
+      </details>
     </div>
   )
 }
@@ -533,9 +641,9 @@ export default function GeoAnalytics() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-white mb-2">🌍 GeoAnalytics</h1>
-          <p className="text-slate-400">Satellite-based water analysis, wetland mapping, and geospatial ML</p>
+          <p className="text-slate-400">Transparent geospatial analysis with explicit processing modes and uncertainty</p>
           <p className="text-sm text-slate-500 mt-2">
-            ✓ Fully isolated service · ✓ Zero impact on dashboard/users · ✓ Production-ready
+            ✓ Isolated service · ✓ Honest outputs · ✓ Visual validation artifacts
           </p>
         </div>
 
@@ -566,12 +674,12 @@ export default function GeoAnalytics() {
           <div className="p-6 rounded-lg bg-slate-900/40 border border-slate-700/50">
             <h3 className="text-lg font-semibold text-white mb-3">📚 About GeoAnalytics</h3>
             <ul className="space-y-2 text-slate-400 text-sm">
-              <li>✓ Satellite-based water detection from Sentinel-2</li>
-              <li>✓ ML-powered wetland classification</li>
-              <li>✓ Temporal change analysis (seasonal trends)</li>
-              <li>✓ Water quality prediction models</li>
-              <li>✓ Land cover classification (10+ categories)</li>
-              <li>✓ Real satellite data downloads</li>
+              <li>✓ Rule-based spectral water detection (NDWI/MNDWI)</li>
+              <li>✓ Experimental wetland heuristic (not ML)</li>
+              <li>✓ Multi-temporal spectral change analysis</li>
+              <li>✓ STAC scene discovery with cloud/date filters</li>
+              <li>✓ Visual previews for RGB, index, and mask outputs</li>
+              <li>✓ Warnings and uncertainty are always shown</li>
             </ul>
           </div>
 

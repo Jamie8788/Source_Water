@@ -38,12 +38,26 @@ async function proxyGeoai(res, path, payload) {
   }
 }
 
+async function proxyGeoaiGet(res, path) {
+  try {
+    const resp = await axios.get(`${GEOAI_BASE_URL}${path}`, { timeout: 30000 })
+    return res.status(resp.status).json(resp.data)
+  } catch (err) {
+    const status = err.response?.status || 500
+    const upstream = err.response?.data
+    const message = err.message || 'Unknown proxy error'
+    console.error(`[geoai] proxy error ${path}:`, message)
+    if (upstream) return res.status(status).json(upstream)
+    return res.status(status).json({ error: 'GeoAI service error', msg: message })
+  }
+}
+
 // ─── Water Detection ───────────────────────────────────────
 router.post('/detect-water', async (req, res) => {
   try {
     const { latitude, longitude, date_start, date_end, resolution } = req.body
     
-    if (!latitude || !longitude) {
+    if (latitude == null || longitude == null) {
       return res.status(400).json({ error: 'latitude and longitude required' })
     }
     
@@ -67,7 +81,7 @@ router.post('/map-wetlands', async (req, res) => {
   try {
     const { latitude, longitude, area_km_radius, model } = req.body
     
-    if (!latitude || !longitude) {
+    if (latitude == null || longitude == null) {
       return res.status(400).json({ error: 'latitude and longitude required' })
     }
     
@@ -75,7 +89,7 @@ router.post('/map-wetlands', async (req, res) => {
       latitude,
       longitude,
       area_km_radius: area_km_radius || 5,
-      model: model || 'wetland_classifier_v2'
+      model: model || 'heuristic_proxy'
     })
     
   } catch (err) {
@@ -87,10 +101,20 @@ router.post('/map-wetlands', async (req, res) => {
 // ─── Change Detection ──────────────────────────────────────
 router.post('/detect-changes', async (req, res) => {
   try {
-    const { latitude, longitude, date_start, date_end, comparison_interval } = req.body
+    const {
+      latitude,
+      longitude,
+      date_start,
+      date_end,
+      period_a_start,
+      period_a_end,
+      period_b_start,
+      period_b_end,
+      comparison_interval,
+    } = req.body
     
-    if (!latitude || !longitude || !date_start || !date_end) {
-      return res.status(400).json({ error: 'latitude, longitude, date_start, date_end required' })
+    if (latitude == null || longitude == null) {
+      return res.status(400).json({ error: 'latitude and longitude required' })
     }
     
     return proxyGeoai(res, '/api/geoai/detect-changes', {
@@ -98,6 +122,10 @@ router.post('/detect-changes', async (req, res) => {
       longitude,
       date_start,
       date_end,
+      period_a_start,
+      period_a_end,
+      period_b_start,
+      period_b_end,
       comparison_interval: comparison_interval || 'monthly'
     })
     
@@ -112,7 +140,7 @@ router.post('/predict-quality', async (req, res) => {
   try {
     const { latitude, longitude, historical_observations } = req.body
     
-    if (!latitude || !longitude) {
+    if (latitude == null || longitude == null) {
       return res.status(400).json({ error: 'latitude and longitude required' })
     }
     
@@ -133,7 +161,7 @@ router.post('/classify-landcover', async (req, res) => {
   try {
     const { latitude, longitude, zoom_level } = req.body
     
-    if (!latitude || !longitude) {
+    if (latitude == null || longitude == null) {
       return res.status(400).json({ error: 'latitude and longitude required' })
     }
     
@@ -154,7 +182,7 @@ router.post('/download-sentinel', async (req, res) => {
   try {
     const { latitude, longitude, date_start, date_end, max_cloud_cover } = req.body
     
-    if (!latitude || !longitude || !date_start || !date_end) {
+    if (latitude == null || longitude == null || !date_start || !date_end) {
       return res.status(400).json({ error: 'latitude, longitude, date_start, date_end required' })
     }
     
@@ -170,6 +198,10 @@ router.post('/download-sentinel', async (req, res) => {
     console.error('[geoai] download-sentinel error:', err.message)
     res.status(500).json({ error: 'GeoAI service error', msg: err.message })
   }
+})
+
+router.get('/capabilities', async (_req, res) => {
+  return proxyGeoaiGet(res, '/capabilities')
 })
 
 // ─── Health check ─────────────────────────────────────────
