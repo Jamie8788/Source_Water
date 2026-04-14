@@ -424,24 +424,7 @@ export default function MapPage() {
       dot.className = 'm-dot'
       el.appendChild(dot)
 
-      const label = document.createElement('div')
-      label.textContent = site.name || 'Site'
-      label.style.cssText = `
-        position: absolute;
-        top: 100%;
-        left: 50%;
-        transform: translateX(-50%);
-        white-space: nowrap;
-        background: rgba(0,0,0,0.7);
-        color: #fff;
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 11px;
-        margin-top: 4px;
-        pointer-events: none;
-        font-weight: 600;
-      `
-      el.appendChild(label)
+      el.title = site.name || 'Site'
 
       el.addEventListener('click', (e) => {
         e.stopPropagation()
