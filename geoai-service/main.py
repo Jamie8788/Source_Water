@@ -487,6 +487,9 @@ def detect_water():
                 "pixel_resolution_m": round(np.sqrt(computed["pixel_area_m2"]), 3),
             },
             "visual_validation": visuals,
+            "rgb_image": visuals["rgb_preview_url"],
+            "water_mask_image": visuals["water_mask_url"],
+            "ndwi_visual": visuals["ndwi_preview_url"],
             "warnings": warnings,
             "confidence_basis": confidence_basis,
             "uncertainty": {

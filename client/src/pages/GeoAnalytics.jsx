@@ -67,16 +67,19 @@ function ResultCard({ title, icon, data, loading }) {
   const visuals = data.visual_validation || null
   const summary = data.processing_summary || null
   const sceneCount = data.scene_count ?? data.imagery_source?.scene_count ?? null
+  const rgbImage = data.rgb_image || visuals?.rgb_preview_url || null
+  const waterMaskImage = data.water_mask_image || visuals?.water_mask_url || null
+  const ndwiVisual = data.ndwi_visual || visuals?.ndwi_preview_url || null
+  const selectedScene = data.imagery_source?.selected_scene || null
+  const sceneDate = selectedScene?.datetime
+    ? new Date(selectedScene.datetime).toLocaleDateString()
+    : 'n/a'
+  const cloudCover = selectedScene?.cloud_cover ?? 'n/a'
+  const ndwiMean = data.spectral_indices?.ndwi?.mean
 
   const visualBlocks = []
-  if (visuals?.rgb_preview_url) {
-    visualBlocks.push({ label: 'RGB Preview', url: visuals.rgb_preview_url })
-  }
-  if (visuals?.ndwi_preview_url) {
-    visualBlocks.push({ label: 'NDWI Preview', url: visuals.ndwi_preview_url })
-  }
-  if (visuals?.water_mask_url) {
-    visualBlocks.push({ label: 'Water Mask', url: visuals.water_mask_url })
+  if (ndwiVisual) {
+    visualBlocks.push({ label: 'NDWI Visual', url: ndwiVisual })
   }
 
   if (visuals?.period_a?.water_mask_url) {
@@ -122,6 +125,42 @@ function ResultCard({ title, icon, data, loading }) {
           <p className="text-sm text-white font-semibold">{data.api_version || 'n/a'}</p>
         </div>
       </div>
+
+      {rgbImage && waterMaskImage && (
+        <div className="mb-4 p-3 rounded border border-cyan-400/30 bg-cyan-500/5">
+          <h4 className="text-xs text-cyan-200 uppercase tracking-wide mb-1">AI-assisted satellite water detection</h4>
+          <p className="text-xs text-slate-300 mb-3">based on Sentinel-2 imagery</p>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+            <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
+              <p className="text-[11px] text-slate-400">Area (km²)</p>
+              <p className="text-sm text-white font-semibold">{data.area_km2 ?? 'n/a'}</p>
+            </div>
+            <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
+              <p className="text-[11px] text-slate-400">NDWI Mean</p>
+              <p className="text-sm text-white font-semibold">{typeof ndwiMean === 'number' ? ndwiMean.toFixed(4) : 'n/a'}</p>
+            </div>
+            <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
+              <p className="text-[11px] text-slate-400">Scene Date</p>
+              <p className="text-sm text-white font-semibold">{sceneDate}</p>
+            </div>
+            <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
+              <p className="text-[11px] text-slate-400">Cloud Cover</p>
+              <p className="text-sm text-white font-semibold">{typeof cloudCover === 'number' ? `${cloudCover.toFixed(2)}%` : cloudCover}</p>
+            </div>
+          </div>
+
+          <div className="rounded border border-slate-700/60 bg-slate-900/40 overflow-hidden">
+            <div className="relative w-full h-56 md:h-72">
+              <img src={rgbImage} alt="Sentinel-2 RGB" className="absolute inset-0 w-full h-full object-cover" />
+              <img src={waterMaskImage} alt="Detected water mask overlay" className="absolute inset-0 w-full h-full object-cover opacity-45 mix-blend-screen" />
+            </div>
+            <div className="px-3 py-2 text-xs text-slate-300 border-t border-slate-700/50">
+              RGB base image with semi-transparent detected water mask overlay
+            </div>
+          </div>
+        </div>
+      )}
 
       {summary && (
         <div className="mb-4 p-3 rounded border border-slate-700/50 bg-slate-900/40">
