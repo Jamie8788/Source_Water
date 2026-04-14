@@ -7,7 +7,7 @@ import api from '../utils/api'
 import {
   Map, MessageSquare, BarChart2, Users, FlaskConical, BookOpen,
   Gamepad2, Bell, TrendingUp, Activity, AlertTriangle, Droplets,
-  ChevronRight, Award, Zap, Shield, ArrowUpRight
+  ChevronRight, Award, Zap, Shield, ArrowUpRight, Satellite
 } from 'lucide-react'
 import PageAmbience from '../components/layout/PageAmbience'
 
@@ -84,6 +84,7 @@ const ACTIONS = [
   { id: 'ai',        icon: MessageSquare, label: 'Ask Water AI',       desc: 'AI-powered water quality expert',    path: '/ask-water', gradient: 'linear-gradient(135deg,#8b5cf6,#ec4899)', shadow: 'rgba(139,92,246,0.3)' },
   { id: 'analysis',  icon: BarChart2,     label: 'Data Analysis',      desc: 'Upload & analyze datasets',          path: '/analysis',  gradient: 'linear-gradient(135deg,#f59e0b,#ef4444)', shadow: 'rgba(245,158,11,0.3)' },
   { id: 'social',    icon: Users,         label: 'Social Space',       desc: 'Community feed & messages',          path: '/social',    gradient: 'linear-gradient(135deg,#10b981,#14b8a6)', shadow: 'rgba(16,185,129,0.3)' },
+  { id: 'geoanalytics', icon: Map,        label: 'GeoAnalytics',       desc: 'Satellite & geospatial analysis',    path: '/geoanalytics', gradient: 'linear-gradient(135deg,#06b6d4,#14b8a6)', shadow: 'rgba(6,182,212,0.3)' },
   { id: 'quiz',      icon: FlaskConical,  label: 'Quiz Me',            desc: 'Test your water knowledge',          path: '/quiz',      gradient: 'linear-gradient(135deg,#f472b6,#a78bfa)', shadow: 'rgba(244,114,182,0.3)' },
   { id: 'resources', icon: BookOpen,      label: 'Resources',          desc: 'Guides, protocols & education',      path: '/resources', gradient: 'linear-gradient(135deg,#06b6d4,#3b82f6)', shadow: 'rgba(6,182,212,0.3)' },
   { id: 'games',     icon: Gamepad2,      label: 'Games',              desc: 'Learn while having fun',             path: '/games',     gradient: 'linear-gradient(135deg,#84cc16,#10b981)', shadow: 'rgba(132,204,22,0.3)' },

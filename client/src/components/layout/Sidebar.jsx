@@ -70,7 +70,7 @@ const NAV_GROUPS = [
     color: '#a855f7',
     items: [
       { label: 'Data Analysis', icon: LineChart,   path: '/analysis',  color: '#3b82f6', sub: 'Charts · CSV · trends' },
-      { label: 'GeoAnalytics',  icon: Satellite,   path: '/geoanalytics', color: '#06b6d4', sub: 'Geospatial · satellite analysis' },
+      { label: 'GeoAnalytics',  icon: Satellite,   path: '/geoanalytics', color: '#06b6d4', sub: 'Satellite & geospatial analysis' },
       { label: 'Research Hub',  icon: Microscope,  path: '/research',  color: '#a855f7', sub: 'AI scan · field notes' },
       { label: 'Projects',      icon: FlaskConical,path: '/projects',  color: '#14b8a6', sub: 'Build · collaborate' },
       { label: 'Weather',       icon: CloudSun,    path: '/weather',   color: '#0ea5e9', sub: 'Live conditions' },
