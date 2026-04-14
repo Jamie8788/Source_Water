@@ -222,13 +222,16 @@ def _save_visuals(red, green, blue, ndwi, water_mask, run_id: str) -> Dict[str, 
     ndwi_img = Image.fromarray(ndwi_rgb)
 
     # Clean mask edges for visualization only; detection mask is unchanged
+    # Apply reduced opacity (20-30%) only where ndwi > threshold
     mask_binary = (water_mask.astype(np.uint8) * 255)
     mask_alpha_img = Image.fromarray(mask_binary, mode="L").filter(ImageFilter.MedianFilter(size=3))
     mask_alpha_img = mask_alpha_img.filter(ImageFilter.GaussianBlur(radius=0.8))
     mask_alpha = np.array(mask_alpha_img, dtype=np.uint8)
     mask_alpha[mask_alpha < 40] = 0
-    mask_alpha = (mask_alpha.astype(np.float32) * 0.70).astype(np.uint8)
+    # Reduce opacity to 25% for better RGB visibility beneath
+    mask_alpha = (mask_alpha.astype(np.float32) * 0.25).astype(np.uint8)
 
+    # Only apply blue overlay where detected as water (ensures RGB remains visible)
     mask_rgba = np.zeros((*water_mask.shape, 4), dtype=np.uint8)
     mask_rgba[..., 2] = 255  # consistent blue for water overlay
     mask_rgba[..., 3] = mask_alpha
@@ -307,14 +310,16 @@ def _save_wetland_visuals(red, green, blue, ndwi, wetland_mask, run_id: str) -> 
     ndwi_img = Image.fromarray(ndwi_rgb)
 
     # Clean mask edges for visualization only
+    # Apply reduced opacity (20-30%) only where wetland detected
     mask_binary = (wetland_mask.astype(np.uint8) * 255)
     mask_alpha_img = Image.fromarray(mask_binary, mode="L").filter(ImageFilter.MedianFilter(size=3))
     mask_alpha_img = mask_alpha_img.filter(ImageFilter.GaussianBlur(radius=0.8))
     mask_alpha = np.array(mask_alpha_img, dtype=np.uint8)
     mask_alpha[mask_alpha < 40] = 0
-    mask_alpha = (mask_alpha.astype(np.float32) * 0.65).astype(np.uint8)
+    # Reduce opacity to 25% for better RGB visibility beneath
+    mask_alpha = (mask_alpha.astype(np.float32) * 0.25).astype(np.uint8)
 
-    # Teal overlay for wetlands
+    # Teal overlay for wetlands (only applied where detected)
     mask_rgba = np.zeros((*wetland_mask.shape, 4), dtype=np.uint8)
     mask_rgba[..., 0] = 30   # R
     mask_rgba[..., 1] = 210  # G
@@ -371,10 +376,18 @@ def _compute_water_from_item(item, lat: float, lon: float, patch_size: int):
     ndvi = _safe_divide(bands["nir"] - bands["red"], bands["nir"] + bands["red"])
 
     valid = np.isfinite(ndwi) & np.isfinite(mndwi) & np.isfinite(ndvi)
-    water_mask = valid & ((mndwi > 0.12) | ((ndwi > 0.15) & (ndvi < 0.30)))
+    
+    # NDWI water classification thresholds
+    ndwi_threshold = 0.1  # Primary threshold for water detection
+    water_mask = valid & (ndwi > ndwi_threshold)
 
     water_pixels = int(np.sum(water_mask))
     area_km2 = float(water_pixels * pixel_area_m2 / 1_000_000.0)
+    
+    # Debug metrics
+    ndwi_valid = ndwi[valid]
+    ndwi_mean = float(np.nanmean(ndwi_valid)) if ndwi_valid.size > 0 else np.nan
+    water_percentage = float((water_pixels / int(np.sum(valid)) * 100.0)) if int(np.sum(valid)) > 0 else 0.0
 
     return {
         "bands": bands,
@@ -384,6 +397,9 @@ def _compute_water_from_item(item, lat: float, lon: float, patch_size: int):
         "water_pixels": water_pixels,
         "area_km2": area_km2,
         "pixel_area_m2": float(pixel_area_m2),
+        "ndwi_mean": ndwi_mean,
+        "water_percentage": water_percentage,
+        "ndwi_threshold": ndwi_threshold,
     }
 
 
@@ -644,6 +660,14 @@ def detect_water():
         cloud_cover=float(selected.properties.get("eo:cloud_cover", np.nan)),
         scene_count=len(items),
     )
+    
+    # Sanity check: if NDWI mean is negative, no significant water detected
+    if ndwi_summary["mean"] < 0:
+        warnings.append("Sanity check: negative mean NDWI suggests no significant water in scene")
+        
+    # False positive flagging: large area with low NDWI confidence
+    if computed["area_km2"] > 1.0 and ndwi_summary["mean"] < 0.0:
+        warnings.append("Alert: Detected water area > 1 km² but low NDWI confidence (negative mean); likely false positive. Review visualization carefully.")
 
     run_id = uuid.uuid4().hex[:10]
     
@@ -723,7 +747,8 @@ def detect_water():
                 "ndvi": ndvi_summary,
             },
             "threshold_info": {
-                "water_rule": "(MNDWI > 0.12) OR (NDWI > 0.15 AND NDVI < 0.30)",
+                "water_rule": "NDWI > 0.1",
+                "ndwi_threshold_applied": computed["ndwi_threshold"],
                 "index_formulas": {
                     "ndwi": "(Green - NIR) / (Green + NIR)",
                     "mndwi": "(Green - SWIR1) / (Green + SWIR1)",
@@ -751,6 +776,9 @@ def detect_water():
                 "ndvi_mean": ndvi_summary["mean"],
                 "water_pixels": computed["water_pixels"],
                 "valid_pixels": computed["valid_pixels"],
+                "water_pixel_percentage": round(computed["water_percentage"], 2),
+                "ndwi_mean_value": round(computed["ndwi_mean"], 4) if not np.isnan(computed["ndwi_mean"]) else None,
+                "threshold_applied": computed["ndwi_threshold"],
                 "signal_strength": round(signal_strength, 6),
             },
             "warnings": warnings,
@@ -907,6 +935,8 @@ def map_wetlands():
                 "significance_threshold_pixels": 25,
                 "significance_threshold_area_km2": 0.0009,
                 "wetland_classification": wetland_classification,
+                "ndwi_mean_value": round(computed["ndwi_mean"], 4) if not np.isnan(computed["ndwi_mean"]) else None,
+                "water_pixel_percentage": round(computed["water_percentage"], 2),
             },
         }
     )
@@ -1178,6 +1208,8 @@ def predict_quality():
                 "focus_pixels": int(np.sum(focus_mask)),
                 "turbidity_band": turbidity_band,
                 "water_signal_strength": round(water_signal_strength, 6),
+                "water_pixel_percentage": round(computed["water_percentage"], 2),
+                "ndwi_mean_value": round(computed["ndwi_mean"], 4) if not np.isnan(computed["ndwi_mean"]) else None,
             },
         }
     )
