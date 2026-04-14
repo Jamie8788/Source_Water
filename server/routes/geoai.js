@@ -12,7 +12,7 @@ const GEOAI_BASE_URL = process.env.GEOAI_SERVICE_URL || 'https://source-water-ge
 router.get('/_proxy-version', (req, res) => {
   res.json({
     proxy: 'geoai',
-    version: '2026-04-14-axios-fingerprint',
+    version: '2026-04-14-sync-redeploy-1',
     baseUrl: GEOAI_BASE_URL
   })
 })
