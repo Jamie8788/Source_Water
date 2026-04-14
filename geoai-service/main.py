@@ -136,7 +136,30 @@ def _safe_divide(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return out
 
 
+def _normalize_band(arr: np.ndarray, sentinel_scale: int = 10000) -> np.ndarray:
+    """
+    Normalize Sentinel-2 reflectance values from sensor scale to 0-255 uint8.
+    
+    Sentinel-2 L2A reflectance: 0-10000 (integer scaled by 10000)
+    Convert to: 0-255 (standard uint8 for image display)
+    
+    Formula: value = clip(value / 10000 * 255, 0, 255)
+    """
+    # Validate input is finite
+    arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    # Normalize from sensor range to 0-1
+    normalized = arr / float(sentinel_scale)
+    
+    # Clip to valid range and scale to 0-255
+    normalized = np.clip(normalized, 0.0, 1.0)
+    uint8_array = (normalized * 255.0).astype(np.uint8)
+    
+    return uint8_array
+
+
 def _stretch_to_uint8(arr: np.ndarray, low=2, high=98) -> np.ndarray:
+    """Percentile-based stretching for visualization (used for NDWI/NDVI only)."""
     valid = arr[np.isfinite(arr)]
     if valid.size == 0:
         return np.zeros(arr.shape, dtype=np.uint8)
@@ -150,12 +173,43 @@ def _stretch_to_uint8(arr: np.ndarray, low=2, high=98) -> np.ndarray:
 
 
 def _save_visuals(red, green, blue, ndwi, water_mask, run_id: str) -> Dict[str, str]:
+    """
+    Save RGB and analysis visualizations.
+    
+    RGB: Uses Sentinel-2 band normalization (0-10000 → 0-255)
+         Stack order: [B4, B3, B2] = [Red, Green, Blue]
+    NDWI: Uses custom color visualization with percentile stretching
+    Water mask: Binary overlay with semi-transparency
+    
+    Returns: dict with URLs to PNG files
+    Raises: ValueError if bands are corrupted or missing
+    """
+    # Validate inputs
+    if red is None or green is None or blue is None:
+        raise ValueError("Satellite preview unavailable for this scene: missing required bands")
+    
+    # Check for all-NaN or corrupted bands
+    valid_red = np.isfinite(red).any()
+    valid_green = np.isfinite(green).any()
+    valid_blue = np.isfinite(blue).any()
+    
+    if not (valid_red and valid_green and valid_blue):
+        raise ValueError("Satellite preview unavailable for this scene: corrupted band data")
+    
+    # Normalize Sentinel-2 reflectance (0-10000) to 0-255
+    # Using direct linear normalization, not percentile stretching
+    r_normalized = _normalize_band(red)
+    g_normalized = _normalize_band(green)
+    b_normalized = _normalize_band(blue)
+    
+    # Stack in correct order: [R, G, B] = [B4, B3, B2]
     rgb = np.dstack([
-        _stretch_to_uint8(red),
-        _stretch_to_uint8(green),
-        _stretch_to_uint8(blue),
+        r_normalized,
+        g_normalized,
+        b_normalized,
     ])
 
+    # NDWI visualization (custom color mapping with percentile stretching)
     ndwi_norm = np.clip((ndwi + 1.0) / 2.0, 0, 1)
     ndwi_norm[~np.isfinite(ndwi_norm)] = 0
     ndwi_rgb = np.dstack([
@@ -167,7 +221,7 @@ def _save_visuals(red, green, blue, ndwi, water_mask, run_id: str) -> Dict[str, 
     rgb_img = Image.fromarray(rgb)
     ndwi_img = Image.fromarray(ndwi_rgb)
 
-    # Clean mask edges for visualization only; detection mask is unchanged.
+    # Clean mask edges for visualization only; detection mask is unchanged
     mask_binary = (water_mask.astype(np.uint8) * 255)
     mask_alpha_img = Image.fromarray(mask_binary, mode="L").filter(ImageFilter.MedianFilter(size=3))
     mask_alpha_img = mask_alpha_img.filter(ImageFilter.GaussianBlur(radius=0.8))
@@ -204,12 +258,43 @@ def _save_visuals(red, green, blue, ndwi, water_mask, run_id: str) -> Dict[str, 
 
 
 def _save_wetland_visuals(red, green, blue, ndwi, wetland_mask, run_id: str) -> Dict[str, str]:
+    """
+    Save RGB and wetland analysis visualizations.
+    
+    RGB: Uses Sentinel-2 band normalization (0-10000 → 0-255)
+         Stack order: [B4, B3, B2] = [Red, Green, Blue]
+    NDWI: Uses custom color visualization with percentile stretching
+    Wetland mask: Teal overlay with semi-transparency
+    
+    Returns: dict with URLs to PNG files
+    Raises: ValueError if bands are corrupted or missing
+    """
+    # Validate inputs
+    if red is None or green is None or blue is None:
+        raise ValueError("Satellite preview unavailable for this scene: missing required bands")
+    
+    # Check for all-NaN or corrupted bands
+    valid_red = np.isfinite(red).any()
+    valid_green = np.isfinite(green).any()
+    valid_blue = np.isfinite(blue).any()
+    
+    if not (valid_red and valid_green and valid_blue):
+        raise ValueError("Satellite preview unavailable for this scene: corrupted band data")
+    
+    # Normalize Sentinel-2 reflectance (0-10000) to 0-255
+    # Using direct linear normalization, not percentile stretching
+    r_normalized = _normalize_band(red)
+    g_normalized = _normalize_band(green)
+    b_normalized = _normalize_band(blue)
+    
+    # Stack in correct order: [R, G, B] = [B4, B3, B2]
     rgb = np.dstack([
-        _stretch_to_uint8(red),
-        _stretch_to_uint8(green),
-        _stretch_to_uint8(blue),
+        r_normalized,
+        g_normalized,
+        b_normalized,
     ])
 
+    # NDWI visualization (custom color mapping with percentile stretching)
     ndwi_norm = np.clip((ndwi + 1.0) / 2.0, 0, 1)
     ndwi_norm[~np.isfinite(ndwi_norm)] = 0
     ndwi_rgb = np.dstack([
@@ -221,6 +306,7 @@ def _save_wetland_visuals(red, green, blue, ndwi, wetland_mask, run_id: str) -> 
     rgb_img = Image.fromarray(rgb)
     ndwi_img = Image.fromarray(ndwi_rgb)
 
+    # Clean mask edges for visualization only
     mask_binary = (wetland_mask.astype(np.uint8) * 255)
     mask_alpha_img = Image.fromarray(mask_binary, mode="L").filter(ImageFilter.MedianFilter(size=3))
     mask_alpha_img = mask_alpha_img.filter(ImageFilter.GaussianBlur(radius=0.8))
@@ -228,10 +314,11 @@ def _save_wetland_visuals(red, green, blue, ndwi, wetland_mask, run_id: str) -> 
     mask_alpha[mask_alpha < 40] = 0
     mask_alpha = (mask_alpha.astype(np.float32) * 0.65).astype(np.uint8)
 
+    # Teal overlay for wetlands
     mask_rgba = np.zeros((*wetland_mask.shape, 4), dtype=np.uint8)
-    mask_rgba[..., 0] = 30
-    mask_rgba[..., 1] = 210
-    mask_rgba[..., 2] = 180
+    mask_rgba[..., 0] = 30   # R
+    mask_rgba[..., 1] = 210  # G
+    mask_rgba[..., 2] = 180  # B
     mask_rgba[..., 3] = mask_alpha
     mask_img = Image.fromarray(mask_rgba, mode="RGBA")
 
@@ -559,14 +646,25 @@ def detect_water():
     )
 
     run_id = uuid.uuid4().hex[:10]
-    visuals = _save_visuals(
-        red=computed["bands"]["red"],
-        green=computed["bands"]["green"],
-        blue=computed["bands"]["blue"],
-        ndwi=computed["indices"]["ndwi"],
-        water_mask=computed["water_mask"],
-        run_id=run_id,
-    )
+    
+    # Try to generate visualizations; handle band corruption gracefully
+    try:
+        visuals = _save_visuals(
+            red=computed["bands"]["red"],
+            green=computed["bands"]["green"],
+            blue=computed["bands"]["blue"],
+            ndwi=computed["indices"]["ndwi"],
+            water_mask=computed["water_mask"],
+            run_id=run_id,
+        )
+    except ValueError as e:
+        # Bands missing or corrupted
+        visuals = {
+            "rgb_preview_url": None,
+            "ndwi_preview_url": None,
+            "water_mask_url": None,
+        }
+        warnings.append(str(e))
 
     scene_date = selected.datetime.date().isoformat() if selected.datetime else start_date
     signal_strength = float(np.nanmean(np.clip(np.nan_to_num(computed["indices"]["ndwi"], nan=-1.0), 0.0, 1.0)[computed["water_mask"]])) if np.any(computed["water_mask"]) else 0.0
@@ -717,14 +815,25 @@ def map_wetlands():
     wetland_significant = wetland_pixels >= 25 and wetland_area_km2 >= 0.0009
 
     run_id = uuid.uuid4().hex[:10]
-    visuals = _save_wetland_visuals(
-        red=computed["bands"]["red"],
-        green=computed["bands"]["green"],
-        blue=computed["bands"]["blue"],
-        ndwi=ndwi,
-        wetland_mask=wetland_mask,
-        run_id=run_id,
-    )
+    
+    # Try to generate visualizations; handle band corruption gracefully
+    try:
+        visuals = _save_wetland_visuals(
+            red=computed["bands"]["red"],
+            green=computed["bands"]["green"],
+            blue=computed["bands"]["blue"],
+            ndwi=ndwi,
+            wetland_mask=wetland_mask,
+            run_id=run_id,
+        )
+    except ValueError as e:
+        # Bands missing or corrupted
+        visuals = {
+            "rgb_preview_url": None,
+            "ndwi_preview_url": None,
+            "wetland_mask_url": None,
+        }
+        limitations.append(str(e))
 
     duration = round(time.time() - started, 3)
     scene_date = selected.datetime.date().isoformat() if selected.datetime else start_date
@@ -859,22 +968,42 @@ def detect_changes():
     }
 
     run_id = uuid.uuid4().hex[:10]
-    visuals_a = _save_visuals(
-        red=a["bands"]["red"],
-        green=a["bands"]["green"],
-        blue=a["bands"]["blue"],
-        ndwi=a["indices"]["ndwi"],
-        water_mask=a["water_mask"],
-        run_id=f"{run_id}_a",
-    )
-    visuals_b = _save_visuals(
-        red=b["bands"]["red"],
-        green=b["bands"]["green"],
-        blue=b["bands"]["blue"],
-        ndwi=b["indices"]["ndwi"],
-        water_mask=b["water_mask"],
-        run_id=f"{run_id}_b",
-    )
+    
+    # Try to generate visualizations; handle band corruption gracefully
+    warnings = []
+    try:
+        visuals_a = _save_visuals(
+            red=a["bands"]["red"],
+            green=a["bands"]["green"],
+            blue=a["bands"]["blue"],
+            ndwi=a["indices"]["ndwi"],
+            water_mask=a["water_mask"],
+            run_id=f"{run_id}_a",
+        )
+    except ValueError as e:
+        visuals_a = {
+            "rgb_preview_url": None,
+            "ndwi_preview_url": None,
+            "water_mask_url": None,
+        }
+        warnings.append(f"Period A: {str(e)}")
+    
+    try:
+        visuals_b = _save_visuals(
+            red=b["bands"]["red"],
+            green=b["bands"]["green"],
+            blue=b["bands"]["blue"],
+            ndwi=b["indices"]["ndwi"],
+            water_mask=b["water_mask"],
+            run_id=f"{run_id}_b",
+        )
+    except ValueError as e:
+        visuals_b = {
+            "rgb_preview_url": None,
+            "ndwi_preview_url": None,
+            "water_mask_url": None,
+        }
+        warnings.append(f"Period B: {str(e)}")
 
     duration = round(time.time() - started, 3)
     return jsonify(
@@ -892,7 +1021,7 @@ def detect_changes():
             },
             "warnings": [
                 "This endpoint does not use an ML change model; it compares spectral rule-based water masks.",
-            ],
+            ] + warnings,
             "processing_summary": {
                 "duration_seconds": duration,
                 "scene_ids_period_a": [i.id for i in items_a[:8]],
@@ -980,14 +1109,25 @@ def predict_quality():
         limitations.append(seasonal_warning_text)
 
     run_id = uuid.uuid4().hex[:10]
-    visuals = _save_visuals(
-        red=computed["bands"]["red"],
-        green=computed["bands"]["green"],
-        blue=computed["bands"]["blue"],
-        ndwi=ndwi_arr,
-        water_mask=computed["water_mask"],
-        run_id=run_id,
-    )
+    
+    # Try to generate visualizations; handle band corruption gracefully
+    try:
+        visuals = _save_visuals(
+            red=computed["bands"]["red"],
+            green=computed["bands"]["green"],
+            blue=computed["bands"]["blue"],
+            ndwi=ndwi_arr,
+            water_mask=computed["water_mask"],
+            run_id=run_id,
+        )
+    except ValueError as e:
+        # Bands missing or corrupted
+        visuals = {
+            "rgb_preview_url": None,
+            "ndwi_preview_url": None,
+            "water_mask_url": None,
+        }
+        limitations.append(str(e))
 
     duration = round(time.time() - started, 3)
 
