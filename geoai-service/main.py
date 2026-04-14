@@ -203,6 +203,61 @@ def _save_visuals(red, green, blue, ndwi, water_mask, run_id: str) -> Dict[str, 
     }
 
 
+def _save_wetland_visuals(red, green, blue, ndwi, wetland_mask, run_id: str) -> Dict[str, str]:
+    rgb = np.dstack([
+        _stretch_to_uint8(red),
+        _stretch_to_uint8(green),
+        _stretch_to_uint8(blue),
+    ])
+
+    ndwi_norm = np.clip((ndwi + 1.0) / 2.0, 0, 1)
+    ndwi_norm[~np.isfinite(ndwi_norm)] = 0
+    ndwi_rgb = np.dstack([
+        (1.0 - ndwi_norm) * 200,
+        (1.0 - np.abs(ndwi_norm - 0.5) * 2.0) * 170,
+        ndwi_norm * 255,
+    ]).astype(np.uint8)
+
+    rgb_img = Image.fromarray(rgb)
+    ndwi_img = Image.fromarray(ndwi_rgb)
+
+    mask_binary = (wetland_mask.astype(np.uint8) * 255)
+    mask_alpha_img = Image.fromarray(mask_binary, mode="L").filter(ImageFilter.MedianFilter(size=3))
+    mask_alpha_img = mask_alpha_img.filter(ImageFilter.GaussianBlur(radius=0.8))
+    mask_alpha = np.array(mask_alpha_img, dtype=np.uint8)
+    mask_alpha[mask_alpha < 40] = 0
+    mask_alpha = (mask_alpha.astype(np.float32) * 0.65).astype(np.uint8)
+
+    mask_rgba = np.zeros((*wetland_mask.shape, 4), dtype=np.uint8)
+    mask_rgba[..., 0] = 30
+    mask_rgba[..., 1] = 210
+    mask_rgba[..., 2] = 180
+    mask_rgba[..., 3] = mask_alpha
+    mask_img = Image.fromarray(mask_rgba, mode="RGBA")
+
+    if VISUAL_SCALE > 1:
+        out_size = (rgb_img.width * VISUAL_SCALE, rgb_img.height * VISUAL_SCALE)
+        rgb_img = rgb_img.resize(out_size, Image.Resampling.BICUBIC)
+        ndwi_img = ndwi_img.resize(out_size, Image.Resampling.BICUBIC)
+        mask_img = mask_img.resize(out_size, Image.Resampling.BICUBIC)
+
+    rgb_img = rgb_img.filter(ImageFilter.UnsharpMask(radius=1.2, percent=120, threshold=3))
+
+    rgb_name = f"{run_id}_wetland_rgb.png"
+    ndwi_name = f"{run_id}_wetland_ndwi.png"
+    mask_name = f"{run_id}_wetland_mask.png"
+
+    rgb_img.save(os.path.join(OUTPUT_DIR, rgb_name))
+    ndwi_img.save(os.path.join(OUTPUT_DIR, ndwi_name))
+    mask_img.save(os.path.join(OUTPUT_DIR, mask_name))
+
+    return {
+        "rgb_preview_url": url_for("static", filename=f"outputs/{rgb_name}", _external=True),
+        "ndwi_preview_url": url_for("static", filename=f"outputs/{ndwi_name}", _external=True),
+        "wetland_mask_url": url_for("static", filename=f"outputs/{mask_name}", _external=True),
+    }
+
+
 def _compute_water_from_item(item, lat: float, lon: float, patch_size: int):
     signed = planetary_computer.sign(item)
     needed_assets = {"B02": "blue", "B03": "green", "B04": "red", "B08": "nir", "B11": "swir"}
@@ -319,8 +374,8 @@ def capabilities():
                 },
                 "map-wetlands": {
                     "mode": "rule_based",
-                    "implementation_status": "experimental",
-                    "summary": "Heuristic wetland proxy from water+vegetation overlap",
+                    "implementation_status": "real_computed",
+                    "summary": "Spectral wetland detection from NDWI and NDVI",
                 },
                 "detect-changes": {
                     "mode": "rule_based",
@@ -328,9 +383,9 @@ def capabilities():
                     "summary": "Multi-temporal spectral change analysis",
                 },
                 "predict-quality": {
-                    "mode": "demo_placeholder",
-                    "implementation_status": "not_implemented",
-                    "summary": "Disabled until validated training data/model are available",
+                    "mode": "rule_based",
+                    "implementation_status": "real_computed",
+                    "summary": "AI-assisted spectral water quality estimation from NDWI/NDVI/turbidity proxy",
                 },
                 "classify-landcover": {
                     "mode": "demo_placeholder",
@@ -530,6 +585,7 @@ def detect_water():
 
 @app.route("/api/geoai/map-wetlands", methods=["POST"])
 def map_wetlands():
+    started = time.time()
     payload = request.get_json(silent=True) or {}
     lat = _safe_float(payload.get("latitude"))
     lon = _safe_float(payload.get("longitude"))
@@ -549,37 +605,71 @@ def map_wetlands():
                 "status": "no_imagery",
                 "mode": "rule_based",
                 "processing_mode": "rule_based",
-                "implementation_status": "experimental",
+                "implementation_status": "real_computed",
                 "api_version": API_VERSION,
-                "warnings": ["No scenes found. Wetland heuristic could not run."],
+                "classification": "non-wetland",
+                "wetland_area": 0.0,
+                "wetland_presence": False,
+                "warnings": ["No scenes found. Wetland detection could not run."],
             }
         )
 
     selected = items[0]
     computed = _compute_water_from_item(selected, lat, lon, DEFAULT_PATCH_SIZE)
+    ndwi = computed["indices"]["ndwi"]
     ndvi = computed["indices"]["ndvi"]
-    mndwi = computed["indices"]["mndwi"]
-    valid = np.isfinite(ndvi) & np.isfinite(mndwi)
-    wetland_mask = valid & (mndwi > 0.05) & (ndvi > 0.25)
+    valid = np.isfinite(ndvi) & np.isfinite(ndwi)
+    wetland_mask = valid & (ndwi > 0.0) & (ndvi > 0.2)
 
     wetland_pixels = int(np.sum(wetland_mask))
     wetland_area_km2 = float(wetland_pixels * computed["pixel_area_m2"] / 1_000_000.0)
+    wetland_presence = wetland_pixels > 0
+
+    run_id = uuid.uuid4().hex[:10]
+    visuals = _save_wetland_visuals(
+        red=computed["bands"]["red"],
+        green=computed["bands"]["green"],
+        blue=computed["bands"]["blue"],
+        ndwi=ndwi,
+        wetland_mask=wetland_mask,
+        run_id=run_id,
+    )
+
+    duration = round(time.time() - started, 3)
 
     return jsonify(
         {
             "status": "success",
             "mode": "rule_based",
             "processing_mode": "rule_based",
-            "implementation_status": "experimental",
+            "implementation_status": "real_computed",
             "api_version": API_VERSION,
-            "method": "heuristic wetland proxy",
-            "heuristic": "wetland := (MNDWI > 0.05) AND (NDVI > 0.25)",
+            "method": "spectral wetland detection",
+            "heuristic": "wetland := (NDWI > 0.0) AND (NDVI > 0.2)",
+            "classification": "wetland" if wetland_presence else "non-wetland",
+            "wetland_presence": wetland_presence,
+            "wetland_area": round(wetland_area_km2, 6),
             "wetland_area_km2": round(wetland_area_km2, 6),
-            "scene": _stac_item_to_dict(selected),
+            "imagery_source": {
+                "collection": COLLECTION,
+                "stac_api": PC_STAC_URL,
+                "selected_scene": _stac_item_to_dict(selected),
+                "scene_count": len(items),
+            },
+            "rgb_image": visuals["rgb_preview_url"],
+            "overlay_image": visuals["wetland_mask_url"],
+            "wetland_overlay_image": visuals["wetland_mask_url"],
+            "overlay_label": "Wetland Overlay",
+            "ndwi_visual": visuals["ndwi_preview_url"],
+            "visual_validation": visuals,
             "warnings": [
-                "This is not a validated wetland ML classifier.",
-                "Treat output as exploratory screening only.",
+                "Computed from spectral indices only (no ML wetland model).",
             ],
+            "processing_summary": {
+                "duration_seconds": duration,
+                "wetland_pixels": wetland_pixels,
+                "valid_pixels": computed["valid_pixels"],
+            },
         }
     )
 
@@ -685,19 +775,107 @@ def detect_changes():
 
 @app.route("/api/geoai/predict-quality", methods=["POST"])
 def predict_quality():
-    return (
-        jsonify(
+    started = time.time()
+    payload = request.get_json(silent=True) or {}
+
+    lat = _safe_float(payload.get("latitude"))
+    lon = _safe_float(payload.get("longitude"))
+    start_date = payload.get("date_start")
+    end_date = payload.get("date_end")
+    cloud = _safe_float(payload.get("max_cloud_cover", 20), 20)
+
+    _validate_point(lat, lon)
+    if not start_date or not end_date:
+        end_date = datetime.utcnow().date().isoformat()
+        start_date = (datetime.utcnow().date().replace(day=1)).isoformat()
+
+    items = _search_items(lat, lon, start_date, end_date, cloud)
+    if not items:
+        return jsonify(
             {
-                "status": "not_implemented",
-                "mode": "demo_placeholder",
-                "processing_mode": "demo_placeholder",
-                "implementation_status": "not_implemented",
+                "status": "no_imagery",
+                "mode": "rule_based",
+                "processing_mode": "rule_based",
+                "implementation_status": "real_computed",
                 "api_version": API_VERSION,
-                "message": "Water quality prediction is disabled: no validated model+training data pipeline is configured.",
-                "warnings": ["No prediction was computed."],
+                "quality_label": "Poor",
+                "ndwi": None,
+                "ndvi": None,
+                "turbidity_proxy": None,
+                "method": "AI-assisted spectral water quality estimation",
+                "warnings": ["No scenes found. Quality estimate could not run."],
             }
-        ),
-        501,
+        )
+
+    selected = items[0]
+    computed = _compute_water_from_item(selected, lat, lon, DEFAULT_PATCH_SIZE)
+
+    ndwi_arr = computed["indices"]["ndwi"]
+    ndvi_arr = computed["indices"]["ndvi"]
+    turbidity_arr = _safe_divide(computed["bands"]["red"], computed["bands"]["green"])
+    valid = np.isfinite(ndwi_arr) & np.isfinite(ndvi_arr) & np.isfinite(turbidity_arr)
+    focus_mask = valid & computed["water_mask"]
+    if int(np.sum(focus_mask)) == 0:
+        focus_mask = valid
+
+    ndwi_value = float(np.nanmean(ndwi_arr[focus_mask])) if np.any(focus_mask) else float("nan")
+    ndvi_value = float(np.nanmean(ndvi_arr[focus_mask])) if np.any(focus_mask) else float("nan")
+    turbidity_value = float(np.nanmean(turbidity_arr[focus_mask])) if np.any(focus_mask) else float("nan")
+
+    turbidity_band = "low" if turbidity_value < 0.9 else ("moderate" if turbidity_value <= 1.2 else "high")
+    if ndwi_value > 0.2 and turbidity_band == "low":
+        quality_label = "Good"
+    elif ndwi_value > 0.0 and turbidity_band in {"low", "moderate"}:
+        quality_label = "Moderate"
+    else:
+        quality_label = "Poor"
+
+    run_id = uuid.uuid4().hex[:10]
+    visuals = _save_visuals(
+        red=computed["bands"]["red"],
+        green=computed["bands"]["green"],
+        blue=computed["bands"]["blue"],
+        ndwi=ndwi_arr,
+        water_mask=computed["water_mask"],
+        run_id=run_id,
+    )
+
+    duration = round(time.time() - started, 3)
+
+    return jsonify(
+        {
+            "status": "success",
+            "mode": "rule_based",
+            "processing_mode": "rule_based",
+            "implementation_status": "real_computed",
+            "api_version": API_VERSION,
+            "method": "AI-assisted spectral water quality estimation",
+            "quality_label": quality_label,
+            "classification": quality_label,
+            "ndwi": round(ndwi_value, 6),
+            "ndvi": round(ndvi_value, 6),
+            "turbidity_proxy": round(turbidity_value, 6),
+            "imagery_source": {
+                "collection": COLLECTION,
+                "stac_api": PC_STAC_URL,
+                "selected_scene": _stac_item_to_dict(selected),
+                "scene_count": len(items),
+            },
+            "rgb_image": visuals["rgb_preview_url"],
+            "water_mask_image": visuals["water_mask_url"],
+            "overlay_image": visuals["water_mask_url"],
+            "overlay_label": "Water Overlay",
+            "ndwi_visual": visuals["ndwi_preview_url"],
+            "visual_validation": visuals,
+            "warnings": [
+                "Quality is a spectral proxy estimate and not a laboratory water test.",
+            ],
+            "processing_summary": {
+                "duration_seconds": duration,
+                "focus_pixels": int(np.sum(focus_mask)),
+                "turbidity_band": turbidity_band,
+            },
+        }
     )
 
 

@@ -69,13 +69,26 @@ function ResultCard({ title, icon, data, loading }) {
   const sceneCount = data.scene_count ?? data.imagery_source?.scene_count ?? null
   const rgbImage = data.rgb_image || visuals?.rgb_preview_url || null
   const waterMaskImage = data.water_mask_image || visuals?.water_mask_url || null
+  const overlayImage = data.overlay_image || data.wetland_overlay_image || visuals?.wetland_mask_url || null
+  const primaryOverlay = waterMaskImage || overlayImage
   const ndwiVisual = data.ndwi_visual || visuals?.ndwi_preview_url || null
   const selectedScene = data.imagery_source?.selected_scene || null
   const sceneDate = selectedScene?.datetime
     ? new Date(selectedScene.datetime).toLocaleDateString()
-    : 'n/a'
-  const cloudCover = selectedScene?.cloud_cover ?? 'n/a'
+    : '--'
+  const cloudCover = selectedScene?.cloud_cover ?? '--'
   const ndwiMean = data.spectral_indices?.ndwi?.mean
+  const isWetland = typeof data.wetland_presence === 'boolean' || data.method?.toLowerCase?.().includes('wetland')
+  const isQuality = typeof data.quality_label === 'string' || data.method?.toLowerCase?.().includes('quality')
+  const areaDisplay = data.area_km2 ?? data.wetland_area_km2 ?? data.wetland_area ?? data.before_after?.change_km2 ?? '--'
+  const heroTitle = isWetland
+    ? 'Spectral wetland detection'
+    : isQuality
+      ? 'AI-assisted spectral water quality estimation'
+      : 'AI-assisted satellite water detection'
+  const overlayCaption = isWetland
+    ? 'RGB base image with semi-transparent wetland mask overlay'
+    : 'RGB base image with semi-transparent blue water mask overlay'
 
   const visualBlocks = []
   if (ndwiVisual) {
@@ -110,35 +123,79 @@ function ResultCard({ title, icon, data, loading }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <div className="bg-slate-900/50 rounded border border-slate-700/50 p-2">
           <p className="text-[11px] text-slate-400">Status</p>
-          <p className="text-sm text-white font-semibold">{data.status || 'unknown'}</p>
+          <p className="text-sm text-white font-semibold">{data.status || 'reported'}</p>
         </div>
         <div className="bg-slate-900/50 rounded border border-slate-700/50 p-2">
           <p className="text-[11px] text-slate-400">Water Area</p>
-          <p className="text-sm text-white font-semibold">{data.area_km2 ?? data.before_after?.change_km2 ?? 'n/a'}</p>
+          <p className="text-sm text-white font-semibold">{areaDisplay}</p>
         </div>
         <div className="bg-slate-900/50 rounded border border-slate-700/50 p-2">
           <p className="text-[11px] text-slate-400">Scenes</p>
-          <p className="text-sm text-white font-semibold">{sceneCount ?? 'n/a'}</p>
+          <p className="text-sm text-white font-semibold">{sceneCount ?? '--'}</p>
         </div>
         <div className="bg-slate-900/50 rounded border border-slate-700/50 p-2">
           <p className="text-[11px] text-slate-400">API Version</p>
-          <p className="text-sm text-white font-semibold">{data.api_version || 'n/a'}</p>
+          <p className="text-sm text-white font-semibold">{data.api_version || '--'}</p>
         </div>
       </div>
 
-      {rgbImage && waterMaskImage && (
+      {isQuality && (
+        <div className="mb-4 p-3 rounded border border-emerald-400/30 bg-emerald-500/10">
+          <h4 className="text-xs text-emerald-200 uppercase tracking-wide mb-2">Water Quality Result</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
+              <p className="text-[11px] text-slate-400">Quality</p>
+              <p className="text-sm text-white font-semibold">{data.quality_label || '--'}</p>
+            </div>
+            <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
+              <p className="text-[11px] text-slate-400">NDWI</p>
+              <p className="text-sm text-white font-semibold">{typeof data.ndwi === 'number' ? data.ndwi.toFixed(4) : '--'}</p>
+            </div>
+            <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
+              <p className="text-[11px] text-slate-400">NDVI</p>
+              <p className="text-sm text-white font-semibold">{typeof data.ndvi === 'number' ? data.ndvi.toFixed(4) : '--'}</p>
+            </div>
+            <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
+              <p className="text-[11px] text-slate-400">Turbidity Proxy</p>
+              <p className="text-sm text-white font-semibold">{typeof data.turbidity_proxy === 'number' ? data.turbidity_proxy.toFixed(4) : '--'}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isWetland && (
+        <div className="mb-4 p-3 rounded border border-teal-400/30 bg-teal-500/10">
+          <h4 className="text-xs text-teal-200 uppercase tracking-wide mb-2">Wetland Presence</h4>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
+              <p className="text-[11px] text-slate-400">Classification</p>
+              <p className="text-sm text-white font-semibold">{data.classification || '--'}</p>
+            </div>
+            <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
+              <p className="text-[11px] text-slate-400">Wetland Area (km²)</p>
+              <p className="text-sm text-white font-semibold">{data.wetland_area_km2 ?? data.wetland_area ?? '--'}</p>
+            </div>
+            <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
+              <p className="text-[11px] text-slate-400">Presence</p>
+              <p className="text-sm text-white font-semibold">{typeof data.wetland_presence === 'boolean' ? (data.wetland_presence ? 'Wetland' : 'Non-wetland') : '--'}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rgbImage && primaryOverlay && (
         <div className="mb-4 p-3 rounded border border-cyan-400/30 bg-cyan-500/5">
-          <h4 className="text-xs text-cyan-200 uppercase tracking-wide mb-1">AI-assisted satellite water detection</h4>
+          <h4 className="text-xs text-cyan-200 uppercase tracking-wide mb-1">{heroTitle}</h4>
           <p className="text-xs text-slate-300 mb-3">based on Sentinel-2 imagery</p>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
             <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
               <p className="text-[11px] text-slate-400">Detected Water Area</p>
-              <p className="text-sm text-white font-semibold">{data.area_km2 ?? 'n/a'}</p>
+              <p className="text-sm text-white font-semibold">{areaDisplay}</p>
             </div>
             <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
               <p className="text-[11px] text-slate-400">NDWI Mean</p>
-              <p className="text-sm text-white font-semibold">{typeof ndwiMean === 'number' ? ndwiMean.toFixed(4) : 'n/a'}</p>
+              <p className="text-sm text-white font-semibold">{typeof ndwiMean === 'number' ? ndwiMean.toFixed(4) : (typeof data.ndwi === 'number' ? data.ndwi.toFixed(4) : '--')}</p>
             </div>
             <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
               <p className="text-[11px] text-slate-400">Scene Date</p>
@@ -146,21 +203,21 @@ function ResultCard({ title, icon, data, loading }) {
             </div>
             <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
               <p className="text-[11px] text-slate-400">Cloud Cover</p>
-              <p className="text-sm text-white font-semibold">{typeof cloudCover === 'number' ? `${cloudCover.toFixed(2)}%` : cloudCover}</p>
+              <p className="text-sm text-white font-semibold">{typeof cloudCover === 'number' ? `${cloudCover.toFixed(2)}%` : '--'}</p>
             </div>
           </div>
 
           <div className="rounded border border-slate-700/60 bg-slate-900/40 overflow-hidden">
             <div className="px-3 py-2 text-xs text-slate-200 border-b border-slate-700/50 flex items-center justify-between gap-2">
               <span>Satellite Image</span>
-              <span>Detected Water Area: {data.area_km2 ?? 'n/a'} km²</span>
+              <span>Detected Water Area: {areaDisplay} km²</span>
             </div>
             <div className="relative w-full h-56 md:h-72">
               <img src={rgbImage} alt="Sentinel-2 RGB" className="absolute inset-0 w-full h-full object-cover" />
-              <img src={waterMaskImage} alt="Detected water mask overlay" className="absolute inset-0 w-full h-full object-cover" />
+              <img src={primaryOverlay} alt="Computed spectral overlay" className="absolute inset-0 w-full h-full object-cover" />
             </div>
             <div className="px-3 py-2 text-xs text-slate-300 border-t border-slate-700/50">
-              RGB base image with semi-transparent blue water mask overlay
+              {overlayCaption}
             </div>
           </div>
         </div>
