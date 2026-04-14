@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
-import api from '../lib/api'
+import api from '../utils/api'
 import PageAmbience from '../components/layout/PageAmbience'
 
 const GEOAI_TABS = {
