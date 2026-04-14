@@ -25,7 +25,7 @@ router.post('/detect-water', async (req, res) => {
       resolution: resolution || '10m'
     }
     
-    console.log(`[geoai] Fetching from: ${geoaiUrl}/api/geoai/detect-water`)
+    console.log(`[geoai] Fetching from: ${geoaiUrl}/api/geoai/detect-water with payload:`, payload)
 
     const resp = await fetch(`${geoaiUrl}/api/geoai/detect-water`, {
       method: 'POST',
@@ -34,9 +34,16 @@ router.post('/detect-water', async (req, res) => {
       timeout: 30000
     })
     
-    const data = await resp.json()
     console.log(`[geoai] Response status: ${resp.status}`)
-    res.status(resp.status).json(data)
+    const text = await resp.text()
+    console.log(`[geoai] Response body: ${text}`)
+    
+    if (!resp.ok) {
+      return res.status(resp.status).json({ error: `Backend returned ${resp.status}`, details: text })
+    }
+    
+    const data = JSON.parse(text)
+    res.status(200).json(data)
     
   } catch (err) {
     console.error('[geoai] detect-water ERROR:', err.message, err.stack)
@@ -67,8 +74,14 @@ router.post('/map-wetlands', async (req, res) => {
       timeout: 30000
     })
     
-    const data = await resp.json()
-    res.status(resp.status).json(data)
+    const text = await resp.text()
+    console.log(`[geoai] map-wetlands response ${resp.status}: ${text}`)
+    
+    if (!resp.ok) {
+      return res.status(resp.status).json({ error: `Backend returned ${resp.status}`, details: text })
+    }
+    
+    res.status(200).json(JSON.parse(text))
     
   } catch (err) {
     console.error('[geoai] map-wetlands error:', err.message)
@@ -100,8 +113,14 @@ router.post('/detect-changes', async (req, res) => {
       timeout: 30000
     })
     
-    const data = await resp.json()
-    res.status(resp.status).json(data)
+    const text = await resp.text()
+    console.log(`[geoai] detect-changes response ${resp.status}: ${text.substring(0, 200)}`)
+    
+    if (!resp.ok) {
+      return res.status(resp.status).json({ error: `Backend returned ${resp.status}`, details: text })
+    }
+    
+    res.status(200).json(JSON.parse(text))
     
   } catch (err) {
     console.error('[geoai] detect-changes error:', err.message)
@@ -131,8 +150,14 @@ router.post('/predict-quality', async (req, res) => {
       timeout: 30000
     })
     
-    const data = await resp.json()
-    res.status(resp.status).json(data)
+    const text = await resp.text()
+    console.log(`[geoai] predict-quality response ${resp.status}: ${text.substring(0, 200)}`)
+    
+    if (!resp.ok) {
+      return res.status(resp.status).json({ error: `Backend returned ${resp.status}`, details: text })
+    }
+    
+    res.status(200).json(JSON.parse(text))
     
   } catch (err) {
     console.error('[geoai] predict-quality error:', err.message)
@@ -162,8 +187,14 @@ router.post('/classify-landcover', async (req, res) => {
       timeout: 30000
     })
     
-    const data = await resp.json()
-    res.status(resp.status).json(data)
+    const text = await resp.text()
+    console.log(`[geoai] classify-landcover response ${resp.status}: ${text.substring(0, 200)}`)
+    
+    if (!resp.ok) {
+      return res.status(resp.status).json({ error: `Backend returned ${resp.status}`, details: text })
+    }
+    
+    res.status(200).json(JSON.parse(text))
     
   } catch (err) {
     console.error('[geoai] classify-landcover error:', err.message)
@@ -195,8 +226,14 @@ router.post('/download-sentinel', async (req, res) => {
       timeout: 30000
     })
     
-    const data = await resp.json()
-    res.status(resp.status).json(data)
+    const text = await resp.text()
+    console.log(`[geoai] download-sentinel response ${resp.status}: ${text.substring(0, 200)}`)
+    
+    if (!resp.ok) {
+      return res.status(resp.status).json({ error: `Backend returned ${resp.status}`, details: text })
+    }
+    
+    res.status(200).json(JSON.parse(text))
     
   } catch (err) {
     console.error('[geoai] download-sentinel error:', err.message)
