@@ -19,6 +19,20 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.9"
 
+  # ── GeoAI Microservice (Real satellite + ML analysis) ──────────────────────
+  - type: web
+    name: source-water-geoai
+    runtime: python
+    rootDir: geoai-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 2 -b 0.0.0.0 main:app
+    plan: free
+    envVars:
+      - key: DEBUG
+        value: "False"
+      - key: PYTHON_VERSION
+        value: "3.13"
+
   # ── Node.js App ───────────────────────────────────────────────────────────────
   - type: web
     name: source-water-app
@@ -48,6 +62,8 @@ services:
         sync: false
       - key: ANALYSIS_SERVICE_URL
         value: https://source-water-analysis.onrender.com
+      - key: GEOAI_SERVICE_URL
+        value: https://source-water-geoai.onrender.com
       - key: SUPABASE_URL
         value: https://qnshfvxsvqulwywiiepd.supabase.co
       - key: SUPABASE_ANON_KEY
