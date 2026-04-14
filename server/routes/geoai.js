@@ -6,6 +6,29 @@
  */
 
 const router = require('express').Router()
+const axios = require('axios')
+const GEOAI_BASE_URL = process.env.GEOAI_SERVICE_URL || 'https://source-water-geoai.onrender.com'
+
+async function proxyGeoai(res, path, payload) {
+  try {
+    const resp = await axios.post(`${GEOAI_BASE_URL}${path}`, payload, {
+      timeout: 30000,
+      headers: { 'Content-Type': 'application/json' }
+    })
+    return res.status(resp.status).json(resp.data)
+  } catch (err) {
+    const status = err.response?.status || 500
+    const upstream = err.response?.data
+    const message = err.message || 'Unknown proxy error'
+    console.error(`[geoai] proxy error ${path}:`, message)
+
+    if (upstream) {
+      return res.status(status).json(upstream)
+    }
+
+    return res.status(status).json({ error: 'GeoAI service error', msg: message })
+  }
+}
 
 // ─── Water Detection ───────────────────────────────────────
 router.post('/detect-water', async (req, res) => {
@@ -16,7 +39,6 @@ router.post('/detect-water', async (req, res) => {
       return res.status(400).json({ error: 'latitude and longitude required' })
     }
     
-    const geoaiUrl = 'https://source-water-geoai.onrender.com'
     const payload = {
       latitude,
       longitude,
@@ -24,29 +46,11 @@ router.post('/detect-water', async (req, res) => {
       date_end: date_end || new Date().toISOString().split('T')[0],
       resolution: resolution || '10m'
     }
-    
-    console.log(`[geoai] Fetching from: ${geoaiUrl}/api/geoai/detect-water with payload:`, payload)
-
-    const resp = await fetch(`${geoaiUrl}/api/geoai/detect-water`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(30000)
-    })
-    
-    console.log(`[geoai] Response status: ${resp.status}`)
-    const text = await resp.text()
-    console.log(`[geoai] Response body: ${text.substring(0, 500)}`)
-    
-    if (!resp.ok) {
-      return res.status(resp.status).json({ error: `Backend returned ${resp.status}`, details: text })
-    }
-    
-    res.status(200).json(JSON.parse(text))
+    return proxyGeoai(res, '/api/geoai/detect-water', payload)
     
   } catch (err) {
-    console.error('[geoai] detect-water CATCH block:', err.name, err.message)
-    res.status(500).json({ error: 'GeoAI service error', msg: err.message, errName: err.name })
+    console.error('[geoai] detect-water validation error:', err.message)
+    res.status(500).json({ error: 'GeoAI service error', msg: err.message })
   }
 })
 
@@ -59,28 +63,12 @@ router.post('/map-wetlands', async (req, res) => {
       return res.status(400).json({ error: 'latitude and longitude required' })
     }
     
-    const geoaiUrl = 'https://source-water-geoai.onrender.com'
-    
-    const resp = await fetch(`${geoaiUrl}/api/geoai/map-wetlands`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        latitude,
-        longitude,
-        area_km_radius: area_km_radius || 5,
-        model: model || 'wetland_classifier_v2'
-      }),
-      timeout: 30000
+    return proxyGeoai(res, '/api/geoai/map-wetlands', {
+      latitude,
+      longitude,
+      area_km_radius: area_km_radius || 5,
+      model: model || 'wetland_classifier_v2'
     })
-    
-    const text = await resp.text()
-    console.log(`[geoai] map-wetlands response ${resp.status}: ${text}`)
-    
-    if (!resp.ok) {
-      return res.status(resp.status).json({ error: `Backend returned ${resp.status}`, details: text })
-    }
-    
-    res.status(200).json(JSON.parse(text))
     
   } catch (err) {
     console.error('[geoai] map-wetlands error:', err.message)
@@ -97,29 +85,13 @@ router.post('/detect-changes', async (req, res) => {
       return res.status(400).json({ error: 'latitude, longitude, date_start, date_end required' })
     }
     
-    const geoaiUrl = 'https://source-water-geoai.onrender.com'
-    
-    const resp = await fetch(`${geoaiUrl}/api/geoai/detect-changes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        latitude,
-        longitude,
-        date_start,
-        date_end,
-        comparison_interval: comparison_interval || 'monthly'
-      }),
-      timeout: 30000
+    return proxyGeoai(res, '/api/geoai/detect-changes', {
+      latitude,
+      longitude,
+      date_start,
+      date_end,
+      comparison_interval: comparison_interval || 'monthly'
     })
-    
-    const text = await resp.text()
-    console.log(`[geoai] detect-changes response ${resp.status}: ${text.substring(0, 200)}`)
-    
-    if (!resp.ok) {
-      return res.status(resp.status).json({ error: `Backend returned ${resp.status}`, details: text })
-    }
-    
-    res.status(200).json(JSON.parse(text))
     
   } catch (err) {
     console.error('[geoai] detect-changes error:', err.message)
@@ -136,27 +108,11 @@ router.post('/predict-quality', async (req, res) => {
       return res.status(400).json({ error: 'latitude and longitude required' })
     }
     
-    const geoaiUrl = 'https://source-water-geoai.onrender.com'
-    
-    const resp = await fetch(`${geoaiUrl}/api/geoai/predict-quality`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        latitude,
-        longitude,
-        historical_observations: historical_observations || []
-      }),
-      timeout: 30000
+    return proxyGeoai(res, '/api/geoai/predict-quality', {
+      latitude,
+      longitude,
+      historical_observations: historical_observations || []
     })
-    
-    const text = await resp.text()
-    console.log(`[geoai] predict-quality response ${resp.status}: ${text.substring(0, 200)}`)
-    
-    if (!resp.ok) {
-      return res.status(resp.status).json({ error: `Backend returned ${resp.status}`, details: text })
-    }
-    
-    res.status(200).json(JSON.parse(text))
     
   } catch (err) {
     console.error('[geoai] predict-quality error:', err.message)
@@ -173,27 +129,11 @@ router.post('/classify-landcover', async (req, res) => {
       return res.status(400).json({ error: 'latitude and longitude required' })
     }
     
-    const geoaiUrl = 'https://source-water-geoai.onrender.com'
-    
-    const resp = await fetch(`${geoaiUrl}/api/geoai/classify-landcover`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        latitude,
-        longitude,
-        zoom_level: zoom_level || 13
-      }),
-      timeout: 30000
+    return proxyGeoai(res, '/api/geoai/classify-landcover', {
+      latitude,
+      longitude,
+      zoom_level: zoom_level || 13
     })
-    
-    const text = await resp.text()
-    console.log(`[geoai] classify-landcover response ${resp.status}: ${text.substring(0, 200)}`)
-    
-    if (!resp.ok) {
-      return res.status(resp.status).json({ error: `Backend returned ${resp.status}`, details: text })
-    }
-    
-    res.status(200).json(JSON.parse(text))
     
   } catch (err) {
     console.error('[geoai] classify-landcover error:', err.message)
@@ -210,29 +150,13 @@ router.post('/download-sentinel', async (req, res) => {
       return res.status(400).json({ error: 'latitude, longitude, date_start, date_end required' })
     }
     
-    const geoaiUrl = 'https://source-water-geoai.onrender.com'
-    
-    const resp = await fetch(`${geoaiUrl}/api/geoai/download-sentinel`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        latitude,
-        longitude,
-        date_start,
-        date_end,
-        max_cloud_cover: max_cloud_cover || 20
-      }),
-      timeout: 30000
+    return proxyGeoai(res, '/api/geoai/download-sentinel', {
+      latitude,
+      longitude,
+      date_start,
+      date_end,
+      max_cloud_cover: max_cloud_cover || 20
     })
-    
-    const text = await resp.text()
-    console.log(`[geoai] download-sentinel response ${resp.status}: ${text.substring(0, 200)}`)
-    
-    if (!resp.ok) {
-      return res.status(resp.status).json({ error: `Backend returned ${resp.status}`, details: text })
-    }
-    
-    res.status(200).json(JSON.parse(text))
     
   } catch (err) {
     console.error('[geoai] download-sentinel error:', err.message)
@@ -243,11 +167,15 @@ router.post('/download-sentinel', async (req, res) => {
 // ─── Health check ─────────────────────────────────────────
 router.get('/health', async (req, res) => {
   try {
-    const resp = await fetch('https://source-water-geoai.onrender.com/health')
-    const data = await resp.json()
-    res.status(resp.status).json(data)
+    const resp = await axios.get(`${GEOAI_BASE_URL}/health`, { timeout: 15000 })
+    res.status(resp.status).json(resp.data)
   } catch (err) {
-    res.status(503).json({ status: 'unavailable', error: err.message })
+    const status = err.response?.status || 503
+    const upstream = err.response?.data
+    if (upstream) {
+      return res.status(status).json(upstream)
+    }
+    res.status(status).json({ status: 'unavailable', error: err.message })
   }
 })
 
