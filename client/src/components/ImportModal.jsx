@@ -8,6 +8,7 @@ export default function ImportModal({ onClose, onSuccess }) {
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState(null)
   const [replaceExisting, setReplaceExisting] = useState(true)
+  const [importDone, setImportDone] = useState(false)
 
   const handleClearExisting = async () => {
     setLoading(true)
@@ -32,6 +33,7 @@ export default function ImportModal({ onClose, onSuccess }) {
     const f = e.target.files?.[0]
     if (!f) return
     setFile(f)
+    setImportDone(false)
 
     Papa.parse(f, {
       header: true,
@@ -53,6 +55,8 @@ export default function ImportModal({ onClose, onSuccess }) {
     }
 
     setLoading(true)
+    setImportDone(false)
+    setStatus(`⏳ Importing ${rows.length} rows... this can take up to 1 minute.`)
     try {
       const res = await api.post('/import/csv', { rows, replaceExisting }, { timeout: 180000 })
       setStatus(
@@ -62,12 +66,10 @@ export default function ImportModal({ onClose, onSuccess }) {
         `${res.data.observations_created} observations created` +
         (res.data.errors.length > 0 ? `\n⚠️ ${res.data.errors.length} errors` : '')
       )
+      setImportDone(true)
       
       // Refresh data on map
       if (onSuccess) onSuccess()
-      
-      // Auto-close after 3 seconds
-      setTimeout(() => onClose(), 3000)
     } catch (err) {
       const serverMsg = err?.response?.data?.error
       const details = err?.response?.data?.details
@@ -147,12 +149,12 @@ export default function ImportModal({ onClose, onSuccess }) {
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button
             onClick={handleClearExisting}
-            disabled={loading}
+            disabled={loading || importDone}
             style={{
               padding: '8px 16px', borderRadius: '6px',
               border: '1px solid rgba(239,68,68,0.5)', background: 'rgba(239,68,68,0.2)',
               color: '#fecaca', cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.5 : 1
+              opacity: loading || importDone ? 0.5 : 1
             }}
           >
             🧹 Clear Existing Data
@@ -167,19 +169,19 @@ export default function ImportModal({ onClose, onSuccess }) {
               opacity: loading ? 0.5 : 1
             }}
           >
-            Cancel
+            {importDone ? 'Close' : 'Cancel'}
           </button>
           <button
             onClick={handleImport}
-            disabled={!rows.length || loading}
+            disabled={!rows.length || loading || importDone}
             style={{
               padding: '8px 16px', borderRadius: '6px', border: 'none',
-              background: rows.length && !loading ? 'linear-gradient(135deg, #06b6d4, #14b8a6)' : 'rgba(6,182,212,0.3)',
-              color: '#fff', cursor: rows.length && !loading ? 'pointer' : 'not-allowed',
+              background: rows.length && !loading && !importDone ? 'linear-gradient(135deg, #06b6d4, #14b8a6)' : 'rgba(6,182,212,0.3)',
+              color: '#fff', cursor: rows.length && !loading && !importDone ? 'pointer' : 'not-allowed',
               fontWeight: 'bold'
             }}
           >
-            {loading ? '⏳ Importing...' : '🚀 Import'}
+            {loading ? '⏳ Importing...' : importDone ? '✅ Imported' : '🚀 Import'}
           </button>
         </div>
       </div>
