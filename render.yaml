@@ -30,6 +30,7 @@ services:
     envVars:
       - key: DEBUG
         value: "False"
+      # Keep GeoAI on Python 3.11.9 so Render uses wheel-compatible builds.
       - key: PYTHON_VERSION
         value: "3.11.9"
 
