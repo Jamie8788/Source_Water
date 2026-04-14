@@ -133,7 +133,7 @@ function ResultCard({ title, icon, data, loading }) {
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
             <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
-              <p className="text-[11px] text-slate-400">Area (km²)</p>
+              <p className="text-[11px] text-slate-400">Detected Water Area</p>
               <p className="text-sm text-white font-semibold">{data.area_km2 ?? 'n/a'}</p>
             </div>
             <div className="bg-slate-900/60 rounded border border-slate-700/50 p-2">
@@ -151,12 +151,16 @@ function ResultCard({ title, icon, data, loading }) {
           </div>
 
           <div className="rounded border border-slate-700/60 bg-slate-900/40 overflow-hidden">
+            <div className="px-3 py-2 text-xs text-slate-200 border-b border-slate-700/50 flex items-center justify-between gap-2">
+              <span>Satellite Image</span>
+              <span>Detected Water Area: {data.area_km2 ?? 'n/a'} km²</span>
+            </div>
             <div className="relative w-full h-56 md:h-72">
               <img src={rgbImage} alt="Sentinel-2 RGB" className="absolute inset-0 w-full h-full object-cover" />
-              <img src={waterMaskImage} alt="Detected water mask overlay" className="absolute inset-0 w-full h-full object-cover opacity-45 mix-blend-screen" />
+              <img src={waterMaskImage} alt="Detected water mask overlay" className="absolute inset-0 w-full h-full object-cover" />
             </div>
             <div className="px-3 py-2 text-xs text-slate-300 border-t border-slate-700/50">
-              RGB base image with semi-transparent detected water mask overlay
+              RGB base image with semi-transparent blue water mask overlay
             </div>
           </div>
         </div>

@@ -18,7 +18,7 @@ import rasterio
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, url_for
 from flask_cors import CORS
-from PIL import Image
+from PIL import Image, ImageFilter
 from pyproj import Transformer
 from pystac_client import Client
 from rasterio.windows import Window
@@ -31,6 +31,7 @@ API_VERSION = "3.0.0"
 COLLECTION = "sentinel-2-l2a"
 PC_STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1"
 DEFAULT_PATCH_SIZE = 256
+VISUAL_SCALE = 2
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 CORS(app)
@@ -163,16 +164,37 @@ def _save_visuals(red, green, blue, ndwi, water_mask, run_id: str) -> Dict[str, 
         ndwi_norm * 255,
     ]).astype(np.uint8)
 
-    mask_rgb = np.zeros((*water_mask.shape, 3), dtype=np.uint8)
-    mask_rgb[..., 2] = np.where(water_mask, 255, 20).astype(np.uint8)
+    rgb_img = Image.fromarray(rgb)
+    ndwi_img = Image.fromarray(ndwi_rgb)
+
+    # Clean mask edges for visualization only; detection mask is unchanged.
+    mask_binary = (water_mask.astype(np.uint8) * 255)
+    mask_alpha_img = Image.fromarray(mask_binary, mode="L").filter(ImageFilter.MedianFilter(size=3))
+    mask_alpha_img = mask_alpha_img.filter(ImageFilter.GaussianBlur(radius=0.8))
+    mask_alpha = np.array(mask_alpha_img, dtype=np.uint8)
+    mask_alpha[mask_alpha < 40] = 0
+    mask_alpha = (mask_alpha.astype(np.float32) * 0.70).astype(np.uint8)
+
+    mask_rgba = np.zeros((*water_mask.shape, 4), dtype=np.uint8)
+    mask_rgba[..., 2] = 255  # consistent blue for water overlay
+    mask_rgba[..., 3] = mask_alpha
+    mask_img = Image.fromarray(mask_rgba, mode="RGBA")
+
+    if VISUAL_SCALE > 1:
+        out_size = (rgb_img.width * VISUAL_SCALE, rgb_img.height * VISUAL_SCALE)
+        rgb_img = rgb_img.resize(out_size, Image.Resampling.BICUBIC)
+        ndwi_img = ndwi_img.resize(out_size, Image.Resampling.BICUBIC)
+        mask_img = mask_img.resize(out_size, Image.Resampling.BICUBIC)
+
+    rgb_img = rgb_img.filter(ImageFilter.UnsharpMask(radius=1.2, percent=120, threshold=3))
 
     rgb_name = f"{run_id}_rgb.png"
     ndwi_name = f"{run_id}_ndwi.png"
     mask_name = f"{run_id}_water_mask.png"
 
-    Image.fromarray(rgb).save(os.path.join(OUTPUT_DIR, rgb_name))
-    Image.fromarray(ndwi_rgb).save(os.path.join(OUTPUT_DIR, ndwi_name))
-    Image.fromarray(mask_rgb).save(os.path.join(OUTPUT_DIR, mask_name))
+    rgb_img.save(os.path.join(OUTPUT_DIR, rgb_name))
+    ndwi_img.save(os.path.join(OUTPUT_DIR, ndwi_name))
+    mask_img.save(os.path.join(OUTPUT_DIR, mask_name))
 
     return {
         "rgb_preview_url": url_for("static", filename=f"outputs/{rgb_name}", _external=True),
