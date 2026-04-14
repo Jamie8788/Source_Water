@@ -18,7 +18,7 @@ router.post('/detect-water', async (req, res) => {
     }
     
     // Forward to geoai-service
-    const resp = await fetch(`${process.env.GEOAI_SERVICE_URL || 'http://localhost:8002'}/api/geoai/detect-water`, {
+    const resp = await fetch(`${process.env.GEOAI_SERVICE_URL || 'https://source-water-geoai.onrender.com'}/api/geoai/detect-water`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -48,7 +48,7 @@ router.post('/map-wetlands', async (req, res) => {
       return res.status(400).json({ error: 'latitude and longitude required' })
     }
     
-    const resp = await fetch(`${process.env.GEOAI_SERVICE_URL || 'http://localhost:8002'}/api/geoai/map-wetlands`, {
+    const resp = await fetch(`${process.env.GEOAI_SERVICE_URL || 'https://source-water-geoai.onrender.com'}/api/geoai/map-wetlands`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -77,7 +77,7 @@ router.post('/detect-changes', async (req, res) => {
       return res.status(400).json({ error: 'latitude, longitude, date_start, date_end required' })
     }
     
-    const resp = await fetch(`${process.env.GEOAI_SERVICE_URL || 'http://localhost:8002'}/api/geoai/detect-changes`, {
+    const resp = await fetch(`${process.env.GEOAI_SERVICE_URL || 'https://source-water-geoai.onrender.com'}/api/geoai/detect-changes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -107,7 +107,7 @@ router.post('/predict-quality', async (req, res) => {
       return res.status(400).json({ error: 'latitude and longitude required' })
     }
     
-    const resp = await fetch(`${process.env.GEOAI_SERVICE_URL || 'http://localhost:8002'}/api/geoai/predict-quality`, {
+    const resp = await fetch(`${process.env.GEOAI_SERVICE_URL || 'https://source-water-geoai.onrender.com'}/api/geoai/predict-quality`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -135,7 +135,7 @@ router.post('/classify-landcover', async (req, res) => {
       return res.status(400).json({ error: 'latitude and longitude required' })
     }
     
-    const resp = await fetch(`${process.env.GEOAI_SERVICE_URL || 'http://localhost:8002'}/api/geoai/classify-landcover`, {
+    const resp = await fetch(`${process.env.GEOAI_SERVICE_URL || 'https://source-water-geoai.onrender.com'}/api/geoai/classify-landcover`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -163,7 +163,7 @@ router.post('/download-sentinel', async (req, res) => {
       return res.status(400).json({ error: 'latitude, longitude, date_start, date_end required' })
     }
     
-    const resp = await fetch(`${process.env.GEOAI_SERVICE_URL || 'http://localhost:8002'}/api/geoai/download-sentinel`, {
+    const resp = await fetch(`${process.env.GEOAI_SERVICE_URL || 'https://source-water-geoai.onrender.com'}/api/geoai/download-sentinel`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -187,7 +187,7 @@ router.post('/download-sentinel', async (req, res) => {
 // ─── Health check ─────────────────────────────────────────
 router.get('/health', async (req, res) => {
   try {
-    const resp = await fetch(`${process.env.GEOAI_SERVICE_URL || 'http://localhost:8002'}/health`)
+    const resp = await fetch(`${process.env.GEOAI_SERVICE_URL || 'https://source-water-geoai.onrender.com'}/health`)
     const data = await resp.json()
     res.status(resp.status).json(data)
   } catch (err) {
