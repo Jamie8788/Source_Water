@@ -31,23 +31,22 @@ router.post('/detect-water', async (req, res) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      timeout: 30000
+      signal: AbortSignal.timeout(30000)
     })
     
     console.log(`[geoai] Response status: ${resp.status}`)
     const text = await resp.text()
-    console.log(`[geoai] Response body: ${text}`)
+    console.log(`[geoai] Response body: ${text.substring(0, 500)}`)
     
     if (!resp.ok) {
       return res.status(resp.status).json({ error: `Backend returned ${resp.status}`, details: text })
     }
     
-    const data = JSON.parse(text)
-    res.status(200).json(data)
+    res.status(200).json(JSON.parse(text))
     
   } catch (err) {
-    console.error('[geoai] detect-water ERROR:', err.message, err.stack)
-    res.status(500).json({ error: 'GeoAI service error', msg: err.message })
+    console.error('[geoai] detect-water CATCH block:', err.name, err.message)
+    res.status(500).json({ error: 'GeoAI service error', msg: err.message, errName: err.name })
   }
 })
 
