@@ -8,7 +8,7 @@ const GEOAI_TABS = {
   wetlands: { label: '🌿 Wetland Mapping', icon: '🌱' },
   changes: { label: '📊 Change Detection', icon: '📈' },
   quality: { label: '🔮 Quality Prediction', icon: '✨' },
-  landcover: { label: '🗺️ Land Cover', icon: '🌍' },
+  landcover: { label: '🗺️ Land Cover (Unavailable)', icon: '🌍', disabled: true },
   satellite: { label: '⬇️ Satellite Data', icon: '📡' }
 }
 
@@ -557,25 +557,29 @@ function QualityPredictionPanel() {
 }
 
 function LandCoverPanel() {
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState(null)
+  const [result, setResult] = useState({
+    status: 'not_implemented',
+    mode: 'demo_placeholder',
+    implementation_status: 'not_implemented',
+    message: 'Land-cover classification is currently unavailable on the live backend.',
+    warnings: ['This endpoint is intentionally disabled until a verified inference path is deployed.']
+  })
   const [params, setParams] = useState({
     latitude: 46.5,
     longitude: -84.3,
     zoom_level: 13
   })
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault()
-    setLoading(true)
-    try {
-      const res = await api.post('/geoai/classify-landcover', params)
-      setResult(res.data)
-    } catch (err) {
-      setResult({ error: err.message })
-    } finally {
-      setLoading(false)
-    }
+    setResult({
+      status: 'not_implemented',
+      mode: 'demo_placeholder',
+      implementation_status: 'not_implemented',
+      message: 'Land-cover classification is currently unavailable on the live backend.',
+      warnings: ['This endpoint is intentionally disabled until a verified inference path is deployed.'],
+      input_echo: params
+    })
   }
 
   return (
@@ -616,14 +620,13 @@ function LandCoverPanel() {
         </div>
         <button
           type="submit"
-          disabled={loading}
-          className="w-full px-4 py-2 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-700 hover:to-teal-700 disabled:opacity-50 text-white rounded-lg font-semibold transition-all"
+          className="w-full px-4 py-2 bg-slate-700 text-slate-200 rounded-lg font-semibold cursor-not-allowed"
         >
-          {loading ? '🔄 Classifying...' : '🗺️ Classify Land Cover'}
+          🗺️ Land Cover Unavailable
         </button>
       </form>
 
-      <ResultCard title="Classification Results" icon="🌍" data={result} loading={loading} />
+      <ResultCard title="Classification Results" icon="🌍" data={result} loading={false} />
     </div>
   )
 }
@@ -752,11 +755,14 @@ export default function GeoAnalytics() {
           {Object.entries(GEOAI_TABS).map(([key, tab]) => (
             <button
               key={key}
+              disabled={tab.disabled}
               onClick={() => setActiveTab(key)}
               className={`px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
                 activeTab === key
                   ? 'bg-indigo-600 text-white'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  : tab.disabled
+                    ? 'bg-slate-900 text-slate-500 cursor-not-allowed'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
               }`}
             >
               {tab.label}
