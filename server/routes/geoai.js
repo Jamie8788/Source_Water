@@ -9,6 +9,14 @@ const router = require('express').Router()
 const axios = require('axios')
 const GEOAI_BASE_URL = process.env.GEOAI_SERVICE_URL || 'https://source-water-geoai.onrender.com'
 
+router.get('/_proxy-version', (req, res) => {
+  res.json({
+    proxy: 'geoai',
+    version: '2026-04-14-axios-fingerprint',
+    baseUrl: GEOAI_BASE_URL
+  })
+})
+
 async function proxyGeoai(res, path, payload) {
   try {
     const resp = await axios.post(`${GEOAI_BASE_URL}${path}`, payload, {
