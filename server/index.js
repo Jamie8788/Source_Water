@@ -62,8 +62,8 @@ app.use('/ml', createProxyMiddleware({
   },
 }))
 
-app.use(express.json({ limit: '10mb' }))
-app.use(express.urlencoded({ extended: true, limit: '10mb' }))
+app.use(express.json({ limit: '50mb' }))
+app.use(express.urlencoded({ extended: true, limit: '50mb' }))
 
 // Serve uploads — respect UPLOAD_DIR env var (set in production/Docker)
 const uploadsDir = (process.env.UPLOAD_DIR && path.isAbsolute(process.env.UPLOAD_DIR))

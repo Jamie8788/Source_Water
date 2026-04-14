@@ -9,6 +9,25 @@ export default function ImportModal({ onClose, onSuccess }) {
   const [status, setStatus] = useState(null)
   const [replaceExisting, setReplaceExisting] = useState(true)
 
+  const handleClearExisting = async () => {
+    setLoading(true)
+    setStatus('Clearing existing sites and observations...')
+    try {
+      const res = await api.delete('/import/sites')
+      setStatus(
+        `✅ Cleared existing data:\n` +
+        `Before: ${res.data.before?.sites || 0} sites, ${res.data.before?.observations || 0} observations\n` +
+        `After: ${res.data.after?.sites || 0} sites, ${res.data.after?.observations || 0} observations`
+      )
+      if (onSuccess) onSuccess()
+    } catch (err) {
+      const msg = err?.response?.data?.error || err.message || 'Failed to clear data'
+      setStatus(`❌ Clear failed: ${msg}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleFileChange = (e) => {
     const f = e.target.files?.[0]
     if (!f) return
@@ -35,7 +54,7 @@ export default function ImportModal({ onClose, onSuccess }) {
 
     setLoading(true)
     try {
-      const res = await api.post('/import/csv', { rows, replaceExisting })
+      const res = await api.post('/import/csv', { rows, replaceExisting }, { timeout: 180000 })
       setStatus(
         `✅ Import complete:\n` +
         `${res.data.replaced_existing ? 'Existing sites cleared first\n' : ''}` +
@@ -50,7 +69,10 @@ export default function ImportModal({ onClose, onSuccess }) {
       // Auto-close after 3 seconds
       setTimeout(() => onClose(), 3000)
     } catch (err) {
-      setStatus(`❌ Import failed: ${err.message}`)
+      const serverMsg = err?.response?.data?.error
+      const details = err?.response?.data?.details
+      const msg = serverMsg || details || err.message || 'Unknown import error'
+      setStatus(`❌ Import failed: ${msg}`)
     } finally {
       setLoading(false)
     }
@@ -123,6 +145,18 @@ export default function ImportModal({ onClose, onSuccess }) {
         )}
 
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button
+            onClick={handleClearExisting}
+            disabled={loading}
+            style={{
+              padding: '8px 16px', borderRadius: '6px',
+              border: '1px solid rgba(239,68,68,0.5)', background: 'rgba(239,68,68,0.2)',
+              color: '#fecaca', cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.5 : 1
+            }}
+          >
+            🧹 Clear Existing Data
+          </button>
           <button
             onClick={onClose}
             disabled={loading}

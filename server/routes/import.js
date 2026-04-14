@@ -1,17 +1,46 @@
 const router = require('express').Router()
 const db = require('../db/connection')
+const { requireAuth, requireAdmin } = require('../middleware/auth')
+
+async function clearExistingImportData() {
+  if (db.USE_PG) {
+    await db.exec('TRUNCATE TABLE observations, sites RESTART IDENTITY CASCADE')
+    return
+  }
+  await db.run('DELETE FROM observations', [])
+  await db.run('DELETE FROM sites', [])
+}
+
+// DELETE /api/import/sites - admin hard reset of imported map data
+router.delete('/sites', requireAuth, requireAdmin, async (_req, res) => {
+  try {
+    const beforeSites = await db.get('SELECT COUNT(*) AS c FROM sites', [])
+    const beforeObs = await db.get('SELECT COUNT(*) AS c FROM observations', [])
+    await clearExistingImportData()
+    const afterSites = await db.get('SELECT COUNT(*) AS c FROM sites', [])
+    const afterObs = await db.get('SELECT COUNT(*) AS c FROM observations', [])
+    res.json({
+      ok: true,
+      before: { sites: Number(beforeSites?.c || 0), observations: Number(beforeObs?.c || 0) },
+      after: { sites: Number(afterSites?.c || 0), observations: Number(afterObs?.c || 0) },
+    })
+  } catch (err) {
+    console.error('[Import] clear endpoint failed:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
 
 // ── BULK CSV IMPORT ──────────────────────────────────────────────────
 router.post('/csv', async (req, res) => {
   try {
     const { rows, replaceExisting = true } = req.body // Array of CSV objects
+    console.log(`[IMPORT] Incoming rows: ${Array.isArray(rows) ? rows.length : 0}, replaceExisting=${replaceExisting}`)
     if (!rows || !Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({ error: 'No rows provided' })
     }
 
     if (replaceExisting) {
-      await db.run('DELETE FROM observations', [])
-      await db.run('DELETE FROM sites', [])
+      await clearExistingImportData()
     }
 
     // Group by unique site (lat/lon)
@@ -166,6 +195,7 @@ router.post('/csv', async (req, res) => {
       }
     }
 
+    console.log(`[IMPORT] Completed: sites=${results.sites_created}, observations=${results.observations_created}, skipped=${results.skipped}, errors=${results.errors.length}`)
     res.json({ ...results, replaced_existing: !!replaceExisting })
   } catch (err) {
     console.error('[Import] Error:', err)
