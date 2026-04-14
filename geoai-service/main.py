@@ -35,15 +35,6 @@ DEFAULT_PATCH_SIZE = 256
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 CORS(app)
 
-try:
-    import geoai  # noqa: F401
-
-    GEOAI_AVAILABLE = True
-    GEOAI_VERSION = getattr(geoai, "__version__", "unknown")
-except Exception:
-    GEOAI_AVAILABLE = False
-    GEOAI_VERSION = "unavailable"
-
 OUTPUT_DIR = os.path.join(app.static_folder, "outputs")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -287,8 +278,6 @@ def health():
             "status": "healthy",
             "service": "geoai-service",
             "timestamp": _now_iso(),
-            "geoai_available": GEOAI_AVAILABLE,
-            "geoai_version": GEOAI_VERSION,
             "api_version": API_VERSION,
         }
     )
