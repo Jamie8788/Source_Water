@@ -64,8 +64,10 @@ function ResultCard({ title, icon, data, loading }) {
   const modeMeta = MODE_LABELS[data.mode]
   const statusMeta = STATUS_LABELS[data.implementation_status]
   const warnings = Array.isArray(data.warnings) ? data.warnings : []
+  const limitations = Array.isArray(data.limitations) ? data.limitations : []
   const visuals = data.visual_validation || null
   const summary = data.processing_summary || null
+  const technicalSummary = data.technical_summary || null
   const sceneCount = data.scene_count ?? data.imagery_source?.scene_count ?? null
   const rgbImage = data.rgb_image || visuals?.rgb_preview_url || null
   const waterMaskImage = data.water_mask_image || visuals?.water_mask_url || null
@@ -80,6 +82,7 @@ function ResultCard({ title, icon, data, loading }) {
   const ndwiMean = data.spectral_indices?.ndwi?.mean
   const isWetland = typeof data.wetland_presence === 'boolean' || data.method?.toLowerCase?.().includes('wetland')
   const isQuality = typeof data.quality_label === 'string' || data.method?.toLowerCase?.().includes('quality')
+  const confidenceLabel = data.confidence_label || data.uncertainty?.level || '--'
   const areaDisplay = data.area_km2 ?? data.wetland_area_km2 ?? data.wetland_area ?? data.before_after?.change_km2 ?? '--'
   const heroTitle = isWetland
     ? 'Spectral wetland detection'
@@ -120,6 +123,16 @@ function ResultCard({ title, icon, data, loading }) {
         </p>
       )}
 
+      {(data.interpretation || data.summary_message || data.plain_language_summary) && (
+        <div className="mb-4 p-3 rounded border border-cyan-400/20 bg-cyan-500/5">
+          <h4 className="text-xs text-cyan-200 uppercase tracking-wide mb-1">Interpretation</h4>
+          <p className="text-sm text-slate-100">
+            {data.summary_message || data.interpretation || data.plain_language_summary}
+          </p>
+          <p className="text-xs text-slate-400 mt-2">Confidence: {confidenceLabel}</p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <div className="bg-slate-900/50 rounded border border-slate-700/50 p-2">
           <p className="text-[11px] text-slate-400">Status</p>
@@ -138,6 +151,13 @@ function ResultCard({ title, icon, data, loading }) {
           <p className="text-sm text-white font-semibold">{data.api_version || '--'}</p>
         </div>
       </div>
+
+      {technicalSummary && (
+        <div className="mb-4 p-3 rounded border border-slate-700/50 bg-slate-900/40">
+          <h4 className="text-xs text-slate-300 uppercase tracking-wide mb-1">Technical Summary</h4>
+          <pre className="text-xs text-slate-300 overflow-auto max-h-28">{JSON.stringify(technicalSummary, null, 2)}</pre>
+        </div>
+      )}
 
       {isQuality && (
         <div className="mb-4 p-3 rounded border border-emerald-400/30 bg-emerald-500/10">
@@ -235,6 +255,15 @@ function ResultCard({ title, icon, data, loading }) {
           <h4 className="text-xs text-amber-200 uppercase tracking-wide mb-1">Warnings & Limitations</h4>
           <ul className="text-xs text-amber-100 space-y-1">
             {warnings.map((w, idx) => <li key={idx}>• {w}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {limitations.length > 0 && (
+        <div className="mb-4 p-3 rounded border border-slate-700/50 bg-slate-900/30">
+          <h4 className="text-xs text-slate-300 uppercase tracking-wide mb-1">Limitations</h4>
+          <ul className="text-xs text-slate-400 space-y-1">
+            {limitations.map((item, idx) => <li key={idx}>• {item}</li>)}
           </ul>
         </div>
       )}

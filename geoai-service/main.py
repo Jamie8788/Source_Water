@@ -311,6 +311,55 @@ def _index_summary(arr: np.ndarray) -> Dict[str, float]:
     }
 
 
+def _confidence_label(score: float) -> str:
+    if score >= 0.78:
+        return "high"
+    if score >= 0.55:
+        return "medium"
+    return "low"
+
+
+def _water_interpretation(area_km2: float, confidence: str, water_pixels: int, valid_pixels: int) -> str:
+    coverage = (water_pixels / valid_pixels) if valid_pixels else 0.0
+    if area_km2 <= 0 or water_pixels == 0:
+        return "No clear open water signal detected in the selected scene patch."
+    if coverage >= 0.65:
+        return f"Strong open-water signal with {confidence} confidence."
+    if coverage >= 0.25:
+        return f"Clear mixed water/shoreline signal with {confidence} confidence."
+    return f"Small but real open-water signal with {confidence} confidence."
+
+
+def _wetland_classification(wetland_area_km2: float, wetland_pixels: int, valid_pixels: int) -> str:
+    coverage = (wetland_pixels / valid_pixels) if valid_pixels else 0.0
+    if wetland_area_km2 <= 0 or wetland_pixels == 0:
+        return "no significant wetland"
+    if coverage < 0.03:
+        return "small wetland signal"
+    if coverage < 0.12:
+        return "moderate wetland presence"
+    return "strong wetland presence"
+
+
+def _quality_label(ndwi_value: float, turbidity_value: float) -> str:
+    if ndwi_value > 0.2 and turbidity_value < 0.9:
+        return "Good"
+    if ndwi_value > 0.0 and turbidity_value <= 1.2:
+        return "Moderate"
+    return "Poor"
+
+
+def _seasonal_warning(lat: float, scene_date: str) -> str | None:
+    season = _season(scene_date, lat)
+    if season == "winter":
+        return "Seasonal warning: winter/ice/snow can bias spectral water interpretation."
+    return None
+
+
+def _pixel_resolution_m(pixel_area_m2: float) -> float:
+    return round(float(np.sqrt(pixel_area_m2)), 3)
+
+
 def _quality_warnings(lat: float, scene_date: str, ndvi_mean: float, cloud_cover: float, scene_count: int) -> List[str]:
     warnings = []
     if scene_count < 2:
@@ -519,6 +568,21 @@ def detect_water():
         run_id=run_id,
     )
 
+    scene_date = selected.datetime.date().isoformat() if selected.datetime else start_date
+    signal_strength = float(np.nanmean(np.clip(np.nan_to_num(computed["indices"]["ndwi"], nan=-1.0), 0.0, 1.0)[computed["water_mask"]])) if np.any(computed["water_mask"]) else 0.0
+    confidence_score = float(
+        np.clip(
+            0.42
+            + min(len(items), 8) * 0.05
+            + min(float(computed["valid_pixels"]) / float(max(patch_size * patch_size, 1)), 1.0) * 0.25
+            + max(0.0, signal_strength) * 0.18
+            - max(0.0, float(selected.properties.get("eo:cloud_cover", 20.0)) / 100.0) * 0.18,
+            0.0,
+            1.0,
+        )
+    )
+    confidence = _confidence_label(confidence_score)
+
     confidence_basis = {
         "scene_count": len(items),
         "selected_scene_cloud_cover": selected.properties.get("eo:cloud_cover"),
@@ -529,6 +593,13 @@ def detect_water():
     }
 
     duration = round(time.time() - started, 3)
+    interpretation = _water_interpretation(computed["area_km2"], confidence, computed["water_pixels"], computed["valid_pixels"])
+    seasonal_warning = _seasonal_warning(lat, scene_date)
+    limitations = [
+        "Spectral water detection only; not a bathymetry or flood-depth product.",
+    ]
+    if seasonal_warning:
+        limitations.append(seasonal_warning)
 
     return jsonify(
         {
@@ -538,8 +609,16 @@ def detect_water():
             "implementation_status": "real_computed",
             "api_version": API_VERSION,
             "method": "rule_based spectral water detection",
+            "summary_message": interpretation,
+            "interpretation": interpretation,
+            "plain_language_summary": interpretation,
+            "confidence_label": confidence,
+            "confidence_score": round(confidence_score, 3),
             "water_detected": bool(computed["water_pixels"] > 0),
             "area_km2": round(computed["area_km2"], 6),
+            "scenes_used": len(items),
+            "composite_mode": "single_scene_min_cloud",
+            "pixel_resolution_m": _pixel_resolution_m(computed["pixel_area_m2"]),
             "spectral_indices": {
                 "ndwi": ndwi_summary,
                 "mndwi": mndwi_summary,
@@ -558,19 +637,29 @@ def detect_water():
                 "stac_api": PC_STAC_URL,
                 "selected_scene": _stac_item_to_dict(selected),
                 "scene_count": len(items),
+                "scene_date": scene_date,
                 "scene_ids": [i.id for i in items[:12]],
                 "cloud_filter": cloud,
                 "composite_mode": "single_scene_min_cloud",
-                "pixel_resolution_m": round(np.sqrt(computed["pixel_area_m2"]), 3),
+                "pixel_resolution_m": _pixel_resolution_m(computed["pixel_area_m2"]),
             },
             "visual_validation": visuals,
             "rgb_image": visuals["rgb_preview_url"],
             "water_mask_image": visuals["water_mask_url"],
             "ndwi_visual": visuals["ndwi_preview_url"],
+            "technical_summary": {
+                "ndwi_mean": ndwi_summary["mean"],
+                "mndwi_mean": mndwi_summary["mean"],
+                "ndvi_mean": ndvi_summary["mean"],
+                "water_pixels": computed["water_pixels"],
+                "valid_pixels": computed["valid_pixels"],
+                "signal_strength": round(signal_strength, 6),
+            },
             "warnings": warnings,
+            "limitations": limitations,
             "confidence_basis": confidence_basis,
             "uncertainty": {
-                "level": "medium" if warnings else "low",
+                "level": confidence,
                 "reasons": ["seasonal_effects"] if warnings else [],
             },
             "processing_summary": {
@@ -624,6 +713,8 @@ def map_wetlands():
     wetland_pixels = int(np.sum(wetland_mask))
     wetland_area_km2 = float(wetland_pixels * computed["pixel_area_m2"] / 1_000_000.0)
     wetland_presence = wetland_pixels > 0
+    wetland_classification = _wetland_classification(wetland_area_km2, wetland_pixels, computed["valid_pixels"])
+    wetland_significant = wetland_pixels >= 25 and wetland_area_km2 >= 0.0009
 
     run_id = uuid.uuid4().hex[:10]
     visuals = _save_wetland_visuals(
@@ -636,6 +727,30 @@ def map_wetlands():
     )
 
     duration = round(time.time() - started, 3)
+    scene_date = selected.datetime.date().isoformat() if selected.datetime else start_date
+    signal_strength = float(np.nanmean(np.clip(np.nan_to_num(ndwi, nan=-1.0), 0.0, 1.0)[wetland_mask])) if np.any(wetland_mask) else 0.0
+    confidence_score = float(
+        np.clip(
+            0.35
+            + min(len(items), 8) * 0.04
+            + min(float(computed["valid_pixels"]) / float(max(DEFAULT_PATCH_SIZE * DEFAULT_PATCH_SIZE, 1)), 1.0) * 0.20
+            + max(0.0, signal_strength) * 0.20
+            + min(wetland_area_km2 * 120.0, 0.15)
+            - max(0.0, float(selected.properties.get("eo:cloud_cover", 20.0)) / 100.0) * 0.10,
+            0.0,
+            1.0,
+        )
+    )
+    confidence = _confidence_label(confidence_score)
+    seasonal_warning = _seasonal_warning(lat, scene_date)
+    limitations = [
+        "Spectral wetland proxy only; not a validated habitat classification model.",
+        "Very small detections are down-weighted to avoid over-interpreting isolated pixels.",
+    ]
+    if seasonal_warning:
+        limitations.append(seasonal_warning)
+
+    summary_message = f"{wetland_classification.capitalize()} with {confidence} confidence."
 
     return jsonify(
         {
@@ -645,16 +760,26 @@ def map_wetlands():
             "implementation_status": "real_computed",
             "api_version": API_VERSION,
             "method": "spectral wetland detection",
+            "summary_message": summary_message,
+            "interpretation": summary_message,
+            "plain_language_summary": summary_message,
+            "confidence_label": confidence,
+            "confidence_score": round(confidence_score, 3),
             "heuristic": "wetland := (NDWI > 0.0) AND (NDVI > 0.2)",
             "classification": "wetland" if wetland_presence else "non-wetland",
             "wetland_presence": wetland_presence,
+            "wetland_significant": wetland_significant,
             "wetland_area": round(wetland_area_km2, 6),
             "wetland_area_km2": round(wetland_area_km2, 6),
+            "scenes_used": len(items),
+            "composite_mode": "single_scene_min_cloud",
+            "pixel_resolution_m": _pixel_resolution_m(computed["pixel_area_m2"]),
             "imagery_source": {
                 "collection": COLLECTION,
                 "stac_api": PC_STAC_URL,
                 "selected_scene": _stac_item_to_dict(selected),
                 "scene_count": len(items),
+                "scene_date": scene_date,
             },
             "rgb_image": visuals["rgb_preview_url"],
             "overlay_image": visuals["wetland_mask_url"],
@@ -665,10 +790,14 @@ def map_wetlands():
             "warnings": [
                 "Computed from spectral indices only (no ML wetland model).",
             ],
+            "limitations": limitations,
             "processing_summary": {
                 "duration_seconds": duration,
                 "wetland_pixels": wetland_pixels,
                 "valid_pixels": computed["valid_pixels"],
+                "significance_threshold_pixels": 25,
+                "significance_threshold_area_km2": 0.0009,
+                "wetland_classification": wetland_classification,
             },
         }
     )
@@ -823,12 +952,32 @@ def predict_quality():
     turbidity_value = float(np.nanmean(turbidity_arr[focus_mask])) if np.any(focus_mask) else float("nan")
 
     turbidity_band = "low" if turbidity_value < 0.9 else ("moderate" if turbidity_value <= 1.2 else "high")
-    if ndwi_value > 0.2 and turbidity_band == "low":
-        quality_label = "Good"
-    elif ndwi_value > 0.0 and turbidity_band in {"low", "moderate"}:
-        quality_label = "Moderate"
-    else:
-        quality_label = "Poor"
+    quality_label = _quality_label(ndwi_value, turbidity_value)
+    scene_date = selected.datetime.date().isoformat() if selected.datetime else start_date
+    seasonal_warning = _seasonal_warning(lat, scene_date)
+    water_signal_strength = float(np.clip((ndwi_value + 0.2) / 1.2, 0.0, 1.0)) if np.isfinite(ndwi_value) else 0.0
+    vegetation_context = "low" if np.isfinite(ndvi_value) and ndvi_value < 0.2 else ("moderate" if np.isfinite(ndvi_value) and ndvi_value < 0.35 else "high")
+    turbidity_context = turbidity_band
+    confidence_score = float(
+        np.clip(
+            0.40
+            + min(len(items), 8) * 0.04
+            + min(float(computed["valid_pixels"]) / float(max(DEFAULT_PATCH_SIZE * DEFAULT_PATCH_SIZE, 1)), 1.0) * 0.20
+            + water_signal_strength * 0.20
+            + (0.12 if turbidity_band == "low" else 0.05 if turbidity_band == "moderate" else -0.05)
+            - max(0.0, float(selected.properties.get("eo:cloud_cover", 20.0)) / 100.0) * 0.10,
+            0.0,
+            1.0,
+        )
+    )
+    confidence = _confidence_label(confidence_score)
+    interpretation = f"{quality_label} satellite-derived surface condition signal with {confidence} confidence."
+    limitations = [
+        "This is a satellite-derived surface condition estimate, not laboratory water chemistry.",
+    ]
+    seasonal_warning_text = seasonal_warning
+    if seasonal_warning_text:
+        limitations.append(seasonal_warning_text)
 
     run_id = uuid.uuid4().hex[:10]
     visuals = _save_visuals(
@@ -850,16 +999,28 @@ def predict_quality():
             "implementation_status": "real_computed",
             "api_version": API_VERSION,
             "method": "AI-assisted spectral water quality estimation",
+            "summary_message": interpretation,
+            "interpretation": interpretation,
+            "plain_language_summary": interpretation,
+            "confidence_label": confidence,
+            "confidence_score": round(confidence_score, 3),
             "quality_label": quality_label,
             "classification": quality_label,
             "ndwi": round(ndwi_value, 6),
             "ndvi": round(ndvi_value, 6),
             "turbidity_proxy": round(turbidity_value, 6),
+            "water_signal_strength": round(water_signal_strength, 6),
+            "vegetation_context": vegetation_context,
+            "turbidity_context": turbidity_context,
             "imagery_source": {
                 "collection": COLLECTION,
                 "stac_api": PC_STAC_URL,
                 "selected_scene": _stac_item_to_dict(selected),
                 "scene_count": len(items),
+                "scene_date": scene_date,
+                "cloud_filter": cloud,
+                "composite_mode": "single_scene_min_cloud",
+                "pixel_resolution_m": _pixel_resolution_m(computed["pixel_area_m2"]),
             },
             "rgb_image": visuals["rgb_preview_url"],
             "water_mask_image": visuals["water_mask_url"],
@@ -870,10 +1031,13 @@ def predict_quality():
             "warnings": [
                 "Quality is a spectral proxy estimate and not a laboratory water test.",
             ],
+            "limitations": limitations,
+            "seasonal_warning": seasonal_warning_text,
             "processing_summary": {
                 "duration_seconds": duration,
                 "focus_pixels": int(np.sum(focus_mask)),
                 "turbidity_band": turbidity_band,
+                "water_signal_strength": round(water_signal_strength, 6),
             },
         }
     )
