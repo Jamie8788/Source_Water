@@ -25,7 +25,7 @@ services:
     runtime: python
     rootDir: geoai-service
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -w 2 -b 0.0.0.0:$PORT main:app
+    startCommand: bash start.sh
     plan: free
     envVars:
       - key: DEBUG
