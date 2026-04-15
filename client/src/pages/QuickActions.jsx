@@ -372,7 +372,6 @@ export default function QuickActions() {
 
         .atlas-light {
           background: radial-gradient(circle at 12% 14%, rgba(255, 243, 210, 0.32) 0%, rgba(255, 243, 210, 0.06) 34%, transparent 72%);
-          animation: atlasLightDrift 13s ease-in-out infinite;
         }
 
         .atlas-dust {
@@ -381,7 +380,6 @@ export default function QuickActions() {
             radial-gradient(circle at 78% 34%, rgba(97, 63, 28, 0.12) 0 1px, transparent 1px),
             radial-gradient(circle at 62% 74%, rgba(255, 233, 196, 0.14) 0 1px, transparent 1px);
           background-size: 170px 170px, 220px 220px, 280px 280px;
-          animation: atlasDustShift 28s linear infinite;
           opacity: 0.35;
         }
 
@@ -399,7 +397,7 @@ export default function QuickActions() {
         .atlas-title-sheen {
           transform: translateX(-120%);
           background: linear-gradient(95deg, transparent 0%, rgba(255, 250, 232, 0.35) 45%, transparent 100%);
-          animation: cartoucheSheen 8.5s ease-in-out infinite;
+          opacity: 0.35;
         }
 
         .atlas-map-stage {
@@ -417,7 +415,7 @@ export default function QuickActions() {
             linear-gradient(115deg, rgba(197, 229, 242, 0) 0%, rgba(197, 229, 242, 0.075) 45%, rgba(197, 229, 242, 0) 70%),
             radial-gradient(circle at 62% 43%, rgba(190, 221, 233, 0.08), transparent 58%);
           mix-blend-mode: screen;
-          animation: waterShimmer 9s ease-in-out infinite;
+          opacity: 0.55;
         }
 
         .route-group .route-base {
@@ -435,8 +433,7 @@ export default function QuickActions() {
         }
 
         .route-group.is-ready .route-shimmer {
-          opacity: 0.32;
-          animation: routeTravel 5.4s linear infinite;
+          opacity: 0.2;
         }
 
         .route-group.is-active .route-base {
@@ -452,7 +449,6 @@ export default function QuickActions() {
 
         .compass-rose {
           transform-origin: 150px 715px;
-          animation: compassDrift 8.5s ease-in-out infinite;
           filter: drop-shadow(0 3px 6px rgba(74, 48, 21, 0.22));
         }
 
@@ -465,7 +461,7 @@ export default function QuickActions() {
         .map-marker-shell.is-ready {
           opacity: 1;
           transform: translate(-50%, -50%) translateY(0) scale(1);
-          animation: markerIntro 640ms cubic-bezier(0.2, 0.8, 0.2, 1) both, markerFloat 4.8s ease-in-out infinite;
+          animation: markerIntro 460ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
         }
 
         .map-marker-shell.is-active {
@@ -475,7 +471,6 @@ export default function QuickActions() {
         .marker-halo {
           border: 1px solid rgba(247, 216, 160, 0.18);
           box-shadow: 0 0 0 rgba(237, 186, 114, 0);
-          animation: haloPulse 3.4s ease-in-out infinite;
           transition: all 380ms cubic-bezier(0.22, 1, 0.36, 1);
         }
 
@@ -514,50 +509,9 @@ export default function QuickActions() {
           100% { stroke-dasharray: 8 9; opacity: 0.62; }
         }
 
-        @keyframes routeTravel {
-          0% { stroke-dashoffset: 52; }
-          100% { stroke-dashoffset: -52; }
-        }
-
         @keyframes markerIntro {
           0% { opacity: 0; transform: translate(-50%, -50%) translateY(8px) scale(0.95); }
           100% { opacity: 1; transform: translate(-50%, -50%) translateY(0) scale(1); }
-        }
-
-        @keyframes markerFloat {
-          0%, 100% { transform: translate(-50%, -50%) translateY(0); }
-          50% { transform: translate(-50%, -50%) translateY(-2.5px); }
-        }
-
-        @keyframes haloPulse {
-          0%, 100% { opacity: 0.65; transform: scale(1); }
-          50% { opacity: 0.95; transform: scale(1.045); }
-        }
-
-        @keyframes compassDrift {
-          0%, 100% { transform: rotate(0deg) translateY(0); }
-          50% { transform: rotate(1.2deg) translateY(-1px); }
-        }
-
-        @keyframes waterShimmer {
-          0%, 100% { transform: translateX(-1.5%); opacity: 0.58; }
-          50% { transform: translateX(1.3%); opacity: 0.85; }
-        }
-
-        @keyframes atlasLightDrift {
-          0%, 100% { transform: translate3d(0, 0, 0); opacity: 0.72; }
-          50% { transform: translate3d(8px, -4px, 0); opacity: 0.92; }
-        }
-
-        @keyframes atlasDustShift {
-          0% { background-position: 0 0, 0 0, 0 0; }
-          100% { background-position: 140px 60px, -120px 100px, 90px -110px; }
-        }
-
-        @keyframes cartoucheSheen {
-          0%, 16% { transform: translateX(-130%); opacity: 0; }
-          25% { transform: translateX(40%); opacity: 1; }
-          36%, 100% { transform: translateX(140%); opacity: 0; }
         }
 
         @media (prefers-reduced-motion: reduce) {

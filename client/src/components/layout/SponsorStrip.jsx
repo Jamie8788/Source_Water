@@ -1,12 +1,29 @@
 import { useEffect, useState } from 'react'
 import api from '../../utils/api'
 
+function getAssetBaseUrl() {
+  const apiBase = import.meta.env.VITE_API_URL || ''
+  if (!apiBase) return ''
+  return apiBase.replace(/\/api\/?$/, '')
+}
+
+function resolveLogoUrl(rawUrl) {
+  if (!rawUrl) return ''
+  if (/^(https?:)?\/\//i.test(rawUrl) || rawUrl.startsWith('data:') || rawUrl.startsWith('blob:')) {
+    return rawUrl
+  }
+  if (!rawUrl.startsWith('/')) return rawUrl
+  const assetBase = getAssetBaseUrl()
+  return assetBase ? `${assetBase}${rawUrl}` : rawUrl
+}
+
 function getLogoUrl(sponsor) {
-  return sponsor?.logo_url || sponsor?.logo_path || ''
+  return resolveLogoUrl(sponsor?.logo_url || sponsor?.logo_path || '')
 }
 
 export default function SponsorStrip() {
   const [sponsors, setSponsors] = useState([])
+  const [brokenIds, setBrokenIds] = useState({})
 
   useEffect(() => {
     let mounted = true
@@ -51,6 +68,7 @@ export default function SponsorStrip() {
         <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4">
           {sponsors.map(sponsor => {
             const logoUrl = getLogoUrl(sponsor)
+            const logoBroken = !!brokenIds[sponsor.id]
             const content = (
               <div
                 className="flex items-center justify-center rounded-xl border px-4 py-3 transition-all duration-200"
@@ -61,11 +79,12 @@ export default function SponsorStrip() {
                   background: 'rgba(255,255,255,0.48)',
                 }}
               >
-                {logoUrl ? (
+                {logoUrl && !logoBroken ? (
                   <img
                     src={logoUrl}
                     alt={sponsor.alt_text || sponsor.name}
                     title={sponsor.name}
+                    onError={() => setBrokenIds(prev => ({ ...prev, [sponsor.id]: true }))}
                     className="block"
                     style={{
                       maxHeight: 42,

@@ -23,7 +23,9 @@ export default function TopBar({ sidebarWidth, onA11yClick, onOpenDM }) {
   useEffect(() => {
     const fetchUnread = () => api.get('/messages/unread/count').then(r => setUnread(r.data.count || 0)).catch(() => {})
     fetchUnread()
-    const iv = setInterval(fetchUnread, 5000)
+    const iv = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchUnread()
+    }, 30000)
     return () => clearInterval(iv)
   }, [])
 

@@ -14,12 +14,26 @@ const EMPTY_FORM = {
   is_active: true,
 }
 
+function getAssetBaseUrl() {
+  const apiBase = import.meta.env.VITE_API_URL || ''
+  if (!apiBase) return ''
+  return apiBase.replace(/\/api\/?$/, '')
+}
+
+function resolveLogoUrl(rawUrl) {
+  if (!rawUrl) return ''
+  if (/^(https?:)?\/\//i.test(rawUrl) || rawUrl.startsWith('data:') || rawUrl.startsWith('blob:')) return rawUrl
+  if (!rawUrl.startsWith('/')) return rawUrl
+  const assetBase = getAssetBaseUrl()
+  return assetBase ? `${assetBase}${rawUrl}` : rawUrl
+}
+
 function normalizeSponsor(sponsor) {
   return {
     ...sponsor,
     display_order: Number(sponsor.display_order ?? 0),
     is_active: !!(sponsor.is_active ?? sponsor.status === 'active'),
-    logo_url: sponsor.logo_url || sponsor.logo_path || '',
+    logo_url: resolveLogoUrl(sponsor.logo_url || sponsor.logo_path || ''),
   }
 }
 
@@ -43,13 +57,20 @@ function formatDate(value) {
 }
 
 function LogoBox({ sponsor }) {
-  const src = sponsor.logo_url || sponsor.logo_path || ''
+  const src = resolveLogoUrl(sponsor.logo_url || sponsor.logo_path || '')
+  const [broken, setBroken] = useState(false)
+
+  useEffect(() => {
+    setBroken(false)
+  }, [src])
+
   return (
     <div className="flex items-center justify-center rounded-xl border px-3 py-2" style={{ borderColor: 'var(--border)', background: 'var(--card-bg)' }}>
-      {src ? (
+      {src && !broken ? (
         <img
           src={src}
           alt={sponsor.alt_text || sponsor.name}
+          onError={() => setBroken(true)}
           className="block"
           style={{ maxHeight: 34, maxWidth: 120, objectFit: 'contain' }}
         />
@@ -112,7 +133,7 @@ export default function SponsorsPanel() {
     setEditingId(sponsor.id)
     setForm(toFormValues(sponsor))
     setLogoFile(null)
-    setLogoPreview(sponsor.logo_url || sponsor.logo_path || '')
+    setLogoPreview(resolveLogoUrl(sponsor.logo_url || sponsor.logo_path || ''))
   }
 
   const submitSponsor = async (event) => {
