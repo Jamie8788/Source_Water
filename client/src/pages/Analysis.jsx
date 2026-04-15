@@ -1099,25 +1099,28 @@ function FreeAIAnalyzer() {
     ])
     setAiLoading(true)
 
-    const ctx = fileData
-      ? buildFileContext(null, fileData, file.name)
-      : buildFileContext(fileText, null, file?.name || 'document')
+    try {
+      // Call backend analysis service with file content directly
+      const payload = fileData
+        ? { query: q, file_content: JSON.stringify(fileData), file_type: 'csv', file_name: file.name }
+        : { query: q, file_content: fileText, file_type: 'text', file_name: file?.name || 'document' }
 
-    const sysPrompt = file
-      ? `You are an expert document analyst and data scientist. The user uploaded "${file.name}". Here is the content/summary:\n\n${ctx}\n\nAnswer accurately based on this content. Be concise and helpful. For water data, reference WHO/Canadian standards.`
-      : `You are a helpful water quality data analyst for SOURCE Water (Northern Ontario).`
+      const res = await axios.post(`${SVC}/ask`, payload, { timeout: 120000 })
+      const answer = res.data?.answer || res.data?.response || "Couldn't get a response — try again."
 
-    const history = chat.filter(m => !m.loading).slice(-8).map(m => ({
-      role: m.role === 'ai' ? 'assistant' : 'user', content: m.text,
-    }))
-
-    const answer = await askAI([...history, { role: 'user', content: q }], sysPrompt, 1200)
-
-    setChat(prev => prev.map((m, i) =>
-      i === prev.length - 1
-        ? { ...m, text: answer || "Couldn't get a response — try again.", loading: false }
-        : m
-    ))
+      setChat(prev => prev.map((m, i) =>
+        i === prev.length - 1
+          ? { ...m, text: answer, loading: false }
+          : m
+      ))
+    } catch (err) {
+      console.error('[Free AI]', err.message)
+      setChat(prev => prev.map((m, i) =>
+        i === prev.length - 1
+          ? { ...m, text: `Analysis error: ${err.response?.data?.error || err.message}. Try again or use ML File Analysis tab.`, loading: false }
+          : m
+      ))
+    }
     setAiLoading(false)
   }
 
@@ -1233,7 +1236,7 @@ function FreeAIAnalyzer() {
           </div>
           <div>
             <div style={{ fontSize:14, fontWeight:800, color:'var(--text)' }}>Free AI File Analyzer</div>
-            <div style={{ fontSize:10, color:'var(--text-muted)' }}>Reads files in your browser · Powered by Pollinations · No API key needed</div>
+            <div style={{ fontSize:10, color:'var(--text-muted)' }}>Uses backend Gemini AI · Powered by your API key</div>
           </div>
           <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:5, padding:'4px 10px', borderRadius:20, background:'rgba(16,185,129,0.1)', color:'#10b981', fontSize:10, fontWeight:700 }}>
             <Zap style={{ width:10, height:10 }}/> FREE
@@ -1318,7 +1321,7 @@ function FreeAIAnalyzer() {
             </button>
           </div>
           <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:4 }}>
-            Enter to send · Reads file in your browser · Zero backend required
+            Enter to send · Uses backend Gemini AI for analysis
           </div>
         </div>
       </div>
