@@ -227,18 +227,40 @@ router.get('/community-observations/enriched', async (req, res) => {
 // ─── Real Open Data: USGS Live Stations (Great Lakes bbox default) ─────────
 router.get('/usgs-live', async (req, res) => {
   try {
-    const bbox = req.query.bbox || '-93,41,-74,49'
-    const parameterCd = req.query.parameterCd || '00010,00095,00300,00400,63680'
-    const siteStatus = req.query.siteStatus || 'active'
+    // USGS IV endpoint doesn't support bBox; use state codes for Great Lakes region
+    // Great Lakes states: MI, WI, IN, IL, OH, PA, NY + Ontario (CA)
+    const states = ['MI', 'WI', 'IN', 'IL', 'OH', 'PA', 'NY']
+    const parameterCd = '00010,00300' // Temperature, dissolved oxygen (most common)
 
-    const url = `https://waterservices.usgs.gov/nwis/iv/?format=json&siteStatus=${encodeURIComponent(siteStatus)}&parameterCd=${encodeURIComponent(parameterCd)}&bBox=${encodeURIComponent(bbox)}`
-    const resp = await axios.get(url, { timeout: 30000 })
-    return res.status(200).json(resp.data)
+    // Query each state and combine results
+    let allTimeSeries = []
+    
+    for (const stateCd of states) {
+      try {
+        const url = `https://waterservices.usgs.gov/nwis/iv/?format=json&stateCd=${encodeURIComponent(stateCd)}&parameterCd=${encodeURIComponent(parameterCd)}`
+        const resp = await axios.get(url, { timeout: 8000 })
+        const series = resp.data?.value?.timeSeries || []
+        allTimeSeries = allTimeSeries.concat(series)
+      } catch (stateErr) {
+        console.warn(`[geoai] USGS query for state ${stateCd} failed:`, stateErr.message)
+        // Continue to next state
+      }
+    }
+
+    // Filter to Great Lakes region (rough bounds)
+    const filtered = allTimeSeries.filter(entry => {
+      const geo = entry?.sourceInfo?.geoLocation?.geogLocation || {}
+      const lat = Number(geo?.latitude)
+      const lon = Number(geo?.longitude)
+      // Great Lakes bounding box: lon [-93, -74], lat [41, 49]
+      return Number.isFinite(lat) && Number.isFinite(lon) && 
+             lat >= 41 && lat <= 49 && lon >= -93 && lon <= -74
+    })
+
+    return res.status(200).json({ value: { timeSeries: filtered } })
   } catch (err) {
-    const status = err.response?.status || 500
-    const message = err.response?.data || err.message || 'USGS proxy error'
     console.error('[geoai] usgs-live error:', err.message)
-    return res.status(status).json({ error: 'USGS live data unavailable', msg: message })
+    return res.status(500).json({ error: 'USGS live data unavailable', msg: err.message })
   }
 })
 
