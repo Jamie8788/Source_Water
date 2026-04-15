@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { MapContainer, TileLayer, Marker, CircleMarker, Popup, useMap } from 'react-leaflet'
+import { useEffect, useMemo, useState } from 'react'
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import MarkerClusterGroup from 'react-leaflet-cluster'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -16,8 +16,8 @@ import {
   X,
 } from 'lucide-react'
 
-// Water Rangers exact OSM base map center & zoom
-const MAP_CENTER = [45.5, -75.7] // Ontario/Great Lakes region (default)
+// OSM base map center & zoom (Great Lakes region)
+const MAP_CENTER = [45.5, -75.7]
 const MAP_ZOOM = 6
 
 const STATUS_COLORS = {
@@ -40,6 +40,19 @@ const PARAMS = [
   { key: 'dissolved_oxygen', label: 'DO', unit: ' mg/L' },
   { key: 'conductivity', label: 'Conductivity', unit: ' uS/cm' },
 ]
+
+const BASEMAPS = {
+  light: {
+    label: 'Light',
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+  },
+  topo: {
+    label: 'Topo',
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenStreetMap contributors, SRTM | OpenTopoMap',
+  },
+}
 
 const MAP_CSS = `
   .sw-map-wrap { 
@@ -71,7 +84,7 @@ const MAP_CSS = `
   .leaflet-popup-close-button {
     padding: 4px 8px;
   }
-  .water-rangers-icon {
+  .monitoring-point-icon {
     filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
   }
   .sw-card {
@@ -151,8 +164,8 @@ function parameterSummary(obs) {
   }).filter(Boolean)
 }
 
-// Water Rangers exact marker styling: green numbered circles
-function createWaterRangersIcon(number, isAI = false) {
+// Numbered marker styling for monitoring points
+function createMonitoringIcon(number, isAI = false) {
   const bgColor = isAI ? '#06b6d4' : '#22c55e' // Green for sites, cyan for AI/community
   const html = `
     <div style="
@@ -173,12 +186,12 @@ function createWaterRangersIcon(number, isAI = false) {
   return L.divIcon({
     html,
     iconSize: [36, 36],
-    className: 'water-rangers-icon',
+    className: 'monitoring-point-icon',
   })
 }
 
-// Water Rangers exact popup style
-function WaterRangersPopup({ title, subtitle, description, onDive }) {
+// Popup style for point details
+function MonitoringPopup({ title, subtitle, description, onDive }) {
   return (
     <div style={{ 
       background: 'white', 
@@ -222,21 +235,21 @@ function WaterRangersPopup({ title, subtitle, description, onDive }) {
   )
 }
 
-// Site marker component - Water Rangers green style
+// Site marker component
 function SiteMarker({ site, index, onSelect }) {
   const handlePopupClick = () => onSelect({ type: 'site', payload: site })
   
   return (
     <Marker
       position={[site.latitude, site.longitude]}
-      icon={createWaterRangersIcon(index + 1, false)}
+      icon={createMonitoringIcon(index + 1, false)}
       eventHandlers={{
         click: handlePopupClick,
       }}
       title={site.name}
     >
       <Popup>
-        <WaterRangersPopup
+        <MonitoringPopup
           title={site.name || 'Monitoring Site'}
           subtitle={site.organization || 'Source Water'}
           description={site.body_of_water || site.location_name || 'Great Lakes Region'}
@@ -247,7 +260,7 @@ function SiteMarker({ site, index, onSelect }) {
   )
 }
 
-// Community marker component - Water Rangers cyan/AI intelligence style
+// Community marker component
 function CommunityMarker({ obs, index, onSelect }) {
   const risk = Number(obs?.ai_enrichment?.ai_risk_score || 0)
   const riskPercent = Math.round(risk * 100)
@@ -256,14 +269,14 @@ function CommunityMarker({ obs, index, onSelect }) {
   return (
     <Marker
       position={[obs.lat, obs.lon]}
-      icon={createWaterRangersIcon(index + 1, true)}
+      icon={createMonitoringIcon(index + 1, true)}
       eventHandlers={{
         click: handlePopupClick,
       }}
       title={`${obs.site_name} (AI: ${riskPercent}%)`}
     >
       <Popup>
-        <WaterRangersPopup
+        <MonitoringPopup
           title={obs.site_name || 'Community Observation'}
           subtitle={`${obs.organization || 'Community'} • AI Risk: ${riskPercent}%`}
           description={`Satellite: ${obs.ai_enrichment?.satellite_validation || 'unknown'} | Anomaly: ${obs.ai_enrichment?.anomaly_flag ? 'Yes' : 'No'}`}
@@ -274,7 +287,19 @@ function CommunityMarker({ obs, index, onSelect }) {
   )
 }
 
-// Map control for clustering with Water Rangers style
+function ScaleControl() {
+  const map = useMap()
+
+  useEffect(() => {
+    const scale = L.control.scale({ metric: true, imperial: false })
+    scale.addTo(map)
+    return () => scale.remove()
+  }, [map])
+
+  return null
+}
+
+// Clustered map layers
 function MapControls({ sites, communityRows, selected, onSelect }) {
   return (
     <>
@@ -318,6 +343,8 @@ export default function MapPage() {
     dateRange: '365',
     recency: 'all',
     alertLevel: 'all',
+    searchText: '',
+    basemap: 'light',
   })
 
   // Load initial data
@@ -394,6 +421,12 @@ export default function MapPage() {
         if (val === null || val === undefined || val === '') return false
       }
 
+      if (filters.searchText.trim()) {
+        const q = filters.searchText.trim().toLowerCase()
+        const haystack = `${row?.site_name || ''} ${row?.organization || ''}`.toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
+
       return true
     })
   }, [communityRows, cutoffDate, filters])
@@ -408,6 +441,13 @@ export default function MapPage() {
         if (filters.alertLevel === 'medium' && status !== 'warning') return false
         if (filters.alertLevel === 'low' && status !== 'active') return false
       }
+
+      if (filters.searchText.trim()) {
+        const q = filters.searchText.trim().toLowerCase()
+        const haystack = `${site?.name || ''} ${site?.organization || ''} ${site?.body_of_water || ''} ${site?.location_name || ''}`.toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
+
       return true
     })
   }, [sites, filters])
@@ -430,13 +470,81 @@ export default function MapPage() {
     return ['ph', 'turbidity', 'dissolved_oxygen'].map((k) => ({ key: k, ...computeTrend(siteObservations, k) }))
   }, [siteObservations])
 
+  const latestCommunityTimestamp = useMemo(() => {
+    const timestamps = filteredCommunity
+      .map((r) => new Date(r?.timestamp || '').getTime())
+      .filter((t) => Number.isFinite(t))
+      .sort((a, b) => b - a)
+
+    return timestamps.length ? formatDate(timestamps[0]) : 'Unknown'
+  }, [filteredCommunity])
+
+  const downloadVisibleData = () => {
+    const rows = []
+
+    filteredSites.forEach((site) => {
+      rows.push({
+        source: 'site',
+        id: site.id,
+        name: site.name || '',
+        organization: site.organization || '',
+        latitude: site.latitude,
+        longitude: site.longitude,
+        status: statusBand(site.status),
+        observed_at: '',
+        ph: '',
+        turbidity: '',
+        temperature: '',
+        dissolved_oxygen: '',
+        conductivity: '',
+        ai_risk_score: '',
+        anomaly_flag: '',
+        satellite_validation: '',
+      })
+    })
+
+    filteredCommunity.forEach((row) => {
+      rows.push({
+        source: 'community',
+        id: row.id,
+        name: row.site_name || '',
+        organization: row.organization || '',
+        latitude: row.lat,
+        longitude: row.lon,
+        status: riskBand(row?.ai_enrichment?.ai_risk_score),
+        observed_at: row.timestamp || '',
+        ph: row?.parameters?.ph ?? '',
+        turbidity: row?.parameters?.turbidity ?? '',
+        temperature: row?.parameters?.temperature ?? '',
+        dissolved_oxygen: row?.parameters?.dissolved_oxygen ?? '',
+        conductivity: row?.parameters?.conductivity ?? '',
+        ai_risk_score: row?.ai_enrichment?.ai_risk_score ?? '',
+        anomaly_flag: row?.ai_enrichment?.anomaly_flag ?? '',
+        satellite_validation: row?.ai_enrichment?.satellite_validation ?? '',
+      })
+    })
+
+    if (!rows.length) return
+
+    const headers = Object.keys(rows[0])
+    const toCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const csv = [headers.join(','), ...rows.map((r) => headers.map((h) => toCell(r[h])).join(','))].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `visible-water-data-${Date.now()}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="flex h-screen flex-col bg-white">
       <style>{MAP_CSS}</style>
 
-      {/* Water Rangers style header banner */}
+      {/* Header banner */}
       <div className="border-b border-slate-200 bg-yellow-50 px-4 py-2 text-center text-xs text-slate-700">
-        <span className="font-semibold">Collecting data in the field?</span> We now have apps for iOS and Android.{' '}
+        <span className="font-semibold">Real-time water quality monitoring</span> with community data and AI-assisted analysis.{' '}
         <a href="#" className="font-semibold text-blue-600 hover:underline">
           Learn more
         </a>
@@ -447,7 +555,7 @@ export default function MapPage() {
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-2">
             <Waves size={24} className="text-green-500" />
-            <span className="text-lg font-bold text-white">Water Rangers Map</span>
+            <span className="text-lg font-bold text-white">Live Monitoring Map</span>
           </div>
           <nav className="hidden gap-6 md:flex">
             <a href="#" className="text-sm text-slate-200 hover:text-white">Data Home</a>
@@ -471,8 +579,34 @@ export default function MapPage() {
               <span className="text-xs font-semibold text-slate-700">
                 Sites: {publicStats.totalSites} | Community: {publicStats.totalCommunity}
               </span>
+              <span className="rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-700">
+                Latest Community Data: {latestCommunityTimestamp}
+              </span>
+              <button
+                onClick={downloadVisibleData}
+                className="rounded bg-slate-800 px-2 py-1 text-[11px] font-semibold text-white hover:bg-slate-700"
+              >
+                Export Visible CSV
+              </button>
             </div>
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
+              <input
+                value={filters.searchText}
+                onChange={(e) => setFilters((f) => ({ ...f, searchText: e.target.value }))}
+                placeholder="Search site or org"
+                className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
+              />
+
+              <select
+                value={filters.basemap}
+                onChange={(e) => setFilters((f) => ({ ...f, basemap: e.target.value }))}
+                className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
+              >
+                {Object.entries(BASEMAPS).map(([key, layer]) => (
+                  <option key={key} value={key}>{layer.label} Basemap</option>
+                ))}
+              </select>
+
               <select
                 value={filters.source}
                 onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}
@@ -524,9 +658,12 @@ export default function MapPage() {
             style={{ width: '100%', height: '100%' }}
           >
             <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              key={filters.basemap}
+              url={BASEMAPS[filters.basemap]?.url || BASEMAPS.light.url}
+              attribution={BASEMAPS[filters.basemap]?.attribution || BASEMAPS.light.attribution}
+              maxZoom={18}
             />
+            <ScaleControl />
             <MapControls sites={filteredSites} communityRows={filteredCommunity} selected={selected} onSelect={setSelected} />
           </MapContainer>
         </div>
