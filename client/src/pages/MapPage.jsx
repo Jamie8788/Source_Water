@@ -260,32 +260,7 @@ function SiteMarker({ site, index, onSelect }) {
   )
 }
 
-// Community marker component
-function CommunityMarker({ obs, index, onSelect }) {
-  const risk = Number(obs?.ai_enrichment?.ai_risk_score || 0)
-  const riskPercent = Math.round(risk * 100)
-  const handlePopupClick = () => onSelect({ type: 'community', payload: obs })
 
-  return (
-    <Marker
-      position={[obs.lat, obs.lon]}
-      icon={createMonitoringIcon(index + 1, true)}
-      eventHandlers={{
-        click: handlePopupClick,
-      }}
-      title={`${obs.site_name} (AI: ${riskPercent}%)`}
-    >
-      <Popup>
-        <MonitoringPopup
-          title={obs.site_name || 'Community Observation'}
-          subtitle={`${obs.organization || 'Community'} • AI Risk: ${riskPercent}%`}
-          description={`Satellite: ${obs.ai_enrichment?.satellite_validation || 'unknown'} | Anomaly: ${obs.ai_enrichment?.anomaly_flag ? 'Yes' : 'No'}`}
-          onDive={handlePopupClick}
-        />
-      </Popup>
-    </Marker>
-  )
-}
 
 function UsgsMarker({ station, index, onSelect }) {
   const handlePopupClick = () => onSelect({ type: 'usgs', payload: station })
@@ -324,7 +299,7 @@ function ScaleControl() {
 }
 
 // Clustered map layers
-function MapControls({ sites, communityRows, usgsRows, selected, onSelect }) {
+function MapControls({ sites, usgsRows, selected, onSelect }) {
   return (
     <>
       <MarkerClusterGroup
@@ -344,17 +319,6 @@ function MapControls({ sites, communityRows, usgsRows, selected, onSelect }) {
         showCoverageOnHover={true}
         disableClusteringAtZoom={11}
       >
-        {communityRows.map((obs, idx) => (
-          <CommunityMarker key={`community-${obs.id}`} obs={obs} index={idx} onSelect={onSelect} />
-        ))}
-      </MarkerClusterGroup>
-
-      <MarkerClusterGroup
-        chunkedLoading
-        maxClusterRadius={50}
-        showCoverageOnHover={true}
-        disableClusteringAtZoom={11}
-      >
         {usgsRows.map((station, idx) => (
           <UsgsMarker key={`usgs-${station.siteCode}`} station={station} index={idx} onSelect={onSelect} />
         ))}
@@ -365,7 +329,6 @@ function MapControls({ sites, communityRows, usgsRows, selected, onSelect }) {
 
 export default function MapPage() {
   const [sites, setSites] = useState([])
-  const [communityRows, setCommunityRows] = useState([])
   const [usgsRows, setUsgsRows] = useState([])
   const [usgsLoading, setUsgsLoading] = useState(false)
   const [usgsError, setUsgsError] = useState('')
@@ -399,8 +362,7 @@ export default function MapPage() {
         setSites([])
       })
 
-    // Disable seeded community-like records for research mode.
-    setCommunityRows([])
+
 
     setUsgsLoading(true)
     setUsgsError('')
@@ -507,42 +469,11 @@ export default function MapPage() {
     return Date.now() - days * 86400000
   }, [filters.dateRange])
 
-  const filteredCommunity = useMemo(() => {
-    return communityRows.filter((row) => {
-      if (filters.source === 'sites' || filters.source === 'usgs') return false
 
-      const ts = new Date(row.timestamp || '').getTime()
-      if (cutoffDate && Number.isFinite(ts) && ts < cutoffDate) return false
-
-      const recency = recencyBand(calcDaysOld(row.timestamp))
-      if (filters.recency !== 'all' && recency !== filters.recency) return false
-
-      const risk = riskBand(row?.ai_enrichment?.ai_risk_score)
-      if (filters.alertLevel !== 'all' && risk !== filters.alertLevel) return false
-
-      if (filters.status !== 'all') {
-        const mapped = risk === 'high' ? 'critical' : risk === 'medium' ? 'warning' : 'active'
-        if (mapped !== filters.status) return false
-      }
-
-      if (filters.parameter !== 'all') {
-        const val = row?.parameters?.[filters.parameter]
-        if (val === null || val === undefined || val === '') return false
-      }
-
-      if (filters.searchText.trim()) {
-        const q = filters.searchText.trim().toLowerCase()
-        const haystack = `${row?.site_name || ''} ${row?.organization || ''}`.toLowerCase()
-        if (!haystack.includes(q)) return false
-      }
-
-      return true
-    })
-  }, [communityRows, cutoffDate, filters])
 
   const filteredSites = useMemo(() => {
     return sites.filter((site) => {
-      if (filters.source === 'community' || filters.source === 'usgs') return false
+      if (filters.source === 'usgs') return false
       const status = statusBand(site.status)
       if (filters.status !== 'all' && status !== filters.status) return false
       if (filters.alertLevel !== 'all') {
@@ -563,7 +494,7 @@ export default function MapPage() {
 
   const filteredUsgs = useMemo(() => {
     return usgsRows.filter((station) => {
-      if (filters.source === 'sites' || filters.source === 'community') return false
+      if (filters.source === 'sites') return false
 
       if (filters.status !== 'all' && filters.status !== 'live') return false
 
@@ -588,15 +519,12 @@ export default function MapPage() {
 
   const publicStats = useMemo(() => {
     const totalSites = filteredSites.length
-    const totalCommunity = filteredCommunity.length
     const totalUsgs = filteredUsgs.length
     const criticalSites = filteredSites.filter((s) => statusBand(s.status) === 'critical').length
-    const mediumOrHighCommunity = filteredCommunity.filter((c) => riskBand(c?.ai_enrichment?.ai_risk_score) !== 'low').length
-    return { totalSites, totalCommunity, totalUsgs, criticalSites, mediumOrHighCommunity }
-  }, [filteredSites, filteredCommunity, filteredUsgs])
+    return { totalSites, totalUsgs, criticalSites }
+  }, [filteredSites, filteredUsgs])
 
   const selectedSite = selected?.type === 'site' ? selected.payload : null
-  const selectedCommunity = selected?.type === 'community' ? selected.payload : null
   const selectedUsgs = selected?.type === 'usgs' ? selected.payload : null
   const latestSiteObservation = siteObservations[0] || null
   const siteParameterList = parameterSummary(latestSiteObservation)
@@ -608,38 +536,16 @@ export default function MapPage() {
 
   const latestMeasuredTimestamp = useMemo(() => {
     const timestamps = [
-      ...filteredCommunity.map((r) => new Date(r?.timestamp || '').getTime()),
       ...filteredUsgs.flatMap((s) => (s.variables || []).map((v) => new Date(v?.observedAt || '').getTime())),
     ]
       .filter((t) => Number.isFinite(t))
       .sort((a, b) => b - a)
 
     return timestamps.length ? formatDate(timestamps[0]) : 'Unknown'
-  }, [filteredCommunity, filteredUsgs])
+  }, [filteredUsgs])
 
   const downloadVisibleData = () => {
     const rows = []
-
-    filteredCommunity.forEach((row) => {
-      rows.push({
-        source: 'community',
-        id: row.id,
-        name: row.site_name || '',
-        organization: row.organization || '',
-        latitude: row.lat,
-        longitude: row.lon,
-        status: riskBand(row?.ai_enrichment?.ai_risk_score),
-        observed_at: row.timestamp || '',
-        ph: row?.parameters?.ph ?? '',
-        turbidity: row?.parameters?.turbidity ?? '',
-        temperature: row?.parameters?.temperature ?? '',
-        dissolved_oxygen: row?.parameters?.dissolved_oxygen ?? '',
-        conductivity: row?.parameters?.conductivity ?? '',
-        ai_risk_score: row?.ai_enrichment?.ai_risk_score ?? '',
-        anomaly_flag: row?.ai_enrichment?.anomaly_flag ?? '',
-        satellite_validation: row?.ai_enrichment?.satellite_validation ?? '',
-      })
-    })
 
     filteredUsgs.forEach((station) => {
       const vars = station.variables || []
@@ -685,7 +591,7 @@ export default function MapPage() {
 
       {/* Header banner */}
       <div className="border-b border-slate-200 bg-yellow-50 px-4 py-2 text-center text-xs text-slate-700">
-        <span className="font-semibold">Real-time water quality monitoring</span> with community data and AI-assisted analysis.{' '}
+        <span className="font-semibold">Real-time water quality monitoring</span> with measured data from USGS and local monitoring sites. Designed for water researchers.{' '}
         <a href="#" className="font-semibold text-blue-600 hover:underline">
           Learn more
         </a>
@@ -753,9 +659,9 @@ export default function MapPage() {
                 onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}
                 className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
               >
-                <option value="all">All Sources</option>
-                <option value="sites">Monitoring Sites</option>
-                <option value="usgs">USGS Live Stations</option>
+                <option value="all">All Measured Data</option>
+                <option value="sites">Monitoring Sites Only</option>
+                <option value="usgs">USGS Live Only</option>
               </select>
 
               <label className="inline-flex items-center gap-2 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700">
@@ -825,7 +731,6 @@ export default function MapPage() {
             <ScaleControl />
             <MapControls
               sites={filteredSites}
-              communityRows={filteredCommunity}
               usgsRows={filteredUsgs}
               selected={selected}
               onSelect={setSelected}
@@ -867,11 +772,11 @@ export default function MapPage() {
                 <div className="rounded bg-slate-50 p-3">
                   <div className="mb-2 text-xs font-semibold text-slate-700">How to Use</div>
                   <ul className="space-y-1 text-xs">
-                    <li>• Click green markers for monitoring sites</li>
-                    <li>• Click USGS markers for live federal station measurements</li>
+                    <li>• Click green markers for monitoring sites (real observations)</li>
+                    <li>• Click cyan USGS markers for live federal station measurements</li>
                     <li>• Toggle live radar for active precipitation context</li>
                     <li>• Use filters to narrow results by source, status, and date range</li>
-                    <li>• View trends and AI-assisted risk scoring on the right</li>
+                    <li>• Export measured data to CSV for analysis</li>
                   </ul>
                 </div>
               </div>
@@ -925,54 +830,6 @@ export default function MapPage() {
                       </div>
                     </div>
                   )}
-                </div>
-              </div>
-            )}
-
-            {selectedCommunity && (
-              <div className="space-y-4 text-sm text-slate-700">
-                <div className="rounded bg-slate-50 p-3">
-                  <h3 className="font-bold">{selectedCommunity.site_name || 'Community Observation'}</h3>
-                  <p className="text-xs text-slate-600 mt-1">{selectedCommunity.organization || 'Community Monitoring'}</p>
-                  <p className="text-xs text-slate-500">{formatDate(selectedCommunity.timestamp)}</p>
-                </div>
-
-                <div className="rounded bg-slate-50 p-3">
-                  <div className="mb-2 text-xs font-semibold text-slate-700">Water Parameters</div>
-                  <div className="space-y-1">
-                    {PARAMS.map((p) => {
-                      const v = selectedCommunity?.parameters?.[p.key]
-                      if (v === null || v === undefined) return null
-                      return (
-                        <div key={p.key} className="flex justify-between text-xs">
-                          <span className="text-slate-600">{p.label}</span>
-                          <span className="font-semibold text-slate-700">{v}{p.unit}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                <div className="rounded bg-blue-50 p-3 border border-blue-100">
-                  <div className="mb-2 text-xs font-semibold text-blue-900">AI Intelligence</div>
-                  <div className="space-y-1 text-xs text-blue-800">
-                    <div className="flex justify-between">
-                      <span>Risk Score:</span>
-                      <strong>{Math.round(Number(selectedCommunity?.ai_enrichment?.ai_risk_score || 0) * 100)}%</strong>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Anomaly Flag:</span>
-                      <strong>{selectedCommunity?.ai_enrichment?.anomaly_flag ? 'Alert' : 'Normal'}</strong>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Satellite:</span>
-                      <strong>{selectedCommunity?.ai_enrichment?.satellite_validation || 'unknown'}</strong>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Trend:</span>
-                      <strong>{selectedCommunity?.ai_enrichment?.trend_prediction || 'monitoring'}</strong>
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
