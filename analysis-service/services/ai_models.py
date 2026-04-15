@@ -1,9 +1,10 @@
 """
-AI service — multi-provider free model routing. Zero user API keys ever.
+AI service — multi-provider model routing. Zero user API keys ever.
 
 Provider priority:
-  1. Groq           (set GROQ_API_KEY in .env — free 14k req/day, ~800 tok/s)
-  2. Pollinations   (zero config, zero key — proxies DeepSeek R1 / GPT-4o / Llama / Mistral)
+    1. Gemini         (set GEMINI_API_KEY in .env)
+    2. Groq           (set GROQ_API_KEY in .env — free 14k req/day, ~800 tok/s)
+    3. Pollinations   (zero config, zero key — proxies DeepSeek R1 / GPT-4o / Llama / Mistral)
 
 Model routing by task:
   standard  → Llama 3.3 70B        (strong open-source, good for data analysis)
@@ -17,6 +18,15 @@ import httpx
 POLLINATIONS_URL = "https://text.pollinations.ai/openai"
 GROQ_URL         = "https://api.groq.com/openai/v1/chat/completions"
 DEEPSEEK_URL     = "https://api.deepseek.com/chat/completions"
+GEMINI_BASE_URL  = "https://generativelanguage.googleapis.com/v1beta/models"
+
+# Gemini models (requires GEMINI_API_KEY)
+GEMINI_MODELS = {
+    "fast":     os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+    "standard": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+    "pro":      os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro"),
+    "doc":      os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro"),
+}
 
 # Pollinations free models (no key needed)
 POLLINATIONS_MODELS = {
@@ -36,6 +46,8 @@ GROQ_MODELS = {
 
 # Human-readable display names
 DISPLAY_NAMES = {
+    "gemini-2.5-flash":             "Gemini 2.5 Flash",
+    "gemini-2.5-pro":               "Gemini 2.5 Pro",
     "mistral":                       "Mistral Large",
     "llama":                         "Llama 3.3 70B",
     "deepseek-reasoner":             "DeepSeek R1",
@@ -49,8 +61,57 @@ DISPLAY_NAMES = {
 class AIModelService:
     def __init__(self):
         self.http_client = httpx.AsyncClient(timeout=90.0)
+        self.provider    = os.getenv("MODEL_PROVIDER", "gemini").strip().lower()
+        self.gemini_key  = os.getenv("GEMINI_API_KEY", "")
         self.groq_key    = os.getenv("GROQ_API_KEY", "")
         self.deepseek_key = os.getenv("DEEPSEEK_API_KEY", "")
+
+    # ── Gemini ───────────────────────────────────────────────────────────────
+    async def _gemini(self, messages: list, max_tokens: int, model_key: str) -> tuple[str | None, str]:
+        if not self.gemini_key:
+            return None, ""
+        model = GEMINI_MODELS[model_key]
+        # Keep role+content context while mapping to Gemini parts format.
+        prompt_lines = []
+        for msg in messages:
+            role = (msg.get("role") or "user").upper()
+            content = (msg.get("content") or "").strip()
+            if content:
+                prompt_lines.append(f"{role}: {content}")
+        prompt_text = "\n\n".join(prompt_lines)
+
+        try:
+            resp = await self.http_client.post(
+                f"{GEMINI_BASE_URL}/{model}:generateContent",
+                params={"key": self.gemini_key},
+                json={
+                    "contents": [{"parts": [{"text": prompt_text}]}],
+                    "generationConfig": {
+                        "temperature": 0.3,
+                        "maxOutputTokens": max_tokens,
+                    },
+                },
+                headers={"Content-Type": "application/json"},
+                timeout=45.0,
+            )
+            if resp.status_code == 200:
+                parts = (
+                    resp.json()
+                    .get("candidates", [{}])[0]
+                    .get("content", {})
+                    .get("parts", [])
+                )
+                text = "\n".join(
+                    p.get("text", "")
+                    for p in parts
+                    if isinstance(p, dict) and p.get("text")
+                ).strip()
+                if text:
+                    print(f"[AI] Gemini/{model}")
+                    return text, DISPLAY_NAMES.get(model, model)
+        except Exception as e:
+            print(f"[AI] Gemini failed: {e}")
+        return None, ""
 
     # ── Groq ─────────────────────────────────────────────────────────────────
     async def _groq(self, messages: list, max_tokens: int, model_key: str) -> tuple[str | None, str]:
@@ -145,6 +206,18 @@ class AIModelService:
         ]
         model_key = "doc" if is_document else ("pro" if use_pro else "standard")
 
+        # Explicit provider mode: Gemini only.
+        if self.provider == "gemini":
+            text, _ = await self._gemini(messages, max_tokens, model_key)
+            if text:
+                return text
+            return "Gemini analysis unavailable — check GEMINI_API_KEY and model settings."
+
+        # Auto mode: Gemini first, then other providers.
+        text, _ = await self._gemini(messages, max_tokens, model_key)
+        if text:
+            return text
+
         # 1. DeepSeek API (best quality, fast — needs DEEPSEEK_API_KEY)
         text, _ = await self._deepseek(messages, max_tokens, use_pro)
         if text:
@@ -181,6 +254,18 @@ class AIModelService:
         ]
         model_key = "doc" if is_document else ("pro" if use_pro else "standard")
 
+        # Explicit provider mode: Gemini only.
+        if self.provider == "gemini":
+            text, name = await self._gemini(messages, max_tokens, model_key)
+            if text:
+                return text, name
+            return "Gemini analysis unavailable — check GEMINI_API_KEY and model settings.", "gemini-unavailable"
+
+        # Auto mode: Gemini first.
+        text, name = await self._gemini(messages, max_tokens, model_key)
+        if text:
+            return text, name
+
         text, name = await self._deepseek(messages, max_tokens, use_pro)
         if text:
             return text, name
@@ -202,7 +287,9 @@ class AIModelService:
 
     def get_model_display(self, use_pro: bool = False, is_document: bool = False) -> str:
         model_key = "doc" if is_document else ("pro" if use_pro else "standard")
-        if self.groq_key:
+        if self.provider == "gemini" and self.gemini_key:
+            m = GEMINI_MODELS[model_key]
+        elif self.groq_key:
             m = GROQ_MODELS[model_key]
         else:
             m = POLLINATIONS_MODELS[model_key]
