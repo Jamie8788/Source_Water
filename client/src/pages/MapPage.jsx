@@ -369,6 +369,7 @@ export default function MapPage() {
   const [usgsRows, setUsgsRows] = useState([])
   const [usgsLoading, setUsgsLoading] = useState(false)
   const [usgsError, setUsgsError] = useState('')
+  const [radarTemplate, setRadarTemplate] = useState('')
   const [selected, setSelected] = useState(null)
   const [siteObservations, setSiteObservations] = useState([])
   const [siteIntelligence, setSiteIntelligence] = useState(null)
@@ -383,6 +384,7 @@ export default function MapPage() {
     alertLevel: 'all',
     searchText: '',
     basemap: 'light',
+    radar: false,
   })
 
   // Load initial data
@@ -397,26 +399,14 @@ export default function MapPage() {
         setSites([])
       })
 
-    api.get('/geoai/community-observations', {
-      params: { include_enrichment: true, limit: 700 },
-    })
-      .then((r) => {
-        const rows = Array.isArray(r.data?.data) ? r.data.data : []
-        setCommunityRows(rows)
-      })
-      .catch((err) => {
-        console.error('[MapPage] community load failed', err)
-        setCommunityRows([])
-      })
+    // Disable seeded community-like records for research mode.
+    setCommunityRows([])
 
     setUsgsLoading(true)
     setUsgsError('')
-    fetch('https://waterservices.usgs.gov/nwis/iv/?format=json&siteStatus=active&parameterCd=00010,00095,00300&bBox=-93,41,-74,49')
-      .then((res) => {
-        if (!res.ok) throw new Error(`USGS request failed (${res.status})`)
-        return res.json()
-      })
-      .then((payload) => {
+    api.get('/geoai/usgs-live')
+      .then((resp) => {
+        const payload = resp.data || {}
         const series = payload?.value?.timeSeries || []
         const bySite = new Map()
 
@@ -456,12 +446,15 @@ export default function MapPage() {
         })
 
         const normalized = Array.from(bySite.values()).map((row) => {
-          const firstVar = row.variables[0]
-          const lastUpdated = firstVar?.observedAt ? new Date(firstVar.observedAt) : null
+          const latestVar = row.variables
+            .filter((v) => v?.observedAt)
+            .sort((a, b) => new Date(b.observedAt).getTime() - new Date(a.observedAt).getTime())[0] || row.variables[0]
+
+          const lastUpdated = latestVar?.observedAt ? new Date(latestVar.observedAt) : null
 
           return {
             ...row,
-            lastValueLabel: firstVar?.observedValue ? `${firstVar.variableName}: ${firstVar.observedValue}` : 'No live value',
+            lastValueLabel: latestVar?.observedValue ? `${latestVar.variableName}: ${latestVar.observedValue}` : 'No live value',
             lastUpdatedLabel: lastUpdated && Number.isFinite(lastUpdated.getTime())
               ? `${lastUpdated.toLocaleDateString()} ${lastUpdated.toLocaleTimeString()}`
               : 'Unknown',
@@ -476,6 +469,16 @@ export default function MapPage() {
         setUsgsError('USGS live stations are temporarily unavailable.')
       })
       .finally(() => setUsgsLoading(false))
+
+    api.get('/geoai/radar-meta')
+      .then((resp) => {
+        const tpl = resp.data?.tileTemplate || ''
+        setRadarTemplate(typeof tpl === 'string' ? tpl : '')
+      })
+      .catch((err) => {
+        console.error('[MapPage] radar metadata load failed', err)
+        setRadarTemplate('')
+      })
   }, [])
 
   // Load site intelligence when selected
@@ -562,6 +565,17 @@ export default function MapPage() {
     return usgsRows.filter((station) => {
       if (filters.source === 'sites' || filters.source === 'community') return false
 
+      if (filters.status !== 'all' && filters.status !== 'live') return false
+
+      if (cutoffDate) {
+        const newest = (station.variables || [])
+          .map((v) => new Date(v?.observedAt || '').getTime())
+          .filter((t) => Number.isFinite(t))
+          .sort((a, b) => b - a)[0]
+
+        if (Number.isFinite(newest) && newest < cutoffDate) return false
+      }
+
       if (filters.searchText.trim()) {
         const q = filters.searchText.trim().toLowerCase()
         const haystack = `${station?.siteName || ''} ${station?.siteCode || ''}`.toLowerCase()
@@ -570,7 +584,7 @@ export default function MapPage() {
 
       return true
     })
-  }, [usgsRows, filters])
+  }, [usgsRows, filters, cutoffDate])
 
   const publicStats = useMemo(() => {
     const totalSites = filteredSites.length
@@ -592,38 +606,19 @@ export default function MapPage() {
     return ['ph', 'turbidity', 'dissolved_oxygen'].map((k) => ({ key: k, ...computeTrend(siteObservations, k) }))
   }, [siteObservations])
 
-  const latestCommunityTimestamp = useMemo(() => {
-    const timestamps = filteredCommunity
-      .map((r) => new Date(r?.timestamp || '').getTime())
+  const latestMeasuredTimestamp = useMemo(() => {
+    const timestamps = [
+      ...filteredCommunity.map((r) => new Date(r?.timestamp || '').getTime()),
+      ...filteredUsgs.flatMap((s) => (s.variables || []).map((v) => new Date(v?.observedAt || '').getTime())),
+    ]
       .filter((t) => Number.isFinite(t))
       .sort((a, b) => b - a)
 
     return timestamps.length ? formatDate(timestamps[0]) : 'Unknown'
-  }, [filteredCommunity])
+  }, [filteredCommunity, filteredUsgs])
 
   const downloadVisibleData = () => {
     const rows = []
-
-    filteredSites.forEach((site) => {
-      rows.push({
-        source: 'site',
-        id: site.id,
-        name: site.name || '',
-        organization: site.organization || '',
-        latitude: site.latitude,
-        longitude: site.longitude,
-        status: statusBand(site.status),
-        observed_at: '',
-        ph: '',
-        turbidity: '',
-        temperature: '',
-        dissolved_oxygen: '',
-        conductivity: '',
-        ai_risk_score: '',
-        anomaly_flag: '',
-        satellite_validation: '',
-      })
-    })
 
     filteredCommunity.forEach((row) => {
       rows.push({
@@ -647,6 +642,9 @@ export default function MapPage() {
     })
 
     filteredUsgs.forEach((station) => {
+      const vars = station.variables || []
+      const valuesByVar = (needle) => vars.find((v) => String(v.variableName || '').toLowerCase().includes(needle))?.observedValue || ''
+
       rows.push({
         source: 'usgs_live',
         id: station.siteCode,
@@ -656,11 +654,11 @@ export default function MapPage() {
         longitude: station.longitude,
         status: 'live',
         observed_at: station.lastUpdatedLabel || '',
-        ph: '',
-        turbidity: '',
-        temperature: '',
-        dissolved_oxygen: '',
-        conductivity: '',
+        ph: valuesByVar('ph'),
+        turbidity: valuesByVar('turbidity'),
+        temperature: valuesByVar('temperature'),
+        dissolved_oxygen: valuesByVar('dissolved oxygen'),
+        conductivity: valuesByVar('specific conductance'),
         ai_risk_score: '',
         anomaly_flag: '',
         satellite_validation: '',
@@ -720,23 +718,23 @@ export default function MapPage() {
           <div className="absolute left-3 top-3 z-20 rounded-lg bg-white px-4 py-3 shadow-lg">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold text-slate-700">
-                Sites: {publicStats.totalSites} | Community: {publicStats.totalCommunity} | USGS: {publicStats.totalUsgs}
+                Sites: {publicStats.totalSites} | USGS Live: {publicStats.totalUsgs}
               </span>
               <span className="rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-700">
-                Latest Community Data: {latestCommunityTimestamp}
+                Latest Measured Data: {latestMeasuredTimestamp}
               </span>
               <button
                 onClick={downloadVisibleData}
                 className="rounded bg-slate-800 px-2 py-1 text-[11px] font-semibold text-white hover:bg-slate-700"
               >
-                Export Visible CSV
+                Export Measured CSV
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-7">
               <input
                 value={filters.searchText}
                 onChange={(e) => setFilters((f) => ({ ...f, searchText: e.target.value }))}
-                placeholder="Search site or org"
+                placeholder="Search station/site"
                 className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
               />
 
@@ -757,9 +755,17 @@ export default function MapPage() {
               >
                 <option value="all">All Sources</option>
                 <option value="sites">Monitoring Sites</option>
-                <option value="community">Community + AI</option>
                 <option value="usgs">USGS Live Stations</option>
               </select>
+
+              <label className="inline-flex items-center gap-2 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={filters.radar}
+                  onChange={(e) => setFilters((f) => ({ ...f, radar: e.target.checked }))}
+                />
+                Live Radar
+              </label>
 
               <select
                 value={filters.status}
@@ -770,6 +776,7 @@ export default function MapPage() {
                 <option value="active">Stable</option>
                 <option value="warning">Watch</option>
                 <option value="critical">Critical</option>
+                <option value="live">Live</option>
               </select>
 
               <select
@@ -807,6 +814,14 @@ export default function MapPage() {
               attribution={BASEMAPS[filters.basemap]?.attribution || BASEMAPS.light.attribution}
               maxZoom={18}
             />
+            {filters.radar && Boolean(radarTemplate) && (
+              <TileLayer
+                key={`radar-${radarTemplate}`}
+                url={radarTemplate}
+                opacity={0.45}
+                zIndex={3}
+              />
+            )}
             <ScaleControl />
             <MapControls
               sites={filteredSites}
@@ -853,8 +868,8 @@ export default function MapPage() {
                   <div className="mb-2 text-xs font-semibold text-slate-700">How to Use</div>
                   <ul className="space-y-1 text-xs">
                     <li>• Click green markers for monitoring sites</li>
-                    <li>• Click cyan markers for community observations with AI enrichment</li>
                     <li>• Click USGS markers for live federal station measurements</li>
+                    <li>• Toggle live radar for active precipitation context</li>
                     <li>• Use filters to narrow results by source, status, and date range</li>
                     <li>• View trends and AI-assisted risk scoring on the right</li>
                   </ul>

@@ -224,6 +224,53 @@ router.get('/community-observations/enriched', async (req, res) => {
   return proxyGeoaiGet(res, '/api/geoai/community-observations/enriched', query)
 })
 
+// ─── Real Open Data: USGS Live Stations (Great Lakes bbox default) ─────────
+router.get('/usgs-live', async (req, res) => {
+  try {
+    const bbox = req.query.bbox || '-93,41,-74,49'
+    const parameterCd = req.query.parameterCd || '00010,00095,00300,00400,63680'
+    const siteStatus = req.query.siteStatus || 'active'
+
+    const url = `https://waterservices.usgs.gov/nwis/iv/?format=json&siteStatus=${encodeURIComponent(siteStatus)}&parameterCd=${encodeURIComponent(parameterCd)}&bBox=${encodeURIComponent(bbox)}`
+    const resp = await axios.get(url, { timeout: 30000 })
+    return res.status(200).json(resp.data)
+  } catch (err) {
+    const status = err.response?.status || 500
+    const message = err.response?.data || err.message || 'USGS proxy error'
+    console.error('[geoai] usgs-live error:', err.message)
+    return res.status(status).json({ error: 'USGS live data unavailable', msg: message })
+  }
+})
+
+// ─── Real Open Data: Live Radar metadata (RainViewer open API) ─────────────
+router.get('/radar-meta', async (_req, res) => {
+  try {
+    const resp = await axios.get('https://api.rainviewer.com/public/weather-maps.json', { timeout: 15000 })
+    const payload = resp.data || {}
+    const host = payload.host || 'https://tilecache.rainviewer.com'
+    const latest = Array.isArray(payload?.radar?.past) && payload.radar.past.length
+      ? payload.radar.past[payload.radar.past.length - 1]
+      : null
+
+    const tilePath = latest?.path || null
+    const tileTemplate = tilePath
+      ? `${host}${tilePath}/256/{z}/{x}/{y}/2/1_1.png`
+      : null
+
+    return res.status(200).json({
+      provider: 'RainViewer',
+      generated: payload.generated || null,
+      tileTemplate,
+      hasRadar: Boolean(tileTemplate),
+    })
+  } catch (err) {
+    const status = err.response?.status || 500
+    const message = err.response?.data || err.message || 'Radar metadata error'
+    console.error('[geoai] radar-meta error:', err.message)
+    return res.status(status).json({ error: 'Radar metadata unavailable', msg: message })
+  }
+})
+
 // ─── Health check ─────────────────────────────────────────
 router.get('/health', async (req, res) => {
   try {
