@@ -1,243 +1,277 @@
 import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import {
-  LayoutDashboard, Sparkles, Map, Bell, BarChart3,
-  Users, BookOpen, Zap, TrendingUp, Microscope,
-  Droplets, Cloud, Gamepad2, Compass, MapIcon,
+  LayoutDashboard,
+  Sparkles,
+  Map,
+  Users,
+  BarChart3,
+  Microscope,
+  BookOpen,
 } from 'lucide-react'
 
-const ACTIONS = [
-  { label: 'Dashboard', description: 'Overview & insights', path: '/dashboard', icon: LayoutDashboard, color: 'from-blue-500 to-blue-600', position: 'top-1/4 left-1/3', delay: 0 },
-  { label: 'Ask Water AI', description: 'Talk to Water AI', path: '/ask-water', icon: Sparkles, color: 'from-purple-500 to-purple-600', position: 'top-1/3 right-1/4', delay: 100 },
-  { label: 'Live Map', description: 'Explore Great Lakes', path: '/map', icon: Map, color: 'from-cyan-500 to-cyan-600', position: 'bottom-1/4 left-1/4', delay: 200 },
-  { label: 'Alerts', description: 'Stay notified', path: '/alerts', icon: Bell, color: 'from-amber-500 to-amber-600', position: 'top-1/3 left-1/6', delay: 300 },
-  { label: 'Reports', description: 'Stats & trends', path: '/reports', icon: BarChart3, color: 'from-indigo-500 to-indigo-600', position: 'bottom-1/3 right-1/5', delay: 400 },
-  { label: 'Community', description: 'Connect & share', path: '/social', icon: Users, color: 'from-pink-500 to-pink-600', position: 'bottom-1/4 left-1/6', delay: 500 },
-  { label: 'Resources', description: 'Learn & explore', path: '/resources', icon: BookOpen, color: 'from-green-500 to-green-600', position: 'top-1/2 left-1/12', delay: 600 },
-  { label: 'Quiz & Learn', description: 'Test yourself', path: '/quiz', icon: Zap, color: 'from-orange-500 to-orange-600', position: 'bottom-1/3 left-1/2', delay: 700 },
-  { label: 'Data Analysis', description: 'Deep dive analytics', path: '/analysis', icon: TrendingUp, color: 'from-indigo-500 to-indigo-600', position: 'top-2/5 right-1/6', delay: 800 },
-  { label: 'Research Hub', description: 'Projects & tools', path: '/research', icon: Microscope, color: 'from-violet-500 to-violet-600', position: 'bottom-2/5 right-1/4', delay: 900 },
-  { label: 'Projects', description: 'Build & track', path: '/projects', icon: MapIcon, color: 'from-teal-500 to-teal-600', position: 'bottom-1/4 right-1/3', delay: 1000 },
-  { label: 'Weather', description: 'Conditions & forecasts', path: '/weather', icon: Cloud, color: 'from-blue-400 to-blue-500', position: 'top-1/4 right-1/3', delay: 1100 },
-  { label: 'Games', description: 'Water activities', path: '/games', icon: Gamepad2, color: 'from-rose-500 to-rose-600', position: 'bottom-1/3 right-1/12', delay: 1200 },
+const MAP_ACTIONS = [
+  {
+    label: 'Dashboard',
+    description: 'Command Ledger',
+    path: '/dashboard',
+    icon: LayoutDashboard,
+    x: 31,
+    y: 34,
+    markerStyle: 'seal',
+  },
+  {
+    label: 'Live Map',
+    description: 'Harbor Chart',
+    path: '/map',
+    icon: Map,
+    x: 26,
+    y: 56,
+    markerStyle: 'crest',
+  },
+  {
+    label: 'Ask Water',
+    description: 'AI Navigator',
+    path: '/ask-water',
+    icon: Sparkles,
+    x: 61,
+    y: 31,
+    markerStyle: 'seal',
+  },
+  {
+    label: 'Community',
+    description: 'Guild Posts',
+    path: '/social',
+    icon: Users,
+    x: 42,
+    y: 62,
+    markerStyle: 'crest',
+  },
+  {
+    label: 'Reports',
+    description: 'Data Summary',
+    path: '/reports',
+    icon: BarChart3,
+    x: 67,
+    y: 53,
+    markerStyle: 'seal',
+  },
+  {
+    label: 'Research',
+    description: 'Projects Hub',
+    path: '/research',
+    icon: Microscope,
+    x: 76,
+    y: 38,
+    markerStyle: 'crest',
+  },
+  {
+    label: 'Resources',
+    description: 'Learning Archive',
+    path: '/resources',
+    icon: BookOpen,
+    x: 56,
+    y: 67,
+    markerStyle: 'seal',
+  },
 ]
 
-function ActionHotspot({ action }) {
+function MarkerPlaque({ label, description, active }) {
+  return (
+    <div
+      className={`pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap transition-all duration-300 ${
+        active ? 'opacity-100 translate-y-0' : 'opacity-85'
+      }`}
+    >
+      <div className="rounded-sm border border-amber-900/45 bg-gradient-to-b from-amber-100 to-amber-200 px-3 py-1 text-center shadow-[0_3px_12px_rgba(60,35,16,0.35)]">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-950">
+          {label}
+        </div>
+        <div className="text-[9px] tracking-[0.08em] text-amber-900">{description}</div>
+      </div>
+    </div>
+  )
+}
+
+function MapMarker({ action }) {
   const navigate = useNavigate()
-  const [hoveredId, setHoveredId] = useState(null)
-  const isHovered = hoveredId === action.label
+  const [hovered, setHovered] = useState(false)
+  const Icon = action.icon
+  const sealClasses =
+    action.markerStyle === 'seal'
+      ? 'from-rose-800 via-red-700 to-amber-700 border-amber-200/70'
+      : 'from-slate-800 via-cyan-900 to-teal-800 border-amber-200/60'
 
   return (
     <div
-      key={action.label}
-      className={`absolute ${action.position} transform -translate-x-1/2 -translate-y-1/2 z-20 transition-all duration-300`}
-      style={{ transitionDelay: `${action.delay}ms` }}
-      onMouseEnter={() => setHoveredId(action.label)}
-      onMouseLeave={() => setHoveredId(null)}
+      className="absolute z-20"
+      style={{
+        left: `${action.x}%`,
+        top: `${action.y}%`,
+        transform: 'translate(-50%, -50%)',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
-      {/* Outer glow aura */}
-      <div
-        className={`absolute inset-0 rounded-full blur-xl opacity-0 transition-all duration-500 bg-gradient-to-br ${action.color}`}
-        style={{
-          width: isHovered ? '120px' : '80px',
-          height: isHovered ? '120px' : '80px',
-          transform: 'translate(-50%, -50%)',
-          left: '50%',
-          top: '50%',
-          opacity: isHovered ? 0.6 : 0.2,
-        }}
-      />
-
-      {/* Main badge */}
       <button
+        aria-label={action.label}
         onClick={() => navigate(action.path)}
-        className={`relative w-20 h-20 rounded-xl shadow-2xl transition-all duration-300 cursor-pointer group
-          border border-white/20 backdrop-blur-sm
-          ${isHovered ? 'scale-110 shadow-2xl' : 'scale-100'}
-          hover:border-white/40 active:scale-95
-          bg-gradient-to-br ${action.color}
-          before:absolute before:inset-0 before:rounded-xl before:bg-white/10 before:opacity-0 before:transition-opacity before:duration-300
-          hover:before:opacity-100
-        `}
-      >
-        {/* Icon */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <action.icon className="w-9 h-9 text-white drop-shadow-lg" strokeWidth={1.5} />
-        </div>
-
-        {/* Shimmer effect on hover */}
-        {isHovered && (
-          <div className="absolute inset-0 rounded-xl overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-pulse" />
-          </div>
-        )}
-      </button>
-
-      {/* Label tooltip */}
-      <div
-        className={`absolute left-1/2 top-full mt-3 -translate-x-1/2 whitespace-nowrap pointer-events-none transition-all duration-300 ${
-          isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'
+        className={`relative h-12 w-12 rounded-full border bg-gradient-to-br ${sealClasses} text-amber-50 transition-all duration-300 ${
+          hovered
+            ? 'scale-110 shadow-[0_0_18px_rgba(154,109,48,0.45)]'
+            : 'scale-100 shadow-[0_4px_12px_rgba(44,20,10,0.45)]'
         }`}
       >
-        <div className="bg-slate-900/95 backdrop-blur-sm text-white px-3 py-2 rounded-lg border border-white/20 shadow-xl">
-          <div className="text-sm font-semibold">{action.label}</div>
-          <div className="text-xs text-white/60">{action.description}</div>
-        </div>
-        {/* Tooltip arrow */}
-        <div className="absolute left-1/2 -top-1 -translate-x-1/2 w-2 h-2 bg-slate-900/95 border-t border-l border-white/20 rotate-45" />
-      </div>
+        <span className="absolute inset-[3px] rounded-full border border-amber-100/35" />
+        <span className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 rotate-45 border-r border-b border-amber-200/70 bg-amber-800/90" />
+        <span className="absolute inset-0 flex items-center justify-center">
+          <Icon size={17} strokeWidth={1.9} />
+        </span>
+      </button>
+      <MarkerPlaque label={action.label} description={action.description} active={hovered} />
     </div>
   )
 }
 
 export default function QuickActions() {
   return (
-    <div className="relative w-full min-h-screen overflow-hidden bg-slate-950">
-      {/* Background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 opacity-60" />
+    <div className="min-h-screen bg-[#d7c39a] px-4 py-6 md:px-8 md:py-8">
+      <div className="mx-auto w-full max-w-6xl rounded-lg border-4 border-[#5a3f22] bg-[#e4d0a9] p-3 shadow-[0_16px_34px_rgba(64,40,18,0.35)] md:p-5">
+        <div className="relative overflow-hidden rounded-md border border-[#6a4d2a] bg-[#ead8b2] p-3 md:p-6">
+          <div
+            className="absolute inset-0 opacity-35"
+            style={{
+              backgroundImage:
+                "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='2'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.2'/%3E%3C/svg%3E\")",
+            }}
+          />
 
-      {/* Parchment texture overlay */}
-      <div className="absolute inset-0 opacity-40 mix-blend-multiply" style={{
-        backgroundImage: `url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='a'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' result='noise' /%3E%3C/filter%3E%3Crect width='100' height='100' fill='%23d2b48c' filter='url(%23a)' opacity='.15'/%3E%3C/svg%3E")`,
-        backgroundRepeat: 'repeat',
-      }} />
+          <div className="relative mb-4 text-center md:mb-6">
+            <div className="mx-auto inline-block rounded-sm border border-[#6a4d2a] bg-gradient-to-b from-[#efe1c2] to-[#d4bc8e] px-5 py-3 shadow-[0_4px_12px_rgba(66,44,22,0.25)]">
+              <h1 className="text-xl font-semibold uppercase tracking-[0.16em] text-[#3f2a17] md:text-2xl">
+                Great Lakes Explorer Chart
+              </h1>
+              <p className="mt-1 text-[11px] tracking-[0.14em] text-[#6b4f31] md:text-xs">
+                Source Water Navigation Atlas
+              </p>
+            </div>
+          </div>
 
-      {/* Subtle animated background lights */}
-      <div className="absolute top-20 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDuration: '8s' }} />
-      <div className="absolute bottom-20 right-1/4 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDuration: '10s', animationDelay: '2s' }} />
+          <div className="relative mx-auto aspect-[12/9] w-full max-w-5xl rounded-sm border-2 border-[#5a3f22] bg-[#e7d5ad] shadow-[inset_0_0_0_1px_rgba(88,55,24,0.35)]">
+            <svg
+              viewBox="0 0 1200 900"
+              className="h-full w-full"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-label="Antique Great Lakes map"
+            >
+              <defs>
+                <linearGradient id="landTone" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#efddb6" />
+                  <stop offset="100%" stopColor="#d7be8d" />
+                </linearGradient>
+                <linearGradient id="waterTone" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#315e74" />
+                  <stop offset="100%" stopColor="#234b5f" />
+                </linearGradient>
+                <linearGradient id="routeGlow" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="#91724a" stopOpacity="0.2" />
+                  <stop offset="50%" stopColor="#9e7b50" stopOpacity="0.65" />
+                  <stop offset="100%" stopColor="#91724a" stopOpacity="0.2" />
+                </linearGradient>
+              </defs>
 
-      {/* Central map container */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="relative w-full max-w-4xl aspect-square">
-          {/* Map background with ancient aesthetic */}
-          <svg className="w-full h-full" viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg" style={{ filter: 'drop-shadow(0 0 40px rgba(15, 23, 42, 0.8))' }}>
-            {/* Parchment base */}
-            <defs>
-              <filter id="glow">
-                <feGaussianBlur stdDeviation="3" result="coloredBlur" />
-                <feMerge>
-                  <feMergeNode in="coloredBlur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-              <filter id="waterGlow">
-                <feGaussianBlur stdDeviation="4" result="coloredBlur" />
-                <feMerge>
-                  <feMergeNode in="coloredBlur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-              <linearGradient id="parchmentGradient">
-                <stop offset="0%" stopColor="#2d2b4d" />
-                <stop offset="50%" stopColor="#1e1b4b" />
-                <stop offset="100%" stopColor="#1a1838" />
-              </linearGradient>
-            </defs>
+              <rect x="20" y="20" width="1160" height="860" rx="10" fill="url(#landTone)" />
 
-            {/* Parchment background */}
-            <rect width="800" height="800" fill="#1e1b4b" rx="20" />
-            <rect width="800" height="800" fill="url(#parchmentGradient)" rx="20" opacity="0.7" />
+              <path
+                d="M154 146 L397 116 L591 140 L720 127 L816 160 L845 228 L783 270 L705 287 L652 329 L602 348 L514 348 L445 320 L359 286 L282 258 L198 213 Z"
+                fill="#dcc291"
+                stroke="#5b3f24"
+                strokeOpacity="0.32"
+                strokeWidth="3"
+              />
+              <path
+                d="M448 360 L624 346 L717 370 L779 423 L760 510 L678 577 L566 626 L434 644 L334 620 L248 554 L220 470 L256 404 L343 361 Z"
+                fill="#d4b885"
+                stroke="#5b3f24"
+                strokeOpacity="0.36"
+                strokeWidth="3"
+              />
 
-            {/* Water areas - Great Lakes */}
-            <g filter="url(#waterGlow)">
-              {/* Lake Superior */}
-              <ellipse cx="200" cy="180" rx="90" ry="110" fill="#0d47a1" opacity="0.8" />
-              <ellipse cx="200" cy="180" rx="85" ry="105" fill="#1565c0" opacity="0.6" />
+              <path
+                d="M256 235 C322 170 415 167 530 187 C559 197 551 222 511 234 C441 258 356 256 280 242 Z"
+                fill="url(#waterTone)"
+                stroke="#1d2f3d"
+                strokeWidth="4"
+              />
+              <path
+                d="M445 254 C470 216 522 225 545 255 C559 286 552 354 532 418 C514 473 476 514 443 496 C420 471 423 381 432 310 Z"
+                fill="url(#waterTone)"
+                stroke="#1d2f3d"
+                strokeWidth="4"
+              />
+              <path
+                d="M548 276 C603 228 672 241 725 286 C733 340 689 390 638 430 C592 448 554 430 540 390 C535 348 533 308 548 276 Z"
+                fill="url(#waterTone)"
+                stroke="#1d2f3d"
+                strokeWidth="4"
+              />
+              <path
+                d="M520 498 C590 478 658 489 724 520 C741 554 719 572 677 583 C616 598 551 602 492 580 C475 552 485 518 520 498 Z"
+                fill="url(#waterTone)"
+                stroke="#1d2f3d"
+                strokeWidth="4"
+              />
+              <path
+                d="M740 456 C796 444 853 466 890 509 C892 548 865 584 819 594 C769 596 726 575 704 539 C705 509 719 477 740 456 Z"
+                fill="url(#waterTone)"
+                stroke="#1d2f3d"
+                strokeWidth="4"
+              />
 
-              {/* Lake Michigan */}
-              <ellipse cx="320" cy="280" rx="60" ry="100" fill="#0d47a1" opacity="0.8" />
-              <ellipse cx="320" cy="280" rx="55" ry="95" fill="#1565c0" opacity="0.6" />
+              <path d="M301 347 C379 313 483 342 563 389" stroke="url(#routeGlow)" strokeWidth="3" fill="none" strokeDasharray="8 9" />
+              <path d="M598 407 C666 376 754 390 822 449" stroke="url(#routeGlow)" strokeWidth="3" fill="none" strokeDasharray="8 9" />
+              <path d="M489 577 C575 607 677 592 786 548" stroke="url(#routeGlow)" strokeWidth="3" fill="none" strokeDasharray="8 9" />
 
-              {/* Lake Huron */}
-              <ellipse cx="420" cy="240" rx="80" ry="95" fill="#0d47a1" opacity="0.8" />
-              <ellipse cx="420" cy="240" rx="75" ry="90" fill="#1565c0" opacity="0.6" />
+              <g fill="#3e2a18" fontSize="21" fontFamily="Georgia, 'Times New Roman', serif" fontStyle="italic" opacity="0.9">
+                <text x="355" y="210">Lake Superior</text>
+                <text x="465" y="365">Lake Michigan</text>
+                <text x="603" y="334">Lake Huron</text>
+                <text x="565" y="560">Lake Erie</text>
+                <text x="770" y="532">Lake Ontario</text>
+              </g>
 
-              {/* Lake Erie */}
-              <ellipse cx="380" cy="420" rx="100" ry="50" fill="#0d47a1" opacity="0.8" />
-              <ellipse cx="380" cy="420" rx="95" ry="45" fill="#1565c0" opacity="0.6" />
+              <g transform="translate(150,715)">
+                <circle cx="0" cy="0" r="70" fill="none" stroke="#5f4426" strokeWidth="2.5" />
+                <circle cx="0" cy="0" r="49" fill="none" stroke="#5f4426" strokeWidth="1.5" />
+                <line x1="0" y1="-69" x2="0" y2="69" stroke="#5f4426" strokeWidth="2.2" />
+                <line x1="-69" y1="0" x2="69" y2="0" stroke="#5f4426" strokeWidth="2.2" />
+                <polygon points="0,-86 7,-56 -7,-56" fill="#6e4d2a" />
+                <polygon points="0,86 7,56 -7,56" fill="#6e4d2a" />
+                <polygon points="-86,0 -56,-7 -56,7" fill="#6e4d2a" />
+                <polygon points="86,0 56,-7 56,7" fill="#6e4d2a" />
+                <text x="0" y="-98" textAnchor="middle" fill="#4a311a" fontSize="20" fontFamily="Georgia, 'Times New Roman', serif">N</text>
+              </g>
 
-              {/* Lake Ontario */}
-              <ellipse cx="520" cy="350" rx="65" ry="75" fill="#0d47a1" opacity="0.8" />
-              <ellipse cx="520" cy="350" rx="60" ry="70" fill="#1565c0" opacity="0.6" />
-            </g>
+              <g transform="translate(902,722)">
+                <path d="M0 20 C38 -10 72 -8 106 20 C88 42 66 52 43 54 C25 56 10 48 0 20 Z" fill="#5c3f23" opacity="0.55" />
+                <path d="M47 1 L58 31 L33 31 Z" fill="#5c3f23" opacity="0.75" />
+                <path d="M26 32 L80 32" stroke="#e5d3ae" strokeWidth="2" opacity="0.7" />
+              </g>
 
-            {/* Land areas */}
-            <g fill="#2d3142" opacity="0.9">
-              <path d="M 100 100 L 600 80 L 650 200 L 700 150 L 750 300 L 700 400 L 650 350 L 600 450 L 500 500 L 350 520 L 150 480 L 80 400 Z" />
-            </g>
+              <g stroke="#6d4f2e" strokeWidth="5" fill="none" opacity="0.55">
+                <path d="M36 52 L90 52 L90 36" />
+                <path d="M1164 52 L1110 52 L1110 36" />
+                <path d="M36 848 L90 848 L90 864" />
+                <path d="M1164 848 L1110 848 L1110 864" />
+              </g>
+            </svg>
 
-            {/* Decorative compass rose */}
-            <g transform="translate(150, 650)" opacity="0.6">
-              <circle cx="0" cy="0" r="40" fill="none" stroke="#594b2e" strokeWidth="1" />
-              <line x1="0" y1="-40" x2="0" y2="40" stroke="#594b2e" strokeWidth="1.5" />
-              <line x1="-40" y1="0" x2="40" y2="0" stroke="#594b2e" strokeWidth="1.5" />
-              <polygon points="0,-45 3,-35 -3,-35" fill="#d4a574" />
-              <text x="0" y="-50" textAnchor="middle" fill="#d4a574" fontSize="12" fontWeight="bold">N</text>
-            </g>
-
-            {/* Decorative frame edges */}
-            <g stroke="#594b2e" strokeWidth="2" fill="none" opacity="0.4">
-              <line x1="20" y1="20" x2="60" y2="20" />
-              <line x1="20" y1="20" x2="20" y2="60" />
-              <line x1="780" y1="20" x2="740" y2="20" />
-              <line x1="780" y1="20" x2="780" y2="60" />
-              <line x1="20" y1="780" x2="60" y2="780" />
-              <line x1="20" y1="780" x2="20" y2="740" />
-              <line x1="780" y1="780" x2="740" y2="780" />
-              <line x1="780" y1="780" x2="780" y2="740" />
-            </g>
-
-            {/* Title cartouche */}
-            <g transform="translate(400, 740)">
-              <rect x="-120" y="-25" width="240" height="50" fill="#1e1b4b" stroke="#594b2e" strokeWidth="2" rx="8" />
-              <text x="0" y="8" textAnchor="middle" fill="#d4a574" fontSize="20" fontWeight="bold" fontFamily="serif">
-                Explorer's Dashboard
-              </text>
-            </g>
-          </svg>
-
-          {/* Action hotspots positioned over map */}
-          {ACTIONS.map((action) => (
-            <ActionHotspot key={action.label} action={action} />
-          ))}
+            {MAP_ACTIONS.map((action) => (
+              <MapMarker key={action.label} action={action} />
+            ))}
+          </div>
         </div>
       </div>
-
-      {/* Bottom info bar */}
-      <div className="absolute bottom-0 left-0 right-0 px-8 py-6 bg-gradient-to-t from-slate-950 to-transparent border-t border-white/10 backdrop-blur-sm">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div>
-            <h3 className="text-white font-semibold text-lg mb-1">Welcome to SOURCE Water</h3>
-            <p className="text-white/60 text-sm">Your guide to Great Lakes water quality. Hover over any site and click to explore.</p>
-          </div>
-          <div className="text-right text-sm text-white/50">
-            Premium Interactive Dashboard
-          </div>
-        </div>
-      </div>
-
-      {/* Responsive adjustments */}
-      <style>{`
-        @media (max-width: 768px) {
-          .max-w-4xl {
-            max-w-2xl;
-          }
-        }
-
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-8px); }
-        }
-
-        @keyframes shimmer {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
-        }
-
-        .animate-shimmer {
-          animation: shimmer 2s infinite;
-        }
-      `}</style>
     </div>
   )
 }
