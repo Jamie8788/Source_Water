@@ -2,23 +2,13 @@ const router = require('express').Router()
 const multer = require('multer')
 const path = require('path')
 const fs = require('fs')
+const cloudinary = require('cloudinary').v2
+const { Readable } = require('stream')
 const db = require('../db/connection')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 
-const uploadDir = path.join(__dirname, '..', '..', 'uploads', 'logos')
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true })
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname || '').toLowerCase() || '.png'
-    const safeExt = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext) ? ext : '.png'
-    cb(null, `sponsor-${Date.now()}-${Math.round(Math.random() * 1e9)}${safeExt}`)
-  },
-})
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype?.startsWith('image/')) {
@@ -27,6 +17,46 @@ const upload = multer({
     cb(null, true)
   },
 })
+
+function bufferToStream(buffer) {
+  const readable = new Readable({ read() {} })
+  readable.push(buffer)
+  readable.push(null)
+  return readable
+}
+
+function hasCloudinaryConfig() {
+  return !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET)
+}
+
+function configureCloudinary() {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  })
+}
+
+async function uploadSponsorLogoToCloudinary(file) {
+  configureCloudinary()
+  const folder = process.env.CLOUDINARY_SPONSOR_FOLDER || 'source-water/sponsors'
+  const result = await new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        resource_type: 'image',
+        quality: 'auto',
+        fetch_format: 'auto',
+      },
+      (err, uploaded) => (err ? reject(err) : resolve(uploaded))
+    )
+    bufferToStream(file.buffer).pipe(uploadStream)
+  })
+  return {
+    logoPath: result.secure_url,
+    logoPublicId: result.public_id,
+  }
+}
 
 const tsSql = db.USE_PG ? 'NOW()' : "datetime('now')"
 
@@ -63,6 +93,12 @@ async function cleanupLogo(logoPath) {
   if (!logoPath.startsWith('/uploads/')) return
   const diskPath = path.join(__dirname, '..', '..', logoPath.replace(/^\//, ''))
   await fs.promises.unlink(diskPath).catch(() => {})
+}
+
+async function cleanupCloudinaryLogo(publicId) {
+  if (!publicId || !hasCloudinaryConfig()) return
+  configureCloudinary()
+  await cloudinary.uploader.destroy(publicId, { resource_type: 'image' }).catch(() => {})
 }
 
 function buildPayload(req, existing = {}) {
@@ -109,12 +145,22 @@ router.post('/', requireAuth, requireAdmin, upload.single('logo'), async (req, r
     const validationError = validateSponsor(payload)
     if (validationError) return res.status(400).json({ error: validationError })
 
-    const logoPath = req.file ? `/uploads/logos/${req.file.filename}` : null
+    let logoPath = null
+    let logoPublicId = null
+    if (req.file) {
+      if (!hasCloudinaryConfig()) {
+        return res.status(500).json({ error: 'Cloudinary is not configured for sponsor uploads' })
+      }
+      const uploaded = await uploadSponsorLogoToCloudinary(req.file)
+      logoPath = uploaded.logoPath
+      logoPublicId = uploaded.logoPublicId
+    }
+
     const status = payload.is_active ? 'active' : 'inactive'
     const { lastInsertRowid } = await db.run(
-      `INSERT INTO sponsors (name, website_url, logo_path, alt_text, tagline, is_active, status, display_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [payload.name, payload.website_url, logoPath, payload.alt_text, payload.tagline, payload.is_active ? 1 : 0, status, payload.display_order]
+      `INSERT INTO sponsors (name, website_url, logo_path, logo_public_id, alt_text, tagline, is_active, status, display_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [payload.name, payload.website_url, logoPath, logoPublicId, payload.alt_text, payload.tagline, payload.is_active ? 1 : 0, status, payload.display_order]
     )
     const sponsor = await loadSponsor(lastInsertRowid)
     res.status(201).json(normalizeSponsor(sponsor))
@@ -133,18 +179,29 @@ router.put('/:id', requireAuth, requireAdmin, upload.single('logo'), async (req,
     const validationError = validateSponsor(payload)
     if (validationError) return res.status(400).json({ error: validationError })
 
-    const nextLogoPath = req.file ? `/uploads/logos/${req.file.filename}` : existing.logo_path || null
+    let nextLogoPath = existing.logo_path || null
+    let nextLogoPublicId = existing.logo_public_id || null
+    if (req.file) {
+      if (!hasCloudinaryConfig()) {
+        return res.status(500).json({ error: 'Cloudinary is not configured for sponsor uploads' })
+      }
+      const uploaded = await uploadSponsorLogoToCloudinary(req.file)
+      nextLogoPath = uploaded.logoPath
+      nextLogoPublicId = uploaded.logoPublicId
+    }
+
     const status = payload.is_active ? 'active' : 'inactive'
 
     await db.run(
       `UPDATE sponsors
-       SET name = ?, website_url = ?, logo_path = ?, alt_text = ?, tagline = ?, is_active = ?, status = ?, display_order = ?, updated_at = ${tsSql}
+       SET name = ?, website_url = ?, logo_path = ?, logo_public_id = ?, alt_text = ?, tagline = ?, is_active = ?, status = ?, display_order = ?, updated_at = ${tsSql}
        WHERE id = ?`,
-      [payload.name, payload.website_url, nextLogoPath, payload.alt_text, payload.tagline, payload.is_active ? 1 : 0, status, payload.display_order, req.params.id]
+      [payload.name, payload.website_url, nextLogoPath, nextLogoPublicId, payload.alt_text, payload.tagline, payload.is_active ? 1 : 0, status, payload.display_order, req.params.id]
     )
 
     if (req.file && existing.logo_path && existing.logo_path !== nextLogoPath) {
       await cleanupLogo(existing.logo_path)
+      await cleanupCloudinaryLogo(existing.logo_public_id)
     }
 
     const sponsor = await loadSponsor(req.params.id)
@@ -161,6 +218,7 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
     if (!sponsor) return res.status(404).json({ error: 'Sponsor not found' })
     await db.run('DELETE FROM sponsors WHERE id = ?', [req.params.id])
     await cleanupLogo(sponsor.logo_path)
+    await cleanupCloudinaryLogo(sponsor.logo_public_id)
     res.json({ success: true })
   } catch (err) {
     console.error('[sponsors:delete]', err)
