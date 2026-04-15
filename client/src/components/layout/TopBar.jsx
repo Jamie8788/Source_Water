@@ -43,12 +43,6 @@ export default function TopBar({ sidebarWidth, onA11yClick, onOpenDM }) {
         height: 56,
       }}
     >
-      {/* Sponsor Badge */}
-      <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold"
-        style={{ background: 'linear-gradient(135deg, #fef3c7, #fcd34d)', color: '#92400e' }}>
-        <span>✨ Sponsored by Partners</span>
-      </div>
-
       {/* Search bar */}
       <div className="flex-1 max-w-md relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--text-light)' }}/>

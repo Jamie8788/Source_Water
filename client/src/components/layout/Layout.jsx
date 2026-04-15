@@ -10,6 +10,7 @@ import CMSComponentLayer from '../cms/CMSComponentLayer'
 import CMSPageBlocks from '../cms/CMSPageBlocks'
 import { useCMS } from '../../context/CMSContext'
 import GlobalDMPanel from '../chat/GlobalDMPanel'
+import SponsorStrip from './SponsorStrip'
 
 // Legacy shim so any page still importing useCms doesn't break
 export { useCMS as useCms }
@@ -104,6 +105,8 @@ export default function Layout({ children }) {
           {children}
           <CMSPageBlocks />
         </div>
+
+        <SponsorStrip />
 
         <footer className="border-t mt-8 px-6 py-4"
           style={{ borderColor: 'var(--border)', background: 'var(--card-bg)', position: 'relative', zIndex: 1 }}>

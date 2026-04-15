@@ -78,7 +78,7 @@ router.put('/settings', requireAuth, requireAdmin, async (req, res) => {
 })
 
 // Sponsors CRUD
-router.get('/sponsors', requireAuth, async (req, res) => {
+router.get('/sponsors', requireAuth, requireAdmin, async (req, res) => {
   const active = req.query.active === 'true'
   const sponsors = active
     ? await db.all(`SELECT * FROM sponsors WHERE status='active' ORDER BY tier DESC`, [])

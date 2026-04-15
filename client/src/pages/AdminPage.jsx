@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import { useCMS } from '../context/CMSContext'
+import SponsorsPanel from '../components/admin/SponsorsPanel'
 import {
   ShieldCheck, Users, AlertTriangle, Activity, BarChart2,
   FileText, TrendingUp, TrendingDown,
@@ -1761,6 +1762,7 @@ const TABS = [
   { key: 'quizzes',     label: 'Quizzes',     icon: GraduationCap },
   { key: 'database',    label: 'Database',    icon: Database },
   { key: 'alerts',      label: 'Alerts',      icon: AlertTriangle },
+  { key: 'sponsors',    label: 'Sponsors',    icon: ImageIcon },
   { key: 'content',     label: 'CMS Content', icon: FileText },
   { key: 'activity',    label: 'Activity Log', icon: Activity },
 ]
@@ -1821,6 +1823,7 @@ export default function AdminPage() {
         {tab === 'quizzes'   && <QuizPanel/>}
         {tab === 'database'  && <DatabasePanel/>}
         {tab === 'alerts'    && <AlertsAdminPanel/>}
+        {tab === 'sponsors'  && <SponsorsPanel/>}
         {tab === 'content'   && <ContentPanel/>}
         {tab === 'activity'  && <ActivityPanel/>}
       </div>

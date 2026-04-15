@@ -208,10 +208,14 @@ async function initSchema() {
     await db.exec(`
       CREATE TABLE IF NOT EXISTS sponsors (
         id SERIAL PRIMARY KEY,
-        name TEXT NOT NULL, website_url TEXT, logo_path TEXT,
-        tagline TEXT, tier TEXT DEFAULT 'Gold',
-        placement TEXT, status TEXT DEFAULT 'active',
-        start_date TEXT, end_date TEXT, custom_html TEXT,
+        name TEXT NOT NULL,
+        website_url TEXT,
+        logo_path TEXT,
+        alt_text TEXT,
+        tagline TEXT,
+        status TEXT DEFAULT 'active',
+        is_active INTEGER DEFAULT 1,
+        display_order INTEGER DEFAULT 0,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `)
@@ -383,6 +387,11 @@ async function initSchema() {
       `ALTER TABLE cms_site_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
       `ALTER TABLE cms_page_blocks ADD COLUMN IF NOT EXISTS content TEXT DEFAULT '{}'`,
       `ALTER TABLE cms_page_blocks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+      `ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS alt_text TEXT`,
+      `ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS is_active INTEGER DEFAULT 1`,
+      `ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0`,
+      `ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+      `UPDATE sponsors SET is_active = CASE WHEN status = 'inactive' THEN 0 ELSE 1 END`,
       `CREATE TABLE IF NOT EXISTS banned_emails (email TEXT PRIMARY KEY, banned_at TIMESTAMPTZ DEFAULT NOW(), reason TEXT)`,
     ]
     for (const m of migrations) {
@@ -665,10 +674,15 @@ async function initSchema() {
       );
       CREATE TABLE IF NOT EXISTS sponsors (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL, website_url TEXT, logo_path TEXT,
-        tagline TEXT, tier TEXT DEFAULT 'Gold',
-        placement TEXT, status TEXT DEFAULT 'active',
-        start_date TEXT, end_date TEXT, custom_html TEXT,
+        name TEXT NOT NULL,
+        website_url TEXT,
+        logo_path TEXT,
+        alt_text TEXT,
+        tagline TEXT,
+        status TEXT DEFAULT 'active',
+        is_active INTEGER DEFAULT 1,
+        display_order INTEGER DEFAULT 0,
+        updated_at TEXT DEFAULT (datetime('now')),
         created_at TEXT DEFAULT (datetime('now'))
       );
       CREATE TABLE IF NOT EXISTS alerts (
@@ -785,6 +799,7 @@ async function initSchema() {
       CREATE INDEX IF NOT EXISTS idx_leaderboard_month ON leaderboard_points(month, user_id);
       CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_log(user_id);
       CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, read);
+      CREATE INDEX IF NOT EXISTS idx_sponsors_active_order ON sponsors(is_active, display_order);
     `)
     // SQLite migrations: add columns that may be missing from older local DBs
     const sqliteMigrations = [
@@ -795,6 +810,11 @@ async function initSchema() {
       `ALTER TABLE direct_messages ADD COLUMN voice_note TEXT`,
       `ALTER TABLE quizzes ADD COLUMN embed_url TEXT`,
       `ALTER TABLE quiz_attempts ADD COLUMN grading_status TEXT DEFAULT 'auto'`,
+      `ALTER TABLE sponsors ADD COLUMN alt_text TEXT`,
+      `ALTER TABLE sponsors ADD COLUMN is_active INTEGER DEFAULT 1`,
+      `ALTER TABLE sponsors ADD COLUMN display_order INTEGER DEFAULT 0`,
+      `ALTER TABLE sponsors ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))`,
+      `UPDATE sponsors SET is_active = CASE WHEN status = 'inactive' THEN 0 ELSE 1 END`,
     ]
     for (const m of sqliteMigrations) {
       try { db.sqlite.exec(m) } catch (_) {} // ignore "duplicate column" errors
