@@ -1016,6 +1016,8 @@ function FreeAIAnalyzer() {
   const [file, setFile] = useState(null)
   const [fileText, setFileText] = useState('')
   const [fileData, setFileData] = useState(null)
+  const [uploadedFileId, setUploadedFileId] = useState(null)
+  const [syncingFile, setSyncingFile] = useState(false)
   const [pageCount, setPageCount] = useState(0)
   const [parsing, setParsing] = useState(false)
   const [scanProgress, setScanProgress] = useState(0)
@@ -1026,8 +1028,29 @@ function FreeAIAnalyzer() {
 
   useEffect(() => { freeEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [chat])
 
+  const ensureUploadedFileId = async () => {
+    if (uploadedFileId) return uploadedFileId
+    if (!file) throw new Error('No file selected')
+
+    setSyncingFile(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await axios.post(`${SVC}/upload`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 180000,
+      })
+      const id = r.data?.id
+      if (!id) throw new Error('Upload succeeded but no file ID returned')
+      setUploadedFileId(id)
+      return id
+    } finally {
+      setSyncingFile(false)
+    }
+  }
+
   const parseAndSet = async (f) => {
-    setFile(f); setFileText(''); setFileData(null); setChat([]); setPageCount(0)
+    setFile(f); setFileText(''); setFileData(null); setChat([]); setPageCount(0); setUploadedFileId(null)
     setParsing(true); setScanProgress(0)
     const ext = f.name.split('.').pop().toLowerCase()
     try {
@@ -1100,12 +1123,9 @@ function FreeAIAnalyzer() {
     setAiLoading(true)
 
     try {
-      // Call backend analysis service with file content directly
-      const payload = fileData
-        ? { query: q, file_content: JSON.stringify(fileData), file_type: 'csv', file_name: file.name }
-        : { query: q, file_content: fileText, file_type: 'text', file_name: file?.name || 'document' }
-
-      const res = await axios.post(`${SVC}/ask`, payload, { timeout: 120000 })
+      // /ask requires file_id + query. Ensure file is uploaded once before asking.
+      const fileId = await ensureUploadedFileId()
+      const res = await axios.post(`${SVC}/ask`, { file_id: fileId, query: q }, { timeout: 120000 })
       const answer = res.data?.answer || res.data?.response || "Couldn't get a response — try again."
 
       setChat(prev => prev.map((m, i) =>
@@ -1115,9 +1135,10 @@ function FreeAIAnalyzer() {
       ))
     } catch (err) {
       console.error('[Free AI]', err.message)
+      const backendDetail = err.response?.data?.detail || err.response?.data?.error
       setChat(prev => prev.map((m, i) =>
         i === prev.length - 1
-          ? { ...m, text: `Analysis error: ${err.response?.data?.error || err.message}. Try again or use ML File Analysis tab.`, loading: false }
+          ? { ...m, text: `Analysis error: ${backendDetail || err.message}. Try again or use ML File Analysis tab.`, loading: false }
           : m
       ))
     }
@@ -1204,6 +1225,11 @@ function FreeAIAnalyzer() {
                 </div>
               </div>
             </div>
+            {syncingFile && (
+              <div style={{ fontSize:10, color:'#6366f1', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
+                <RefreshCw style={{ width:10, height:10, animation:'spin 1s linear infinite' }}/> Syncing file with AI service…
+              </div>
+            )}
             <div style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 10px', borderRadius:8, background:'rgba(16,185,129,0.1)', color:'#10b981', fontSize:11, fontWeight:600 }}>
               <CheckCircle style={{ width:12, height:12 }}/> Ready — ask anything below
             </div>
@@ -1297,7 +1323,7 @@ function FreeAIAnalyzer() {
         {chat.length > 0 && file && !aiLoading && (
           <div style={{ padding:'8px 16px', borderTop:'1px solid var(--border)', flexShrink:0, display:'flex', gap:6, flexWrap:'wrap' }}>
             {suggestions.slice(0,3).map(s => (
-              <button key={s} onClick={() => sendAI(s)}
+              <button key={s} onClick={() => sendAI(s)} disabled={syncingFile}
                 style={{ padding:'4px 10px', borderRadius:14, border:'1px solid rgba(99,102,241,0.2)', background:'rgba(99,102,241,0.06)', color:'#818cf8', cursor:'pointer', fontSize:10, fontWeight:600 }}>
                 {s}
               </button>
@@ -1311,10 +1337,10 @@ function FreeAIAnalyzer() {
             <textarea value={question} onChange={e => setQuestion(e.target.value)} rows={2}
               onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendAI() } }}
               placeholder={file ? `Ask anything about ${file.name}…` : 'Upload a file first…'}
-              disabled={!file || aiLoading}
+              disabled={!file || aiLoading || syncingFile}
               style={{ flex:1, resize:'none', fontSize:13, padding:'9px 12px', borderRadius:10, border:'1.5px solid var(--border)', background:'var(--card-bg)', color:'var(--text)', outline:'none', fontFamily:'inherit' }}/>
-            <button onClick={() => sendAI()} disabled={!file || !question.trim() || aiLoading}
-              style={{ width:40, height:40, borderRadius:10, background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', cursor:(!file||!question.trim()||aiLoading)?'not-allowed':'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, opacity:(!file||!question.trim()||aiLoading)?0.4:1 }}>
+            <button onClick={() => sendAI()} disabled={!file || !question.trim() || aiLoading || syncingFile}
+              style={{ width:40, height:40, borderRadius:10, background:'linear-gradient(135deg,#6366f1,#8b5cf6)', border:'none', cursor:(!file||!question.trim()||aiLoading||syncingFile)?'not-allowed':'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, opacity:(!file||!question.trim()||aiLoading||syncingFile)?0.4:1 }}>
               {aiLoading
                 ? <RefreshCw style={{ width:16, height:16, color:'#fff', animation:'spin 1s linear infinite' }}/>
                 : <Send style={{ width:16, height:16, color:'#fff' }}/>}
