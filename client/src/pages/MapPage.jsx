@@ -287,6 +287,30 @@ function CommunityMarker({ obs, index, onSelect }) {
   )
 }
 
+function UsgsMarker({ station, index, onSelect }) {
+  const handlePopupClick = () => onSelect({ type: 'usgs', payload: station })
+
+  return (
+    <Marker
+      position={[station.latitude, station.longitude]}
+      icon={createMonitoringIcon(index + 1, true)}
+      eventHandlers={{
+        click: handlePopupClick,
+      }}
+      title={`${station.siteName} (${station.siteCode})`}
+    >
+      <Popup>
+        <MonitoringPopup
+          title={station.siteName || 'USGS Station'}
+          subtitle={`USGS Site ${station.siteCode}`}
+          description={`Latest: ${station.lastValueLabel || 'No live value'} • Updated: ${station.lastUpdatedLabel || 'Unknown'}`}
+          onDive={handlePopupClick}
+        />
+      </Popup>
+    </Marker>
+  )
+}
+
 function ScaleControl() {
   const map = useMap()
 
@@ -300,7 +324,7 @@ function ScaleControl() {
 }
 
 // Clustered map layers
-function MapControls({ sites, communityRows, selected, onSelect }) {
+function MapControls({ sites, communityRows, usgsRows, selected, onSelect }) {
   return (
     <>
       <MarkerClusterGroup
@@ -324,6 +348,17 @@ function MapControls({ sites, communityRows, selected, onSelect }) {
           <CommunityMarker key={`community-${obs.id}`} obs={obs} index={idx} onSelect={onSelect} />
         ))}
       </MarkerClusterGroup>
+
+      <MarkerClusterGroup
+        chunkedLoading
+        maxClusterRadius={50}
+        showCoverageOnHover={true}
+        disableClusteringAtZoom={11}
+      >
+        {usgsRows.map((station, idx) => (
+          <UsgsMarker key={`usgs-${station.siteCode}`} station={station} index={idx} onSelect={onSelect} />
+        ))}
+      </MarkerClusterGroup>
     </>
   )
 }
@@ -331,6 +366,9 @@ function MapControls({ sites, communityRows, selected, onSelect }) {
 export default function MapPage() {
   const [sites, setSites] = useState([])
   const [communityRows, setCommunityRows] = useState([])
+  const [usgsRows, setUsgsRows] = useState([])
+  const [usgsLoading, setUsgsLoading] = useState(false)
+  const [usgsError, setUsgsError] = useState('')
   const [selected, setSelected] = useState(null)
   const [siteObservations, setSiteObservations] = useState([])
   const [siteIntelligence, setSiteIntelligence] = useState(null)
@@ -370,6 +408,74 @@ export default function MapPage() {
         console.error('[MapPage] community load failed', err)
         setCommunityRows([])
       })
+
+    setUsgsLoading(true)
+    setUsgsError('')
+    fetch('https://waterservices.usgs.gov/nwis/iv/?format=json&siteStatus=active&parameterCd=00010,00095,00300&bBox=-93,41,-74,49')
+      .then((res) => {
+        if (!res.ok) throw new Error(`USGS request failed (${res.status})`)
+        return res.json()
+      })
+      .then((payload) => {
+        const series = payload?.value?.timeSeries || []
+        const bySite = new Map()
+
+        series.forEach((entry) => {
+          const sourceInfo = entry?.sourceInfo || {}
+          const geo = sourceInfo?.geoLocation?.geogLocation || {}
+          const siteCode = sourceInfo?.siteCode?.[0]?.value
+          if (!siteCode) return
+
+          const latitude = Number(geo?.latitude)
+          const longitude = Number(geo?.longitude)
+          if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
+
+          const observed = entry?.values?.[0]?.value?.[0]
+          const observedValue = observed?.value
+          const observedAt = observed?.dateTime
+          const variableName = entry?.variable?.variableName || ''
+
+          if (!bySite.has(siteCode)) {
+            bySite.set(siteCode, {
+              siteCode,
+              siteName: sourceInfo?.siteName || siteCode,
+              latitude,
+              longitude,
+              lastValueLabel: '',
+              lastUpdatedLabel: '',
+              variables: [],
+            })
+          }
+
+          const item = bySite.get(siteCode)
+          item.variables.push({
+            variableName,
+            observedValue,
+            observedAt,
+          })
+        })
+
+        const normalized = Array.from(bySite.values()).map((row) => {
+          const firstVar = row.variables[0]
+          const lastUpdated = firstVar?.observedAt ? new Date(firstVar.observedAt) : null
+
+          return {
+            ...row,
+            lastValueLabel: firstVar?.observedValue ? `${firstVar.variableName}: ${firstVar.observedValue}` : 'No live value',
+            lastUpdatedLabel: lastUpdated && Number.isFinite(lastUpdated.getTime())
+              ? `${lastUpdated.toLocaleDateString()} ${lastUpdated.toLocaleTimeString()}`
+              : 'Unknown',
+          }
+        })
+
+        setUsgsRows(normalized)
+      })
+      .catch((err) => {
+        console.error('[MapPage] USGS load failed', err)
+        setUsgsRows([])
+        setUsgsError('USGS live stations are temporarily unavailable.')
+      })
+      .finally(() => setUsgsLoading(false))
   }, [])
 
   // Load site intelligence when selected
@@ -400,7 +506,7 @@ export default function MapPage() {
 
   const filteredCommunity = useMemo(() => {
     return communityRows.filter((row) => {
-      if (filters.source === 'sites') return false
+      if (filters.source === 'sites' || filters.source === 'usgs') return false
 
       const ts = new Date(row.timestamp || '').getTime()
       if (cutoffDate && Number.isFinite(ts) && ts < cutoffDate) return false
@@ -433,7 +539,7 @@ export default function MapPage() {
 
   const filteredSites = useMemo(() => {
     return sites.filter((site) => {
-      if (filters.source === 'community') return false
+      if (filters.source === 'community' || filters.source === 'usgs') return false
       const status = statusBand(site.status)
       if (filters.status !== 'all' && status !== filters.status) return false
       if (filters.alertLevel !== 'all') {
@@ -452,16 +558,32 @@ export default function MapPage() {
     })
   }, [sites, filters])
 
+  const filteredUsgs = useMemo(() => {
+    return usgsRows.filter((station) => {
+      if (filters.source === 'sites' || filters.source === 'community') return false
+
+      if (filters.searchText.trim()) {
+        const q = filters.searchText.trim().toLowerCase()
+        const haystack = `${station?.siteName || ''} ${station?.siteCode || ''}`.toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
+
+      return true
+    })
+  }, [usgsRows, filters])
+
   const publicStats = useMemo(() => {
     const totalSites = filteredSites.length
     const totalCommunity = filteredCommunity.length
+    const totalUsgs = filteredUsgs.length
     const criticalSites = filteredSites.filter((s) => statusBand(s.status) === 'critical').length
     const mediumOrHighCommunity = filteredCommunity.filter((c) => riskBand(c?.ai_enrichment?.ai_risk_score) !== 'low').length
-    return { totalSites, totalCommunity, criticalSites, mediumOrHighCommunity }
-  }, [filteredSites, filteredCommunity])
+    return { totalSites, totalCommunity, totalUsgs, criticalSites, mediumOrHighCommunity }
+  }, [filteredSites, filteredCommunity, filteredUsgs])
 
   const selectedSite = selected?.type === 'site' ? selected.payload : null
   const selectedCommunity = selected?.type === 'community' ? selected.payload : null
+  const selectedUsgs = selected?.type === 'usgs' ? selected.payload : null
   const latestSiteObservation = siteObservations[0] || null
   const siteParameterList = parameterSummary(latestSiteObservation)
 
@@ -524,6 +646,27 @@ export default function MapPage() {
       })
     })
 
+    filteredUsgs.forEach((station) => {
+      rows.push({
+        source: 'usgs_live',
+        id: station.siteCode,
+        name: station.siteName || '',
+        organization: 'USGS',
+        latitude: station.latitude,
+        longitude: station.longitude,
+        status: 'live',
+        observed_at: station.lastUpdatedLabel || '',
+        ph: '',
+        turbidity: '',
+        temperature: '',
+        dissolved_oxygen: '',
+        conductivity: '',
+        ai_risk_score: '',
+        anomaly_flag: '',
+        satellite_validation: '',
+      })
+    })
+
     if (!rows.length) return
 
     const headers = Object.keys(rows[0])
@@ -577,7 +720,7 @@ export default function MapPage() {
           <div className="absolute left-3 top-3 z-20 rounded-lg bg-white px-4 py-3 shadow-lg">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold text-slate-700">
-                Sites: {publicStats.totalSites} | Community: {publicStats.totalCommunity}
+                Sites: {publicStats.totalSites} | Community: {publicStats.totalCommunity} | USGS: {publicStats.totalUsgs}
               </span>
               <span className="rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-700">
                 Latest Community Data: {latestCommunityTimestamp}
@@ -615,6 +758,7 @@ export default function MapPage() {
                 <option value="all">All Sources</option>
                 <option value="sites">Monitoring Sites</option>
                 <option value="community">Community + AI</option>
+                <option value="usgs">USGS Live Stations</option>
               </select>
 
               <select
@@ -664,7 +808,13 @@ export default function MapPage() {
               maxZoom={18}
             />
             <ScaleControl />
-            <MapControls sites={filteredSites} communityRows={filteredCommunity} selected={selected} onSelect={setSelected} />
+            <MapControls
+              sites={filteredSites}
+              communityRows={filteredCommunity}
+              usgsRows={filteredUsgs}
+              selected={selected}
+              onSelect={setSelected}
+            />
           </MapContainer>
         </div>
 
@@ -686,6 +836,17 @@ export default function MapPage() {
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-4">
+            {!!usgsError && (
+              <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {usgsError}
+              </div>
+            )}
+            {usgsLoading && (
+              <div className="mb-3 rounded border border-sky-300 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+                Loading USGS live stations...
+              </div>
+            )}
+
             {!selected && (
               <div className="space-y-3 text-sm text-slate-600">
                 <div className="rounded bg-slate-50 p-3">
@@ -693,6 +854,7 @@ export default function MapPage() {
                   <ul className="space-y-1 text-xs">
                     <li>• Click green markers for monitoring sites</li>
                     <li>• Click cyan markers for community observations with AI enrichment</li>
+                    <li>• Click USGS markers for live federal station measurements</li>
                     <li>• Use filters to narrow results by source, status, and date range</li>
                     <li>• View trends and AI-assisted risk scoring on the right</li>
                   </ul>
@@ -797,6 +959,39 @@ export default function MapPage() {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {selectedUsgs && (
+              <div className="space-y-4 text-sm text-slate-700">
+                <div className="rounded bg-slate-50 p-3">
+                  <h3 className="font-bold">{selectedUsgs.siteName || 'USGS Station'}</h3>
+                  <p className="text-xs text-slate-600 mt-1">USGS Site Code: {selectedUsgs.siteCode}</p>
+                  <p className="text-xs text-slate-500">Last Update: {selectedUsgs.lastUpdatedLabel || 'Unknown'}</p>
+                </div>
+
+                <div className="rounded bg-blue-50 p-3 border border-blue-100">
+                  <div className="mb-2 text-xs font-semibold text-blue-900">Live Measurements</div>
+                  <div className="space-y-1 text-xs text-blue-800">
+                    {selectedUsgs.variables?.length ? selectedUsgs.variables.map((v, i) => (
+                      <div key={`${v.variableName}-${i}`} className="flex justify-between gap-2">
+                        <span>{v.variableName}</span>
+                        <strong>{v.observedValue || 'N/A'}</strong>
+                      </div>
+                    )) : (
+                      <div>No live measurements available.</div>
+                    )}
+                  </div>
+                </div>
+
+                <a
+                  href={`https://waterdata.usgs.gov/monitoring-location/${selectedUsgs.siteCode}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex rounded bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700"
+                >
+                  Open Official USGS Station
+                </a>
               </div>
             )}
           </div>
