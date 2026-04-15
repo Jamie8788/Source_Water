@@ -75,6 +75,14 @@ const MAP_STYLES = {
 
 const STATUS_COLORS = { active: '#22c55e', warning: '#f59e0b', critical: '#ef4444', inactive: '#94a3b8' }
 const STATUS_GLOW   = { active: '0 0 16px #22c55e88', warning: '0 0 16px #f59e0b88', critical: '0 0 20px #ef444488', inactive: 'none' }
+const COMMUNITY_RISK_COLORS = { low: '#22c55e', medium: '#f59e0b', high: '#ef4444' }
+
+function riskBand(score) {
+  const n = Number(score || 0)
+  if (n >= 0.7) return 'high'
+  if (n >= 0.4) return 'medium'
+  return 'low'
+}
 
 const WHO = {
   ph:               { min: 6.5,  max: 8.5,   unit: '',       label: 'pH',           emoji: '🧪' },
@@ -222,6 +230,34 @@ const MAP_CSS = `
   .map-hud-stat:nth-child(3) { animation-delay:0.15s; }
 
   .maplibregl-canvas { filter:saturate(1.15) contrast(1.05); }
+
+  .community-marker {
+    width: 18px;
+    height: 18px;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    border: 2px solid rgba(255,255,255,0.9);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.45);
+    cursor: pointer;
+    position: relative;
+  }
+  .community-marker::after {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.85);
+    position: absolute;
+    left: 4px;
+    top: 4px;
+  }
+  .community-marker.low    { background: #22c55e; }
+  .community-marker.medium { background: #f59e0b; }
+  .community-marker.high   { background: #ef4444; }
+  .community-marker:hover {
+    filter: brightness(1.08);
+    box-shadow: 0 0 14px currentColor;
+  }
 `
 
 export default function MapPage() {
@@ -230,7 +266,9 @@ export default function MapPage() {
   const mapContainer = useRef(null)
   const map = useRef(null)
   const markersRef = useRef({})
+  const communityMarkersRef = useRef({})
   const [sites, setSites] = useState([])
+  const [communityObservations, setCommunityObservations] = useState([])
   const [selected, setSelected] = useState(null)
   const [observations, setObservations] = useState([])
   const [showForm, setShowForm] = useState(false)
@@ -242,7 +280,8 @@ export default function MapPage() {
   const [mapLoaded, setMapLoaded] = useState(false)
   const [showLayers, setShowLayers] = useState(false)
   const [statusFilter, setStatusFilter] = useState('all')
-  const [layers, setLayers] = useState({ heatmap: false, alertZones: true, labels: true, terrain: false })
+  const [layers, setLayers] = useState({ heatmap: false, alertZones: true, community: true, labels: true, terrain: false })
+  const [communityRiskFilter, setCommunityRiskFilter] = useState('all')
   const [patrolMode, setPatrolMode] = useState(false)
   const [patrolPoints, setPatrolPoints] = useState([])
   const [weather, setWeather] = useState(null)
@@ -340,6 +379,26 @@ export default function MapPage() {
   useEffect(() => {
     fetchSites()
   }, [fetchSites])
+
+  // Load community observations (Water Rangers-inspired structure + AI enrichment)
+  useEffect(() => {
+    api.get('/geoai/community-observations', {
+      params: {
+        include_enrichment: true,
+        format: 'json',
+        limit: 500,
+      },
+    })
+      .then((r) => {
+        const payload = r.data?.data
+        const rows = Array.isArray(payload) ? payload : []
+        setCommunityObservations(rows)
+      })
+      .catch((err) => {
+        console.error('[MapPage] Failed to load community observations:', err)
+        setCommunityObservations([])
+      })
+  }, [])
 
   // ── FETCH REAL ML PREDICTIONS when site is selected ──
   useEffect(() => {
@@ -451,6 +510,64 @@ export default function MapPage() {
       markersRef.current[site.id] = marker
     })
   }, [mapLoaded, sites, statusFilter, selected?.id])
+
+  // Community AI-enriched markers — additive overlay, does not alter existing site markers
+  useEffect(() => {
+    if (!mapLoaded || !map.current) return
+
+    Object.values(communityMarkersRef.current).forEach((m) => m.remove())
+    communityMarkersRef.current = {}
+
+    if (!layers.community) return
+
+    const filtered = communityObservations.filter((obs) => {
+      const score = obs?.ai_enrichment?.ai_risk_score ?? 0
+      const band = riskBand(score)
+      return communityRiskFilter === 'all' ? true : band === communityRiskFilter
+    })
+
+    filtered.forEach((obs) => {
+      const score = obs?.ai_enrichment?.ai_risk_score ?? 0
+      const band = riskBand(score)
+
+      const markerEl = document.createElement('div')
+      markerEl.className = `community-marker ${band}`
+      markerEl.style.color = COMMUNITY_RISK_COLORS[band]
+
+      const popupHtml = `
+        <div style="min-width:220px;max-width:260px;padding:10px 12px;background:#0b1220;color:#e5e7eb;border:1px solid rgba(148,163,184,0.35);border-radius:10px;box-shadow:0 8px 18px rgba(0,0,0,0.35);font-family:Inter,system-ui,sans-serif;">
+          <div style="font-size:12px;font-weight:800;letter-spacing:0.04em;color:#f8fafc;">${obs.site_name || 'Community Site'}</div>
+          <div style="margin-top:2px;font-size:10px;color:#94a3b8;">${obs.organization || 'Community'} • ${obs.source || 'community'}</div>
+          <div style="margin-top:8px;font-size:11px;color:#cbd5e1;line-height:1.4;">${obs.ai_enrichment?.summary_message || 'Community observation available.'}</div>
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(148,163,184,0.18);display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:10px;">
+            <div><span style="color:#94a3b8;">AI Risk</span><br/><strong style="color:${COMMUNITY_RISK_COLORS[band]};">${Math.round(score * 100)}%</strong></div>
+            <div><span style="color:#94a3b8;">Satellite</span><br/><strong>${obs.ai_enrichment?.satellite_validation || 'n/a'}</strong></div>
+            <div><span style="color:#94a3b8;">Trend</span><br/><strong>${obs.ai_enrichment?.trend_prediction || 'monitoring advised'}</strong></div>
+            <div><span style="color:#94a3b8;">Confidence</span><br/><strong>${obs.ai_enrichment?.confidence_label || 'low'}</strong></div>
+          </div>
+        </div>
+      `
+
+      const popup = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 16,
+      }).setHTML(popupHtml)
+
+      markerEl.addEventListener('mouseenter', () => {
+        popup.setLngLat([obs.lon, obs.lat]).addTo(map.current)
+      })
+      markerEl.addEventListener('mouseleave', () => {
+        popup.remove()
+      })
+
+      const marker = new maplibregl.Marker({ element: markerEl, anchor: 'bottom' })
+        .setLngLat([obs.lon, obs.lat])
+        .addTo(map.current)
+
+      communityMarkersRef.current[obs.id] = marker
+    })
+  }, [mapLoaded, communityObservations, layers.community, communityRiskFilter])
 
   // MapLibre layers: heatmap + alert zones + cluster + patrol
   useEffect(() => {
@@ -840,6 +957,7 @@ export default function MapPage() {
           {[
             { key:'heatmap', label:'Risk Heatmap', icon:'🔥' },
             { key:'alertZones', label:'Alert Zones', icon:'⚠️' },
+            { key:'community', label:'Community + AI Layer', icon:'🧭' },
           ].map(l => (
             <label key={l.key} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10, cursor:'pointer', fontSize:12, fontWeight:600 }}>
               <div onClick={() => setLayers(prev => ({ ...prev, [l.key]: !prev[l.key] }))}
@@ -849,6 +967,35 @@ export default function MapPage() {
               {l.icon} {l.label}
             </label>
           ))}
+          {layers.community && (
+            <div style={{ borderTop:'1px solid rgba(255,255,255,0.08)', paddingTop:10, marginTop:4 }}>
+              <div style={{ fontSize:11, fontWeight:800, color:'#a5b4fc', marginBottom:8, letterSpacing:'0.08em' }}>COMMUNITY RISK FILTER</div>
+              {['all', 'low', 'medium', 'high'].map(level => (
+                <button
+                  key={level}
+                  onClick={() => setCommunityRiskFilter(level)}
+                  style={{
+                    display:'block',
+                    width:'100%',
+                    textAlign:'left',
+                    padding:'5px 8px',
+                    borderRadius:7,
+                    border:'none',
+                    cursor:'pointer',
+                    fontSize:12,
+                    fontWeight:700,
+                    marginBottom:3,
+                    background: communityRiskFilter === level ? 'rgba(99,102,241,0.2)' : 'transparent',
+                    color: communityRiskFilter === level ? '#a5b4fc' : 'rgba(255,255,255,0.45)',
+                    borderLeft: communityRiskFilter === level ? '2px solid #6366f1' : '2px solid transparent',
+                    textTransform:'capitalize',
+                  }}
+                >
+                  {level === 'all' ? '🌐 All' : level === 'high' ? '🔴 High' : level === 'medium' ? '🟡 Medium' : '🟢 Low'}
+                </button>
+              ))}
+            </div>
+          )}
           <div style={{ borderTop:'1px solid rgba(255,255,255,0.08)', paddingTop:10, marginTop:4 }}>
             <div style={{ fontSize:11, fontWeight:800, color:'#a5b4fc', marginBottom:8, letterSpacing:'0.08em' }}>FILTER STATUS</div>
             {['all','active','warning','critical','inactive'].map(s => (

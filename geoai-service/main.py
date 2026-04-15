@@ -32,6 +32,8 @@ from evaluation import (
     ExperimentRunner,
 )
 from visualizations import MethodComparison, VisualizationUtils
+from services.community_data import get_community_observations, to_geojson
+from services.ai_enrichment import enrich_observations
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -473,6 +475,18 @@ def _pixel_resolution_m(pixel_area_m2: float) -> float:
     return round(float(np.sqrt(pixel_area_m2)), 3)
 
 
+def _parse_bbox_arg(bbox_value: str | None) -> Tuple[float, float, float, float] | None:
+    if not bbox_value:
+        return None
+    parts = [p.strip() for p in str(bbox_value).split(",")]
+    if len(parts) != 4:
+        raise ValueError("bbox must be minLon,minLat,maxLon,maxLat")
+    min_lon, min_lat, max_lon, max_lat = [float(p) for p in parts]
+    if min_lon >= max_lon or min_lat >= max_lat:
+        raise ValueError("bbox bounds are invalid")
+    return (min_lon, min_lat, max_lon, max_lat)
+
+
 def _quality_warnings(lat: float, scene_date: str, ndvi_mean: float, cloud_cover: float, scene_count: int) -> List[str]:
     warnings = []
     if scene_count < 2:
@@ -559,9 +573,108 @@ def capabilities():
                     "implementation_status": "real_computed",
                     "summary": "Live STAC search for Sentinel-2 scenes",
                 },
+                "community-observations": {
+                    "mode": "rule_based",
+                    "implementation_status": "real_computed",
+                    "summary": "Community field observations normalized to a map-ready open monitoring structure",
+                },
+                "community-observations-enriched": {
+                    "mode": "rule_based",
+                    "implementation_status": "real_computed",
+                    "summary": "AI-assisted enrichment for community observations with risk, anomaly, and confidence metadata",
+                },
             },
         }
     )
+
+
+@app.route("/api/geoai/community-observations", methods=["GET"])
+def community_observations():
+    started = time.time()
+
+    bbox = _parse_bbox_arg(request.args.get("bbox"))
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
+    organization = request.args.get("organization")
+    output_format = (request.args.get("format") or "json").lower()
+    include_enrichment = str(request.args.get("include_enrichment", "true")).lower() == "true"
+    limit = int(request.args.get("limit", "250"))
+
+    observations = get_community_observations(
+        bbox=bbox,
+        start_date=start_date,
+        end_date=end_date,
+        organization=organization,
+        limit=limit,
+    )
+
+    if include_enrichment:
+        observations = enrich_observations(observations)
+
+    payload_data = to_geojson(observations) if output_format == "geojson" else observations
+    duration = round(time.time() - started, 3)
+
+    return jsonify(
+        {
+            "status": "success",
+            "mode": "rule_based",
+            "processing_mode": "rule_based",
+            "implementation_status": "real_computed",
+            "api_version": API_VERSION,
+            "methodology": "normalized community observation ingestion with optional deterministic AI enrichment",
+            "data_sources": [
+                "community observations (Water Rangers-inspired open monitoring structure)",
+                "optional spectral context when available",
+            ],
+            "confidence_explanation": "Confidence is derived from observation completeness and cross-signal agreement where enrichment is enabled.",
+            "limitations": [
+                "Current module provides integration-ready structured records and deterministic enrichment, not lab-certified validation.",
+                "Live provider sync can be connected later without contract changes.",
+            ],
+            "technical_summary": "Records are normalized to a stable schema and optionally enriched with risk/anomaly metadata for map overlays.",
+            "plain_language_summary": "You can view field monitoring points and, if enabled, an AI-assistance layer highlighting which sites need more attention.",
+            "request": {
+                "bbox": bbox,
+                "start_date": start_date,
+                "end_date": end_date,
+                "organization": organization,
+                "format": output_format,
+                "include_enrichment": include_enrichment,
+                "limit": limit,
+            },
+            "count": len(observations),
+            "data": payload_data,
+            "processing_summary": {
+                "duration_seconds": duration,
+            },
+        }
+    )
+
+
+@app.route("/api/geoai/community-observations/enriched", methods=["GET"])
+def community_observations_enriched():
+    bbox = request.args.get("bbox")
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
+    organization = request.args.get("organization")
+    limit = request.args.get("limit", "250")
+    output_format = request.args.get("format", "json")
+
+    qs = {
+        "bbox": bbox,
+        "start_date": start_date,
+        "end_date": end_date,
+        "organization": organization,
+        "limit": limit,
+        "format": output_format,
+        "include_enrichment": "true",
+    }
+
+    with app.test_request_context(
+        "/api/geoai/community-observations",
+        query_string=qs,
+    ):
+        return community_observations()
 
 
 @app.route("/api/geoai/download-sentinel", methods=["POST"])

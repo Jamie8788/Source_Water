@@ -38,9 +38,19 @@ async function proxyGeoai(res, path, payload) {
   }
 }
 
-async function proxyGeoaiGet(res, path) {
+async function proxyGeoaiGet(res, path, queryParams) {
   try {
-    const resp = await axios.get(`${GEOAI_BASE_URL}${path}`, { timeout: 30000 })
+    const params = new URLSearchParams()
+    if (queryParams && typeof queryParams === 'object') {
+      Object.entries(queryParams).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          params.append(key, String(value))
+        }
+      })
+    }
+    const q = params.toString()
+    const url = `${GEOAI_BASE_URL}${path}${q ? `?${q}` : ''}`
+    const resp = await axios.get(url, { timeout: 30000 })
     return res.status(resp.status).json(resp.data)
   } catch (err) {
     const status = err.response?.status || 500
@@ -202,6 +212,16 @@ router.post('/download-sentinel', async (req, res) => {
 
 router.get('/capabilities', async (_req, res) => {
   return proxyGeoaiGet(res, '/capabilities')
+})
+
+// ─── Community Observations (Water Rangers-inspired layer) ──────
+router.get('/community-observations', async (req, res) => {
+  return proxyGeoaiGet(res, '/api/geoai/community-observations', req.query)
+})
+
+router.get('/community-observations/enriched', async (req, res) => {
+  const query = { ...req.query, include_enrichment: 'true' }
+  return proxyGeoaiGet(res, '/api/geoai/community-observations/enriched', query)
 })
 
 // ─── Health check ─────────────────────────────────────────
