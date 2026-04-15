@@ -142,6 +142,8 @@ async def health():
         "timestamp": datetime.now().isoformat(),
         "files_indexed": len(files_metadata),
         "provider": os.getenv("MODEL_PROVIDER", "gemini"),
+        "gemini_key_present": bool(getattr(ai_service, "gemini_key", "")),
+        "gemini_last_error": getattr(ai_service, "last_gemini_error", ""),
     }
 
 

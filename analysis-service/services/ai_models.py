@@ -14,6 +14,9 @@ Model routing by task:
 """
 import os
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 
 POLLINATIONS_URL = "https://text.pollinations.ai/openai"
 GROQ_URL         = "https://api.groq.com/openai/v1/chat/completions"
@@ -24,8 +27,9 @@ GEMINI_BASE_URL  = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_MODELS = {
     "fast":     os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
     "standard": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-    "pro":      os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro"),
-    "doc":      os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro"),
+    # Default pro/doc to flash so valid keys without Pro access still work.
+    "pro":      os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-flash"),
+    "doc":      os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-flash"),
 }
 
 # Pollinations free models (no key needed)
@@ -62,15 +66,28 @@ class AIModelService:
     def __init__(self):
         self.http_client = httpx.AsyncClient(timeout=90.0)
         self.provider    = os.getenv("MODEL_PROVIDER", "gemini").strip().lower()
-        self.gemini_key  = os.getenv("GEMINI_API_KEY", "")
+        self.gemini_key  = self._read_key("GEMINI_API_KEY")
         self.groq_key    = os.getenv("GROQ_API_KEY", "")
         self.deepseek_key = os.getenv("DEEPSEEK_API_KEY", "")
+        self.last_gemini_error = ""
+
+    def _read_key(self, key_name: str) -> str:
+        # Strip whitespace/quotes so copied keys still authenticate.
+        val = (os.getenv(key_name, "") or "").strip()
+        if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+            val = val[1:-1].strip()
+        return val
 
     # ── Gemini ───────────────────────────────────────────────────────────────
     async def _gemini(self, messages: list, max_tokens: int, model_key: str) -> tuple[str | None, str]:
+        # Re-read key per request so updated env values are picked up after restart.
+        self.gemini_key = self._read_key("GEMINI_API_KEY")
         if not self.gemini_key:
+            self.last_gemini_error = "GEMINI_API_KEY is not set in the running analysis service environment"
             return None, ""
-        model = GEMINI_MODELS[model_key]
+        primary_model = GEMINI_MODELS[model_key]
+        fallback_models = ["gemini-2.5-flash", "gemini-2.0-flash"]
+        model_candidates = [primary_model] + [m for m in fallback_models if m != primary_model]
         # Keep role+content context while mapping to Gemini parts format.
         prompt_lines = []
         for msg in messages:
@@ -80,37 +97,44 @@ class AIModelService:
                 prompt_lines.append(f"{role}: {content}")
         prompt_text = "\n\n".join(prompt_lines)
 
-        try:
-            resp = await self.http_client.post(
-                f"{GEMINI_BASE_URL}/{model}:generateContent",
-                params={"key": self.gemini_key},
-                json={
-                    "contents": [{"parts": [{"text": prompt_text}]}],
-                    "generationConfig": {
-                        "temperature": 0.3,
-                        "maxOutputTokens": max_tokens,
+        for model in model_candidates:
+            try:
+                resp = await self.http_client.post(
+                    f"{GEMINI_BASE_URL}/{model}:generateContent",
+                    params={"key": self.gemini_key},
+                    json={
+                        "contents": [{"parts": [{"text": prompt_text}]}],
+                        "generationConfig": {
+                            "temperature": 0.3,
+                            "maxOutputTokens": max_tokens,
+                        },
                     },
-                },
-                headers={"Content-Type": "application/json"},
-                timeout=45.0,
-            )
-            if resp.status_code == 200:
-                parts = (
-                    resp.json()
-                    .get("candidates", [{}])[0]
-                    .get("content", {})
-                    .get("parts", [])
+                    headers={"Content-Type": "application/json"},
+                    timeout=45.0,
                 )
-                text = "\n".join(
-                    p.get("text", "")
-                    for p in parts
-                    if isinstance(p, dict) and p.get("text")
-                ).strip()
-                if text:
-                    print(f"[AI] Gemini/{model}")
-                    return text, DISPLAY_NAMES.get(model, model)
-        except Exception as e:
-            print(f"[AI] Gemini failed: {e}")
+                if resp.status_code == 200:
+                    parts = (
+                        resp.json()
+                        .get("candidates", [{}])[0]
+                        .get("content", {})
+                        .get("parts", [])
+                    )
+                    text = "\n".join(
+                        p.get("text", "")
+                        for p in parts
+                        if isinstance(p, dict) and p.get("text")
+                    ).strip()
+                    if text:
+                        self.last_gemini_error = ""
+                        print(f"[AI] Gemini/{model}")
+                        return text, DISPLAY_NAMES.get(model, model)
+
+                detail = (resp.text or "")[:240]
+                self.last_gemini_error = f"Gemini HTTP {resp.status_code} on {model}: {detail}"
+                print(f"[AI] Gemini non-200 ({resp.status_code}) on {model}: {detail}")
+            except Exception as e:
+                self.last_gemini_error = f"Gemini exception on {model}: {e}"
+                print(f"[AI] Gemini failed on {model}: {e}")
         return None, ""
 
     # ── Groq ─────────────────────────────────────────────────────────────────
@@ -211,7 +235,8 @@ class AIModelService:
             text, _ = await self._gemini(messages, max_tokens, model_key)
             if text:
                 return text
-            return "Gemini analysis unavailable — check GEMINI_API_KEY and model settings."
+            reason = self.last_gemini_error or "check GEMINI_API_KEY and model settings"
+            return f"Gemini analysis unavailable — {reason}"
 
         # Auto mode: Gemini first, then other providers.
         text, _ = await self._gemini(messages, max_tokens, model_key)
@@ -259,7 +284,8 @@ class AIModelService:
             text, name = await self._gemini(messages, max_tokens, model_key)
             if text:
                 return text, name
-            return "Gemini analysis unavailable — check GEMINI_API_KEY and model settings.", "gemini-unavailable"
+            reason = self.last_gemini_error or "check GEMINI_API_KEY and model settings"
+            return f"Gemini analysis unavailable — {reason}", "gemini-unavailable"
 
         # Auto mode: Gemini first.
         text, name = await self._gemini(messages, max_tokens, model_key)
