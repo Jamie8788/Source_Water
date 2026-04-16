@@ -1,7 +1,10 @@
 import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import WaterMascot from '../mascot/WaterMascot'
+import WaterMascotGLB from '../mascot/WaterMascotGLB'
+import { isGLBMascotEnabled, isGLBTargetPage } from '../../utils/featureFlags'
 import AccessibilityPanel from '../ui/AccessibilityPanel'
 import CMSToolbar from '../cms/CMSToolbar'
 import CMSField from '../cms/CMSField'
@@ -51,6 +54,7 @@ function AmbientBackground() {
 }
 
 export default function Layout({ children }) {
+  const location = useLocation()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem('sw-sidebar-collapsed') === '1'
   )
@@ -58,6 +62,9 @@ export default function Layout({ children }) {
   const [dmOpen, setDmOpen] = useState(false)
   const [dmUserId, setDmUserId] = useState(null)
   const { cmsMode } = useCMS()
+
+  // Feature flag: GLB mascot on target pages only
+  const glbEnabled = isGLBMascotEnabled() && isGLBTargetPage(location.pathname)
 
   const openDM = (userId = null) => { setDmUserId(userId); setDmOpen(true) }
   const closeDM = () => { setDmOpen(false); setDmUserId(null) }
@@ -123,7 +130,7 @@ export default function Layout({ children }) {
         </footer>
       </main>
 
-      <WaterMascot />
+      {glbEnabled ? <WaterMascotGLB /> : <WaterMascot />}
       {a11yOpen && <AccessibilityPanel onClose={() => setA11yOpen(false)} />}
       {dmOpen && <GlobalDMPanel onClose={closeDM} initialUserId={dmUserId} />}
     </div>

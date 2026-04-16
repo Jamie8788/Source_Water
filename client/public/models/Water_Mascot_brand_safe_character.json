@@ -1,0 +1,132 @@
+{
+  "character_name": "Water Mascot",
+  "type": "3D Character",
+  "category": "Mascot",
+  "style": {
+    "render_style": "soft 3D, semi-realistic, stylized",
+    "animation_level": "lightly animated",
+    "visual_language": "friendly, clean, approachable, UI-compatible",
+    "brand_safe_reference_policy": "No direct references to copyrighted brands or studios"
+  },
+  "shape": {
+    "primary_form": "water droplet",
+    "structure": "rounded teardrop with slight asymmetry",
+    "top_tip": "soft curved tip bending slightly forward",
+    "proportions": {
+      "head_body": "single unified volume",
+      "legs": "short and thin",
+      "arms": "short, rounded, soft"
+    }
+  },
+  "surface": {
+    "material": "plush / soft toy",
+    "texture": "dense short fluffy fur",
+    "feel": "soft, tactile, huggable",
+    "variation": "subtle tonal noise across surface"
+  },
+  "color": {
+    "primary": "light blue",
+    "secondary": "slight cyan and soft lavender variations",
+    "cheeks": "soft pink blush"
+  },
+  "face": {
+    "eyes": {
+      "type": "large, glossy, expressive",
+      "shape": "rounded",
+      "color": "deep blue/teal",
+      "details": "strong specular highlights"
+    },
+    "eyelashes": {
+      "style": "long, soft, curved",
+      "density": "moderate"
+    },
+    "mouth": {
+      "type": "small curved smile",
+      "variation": "can open for expressive poses"
+    },
+    "expression_base": "gentle, friendly, emotionally warm"
+  },
+  "identity": {
+    "personality_traits": [
+      "curious",
+      "kind",
+      "playful",
+      "calm",
+      "trustworthy"
+    ],
+    "emotional_tone": "safe, caring, approachable"
+  },
+  "signature_elements": {
+    "birthmark": {
+      "type": "snowflake",
+      "placement": "upper right forehead",
+      "style": "subtle, slightly embedded in fur"
+    }
+  },
+  "limbs": {
+    "arms": {
+      "style": "rounded plush arms",
+      "hands": "soft mitten-like fingers"
+    },
+    "legs": {
+      "style": "short cylindrical",
+      "attachment": "directly under body"
+    }
+  },
+  "outfit": {
+    "boots": {
+      "type": "rain boots",
+      "color": "pink",
+      "material": "rubber matte",
+      "details": "simple rectangular label on front",
+      "socks": "white cuff visible above boots"
+    }
+  },
+  "poses_reference": [
+    "neutral standing open arms",
+    "side view relaxed",
+    "back view",
+    "jumping joyful",
+    "walking forward",
+    "pointing",
+    "welcoming gesture",
+    "explaining gesture"
+  ],
+  "usage": {
+    "contexts": [
+      "UI assistant",
+      "dashboard guide",
+      "chat assistant",
+      "onboarding character",
+      "educational content",
+      "physical merchandise"
+    ],
+    "formats": [
+      "3D render",
+      "plush toy",
+      "animation",
+      "print",
+      "digital interfaces"
+    ]
+  },
+  "lighting": {
+    "style": "soft studio lighting",
+    "shadow": "subtle ground shadow",
+    "background": "clean white or minimal UI"
+  },
+  "prompts": {
+    "base_prompt_brand_safe": "Cute fluffy blue water droplet character with pink rain boots, soft rounded shape, dense short plush fur texture, gentle gradient tones of light blue with subtle cyan and lavender variations, soft pink blush on cheeks. Large expressive glossy eyes with strong highlights, soft curved eyelashes, small friendly smile, emotionally warm and approachable expression. Standing in a neutral, welcoming pose with arms slightly open, relaxed posture, balanced proportions with short cylindrical legs and soft rounded arms. Subtle snowflake birthmark on the upper right forehead, lightly embedded in the fur texture. Soft studio lighting, clean white background, subtle ground shadow. 3D stylized character, high-quality rendering, soft materials, cinematic lighting, designed for emotional connection, clarity, and friendliness, suitable for UI assistant, onboarding, and educational contexts.",
+    "visual_concept_without_brand_names": [
+      "stylized 3D character",
+      "high-quality rendering",
+      "soft materials",
+      "cinematic lighting",
+      "expressive eyes",
+      "emotionally warm"
+    ]
+  },
+  "source_file": {
+    "original_glb_filename": "Water_Mascot.glb",
+    "companion_json_purpose": "Character definition and prompt guide aligned with the GLB asset"
+  }
+}
