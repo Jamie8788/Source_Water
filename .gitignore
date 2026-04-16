@@ -48,3 +48,5 @@ Thumbs.db
 # Logs
 *.log
 uvicorn.log
+# Mascot animation files (Phase 2)
+client/public/mascot-animations/*.mp4
