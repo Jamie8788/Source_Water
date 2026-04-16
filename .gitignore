@@ -48,6 +48,5 @@ Thumbs.db
 # Logs
 *.log
 uvicorn.log
-# Mascot heavy assets — keep out of repo
-client/public/mascot-animations/*.mp4
+# Mascot 3D models — too heavy for web
 client/public/models/*.glb

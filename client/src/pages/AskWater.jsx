@@ -10,7 +10,7 @@
 import { useState, useRef, useEffect, useCallback, Suspense } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Mic, MicOff, Send, Trash2, Volume2, VolumeX, Sparkles, Droplets } from 'lucide-react'
-import NibiMascotImage from '../components/NibiMascotImage'
+import NibiMascotLive from '../components/NibiMascotLive'
 import api from '../utils/api'
 
 // ── Content ───────────────────────────────────────────────────────────────────
@@ -316,7 +316,7 @@ export default function AskWater() {
           style={{position:'absolute',width:380,height:380,borderRadius:'50%',background:`radial-gradient(circle,${glowColor} 0%,transparent 70%)`,pointerEvents:'none',transition:'background .6s'}}/>
 
         <div style={{position:'relative',zIndex:2}}>
-          <NibiMascotImage mood={mood} size={320}/>
+          <NibiMascotLive mood={mood} size={320}/>
         </div>
 
         <AnimatePresence mode="wait">
