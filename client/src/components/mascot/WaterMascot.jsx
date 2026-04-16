@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 import { X, Volume2, VolumeX, MessageCircle, Gamepad2 } from 'lucide-react'
 
-// ── Nibi poses — different images for different states ───────────────────────
+// ── ALL Nibi poses ───────────────────────────────────────────────────────────
 const NIBI_POSES = {
   idle:      '/mascot-images/nibi_idle.webp',
   wave:      '/mascot-images/nibi_wave.webp',
@@ -11,19 +11,43 @@ const NIBI_POSES = {
   happy:     '/mascot-images/nibi_happy.webp',
   confident: '/mascot-images/nibi_confident.webp',
   blush:     '/mascot-images/nibi_blush.webp',
+  labcoat:   '/mascot-images/nibi_labcoat.webp',
+  pointing:  '/mascot-images/nibi_pointing.webp',
+  openarms:  '/mascot-images/nibi_openarms.webp',
+  jumping:   '/mascot-images/nibi_jumping.webp',
+  tablet:    '/mascot-images/nibi_tablet.webp',
+  trophy:    '/mascot-images/nibi_trophy.webp',
+  action:    '/mascot-images/nibi_action.webp',
+  strong:    '/mascot-images/nibi_strong.webp',
+  walking:   '/mascot-images/nibi_walking.webp',
+  love:      '/mascot-images/nibi_love.webp',
+  rainy:     '/mascot-images/nibi_rainy.webp',
+  guide:     '/mascot-images/nibi_guide.webp',
+  pure:      '/mascot-images/nibi_pure.webp',
+  spinning:  '/mascot-images/nibi_spinning.webp',
 }
 
-// ── Page → mascot pose mapping ───────────────────────────────────────────────
-const PAGE_POSE = {
-  '/dashboard':  'confident',
-  '/map':        'thinking',
-  '/social':     'happy',
-  '/quiz':       'confident',
-  '/games':      'happy',
-  '/resources':  'thinking',
-  '/analysis':   'confident',
-  '/alerts':     'thinking',
-  '/weather':    'idle',
+// ── Page → pose sets (cycles through these) ──────────────────────────────────
+const PAGE_POSES = {
+  '/dashboard':  ['confident', 'tablet', 'pointing', 'guide', 'happy'],
+  '/map':        ['thinking', 'pointing', 'labcoat', 'action', 'openarms'],
+  '/social':     ['happy', 'wave', 'love', 'openarms', 'talking'],
+  '/quiz':       ['confident', 'trophy', 'strong', 'jumping', 'action'],
+  '/games':      ['jumping', 'happy', 'spinning', 'action', 'trophy', 'strong'],
+  '/resources':  ['labcoat', 'tablet', 'guide', 'thinking', 'pointing'],
+  '/analysis':   ['labcoat', 'tablet', 'confident', 'thinking', 'guide'],
+  '/alerts':     ['action', 'pointing', 'strong', 'rainy', 'thinking'],
+  '/weather':    ['rainy', 'pure', 'thinking', 'idle', 'walking'],
+}
+const DEFAULT_POSES = ['idle', 'wave', 'happy', 'confident', 'pointing', 'openarms']
+
+// ── Mood videos (chroma-key, same as Ask Water) ─────────────────────────────
+const MOOD_VIDEOS = {
+  idle:     '/mascot-animations/Water_Mascot_Shy-to-Love.mp4',
+  wave:     '/mascot-animations/Water_Mascot_Waving.mp4',
+  thinking: '/mascot-animations/Water_Mascot_Curiosity.mp4',
+  talking:  '/mascot-animations/Water_Mascot_Talking_Assistant.mp4',
+  confident:'/mascot-animations/Water_Mascot_Confident-to-Assistant.mp4',
 }
 
 const PAGE_MESSAGES = {
@@ -234,25 +258,75 @@ export default function WaterMascot() {
   const dragRef = useRef({ dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 })
   const containerRef = useRef(null)
 
-  // Determine pose from state: speaking > bounce > page default > idle
+  const videoCanvasRef = useRef(null)
+  const videoRef = useRef(null)
+  const videoRafRef = useRef(null)
+  const [videoReady, setVideoReady] = useState(false)
+
+  // Determine pose from state: speaking > bounce > page default > cycle
   useEffect(() => {
     if (speaking) { setPose('talking'); return }
     if (bounce) { setPose('wave'); return }
-    setPose(PAGE_POSE[location.pathname] || 'idle')
+    const poses = PAGE_POSES[location.pathname] || DEFAULT_POSES
+    setPose(poses[0])
   }, [speaking, bounce, location.pathname])
 
-  // Random idle pose cycling every 6-10 seconds
+  // Pose cycling — every 3-5 seconds, cycle through page-specific poses
   useEffect(() => {
     if (speaking || bounce) return
-    const basePose = PAGE_POSE[location.pathname] || 'idle'
-    const idlePoses = ['idle', basePose, 'happy', 'confident']
+    const poses = PAGE_POSES[location.pathname] || DEFAULT_POSES
     let idx = 0
     const cycle = setInterval(() => {
-      idx = (idx + 1) % idlePoses.length
-      setPose(idlePoses[idx])
-    }, 6000 + Math.random() * 4000)
+      idx = (idx + 1) % poses.length
+      setPose(poses[idx])
+    }, 3000 + Math.random() * 2000)
     return () => clearInterval(cycle)
   }, [location.pathname, speaking, bounce])
+
+  // Canvas chroma-key video (removes white bg from MP4, like Ask Water)
+  useEffect(() => {
+    const videoKey = speaking ? 'talking' : bounce ? 'wave' : null
+    const videoSrc = videoKey ? MOOD_VIDEOS[videoKey] : null
+    if (!videoSrc || !videoCanvasRef.current) { setVideoReady(false); return }
+
+    const canvas = videoCanvasRef.current
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    const video = document.createElement('video')
+    video.src = videoSrc
+    video.loop = true
+    video.muted = true
+    video.playsInline = true
+    video.crossOrigin = 'anonymous'
+    videoRef.current = video
+
+    const renderFrame = () => {
+      if (video.paused || video.ended) return
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const d = img.data
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i] > 235 && d[i+1] > 235 && d[i+2] > 235) d[i+3] = 0
+        else if (d[i] > 215 && d[i+1] > 215 && d[i+2] > 215) {
+          d[i+3] = Math.round(((255-(d[i]+d[i+1]+d[i+2])/3)/40)*255)
+        }
+      }
+      ctx.putImageData(img, 0, 0)
+      videoRafRef.current = requestAnimationFrame(renderFrame)
+    }
+
+    video.addEventListener('canplay', () => {
+      setVideoReady(true)
+      video.play().catch(() => {})
+    })
+    video.addEventListener('play', renderFrame)
+    video.load()
+
+    return () => {
+      cancelAnimationFrame(videoRafRef.current)
+      video.pause(); video.src = ''; video.load()
+      videoRef.current = null; setVideoReady(false)
+    }
+  }, [speaking, bounce])
 
   // Page message
   useEffect(() => {
@@ -443,7 +517,25 @@ export default function WaterMascot() {
               pointerEvents: 'none',
             }}/>
 
-            {/* Character image — switches pose with crossfade */}
+            {/* Chroma-key video canvas — shows when speaking/waving */}
+            <canvas
+              ref={videoCanvasRef}
+              width={260}
+              height={340}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                position: 'absolute',
+                inset: 0,
+                zIndex: 2,
+                opacity: videoReady ? 1 : 0,
+                transition: 'opacity 0.35s ease',
+                pointerEvents: 'none',
+              }}
+            />
+
+            {/* Static pose image — cycles through all poses, hides when video plays */}
             <img
               key={pose}
               src={NIBI_POSES[pose] || NIBI_POSES.idle}
@@ -457,6 +549,7 @@ export default function WaterMascot() {
                 userSelect: 'none',
                 position: 'relative',
                 zIndex: 1,
+                opacity: videoReady ? 0 : 1,
                 animation: 'mascotFloat 3s ease-in-out infinite, mascotFadeIn 0.35s ease-out',
                 filter: bounce
                   ? 'drop-shadow(0 0 16px rgba(56,189,248,0.7))'
@@ -464,7 +557,7 @@ export default function WaterMascot() {
                     ? 'drop-shadow(0 0 10px rgba(52,211,153,0.5))'
                     : 'drop-shadow(0 4px 12px rgba(0,0,0,0.35))',
                 transform: bounce ? 'scale(1.12) translateY(-10px)' : undefined,
-                transition: 'filter 0.3s ease, transform 0.2s cubic-bezier(0.34,1.8,0.64,1)',
+                transition: 'filter 0.3s ease, transform 0.2s cubic-bezier(0.34,1.8,0.64,1), opacity 0.35s ease',
               }}
             />
 
@@ -480,7 +573,7 @@ export default function WaterMascot() {
                 animation: `ping ${0.8 + i * 0.2}s ease-out infinite`,
                 animationDelay: `${i * 0.15}s`,
                 pointerEvents: 'none',
-                zIndex: 0,
+                zIndex: 3,
               }}/>
             ))}
 
