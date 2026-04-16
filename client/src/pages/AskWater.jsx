@@ -317,7 +317,7 @@ export default function AskWater() {
 
         <div style={{position:'relative',zIndex:2}}>
           <Suspense fallback={<div style={{width:320,height:430,display:'flex',alignItems:'center',justifyContent:'center',color:'#6366f1',fontSize:13}}>Loading Nibi…</div>}>
-            <NibiMascot3D mood={mood} size={320} orbitControls={false}/>
+            <NibiMascot3D mood={mood} size={320} orbitControls={false} modelPath="/models/blue droplet character 3d model.glb"/>
           </Suspense>
         </div>
 

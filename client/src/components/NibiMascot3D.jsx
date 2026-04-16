@@ -4,7 +4,7 @@
  * 8 moods with smooth animations. Drag to rotate.
  */
 import { Canvas, useFrame } from '@react-three/fiber'
-import { Float, ContactShadows, Environment, OrbitControls } from '@react-three/drei'
+import { Float, ContactShadows, Environment, OrbitControls, useGLTF } from '@react-three/drei'
 import { useRef, useState, useEffect, useMemo, Suspense } from 'react'
 import * as THREE from 'three'
 
@@ -405,10 +405,55 @@ const floatConfig = {
   surprised: { speed: 5,   rotationIntensity: 0.4,  floatIntensity: 1.5 },
 }
 
+function MascotGLB({ mood, modelPath }) {
+  const groupRef = useRef(null)
+  const { scene } = useGLTF(modelPath)
+
+  const clonedScene = useMemo(() => {
+    const clone = scene.clone(true)
+    clone.traverse((obj) => {
+      if (obj.isMesh) {
+        obj.castShadow = true
+        obj.receiveShadow = true
+      }
+    })
+    return clone
+  }, [scene])
+
+  useFrame(({ clock }) => {
+    if (!groupRef.current) return
+    const t = clock.elapsedTime
+
+    if (mood === 'wave') {
+      groupRef.current.rotation.y = Math.sin(t * 1.8) * 0.28
+      groupRef.current.rotation.z = Math.sin(t * 3.6) * 0.06
+    } else if (mood === 'thinking') {
+      groupRef.current.rotation.y = Math.sin(t * 1.0) * 0.12
+      groupRef.current.rotation.z = Math.sin(t * 1.2) * 0.03
+    } else if (mood === 'speaking' || mood === 'happy' || mood === 'laugh') {
+      groupRef.current.rotation.y = Math.sin(t * 2.4) * 0.16
+      groupRef.current.rotation.z = Math.sin(t * 2.8) * 0.04
+      const s = 1 + Math.sin(t * 3.2) * 0.02
+      groupRef.current.scale.set(s, s, s)
+    } else {
+      groupRef.current.rotation.y = THREE.MathUtils.lerp(groupRef.current.rotation.y, 0, 0.08)
+      groupRef.current.rotation.z = THREE.MathUtils.lerp(groupRef.current.rotation.z, 0, 0.08)
+      groupRef.current.scale.lerp(new THREE.Vector3(1, 1, 1), 0.08)
+    }
+  })
+
+  return (
+    <group ref={groupRef} position={[0, -1.05, 0]} scale={[1.75, 1.75, 1.75]}>
+      <primitive object={clonedScene} />
+    </group>
+  )
+}
+
 // ── Public component ──────────────────────────────────────────────────────────
 export default function NibiMascot3D({
   mood = 'idle',
   size = 260,
+  modelPath = null,
   orbitControls = true,
   style = {},
   onClick,
@@ -438,7 +483,7 @@ export default function NibiMascot3D({
         <Suspense fallback={null}>
           <Environment preset="studio"/>
           <Float {...fp}>
-            <NibiCharacter mood={mood}/>
+            {modelPath ? <MascotGLB mood={mood} modelPath={modelPath}/> : <NibiCharacter mood={mood}/>} 
           </Float>
         </Suspense>
 
