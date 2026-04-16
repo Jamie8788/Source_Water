@@ -405,7 +405,7 @@ const floatConfig = {
   surprised: { speed: 5,   rotationIntensity: 0.4,  floatIntensity: 1.5 },
 }
 
-function MascotGLB({ mood, modelPath }) {
+function MascotGLB({ mood, modelPath, modelScale = 2.6, modelRotationY = -Math.PI / 2, modelYOffset = -1.05 }) {
   const groupRef = useRef(null)
   const { scene } = useGLTF(modelPath)
 
@@ -443,7 +443,7 @@ function MascotGLB({ mood, modelPath }) {
   })
 
   return (
-    <group ref={groupRef} position={[0, -1.05, 0]} scale={[1.75, 1.75, 1.75]}>
+    <group ref={groupRef} position={[0, modelYOffset, 0]} rotation={[0, modelRotationY, 0]} scale={[modelScale, modelScale, modelScale]}>
       <primitive object={clonedScene} />
     </group>
   )
@@ -454,6 +454,9 @@ export default function NibiMascot3D({
   mood = 'idle',
   size = 260,
   modelPath = null,
+  modelScale = 2.6,
+  modelRotationY = -Math.PI / 2,
+  modelYOffset = -1.05,
   orbitControls = true,
   style = {},
   onClick,
@@ -483,7 +486,7 @@ export default function NibiMascot3D({
         <Suspense fallback={null}>
           <Environment preset="studio"/>
           <Float {...fp}>
-            {modelPath ? <MascotGLB mood={mood} modelPath={modelPath}/> : <NibiCharacter mood={mood}/>} 
+            {modelPath ? <MascotGLB mood={mood} modelPath={modelPath} modelScale={modelScale} modelRotationY={modelRotationY} modelYOffset={modelYOffset}/> : <NibiCharacter mood={mood}/>} 
           </Float>
         </Suspense>
 
