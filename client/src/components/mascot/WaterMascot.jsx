@@ -267,14 +267,16 @@ export default function WaterMascot() {
     if (!ttsEnabled || !window.speechSynthesis) return
     window.speechSynthesis.cancel()
     const utt = new SpeechSynthesisUtterance(text)
-    utt.rate = 0.88; utt.pitch = 1.25; utt.volume = 0.85
+    utt.rate = 1.05; utt.pitch = 1.8; utt.volume = 0.9
     const voices = window.speechSynthesis.getVoices()
-    const femaleVoice = voices.find(v =>
-      v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Victoria') ||
-      v.name.includes('Zira') || v.name.includes('Hazel') || v.name.includes('female') ||
-      (v.name.includes('Google') && v.name.includes('US'))
-    ) || voices.find(v => v.lang === 'en-US' || v.lang === 'en-CA')
-    if (femaleVoice) utt.voice = femaleVoice
+    // Prefer kid/young female voices: Ana (Edge), Samantha (Mac), Zira (Win)
+    const kidVoice = voices.find(v => /\bana\b/i.test(v.name))
+      || voices.find(v => /samantha|victoria/i.test(v.name))
+      || voices.find(v => /zira|hazel/i.test(v.name))
+      || voices.find(v => v.name.includes('Google') && v.name.includes('US') && /female/i.test(v.name))
+      || voices.find(v => v.lang?.startsWith('en') && /female/i.test(v.name))
+      || voices.find(v => v.lang === 'en-US' || v.lang === 'en-CA')
+    if (kidVoice) utt.voice = kidVoice
     utt.onstart = () => setSpeaking(true)
     utt.onend = () => setSpeaking(false)
     synthRef.current = utt

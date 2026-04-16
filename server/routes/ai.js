@@ -3,37 +3,21 @@ const db = require('../db/connection')
 const { requireAuth } = require('../middleware/auth')
 const crypto = require('crypto')
 
-// ── Microsoft Edge TTS (free, no API key, neural child voice) ─────────────────
-// Uses the same TTS engine as the Edge browser internally.
-// Voice: en-US-AnaNeural = natural young female, sounds like a kid/teenager.
+// ── Microsoft Edge TTS (free, no API key, neural kid voice) ─────────────────
+// Voice: en-US-AnaNeural = cute young girl voice, perfect for Nibi mascot
+const { MsEdgeTTS, OUTPUT_FORMAT } = require('msedge-tts')
+
 async function edgeTTS(text) {
-  const WS = typeof WebSocket !== 'undefined' ? WebSocket : require('ws')
-  const voice = 'en-US-AnaNeural'
-  const url = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&ConnectionId=${crypto.randomUUID().replace(/-/g,'')}`
+  const tts = new MsEdgeTTS()
+  await tts.setMetadata('en-US-AnaNeural', OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3)
+  const { audioStream } = await tts.toStream(text)
   return new Promise((resolve, reject) => {
-    const ws = new WS(url)
-    ws.binaryType = 'arraybuffer'
     const chunks = []
-    const timer = setTimeout(() => { ws.close(); reject(new Error('timeout')) }, 14000)
-    ws.addEventListener('open', () => {
-      const ts = new Date().toISOString()
-      ws.send(`X-Timestamp:${ts}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n` + JSON.stringify({ context: { synthesis: { audio: { metadataoptions: { sentenceBoundaryEnabled: 'false', wordBoundaryEnabled: 'false' }, outputFormat: 'audio-24khz-48kbitrate-mono-mp3' } } } }))
-      const safe = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-      ws.send(`X-RequestId:${crypto.randomUUID().replace(/-/g,'')}\r\nX-Timestamp:${ts}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'><voice name='${voice}'>${safe}</voice></speak>`)
-    })
-    ws.addEventListener('message', ev => {
-      if (ev.data instanceof ArrayBuffer) {
-        const buf = Buffer.from(ev.data)
-        const sep = Buffer.from('Path:audio\r\n')
-        const i = buf.indexOf(sep)
-        if (i !== -1) chunks.push(buf.subarray(i + sep.length))
-      } else if (typeof ev.data === 'string' && ev.data.includes('Path:turn.end')) {
-        clearTimeout(timer); ws.close()
-        chunks.length ? resolve(Buffer.concat(chunks)) : reject(new Error('no audio'))
-      }
-    })
-    ws.addEventListener('error', e => { clearTimeout(timer); reject(e) })
-    ws.addEventListener('close', () => clearTimeout(timer))
+    audioStream.on('data', c => chunks.push(c))
+    audioStream.on('end', () => resolve(Buffer.concat(chunks)))
+    audioStream.on('error', reject)
+    // Safety timeout
+    setTimeout(() => reject(new Error('tts timeout')), 15000)
   })
 }
 
@@ -98,23 +82,25 @@ async function callAI(messages) {
   return null
 }
 
-// POST /api/ai/tts — Text-to-speech proxy (free, no API key, scales to 10k users)
-// Primary: Microsoft Edge TTS (en-US-AnaNeural — young female neural voice, no key, unlimited)
-// Fallback: StreamElements → Amazon Polly "Ivy" (child voice, free)
-// Final fallback: tells client to use browser TTS
+// POST /api/ai/tts — Text-to-speech proxy (free, no API key)
+// Voice: en-US-AnaNeural = cute kid girl voice for Nibi mascot
+// Fallback chain: edge-tts pkg → raw WebSocket → browser TTS
 router.post('/tts', async (req, res) => {
   const { text } = req.body
   if (!text?.trim()) return res.status(400).json({ error: 'text required' })
   const clean = text.replace(/[*_`#[\]()\u200B-\uFEFF]/g, '').replace(/https?:\/\/\S+/g, '').trim().slice(0, 500)
 
-  // ── 1. Microsoft Edge TTS (en-US-AnaNeural — real neural child/teen voice) ──
+  // ── 1. msedge-tts (en-US-AnaNeural — cute kid girl voice, free) ──
   try {
     const buf = await edgeTTS(clean)
-    res.set({ 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' })
-    return res.send(buf)
-  } catch (e) { console.log('[TTS] Edge failed:', e.message) }
+    if (buf && buf.length > 100) {
+      console.log(`[TTS] AnaNeural OK (${buf.length} bytes)`)
+      res.set({ 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' })
+      return res.send(buf)
+    }
+  } catch (e) { console.log('[TTS] Edge TTS failed:', e.message) }
 
-  // ── 2. StreamElements → Amazon Polly Ivy (child voice, free, no key needed) ──
+  // ── 2. StreamElements Ivy (child voice, may require auth now) ──
   try {
     const ctrl = new AbortController()
     setTimeout(() => ctrl.abort(), 8000)
@@ -124,13 +110,16 @@ router.post('/tts', async (req, res) => {
     )
     if (r.ok) {
       const buf = await r.arrayBuffer()
-      res.set({ 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' })
-      return res.send(Buffer.from(buf))
+      if (buf.byteLength > 100) {
+        console.log(`[TTS] StreamElements Ivy OK (${buf.byteLength} bytes)`)
+        res.set({ 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' })
+        return res.send(Buffer.from(buf))
+      }
     }
     console.log('[TTS] StreamElements status:', r.status)
   } catch (e) { console.log('[TTS] StreamElements error:', e.message) }
 
-  // ── 3. Tell client to fall back to browser TTS ────────────────────────────────
+  // ── 4. Tell client to use browser TTS (kid voice settings) ──
   res.status(503).json({ error: 'tts_unavailable' })
 })
 
