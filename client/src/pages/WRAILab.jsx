@@ -16,7 +16,7 @@ import {
   Loader, BarChart2,
 } from 'lucide-react'
 import { getObservations } from '../api/waterRangers'
-import { askAI } from '../utils/openrouter'
+import api from '../utils/api'
 
 // WHO thresholds
 const WHO = {
@@ -111,15 +111,14 @@ function ResearchAI({ context }) {
     setMessages(prev => [...prev, { role: 'user', content: q }])
     setLoading(true)
     try {
-      const sys = `You are a senior water quality research scientist. You have this dataset from Water Rangers:\n\n${context}\n\nProvide rigorous scientific analysis. When asked for paper sections, use proper academic formatting. Cite specific data points. Be precise and quantitative. Format output in markdown.`
-      const reply = await askAI([
-        { role: 'system', content: sys },
-        ...messages.slice(-10),
-        { role: 'user', content: q },
-      ])
-      setMessages(prev => [...prev, { role: 'assistant', content: reply }])
+      // Calls the WR Agent — fetches REAL data from Water Rangers, then sends to Gemini
+      const { data } = await api.post('/wr/agent', { question: q, pages: 3 })
+      const grounding = data.grounding
+      const footer = `\n\n---\n*Grounded in ${grounding.observations} observations, ${grounding.locations} locations, ${grounding.anomalies} anomalies, ${grounding.totalReadings} readings — fetched live from Water Rangers*`
+      setMessages(prev => [...prev, { role: 'assistant', content: data.answer + footer }])
     } catch (e) {
-      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${e.message}. Make sure OPENROUTER_API_KEY is set on the server.` }])
+      const msg = e.response?.data?.error || e.message
+      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${msg}` }])
     }
     setLoading(false)
   }
@@ -155,7 +154,7 @@ function ResearchAI({ context }) {
               color: 'var(--text)', fontSize: 12, lineHeight: 1.7, whiteSpace: 'pre-wrap',
             }}>{m.content}</div>
           ))}
-          {loading && <div style={{ color: 'var(--text-muted)', fontSize: 11 }}><Loader size={12} className="animate-spin" /> Analyzing...</div>}
+          {loading && <div style={{ color: 'var(--text-muted)', fontSize: 11 }}><Loader size={12} className="animate-spin" /> Fetching live Water Rangers data → analyzing → generating response...</div>}
           <div ref={bottomRef} />
         </div>
         <div style={{ padding: 8, borderTop: '1px solid var(--border)', display: 'flex', gap: 6 }}>
