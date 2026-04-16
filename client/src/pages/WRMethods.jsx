@@ -8,10 +8,10 @@
  */
 import { useState, useEffect } from 'react'
 import {
-  Shield, Beaker, CheckCircle, AlertTriangle, Info,
-  ExternalLink, BookOpen, Award, Microscope, Gauge,
+  Shield, Beaker, CheckCircle,
+  ExternalLink, BookOpen, Gauge,
 } from 'lucide-react'
-import { getDatasets, getDatasetForm, isConfigured, QA_STATUS } from '../api/waterRangers'
+import { getDatasets, QA_STATUS } from '../api/waterRangers'
 
 // ── Standard water quality parameters ────────────────────────────────────────
 const PARAMETERS = [
@@ -61,7 +61,7 @@ export default function WRMethods() {
   const [dsLoading, setDsLoading] = useState(false)
 
   useEffect(() => {
-    if (!isConfigured()) return
+    // API key is server-side
     setDsLoading(true)
     getDatasets({ page: 1, perPage: 20 })
       .then(r => setDatasets(r.items || []))

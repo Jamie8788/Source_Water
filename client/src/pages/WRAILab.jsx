@@ -8,11 +8,10 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Brain, Zap, TrendingUp, AlertTriangle, FileText, Send,
-  RefreshCw, Download, BarChart2, Activity, Loader, Beaker,
-  Sparkles, ChevronRight, Database,
+  Brain, TrendingUp, AlertTriangle, Send,
+  RefreshCw, Download, Loader,
 } from 'lucide-react'
-import { getObservations, getDatasets, getLocations, isConfigured } from '../api/waterRangers'
+import { getObservations } from '../api/waterRangers'
 import { askAI } from '../utils/openrouter'
 
 // ── WHO Water Quality Thresholds ─────────────────────────────────────────────
@@ -172,7 +171,7 @@ export default function WRAILab() {
   const [tab, setTab] = useState('anomalies')
 
   const load = useCallback(async () => {
-    if (!isConfigured()) { setError('API key not configured'); setLoading(false); return }
+    // API key is server-side
     setLoading(true); setError(null)
     try {
       const result = await getObservations({ page: 1, perPage: 100 })

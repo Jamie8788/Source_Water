@@ -1,47 +1,36 @@
 /**
- * Water Rangers API v2.0 Service
- * Real data from https://data.waterrangers.com
- * Docs: https://data.waterrangers.com/api
- *
- * Endpoints: locations, observations, datasets, organizations, forms, POIs
- * Auth: api_key query param on all requests
- * Pagination: page + per_page (max 100)
- * Photos: signed URLs, expire in 7 days
+ * Water Rangers API Client
+ * Calls through backend proxy at /api/wr/* to avoid CORS
+ * Server-side: WATERRANGERS_API_KEY env var
  */
+import api from '../utils/api'
 
-const API_KEY = import.meta.env.VITE_WATERRANGERS_API_KEY
-const BASE = 'https://data.waterrangers.com'
-
-// In-memory cache with TTL
+// In-memory cache with 5 min TTL
 const cache = new Map()
-const CACHE_TTL = 5 * 60 * 1000
+const TTL = 5 * 60 * 1000
 
 function getCached(key) {
   const entry = cache.get(key)
   if (!entry) return null
-  if (Date.now() - entry.ts > CACHE_TTL) { cache.delete(key); return null }
+  if (Date.now() - entry.ts > TTL) { cache.delete(key); return null }
   return entry.data
 }
-function setCache(key, data) { cache.set(key, { data, ts: Date.now() }) }
 
-async function apiFetch(endpoint, params = {}) {
-  if (!API_KEY) throw new Error('Water Rangers API key not configured. Set VITE_WATERRANGERS_API_KEY in .env.local')
-  const url = new URL(`${BASE}${endpoint}`)
-  url.searchParams.set('api_key', API_KEY)
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v)
-  })
-  const cacheKey = url.toString()
+async function wrGet(path, params = {}) {
+  // Build cache key from path + params
+  const cacheKey = path + JSON.stringify(params)
   const cached = getCached(cacheKey)
   if (cached) return cached
 
-  const res = await fetch(url.toString())
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`Water Rangers API ${res.status}: ${text || res.statusText}`)
-  }
-  const data = await res.json()
-  setCache(cacheKey, data)
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') query.set(k, v)
+  })
+  const qs = query.toString()
+  const url = `/wr${path}${qs ? '?' + qs : ''}`
+
+  const { data } = await api.get(url)
+  cache.set(cacheKey, { data, ts: Date.now() })
   return data
 }
 
@@ -56,15 +45,13 @@ function norm(data, key) {
 // ── Locations ────────────────────────────────────────────────────────────────
 export async function getLocations(opts = {}) {
   const { page = 1, perPage = 100, country, ...rest } = opts
-  const params = { page, per_page: perPage, ...rest }
-  if (country) params.country = country
-  const data = await apiFetch('/locations.json', params)
+  const data = await wrGet('/locations', { page, per_page: perPage, country, ...rest })
   return { raw: data, items: norm(data, 'locations'), page }
 }
 
-export const getLocation = (id) => apiFetch(`/locations/${id}.json`)
+export const getLocation = (id) => wrGet(`/locations/${id}`)
 export const getLocationObservations = (id, opts = {}) =>
-  apiFetch(`/locations/${id}/observations.json`, { page: opts.page || 1, per_page: opts.perPage || 50 })
+  wrGet(`/locations/${id}/observations`, { page: opts.page || 1, per_page: opts.perPage || 50 })
 
 // ── Observations ─────────────────────────────────────────────────────────────
 export async function getObservations(opts = {}) {
@@ -72,46 +59,45 @@ export async function getObservations(opts = {}) {
   const params = { page, per_page: perPage, ...rest }
   if (locationId) params.location_id = locationId
   if (datasetId) params.dataset_id = datasetId
-  const data = await apiFetch('/observations.json', params)
+  const data = await wrGet('/observations', params)
   return { raw: data, items: norm(data, 'observations'), page }
 }
 
-export const getObservation = (id) => apiFetch(`/observations/${id}.json`)
+export const getObservation = (id) => wrGet(`/observations/${id}`)
 
 // ── Datasets ─────────────────────────────────────────────────────────────────
 export async function getDatasets(opts = {}) {
   const { page = 1, perPage = 50, ...rest } = opts
-  const data = await apiFetch('/datasets.json', { page, per_page: perPage, ...rest })
+  const data = await wrGet('/datasets', { page, per_page: perPage, ...rest })
   return { raw: data, items: norm(data, 'datasets'), page }
 }
 
-export const getDataset = (id) => apiFetch(`/datasets/${id}.json`)
-export const getDatasetLocations = (id) => apiFetch(`/datasets/${id}/locations.json`)
+export const getDataset = (id) => wrGet(`/datasets/${id}`)
+export const getDatasetLocations = (id) => wrGet(`/datasets/${id}/locations`)
 export const getDatasetObservations = (id, opts = {}) =>
-  apiFetch(`/datasets/${id}/observations.json`, { page: opts.page || 1, per_page: opts.perPage || 50 })
-export const getDatasetForm = (id) => apiFetch(`/datasets/${id}/form.json`)
+  wrGet(`/datasets/${id}/observations`, { page: opts.page || 1, per_page: opts.perPage || 50 })
+export const getDatasetForm = (id) => wrGet(`/datasets/${id}/form`)
 
 // ── Organizations ────────────────────────────────────────────────────────────
 export async function getOrganizations(opts = {}) {
   const { page = 1, perPage = 50 } = opts
-  const data = await apiFetch('/organizations.json', { page, per_page: perPage })
+  const data = await wrGet('/organizations', { page, per_page: perPage })
   return { raw: data, items: norm(data, 'organizations'), page }
 }
 
-export const getOrganization = (id) => apiFetch(`/organizations/${id}.json`)
+export const getOrganization = (id) => wrGet(`/organizations/${id}`)
 
 // ── Points of Interest ───────────────────────────────────────────────────────
 export async function getPOIs(opts = {}) {
   const { page = 1, perPage = 50 } = opts
-  const data = await apiFetch('/poi.json', { page, per_page: perPage })
+  const data = await wrGet('/poi', { page, per_page: perPage })
   return { raw: data, items: norm(data, 'poi'), page }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-export const isConfigured = () => !!API_KEY
+export const isConfigured = () => true  // Key is server-side now
 export const clearCache = () => cache.clear()
 
-// QA status labels
 export const QA_STATUS = {
   raw: { label: 'Raw', color: '#94a3b8', desc: 'Unreviewed data' },
   reviewed: { label: 'Reviewed', color: '#f59e0b', desc: 'Initial review done' },
@@ -124,6 +110,5 @@ export default {
   getObservations, getObservation,
   getDatasets, getDataset, getDatasetLocations, getDatasetObservations, getDatasetForm,
   getOrganizations, getOrganization,
-  getPOIs,
-  isConfigured, clearCache, QA_STATUS,
+  getPOIs, isConfigured, clearCache, QA_STATUS,
 }

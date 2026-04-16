@@ -3,8 +3,8 @@
  * Real locations from Water Rangers API with site details, parameters, status
  */
 import { useState, useEffect, useCallback } from 'react'
-import { MapPin, Layers, RefreshCw, AlertTriangle, ChevronRight, X, Droplets, Activity, Camera, Beaker } from 'lucide-react'
-import { getLocations, isConfigured } from '../api/waterRangers'
+import { MapPin, RefreshCw, AlertTriangle, X, Droplets, Activity, Camera, Beaker } from 'lucide-react'
+import { getLocations } from '../api/waterRangers'
 
 function StatusBadge({ active }) {
   return (
@@ -163,7 +163,7 @@ export default function WRMonitoringMap() {
   const [search, setSearch] = useState('')
 
   const load = useCallback(async () => {
-    if (!isConfigured()) { setError('API key not configured. Add VITE_WATERRANGERS_API_KEY to .env.local'); setLoading(false); return }
+    // API key is server-side — just fetch
     setLoading(true); setError(null)
     try {
       const data = await getLocations({ page, perPage: 100 })

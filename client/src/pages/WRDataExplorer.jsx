@@ -7,11 +7,11 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Database, Eye, Beaker, Shield, Calendar, MapPin, ChevronDown,
-  RefreshCw, AlertTriangle, Search, Filter, ExternalLink, Camera,
-  Building2, FileText, CheckCircle, XCircle, Clock, ChevronRight,
+  Database, Eye, Calendar, MapPin,
+  RefreshCw, AlertTriangle, Search, ExternalLink, Camera,
+  Building2,
 } from 'lucide-react'
-import { getObservations, getDatasets, getOrganizations, getDatasetForm, isConfigured, QA_STATUS } from '../api/waterRangers'
+import { getObservations, getDatasets, getOrganizations, QA_STATUS } from '../api/waterRangers'
 
 const TABS = [
   { id: 'observations', label: 'Observations', icon: Eye, color: '#6366f1' },
@@ -233,7 +233,7 @@ export default function WRDataExplorer() {
   const [selected, setSelected] = useState(null)
 
   const load = useCallback(async () => {
-    if (!isConfigured()) { setError('API key not configured. Add VITE_WATERRANGERS_API_KEY to .env.local'); setLoading(false); return }
+    // API key is server-side
     setLoading(true); setError(null)
     try {
       let result
