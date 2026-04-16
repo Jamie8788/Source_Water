@@ -41,13 +41,19 @@ const PAGE_POSES = {
 }
 const DEFAULT_POSES = ['idle', 'wave', 'happy', 'confident', 'pointing', 'openarms']
 
-// ── Mood videos (chroma-key, same as Ask Water) ─────────────────────────────
-const MOOD_VIDEOS = {
-  idle:     '/mascot-animations/Water_Mascot_Shy-to-Love.mp4',
-  wave:     '/mascot-animations/Water_Mascot_Waving.mp4',
-  thinking: '/mascot-animations/Water_Mascot_Curiosity.mp4',
+// ── Videos (chroma-key, same as Ask Water) ──────────────────────────────────
+const ALL_VIDEOS = [
+  '/mascot-animations/Water_Mascot_Shy-to-Love.mp4',
+  '/mascot-animations/Water_Mascot_Waving.mp4',
+  '/mascot-animations/Water_Mascot_Curiosity.mp4',
+  '/mascot-animations/Water_Mascot_Talking_Assistant.mp4',
+  '/mascot-animations/Water_Mascot_Confident-to-Assistant.mp4',
+  '/mascot-animations/Water_Mascot_Lab-Coat_Tube.mp4',
+  '/mascot-animations/Water_Mascot_Tablet.mp4',
+]
+const STATE_VIDEO = {
   talking:  '/mascot-animations/Water_Mascot_Talking_Assistant.mp4',
-  confident:'/mascot-animations/Water_Mascot_Confident-to-Assistant.mp4',
+  wave:     '/mascot-animations/Water_Mascot_Waving.mp4',
 }
 
 const PAGE_MESSAGES = {
@@ -283,20 +289,28 @@ export default function WaterMascot() {
     return () => clearInterval(cycle)
   }, [location.pathname, speaking, bounce])
 
-  // Canvas chroma-key video (removes white bg from MP4, like Ask Water)
+  // Video index for cycling through all animations
+  const videoIdxRef = useRef(0)
+
+  // Canvas chroma-key video — plays ALWAYS, cycles through all videos
   useEffect(() => {
-    const videoKey = speaking ? 'talking' : bounce ? 'wave' : null
-    const videoSrc = videoKey ? MOOD_VIDEOS[videoKey] : null
-    if (!videoSrc || !videoCanvasRef.current) { setVideoReady(false); return }
+    if (!videoCanvasRef.current) return
+
+    // Pick video: state-specific when speaking/bouncing, otherwise cycle all
+    const src = speaking ? STATE_VIDEO.talking
+      : bounce ? STATE_VIDEO.wave
+      : ALL_VIDEOS[videoIdxRef.current % ALL_VIDEOS.length]
 
     const canvas = videoCanvasRef.current
     const ctx = canvas.getContext('2d', { willReadFrequently: true })
     const video = document.createElement('video')
-    video.src = videoSrc
-    video.loop = true
+    video.src = src
     video.muted = true
     video.playsInline = true
     video.crossOrigin = 'anonymous'
+    video.preload = 'auto'
+    // Don't loop — when video ends, switch to next one
+    video.loop = !!(speaking || bounce)
     videoRef.current = video
 
     const renderFrame = () => {
@@ -319,6 +333,12 @@ export default function WaterMascot() {
       video.play().catch(() => {})
     })
     video.addEventListener('play', renderFrame)
+    // When video ends (non-looping idle), advance to next video
+    video.addEventListener('ended', () => {
+      videoIdxRef.current = (videoIdxRef.current + 1) % ALL_VIDEOS.length
+      video.src = ALL_VIDEOS[videoIdxRef.current]
+      video.load()
+    })
     video.load()
 
     return () => {
