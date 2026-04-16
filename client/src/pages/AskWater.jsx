@@ -316,9 +316,7 @@ export default function AskWater() {
           style={{position:'absolute',width:380,height:380,borderRadius:'50%',background:`radial-gradient(circle,${glowColor} 0%,transparent 70%)`,pointerEvents:'none',transition:'background .6s'}}/>
 
         <div style={{position:'relative',zIndex:2}}>
-          <Suspense fallback={<div style={{width:320,height:430,display:'flex',alignItems:'center',justifyContent:'center',color:'#6366f1',fontSize:13}}>Loading Nibi…</div>}>
-            <NibiMascotVideo mood={mood} size={320}/>
-          </Suspense>
+          <NibiMascotVideo mood={mood} size={320}/>
         </div>
 
         <AnimatePresence mode="wait">
