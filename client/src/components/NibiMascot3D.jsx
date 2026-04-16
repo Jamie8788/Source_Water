@@ -423,23 +423,26 @@ function MascotGLB({ mood, modelPath, modelScale = 2.6, modelRotationY = -Math.P
   useFrame(({ clock }) => {
     if (!groupRef.current) return
     const t = clock.elapsedTime
+    const targetScale = mood === 'speaking' || mood === 'happy' || mood === 'laugh'
+      ? modelScale * (1 + Math.sin(t * 3.2) * 0.02)
+      : modelScale
 
     if (mood === 'wave') {
-      groupRef.current.rotation.y = Math.sin(t * 1.8) * 0.28
+      groupRef.current.rotation.y = modelRotationY + Math.sin(t * 1.8) * 0.28
       groupRef.current.rotation.z = Math.sin(t * 3.6) * 0.06
     } else if (mood === 'thinking') {
-      groupRef.current.rotation.y = Math.sin(t * 1.0) * 0.12
+      groupRef.current.rotation.y = modelRotationY + Math.sin(t * 1.0) * 0.12
       groupRef.current.rotation.z = Math.sin(t * 1.2) * 0.03
     } else if (mood === 'speaking' || mood === 'happy' || mood === 'laugh') {
-      groupRef.current.rotation.y = Math.sin(t * 2.4) * 0.16
+      groupRef.current.rotation.y = modelRotationY + Math.sin(t * 2.4) * 0.16
       groupRef.current.rotation.z = Math.sin(t * 2.8) * 0.04
-      const s = 1 + Math.sin(t * 3.2) * 0.02
-      groupRef.current.scale.set(s, s, s)
     } else {
-      groupRef.current.rotation.y = THREE.MathUtils.lerp(groupRef.current.rotation.y, 0, 0.08)
+      groupRef.current.rotation.y = THREE.MathUtils.lerp(groupRef.current.rotation.y, modelRotationY, 0.08)
       groupRef.current.rotation.z = THREE.MathUtils.lerp(groupRef.current.rotation.z, 0, 0.08)
-      groupRef.current.scale.lerp(new THREE.Vector3(1, 1, 1), 0.08)
     }
+
+    const nextScale = THREE.MathUtils.lerp(groupRef.current.scale.x, targetScale, 0.12)
+    groupRef.current.scale.set(nextScale, nextScale, nextScale)
   })
 
   return (
