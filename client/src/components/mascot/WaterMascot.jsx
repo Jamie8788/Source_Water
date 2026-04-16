@@ -329,9 +329,9 @@ export default function WaterMascot() {
   if (minimized) {
     return (
       <button onClick={() => setMinimized(false)}
-        className="fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-transform"
+        className="fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-transform overflow-hidden"
         style={{ background: 'linear-gradient(135deg, #38bdf8, #14b8a6)', transform: `scale(${bs})` }}>
-        <span className="text-3xl">💧</span>
+        <img src="/mascot-images/nibi_idle.webp" alt="Nibi" style={{ width: 48, height: 48, objectFit: 'contain' }} />
       </button>
     )
   }
@@ -392,72 +392,57 @@ export default function WaterMascot() {
             </button>
           </div>
 
-          {/* SVG mascot — drag handle */}
-          <svg width="80" height="92" viewBox="0 0 80 92"
+          {/* Nibi mascot — real character image */}
+          <div
             className="drop-shadow-2xl"
             style={{
+              width: 120,
+              height: 150,
+              position: 'relative',
               transform: bounce
-                ? `scale(${bs * 1.2}) translateY(-12px)`
+                ? `scale(${bs * 1.15}) translateY(-12px)`
                 : `scale(${bs}) translateY(${wave}px)`,
               transition: bounce ? 'transform 0.15s cubic-bezier(0.34,1.8,0.64,1)' : 'transform 0.05s linear',
               cursor: 'grab',
-              filter: bounce ? 'drop-shadow(0 0 12px rgba(56,189,248,0.8))' : undefined,
+              filter: bounce
+                ? 'drop-shadow(0 0 14px rgba(56,189,248,0.8))'
+                : 'drop-shadow(0 4px 12px rgba(0,0,0,0.3))',
             }}
             onMouseDown={onMouseDown}
             onTouchStart={(e) => {
               const t = e.touches[0]
               handleClick({ clientX: t.clientX, clientY: t.clientY })
             }}>
-            <defs>
-              <radialGradient id="wbody" cx="38%" cy="30%" r="65%">
-                <stop offset="0%" stopColor="#7dd3fc"/>
-                <stop offset="60%" stopColor="#0ea5e9"/>
-                <stop offset="100%" stopColor="#0369a1"/>
-              </radialGradient>
-              <radialGradient id="wshine" cx="30%" cy="25%" r="50%">
-                <stop offset="0%" stopColor="rgba(255,255,255,0.75)"/>
-                <stop offset="100%" stopColor="rgba(255,255,255,0)"/>
-              </radialGradient>
-              <radialGradient id="wcheek" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor="rgba(251,113,133,0.5)"/>
-                <stop offset="100%" stopColor="rgba(251,113,133,0)"/>
-              </radialGradient>
-              <filter id="wglow">
-                <feGaussianBlur stdDeviation="2" result="blur"/>
-                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-              </filter>
-            </defs>
-            <ellipse cx="40" cy="82" rx="22" ry="6" fill="rgba(14,165,233,0.2)"/>
-            <path d="M40 5 C40 5 12 35 12 56 C12 72 25 84 40 84 C55 84 68 72 68 56 C68 35 40 5 40 5Z"
-              fill="url(#wbody)" filter="url(#wglow)"/>
-            <ellipse cx="30" cy="34" rx="11" ry="15" fill="url(#wshine)" transform="rotate(-18 30 34)"/>
-            <ellipse cx="40" cy="65" rx="16" ry="5" fill="rgba(255,255,255,0.12)"/>
-            <ellipse cx="40" cy="72" rx="10" ry="3" fill="rgba(255,255,255,0.08)"/>
-            <ellipse cx="31" cy="52" rx="7.5" ry={blink ? 1 : 8} fill="white"/>
-            <ellipse cx="49" cy="52" rx="7.5" ry={blink ? 1 : 8} fill="white"/>
-            {!blink && <>
-              <circle cx="32.5" cy="53" r="4.5" fill="#0c4a6e"/>
-              <circle cx="50.5" cy="53" r="4.5" fill="#0c4a6e"/>
-              <circle cx="34" cy="51" r="1.8" fill="white"/>
-              <circle cx="52" cy="51" r="1.8" fill="white"/>
-              <circle cx="33" cy="54" r="1" fill="#1e40af"/>
-              <circle cx="51" cy="54" r="1" fill="#1e40af"/>
-            </>}
-            <ellipse cx="22" cy="60" rx="7" ry="4" fill="url(#wcheek)"/>
-            <ellipse cx="58" cy="60" rx="7" ry="4" fill="url(#wcheek)"/>
-            <path d={speaking ? 'M30 66 Q40 73 50 66' : 'M30 66 Q40 71 50 66'}
-              stroke="#0c4a6e" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+            <picture>
+              <source srcSet="/mascot-images/nibi_idle.webp" type="image/webp" />
+              <img
+                src="/mascot-images/nibi_idle.png"
+                alt="Nibi the water mascot"
+                draggable={false}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  pointerEvents: 'none',
+                  userSelect: 'none',
+                }}
+              />
+            </picture>
+            {/* Speaking ripple rings */}
             {speaking && [1,2,3].map(i => (
-              <circle key={i} cx="40" cy="40" r={10+i*8} fill="none"
-                stroke="rgba(56,189,248,0.3)" strokeWidth="1.5"
-                style={{ animation: `ping ${0.8+i*0.2}s ease-out infinite`, animationDelay: i*0.15+'s'}}/>
+              <div key={i} style={{
+                position: 'absolute',
+                top: '30%', left: '50%',
+                width: 30 + i * 20, height: 30 + i * 20,
+                marginLeft: -(15 + i * 10), marginTop: -(15 + i * 10),
+                borderRadius: '50%',
+                border: '2px solid rgba(56,189,248,0.3)',
+                animation: `ping ${0.8 + i * 0.2}s ease-out infinite`,
+                animationDelay: `${i * 0.15}s`,
+                pointerEvents: 'none',
+              }}/>
             ))}
-            <path d="M26 20 L32 10 L40 18 L48 10 L54 20"
-              stroke="rgba(255,255,255,0.5)" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-            {/* Drag hint dots */}
-            <circle cx="38" cy="78" r="1.2" fill="rgba(255,255,255,0.4)"/>
-            <circle cx="42" cy="78" r="1.2" fill="rgba(255,255,255,0.4)"/>
-          </svg>
+          </div>
         </div>
 
         {/* Drag hint */}
