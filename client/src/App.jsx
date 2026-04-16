@@ -12,7 +12,11 @@ const Onboarding = lazy(() => import('./pages/Onboarding'))
 const Dashboard  = lazy(() => import('./pages/Dashboard'))
 const AskWater   = lazy(() => import('./pages/AskWater'))
 const MapPage    = lazy(() => import('./pages/MapPage'))
-const GeoAnalytics = lazy(() => import('./pages/GeoAnalytics'))  // 🌍 NEW
+const GeoAnalytics = lazy(() => import('./pages/GeoAnalytics'))
+const WRMonitoringMap = lazy(() => import('./pages/WRMonitoringMap'))
+const WRDataExplorer = lazy(() => import('./pages/WRDataExplorer'))
+const WRAILab = lazy(() => import('./pages/WRAILab'))
+const WRMethods = lazy(() => import('./pages/WRMethods'))
 const Social     = lazy(() => import('./pages/Social'))
 const QuizMe     = lazy(() => import('./pages/QuizMe'))
 const Resources  = lazy(() => import('./pages/Resources'))
@@ -66,7 +70,11 @@ function AppRoutes() {
           <Route path="/dashboard"  element={<Dashboard />} />
           <Route path="/ask-water"  element={<AskWater />} />
           <Route path="/map"        element={<MapPage />} />
-          <Route path="/geoanalytics" element={<GeoAnalytics />} />  {/* 🌍 NEW */}
+          <Route path="/geoanalytics" element={<GeoAnalytics />} />
+          <Route path="/monitoring"   element={<WRMonitoringMap />} />
+          <Route path="/explorer"     element={<WRDataExplorer />} />
+          <Route path="/ai-lab"       element={<WRAILab />} />
+          <Route path="/methods"      element={<WRMethods />} />
           <Route path="/social"     element={<Social />} />
           <Route path="/quiz"       element={<QuizMe />} />
           <Route path="/resources"  element={<Resources />} />

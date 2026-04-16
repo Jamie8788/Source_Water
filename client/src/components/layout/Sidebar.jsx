@@ -69,11 +69,11 @@ const NAV_GROUPS = [
     defaultOpen: false,
     color: '#a855f7',
     items: [
-      { label: 'Data Analysis', icon: LineChart,   path: '/analysis',  color: '#3b82f6', sub: 'Charts · CSV · trends' },
-      { label: 'GeoAnalytics',  icon: Satellite,   path: '/geoanalytics', color: '#06b6d4', sub: 'Satellite & geospatial analysis' },
-      { label: 'Research Hub',  icon: Microscope,  path: '/research',  color: '#a855f7', sub: 'AI scan · field notes' },
-      { label: 'Projects',      icon: FlaskConical,path: '/projects',  color: '#14b8a6', sub: 'Build · collaborate' },
-      { label: 'Weather',       icon: CloudSun,    path: '/weather',   color: '#0ea5e9', sub: 'Live conditions' },
+      { label: 'Monitoring Map', icon: Compass,     path: '/monitoring', color: '#6366f1', sub: 'Water Rangers sites' },
+      { label: 'Data Explorer',  icon: LineChart,    path: '/explorer',   color: '#14b8a6', sub: 'Observations · datasets' },
+      { label: 'AI Lab',         icon: FlaskConical, path: '/ai-lab',     color: '#a855f7', sub: 'Anomalies · trends · ML' },
+      { label: 'Methods',        icon: Microscope,   path: '/methods',    color: '#10b981', sub: 'Data quality · QA' },
+      { label: 'Weather',        icon: CloudSun,     path: '/weather',    color: '#0ea5e9', sub: 'Live conditions' },
     ],
   },
 ]
