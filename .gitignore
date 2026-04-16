@@ -48,5 +48,6 @@ Thumbs.db
 # Logs
 *.log
 uvicorn.log
-# Mascot animation files (Phase 2)
+# Mascot heavy assets — keep out of repo
 client/public/mascot-animations/*.mp4
+client/public/models/*.glb

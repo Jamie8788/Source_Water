@@ -130,7 +130,10 @@ export default function Layout({ children }) {
         </footer>
       </main>
 
-      {glbEnabled ? <WaterMascotGLB /> : <WaterMascot />}
+      {/* Hide floating mascot on /ask-water — that page has its own dedicated Nibi */}
+      {location.pathname !== '/ask-water' && (
+        glbEnabled ? <WaterMascotGLB /> : <WaterMascot />
+      )}
       {a11yOpen && <AccessibilityPanel onClose={() => setA11yOpen(false)} />}
       {dmOpen && <GlobalDMPanel onClose={closeDM} initialUserId={dmUserId} />}
     </div>
