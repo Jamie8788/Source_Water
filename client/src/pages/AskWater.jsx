@@ -10,7 +10,7 @@
 import { useState, useRef, useEffect, useCallback, Suspense } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Mic, MicOff, Send, Trash2, Volume2, VolumeX, Sparkles, Droplets } from 'lucide-react'
-import NibiMascot3D from '../components/NibiMascot3D'
+import NibiMascotVideo from '../components/NibiMascotVideo'
 import api from '../utils/api'
 
 // ── Content ───────────────────────────────────────────────────────────────────
@@ -317,7 +317,7 @@ export default function AskWater() {
 
         <div style={{position:'relative',zIndex:2}}>
           <Suspense fallback={<div style={{width:320,height:430,display:'flex',alignItems:'center',justifyContent:'center',color:'#6366f1',fontSize:13}}>Loading Nibi…</div>}>
-            <NibiMascot3D mood={mood} size={320} orbitControls={false} modelPath="/models/Water_Mascot.glb" modelScale={2.6} modelRotationY={-Math.PI / 2} modelYOffset={-1.05}/>
+            <NibiMascotVideo mood={mood} size={320}/>
           </Suspense>
         </div>
 
