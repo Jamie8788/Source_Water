@@ -148,19 +148,25 @@ export default function WRDataExplorer() {
       )}
 
       {/* QA filter for observations */}
-      {tab === 'observations' && (
-        <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-          <span style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: '24px', marginRight: 4 }}>QA:</span>
-          {['', 'raw', 'review_needed', 'reviewed', 'qc_complete', 'issue_found'].map(q => (
-            <button key={q} onClick={() => setQaFilter(q)} style={{
-              padding: '3px 8px', borderRadius: 6, fontSize: 10, fontWeight: 600,
-              background: qaFilter === q ? 'rgba(99,102,241,.12)' : 'transparent',
-              border: qaFilter === q ? '1px solid rgba(99,102,241,.3)' : '1px solid transparent',
-              color: qaFilter === q ? '#a78bfa' : 'var(--text-muted)', cursor: 'pointer',
-            }}>{q || 'All'}</button>
-          ))}
-        </div>
-      )}
+      {tab === 'observations' && data.length > 0 && (() => {
+        // Count observations per QA status from actual data
+        const qaCounts = {}
+        data.forEach(o => { const s = o.checked || 'unknown'; qaCounts[s] = (qaCounts[s] || 0) + 1 })
+        const statuses = ['', ...Object.keys(qaCounts).sort()]
+        return (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: '24px', marginRight: 4 }}>QA Filter:</span>
+            {statuses.map(q => (
+              <button key={q} onClick={() => setQaFilter(q)} style={{
+                padding: '3px 8px', borderRadius: 6, fontSize: 10, fontWeight: 600,
+                background: qaFilter === q ? 'rgba(99,102,241,.12)' : 'transparent',
+                border: qaFilter === q ? '1px solid rgba(99,102,241,.3)' : '1px solid transparent',
+                color: qaFilter === q ? '#a78bfa' : 'var(--text-muted)', cursor: 'pointer',
+              }}>{q || 'All'} {q ? `(${qaCounts[q] || 0})` : `(${data.length})`}</button>
+            ))}
+          </div>
+        )
+      })()}
 
       {loading && data.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
@@ -226,6 +232,16 @@ export default function WRDataExplorer() {
               ))}
             </tbody>
           </table>
+          {sortedObs.length === 0 && (
+            <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: 12 }}>
+              {qaFilter ? `No observations with QA status "${qaFilter}" — click "All" to see all ${data.length} observations` : 'No observations loaded'}
+            </div>
+          )}
+          {sortedObs.length > 0 && (
+            <div style={{ padding: '8px 6px', fontSize: 10, color: 'var(--text-muted)' }}>
+              Showing {sortedObs.length} of {data.length} observations
+            </div>
+          )}
         </div>
       ) : tab === 'datasets' ? (
         /* ── DATASETS ───────────────────────────────────────────────── */
