@@ -2,6 +2,30 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 import { X, Volume2, VolumeX, MessageCircle, Gamepad2 } from 'lucide-react'
 
+// ── Nibi poses — different images for different states ───────────────────────
+const NIBI_POSES = {
+  idle:      '/mascot-images/nibi_idle.webp',
+  wave:      '/mascot-images/nibi_wave.webp',
+  talking:   '/mascot-images/nibi_talking.webp',
+  thinking:  '/mascot-images/nibi_thinking.webp',
+  happy:     '/mascot-images/nibi_happy.webp',
+  confident: '/mascot-images/nibi_confident.webp',
+  blush:     '/mascot-images/nibi_blush.webp',
+}
+
+// ── Page → mascot pose mapping ───────────────────────────────────────────────
+const PAGE_POSE = {
+  '/dashboard':  'confident',
+  '/map':        'thinking',
+  '/social':     'happy',
+  '/quiz':       'confident',
+  '/games':      'happy',
+  '/resources':  'thinking',
+  '/analysis':   'confident',
+  '/alerts':     'thinking',
+  '/weather':    'idle',
+}
+
 const PAGE_MESSAGES = {
   '/dashboard':  ['Welcome back! Your water data is looking fresh today! 💧', 'Check out the latest observations from your community!', 'Did you know? Lake Superior holds 10% of the world\'s fresh surface water!'],
   '/ask-water':  ['Ask me anything about water quality! I\'m here to help. 🤖', 'I can explain complex water science in simple terms!', 'Try asking about pH levels, dissolved oxygen, or Northern Ontario lakes!'],
@@ -198,41 +222,37 @@ export default function WaterMascot() {
   const [msg, setMsg] = useState('')
   const [speaking, setSpeaking] = useState(false)
   const [ttsEnabled, setTtsEnabled] = useState(false)
-  const [blink, setBlink] = useState(false)
-  const [breath, setBreath] = useState(1)
-  const [wave, setWave] = useState(0)
   const [showBubbles, setShowBubbles] = useState(false)
   const [showGame, setShowGame] = useState(false)
   const [sparkles, setSparkles] = useState([])
   const [bounce, setBounce] = useState(false)
   const [clickCount, setClickCount] = useState(0)
-  const [pos, setPos] = useState({ x: null, y: null }) // null = default bottom-right
+  const [pose, setPose] = useState('idle')
+  const [pos, setPos] = useState({ x: null, y: null })
   const synthRef = useRef(null)
   const tRef = useRef(0)
   const dragRef = useRef({ dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 })
   const containerRef = useRef(null)
 
-  // Breathing + wave animation loop
+  // Determine pose from state: speaking > bounce > page default > idle
   useEffect(() => {
-    let raf
-    const animate = () => {
-      tRef.current += 0.03
-      setBreath(1 + Math.sin(tRef.current) * 0.035)
-      setWave(Math.sin(tRef.current * 0.7) * 4)
-      raf = requestAnimationFrame(animate)
-    }
-    raf = requestAnimationFrame(animate)
-    return () => cancelAnimationFrame(raf)
-  }, [])
+    if (speaking) { setPose('talking'); return }
+    if (bounce) { setPose('wave'); return }
+    setPose(PAGE_POSE[location.pathname] || 'idle')
+  }, [speaking, bounce, location.pathname])
 
-  // Blink
+  // Random idle pose cycling every 6-10 seconds
   useEffect(() => {
-    const t = setInterval(() => {
-      setBlink(true)
-      setTimeout(() => setBlink(false), 180)
-    }, 2800 + Math.random() * 2000)
-    return () => clearInterval(t)
-  }, [])
+    if (speaking || bounce) return
+    const basePose = PAGE_POSE[location.pathname] || 'idle'
+    const idlePoses = ['idle', basePose, 'happy', 'confident']
+    let idx = 0
+    const cycle = setInterval(() => {
+      idx = (idx + 1) % idlePoses.length
+      setPose(idlePoses[idx])
+    }, 6000 + Math.random() * 4000)
+    return () => clearInterval(cycle)
+  }, [location.pathname, speaking, bounce])
 
   // Page message
   useEffect(() => {
@@ -324,13 +344,11 @@ export default function WaterMascot() {
     ? { position: 'fixed', left: pos.x, top: pos.y, bottom: 'auto', right: 'auto' }
     : { position: 'fixed', bottom: 24, right: 24 }
 
-  const bs = breath
-
   if (minimized) {
     return (
       <button onClick={() => setMinimized(false)}
         className="fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-transform overflow-hidden"
-        style={{ background: 'linear-gradient(135deg, #38bdf8, #14b8a6)', transform: `scale(${bs})` }}>
+        style={{ background: 'linear-gradient(135deg, #38bdf8, #14b8a6)', animation: 'mascotGlow 2.5s ease-in-out infinite' }}>
         <img src="/mascot-images/nibi_idle.webp" alt="Nibi" style={{ width: 48, height: 48, objectFit: 'contain' }} />
       </button>
     )
@@ -392,42 +410,62 @@ export default function WaterMascot() {
             </button>
           </div>
 
-          {/* Nibi mascot — real character image */}
+          {/* Nibi mascot — multi-pose animated character */}
           <div
-            className="drop-shadow-2xl"
             style={{
-              width: 120,
-              height: 150,
+              width: 130,
+              height: 160,
               position: 'relative',
-              transform: bounce
-                ? `scale(${bs * 1.15}) translateY(-12px)`
-                : `scale(${bs}) translateY(${wave}px)`,
-              transition: bounce ? 'transform 0.15s cubic-bezier(0.34,1.8,0.64,1)' : 'transform 0.05s linear',
               cursor: 'grab',
-              filter: bounce
-                ? 'drop-shadow(0 0 14px rgba(56,189,248,0.8))'
-                : 'drop-shadow(0 4px 12px rgba(0,0,0,0.3))',
             }}
             onMouseDown={onMouseDown}
             onTouchStart={(e) => {
               const t = e.touches[0]
               handleClick({ clientX: t.clientX, clientY: t.clientY })
             }}>
-            <picture>
-              <source srcSet="/mascot-images/nibi_idle.webp" type="image/webp" />
-              <img
-                src="/mascot-images/nibi_idle.png"
-                alt="Nibi the water mascot"
-                draggable={false}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'contain',
-                  pointerEvents: 'none',
-                  userSelect: 'none',
-                }}
-              />
-            </picture>
+
+            {/* Glow aura behind Nibi */}
+            <div style={{
+              position: 'absolute',
+              width: '80%', height: '60%',
+              top: '20%', left: '10%',
+              borderRadius: '50%',
+              background: speaking
+                ? 'radial-gradient(ellipse, rgba(52,211,153,.35) 0%, transparent 70%)'
+                : bounce
+                  ? 'radial-gradient(ellipse, rgba(56,189,248,.4) 0%, transparent 70%)'
+                  : 'radial-gradient(ellipse, rgba(99,102,241,.2) 0%, transparent 70%)',
+              filter: 'blur(12px)',
+              animation: 'mascotGlow 2.5s ease-in-out infinite',
+              transition: 'background 0.5s ease',
+              pointerEvents: 'none',
+            }}/>
+
+            {/* Character image — switches pose with crossfade */}
+            <img
+              key={pose}
+              src={NIBI_POSES[pose] || NIBI_POSES.idle}
+              alt="Nibi the water mascot"
+              draggable={false}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                pointerEvents: 'none',
+                userSelect: 'none',
+                position: 'relative',
+                zIndex: 1,
+                animation: 'mascotFloat 3s ease-in-out infinite, mascotFadeIn 0.35s ease-out',
+                filter: bounce
+                  ? 'drop-shadow(0 0 16px rgba(56,189,248,0.7))'
+                  : speaking
+                    ? 'drop-shadow(0 0 10px rgba(52,211,153,0.5))'
+                    : 'drop-shadow(0 4px 12px rgba(0,0,0,0.35))',
+                transform: bounce ? 'scale(1.12) translateY(-10px)' : undefined,
+                transition: 'filter 0.3s ease, transform 0.2s cubic-bezier(0.34,1.8,0.64,1)',
+              }}
+            />
+
             {/* Speaking ripple rings */}
             {speaking && [1,2,3].map(i => (
               <div key={i} style={{
@@ -436,12 +474,23 @@ export default function WaterMascot() {
                 width: 30 + i * 20, height: 30 + i * 20,
                 marginLeft: -(15 + i * 10), marginTop: -(15 + i * 10),
                 borderRadius: '50%',
-                border: '2px solid rgba(56,189,248,0.3)',
+                border: '2px solid rgba(52,211,153,0.35)',
                 animation: `ping ${0.8 + i * 0.2}s ease-out infinite`,
                 animationDelay: `${i * 0.15}s`,
                 pointerEvents: 'none',
+                zIndex: 0,
               }}/>
             ))}
+
+            {/* Ground shadow */}
+            <div style={{
+              position: 'absolute',
+              bottom: 2, left: '20%', width: '60%', height: 8,
+              borderRadius: '50%',
+              background: 'rgba(0,0,0,0.2)',
+              filter: 'blur(4px)',
+              zIndex: 0,
+            }}/>
           </div>
         </div>
 
@@ -455,6 +504,18 @@ export default function WaterMascot() {
         @keyframes fadeInUp { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
         @keyframes bubbleFloat { 0% { transform:translateY(0); opacity:0.6 } 100% { transform:translateY(-40px); opacity:0 } }
         @keyframes ping { 0% { transform:scale(0.8); opacity:0.6 } 100% { transform:scale(1.4); opacity:0 } }
+        @keyframes mascotFloat {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-6px); }
+        }
+        @keyframes mascotFadeIn {
+          from { opacity: 0.3; transform: scale(0.92); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes mascotGlow {
+          0%, 100% { opacity: 0.6; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.1); }
+        }
       `}</style>
     </>
   )
