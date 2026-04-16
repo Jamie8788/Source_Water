@@ -15,7 +15,6 @@ const MOOD_TO_VIDEO = {
 
 export default function NibiMascotVideo({ mood = 'idle', size = 320 }) {
   const videoRef = useRef(null)
-  const currentMood = useRef(mood)
 
   // Get video path for current mood
   const videoFile = MOOD_TO_VIDEO[mood] || MOOD_TO_VIDEO.idle
@@ -24,29 +23,14 @@ export default function NibiMascotVideo({ mood = 'idle', size = 320 }) {
   // Switch video when mood changes
   useEffect(() => {
     if (!videoRef.current) return
-
-    // Only switch if mood actually changed
-    if (currentMood.current === mood) return
-    currentMood.current = mood
-
     const video = videoRef.current
 
-    // Smoothly transition to new video
-    video.style.opacity = '0.5'
-    const switchVideo = () => {
-      video.src = videoPath
-      video.load()
-      video.play().catch(() => {
-        // Autoplay failed, video will play on next user interaction
-      })
-      setTimeout(() => {
-        video.style.opacity = '1'
-      }, 50)
-    }
-
-    // Small transition delay
-    const timer = setTimeout(switchVideo, 150)
-    return () => clearTimeout(timer)
+    // Always update on mood change (or initial mount)
+    video.src = videoPath
+    video.load()
+    video.play().catch(() => {
+      // Autoplay failed, video will play on next user interaction
+    })
   }, [mood, videoPath])
 
   return (
