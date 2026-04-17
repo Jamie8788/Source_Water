@@ -68,15 +68,14 @@ router.get('/locations-all', async (req, res) => {
       return res.json({ locations: result, cached: true, count: result.length })
     }
 
-    console.log('[WR] Loading ALL locations in parallel batches...')
+    console.log('[WR] Loading ALL 9,444+ locations in parallel...')
     loadingInProgress = (async () => {
       const all = []
-      let done = false
-      // Fetch 10 pages at a time in parallel
-      for (let batch = 0; !done && batch < 10; batch++) {
-        const startPage = batch * 10 + 1
+      // 5 pages at a time (gentler on WR rate limits), 20 batches = 100 pages max
+      for (let batch = 0; batch < 20; batch++) {
+        const startPage = batch * 5 + 1
         const promises = []
-        for (let p = startPage; p < startPage + 10; p++) {
+        for (let p = startPage; p < startPage + 5; p++) {
           promises.push(
             wrFetch('/locations.json', { page: p, per_page: 100 })
               .then(data => ({ page: p, items: Array.isArray(data) ? data : [] }))
@@ -85,12 +84,18 @@ router.get('/locations-all', async (req, res) => {
         }
         const results = await Promise.all(promises)
         results.sort((a, b) => a.page - b.page)
+
+        let batchTotal = 0
         for (const r of results) {
-          if (r.items.length === 0) { done = true; break }
-          all.push(...r.items)
-          if (r.items.length < 100) { done = true; break }
+          if (r.items.length > 0) {
+            all.push(...r.items)
+            batchTotal += r.items.length
+          }
         }
-        console.log(`[WR] Batch ${batch + 1}: pages ${startPage}-${startPage + 9}, total: ${all.length}`)
+        console.log(`[WR] Batch ${batch + 1}: pages ${startPage}-${startPage + 4}, +${batchTotal}, total: ${all.length}`)
+
+        // Only stop if this entire batch returned 0 new items
+        if (batchTotal === 0) break
       }
       return all
     })()

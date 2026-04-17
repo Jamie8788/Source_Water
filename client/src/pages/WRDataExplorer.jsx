@@ -91,14 +91,29 @@ export default function WRDataExplorer() {
   const [sortCol] = useState('observed_at')
   const [sortDir] = useState('desc')
 
+  const [dsSearch, setDsSearch] = useState('')
+  const [dsStatusFilter, setDsStatusFilter] = useState('')
+
+  // Load ALL pages for datasets/orgs (they're small), paginated for observations
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      let result
-      if (tab === 'observations') result = await getObservations({ page, perPage: 100 })
-      else if (tab === 'datasets') result = await getDatasets({ page, perPage: 100 })
-      else result = await getOrganizations({ page, perPage: 100 })
-      setData(prev => page === 1 ? result.items : [...prev, ...result.items])
+      if (tab === 'observations') {
+        const result = await getObservations({ page, perPage: 100 })
+        setData(prev => page === 1 ? result.items : [...prev, ...result.items])
+      } else {
+        // Load ALL pages for datasets and orgs
+        const all = []
+        const fetcher = tab === 'datasets' ? getDatasets : getOrganizations
+        for (let p = 1; p <= 10; p++) {
+          const result = await fetcher({ page: p, perPage: 100 })
+          const items = result.items || []
+          if (items.length === 0) break
+          all.push(...items)
+          if (items.length < 100) break
+        }
+        setData(all)
+      }
     } catch (e) { setError(e.message) }
     finally { setLoading(false) }
   }, [tab, page])
@@ -323,8 +338,24 @@ export default function WRDataExplorer() {
         </div>
       ) : tab === 'datasets' ? (
         /* ══════ DATASETS ══════ */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 8 }}>
-          {data.map((ds, i) => (
+        <div>
+          {/* Dataset filters */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+            <input value={dsSearch} onChange={e => setDsSearch(e.target.value)} placeholder="Search datasets..."
+              style={{ padding: '5px 8px', borderRadius: 6, fontSize: 11, background: 'rgba(0,0,0,.1)', border: '1px solid var(--border)', color: 'var(--text)', width: 200 }} />
+            <button onClick={() => setDsStatusFilter('')} style={{ padding: '3px 8px', borderRadius: 5, fontSize: 10, fontWeight: 600, background: !dsStatusFilter ? 'rgba(99,102,241,.12)' : 'transparent', border: !dsStatusFilter ? '1px solid rgba(99,102,241,.25)' : '1px solid transparent', color: !dsStatusFilter ? '#a78bfa' : 'var(--text-muted)', cursor: 'pointer' }}>All ({data.length})</button>
+            <button onClick={() => setDsStatusFilter('active')} style={{ padding: '3px 8px', borderRadius: 5, fontSize: 10, fontWeight: 600, background: dsStatusFilter === 'active' ? 'rgba(16,185,129,.12)' : 'transparent', border: dsStatusFilter === 'active' ? '1px solid rgba(16,185,129,.25)' : '1px solid transparent', color: dsStatusFilter === 'active' ? '#10b981' : 'var(--text-muted)', cursor: 'pointer' }}>✅ Active ({data.filter(d => !d.dormant).length})</button>
+            <button onClick={() => setDsStatusFilter('dormant')} style={{ padding: '3px 8px', borderRadius: 5, fontSize: 10, fontWeight: 600, background: dsStatusFilter === 'dormant' ? 'rgba(239,68,68,.12)' : 'transparent', border: dsStatusFilter === 'dormant' ? '1px solid rgba(239,68,68,.25)' : '1px solid transparent', color: dsStatusFilter === 'dormant' ? '#ef4444' : 'var(--text-muted)', cursor: 'pointer' }}>💤 Dormant ({data.filter(d => d.dormant).length})</button>
+            <button onClick={() => setDsStatusFilter('datastream')} style={{ padding: '3px 8px', borderRadius: 5, fontSize: 10, fontWeight: 600, background: dsStatusFilter === 'datastream' ? 'rgba(20,184,166,.12)' : 'transparent', border: dsStatusFilter === 'datastream' ? '1px solid rgba(20,184,166,.25)' : '1px solid transparent', color: dsStatusFilter === 'datastream' ? '#14b8a6' : 'var(--text-muted)', cursor: 'pointer' }}>🔗 DataStream ({data.filter(d => d.share_with_datastream).length})</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 8 }}>
+          {data.filter(ds => {
+            if (dsSearch && !(ds.name || '').toLowerCase().includes(dsSearch.toLowerCase()) && !(ds.description || '').toLowerCase().includes(dsSearch.toLowerCase())) return false
+            if (dsStatusFilter === 'active' && ds.dormant) return false
+            if (dsStatusFilter === 'dormant' && !ds.dormant) return false
+            if (dsStatusFilter === 'datastream' && !ds.share_with_datastream) return false
+            return true
+          }).map((ds, i) => (
             <div key={ds.id || i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <h4 style={{ color: 'var(--text)', fontSize: 13, fontWeight: 700, margin: 0, flex: 1 }}>{ds.name || `#${ds.id}`}</h4>
@@ -349,6 +380,7 @@ export default function WRDataExplorer() {
               </div>
             </div>
           ))}
+          </div>
         </div>
       ) : (
         /* ══════ ORGANIZATIONS ══════ */

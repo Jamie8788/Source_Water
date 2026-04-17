@@ -60,18 +60,22 @@ function findAnomalies(observations) {
 }
 
 function computeTrends(observations) {
+  // Group by parameter AND track which locations contributed
   const byParam = {}
   for (const obs of observations) {
     const date = obs.observed_at
+    const locId = obs.location_id || 'unknown'
     for (const r of (obs.readings || [])) {
       const val = parseFloat(r.value)
       if (isNaN(val) || !r.unit || r.unit === 'nil') continue
       const name = r.parameter
-      if (!byParam[name]) byParam[name] = []
-      byParam[name].push({ date, value: val, unit: r.unit })
+      if (!byParam[name]) byParam[name] = { points: [], locations: new Set(), equipment: new Set() }
+      byParam[name].points.push({ date, value: val, unit: r.unit, locId })
+      byParam[name].locations.add(locId)
+      if (r.equipment) byParam[name].equipment.add(r.equipment)
     }
   }
-  return Object.entries(byParam).map(([param, pts]) => {
+  return Object.entries(byParam).map(([param, { points: pts, locations, equipment }]) => {
     pts.sort((a, b) => new Date(a.date) - new Date(b.date))
     const vals = pts.map(p => p.value)
     const mean = vals.reduce((s, v) => s + v, 0) / vals.length
@@ -82,6 +86,8 @@ function computeTrends(observations) {
       min: +Math.min(...vals).toFixed(3), max: +Math.max(...vals).toFixed(3),
       trend: trend > 0.01 ? 'increasing' : trend < -0.01 ? 'decreasing' : 'stable',
       unit: pts[0]?.unit || '', points: pts,
+      siteCount: locations.size,
+      equipmentUsed: [...equipment].slice(0, 3),
     }
   }).sort((a, b) => b.count - a.count)
 }
@@ -322,19 +328,32 @@ export default function WRAILab() {
 
           {/* ── TRENDS ─────────────────────────────────────────────── */}
           {tab === 'trends' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 10 }}>
+            <div>
+              <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--text-muted)' }}>
+                Showing trends across {observations.length} observations from {new Set(observations.map(o => o.location_id)).size} monitoring sites
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 10 }}>
               {trends.filter(t => t.count >= 2).map((t, i) => (
                 <div key={i} onClick={() => setSelectedTrend(selectedTrend === i ? null : i)} style={{
                   background: 'var(--card-bg)', border: `1px solid ${selectedTrend === i ? 'rgba(99,102,241,.4)' : 'var(--border)'}`,
                   borderRadius: 10, padding: 12, cursor: 'pointer',
                 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <span style={{ color: 'var(--text)', fontSize: 12, fontWeight: 700 }}>{t.parameter.replace(/_/g, ' ')}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <span style={{ color: 'var(--text)', fontSize: 13, fontWeight: 800 }}>{t.parameter.replace(/_/g, ' ')}</span>
                     <span style={{
                       padding: '2px 7px', borderRadius: 6, fontSize: 9, fontWeight: 700,
                       background: t.trend === 'increasing' ? 'rgba(239,68,68,.1)' : t.trend === 'decreasing' ? 'rgba(59,130,246,.1)' : 'rgba(16,185,129,.1)',
                       color: t.trend === 'increasing' ? '#ef4444' : t.trend === 'decreasing' ? '#3b82f6' : '#10b981',
-                    }}>↕ {t.trend}</span>
+                    }}>
+                      {t.trend === 'increasing' ? '📈' : t.trend === 'decreasing' ? '📉' : '➡️'} {t.trend}
+                    </span>
+                  </div>
+                  {/* Sites + equipment info */}
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6 }}>
+                    📍 {t.siteCount} site{t.siteCount > 1 ? 's' : ''} · {t.count} readings · {t.unit.replace(/_/g, '/')}
+                    {t.equipmentUsed && t.equipmentUsed.length > 0 && (
+                      <span style={{ marginLeft: 6 }}>🔬 {t.equipmentUsed[0].replace(/_/g, ' ').slice(0, 30)}</span>
+                    )}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4, fontSize: 10, marginBottom: 6 }}>
                     <div><div style={{ color: 'var(--text-muted)', fontSize: 9 }}>Mean</div><div style={{ color: 'var(--text)', fontWeight: 700 }}>{t.mean}</div></div>
@@ -344,14 +363,18 @@ export default function WRAILab() {
                   </div>
                   {/* Mini chart */}
                   {t.points.length >= 2 && (
-                    <ResponsiveContainer width="100%" height={60}>
+                    <ResponsiveContainer width="100%" height={70}>
                       <LineChart data={t.points.map(p => ({ date: new Date(p.date).getTime(), value: p.value }))}>
-                        <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={1.5} dot={false} />
+                        <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={1.5} dot={{ r: 2 }} />
+                        <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,.1)', borderRadius: 6, fontSize: 10 }}
+                          formatter={(v) => [v, t.parameter.replace(/_/g, ' ')]}
+                          labelFormatter={(v) => new Date(v).toLocaleDateString()} />
                       </LineChart>
                     </ResponsiveContainer>
                   )}
                 </div>
               ))}
+              </div>
             </div>
           )}
 
