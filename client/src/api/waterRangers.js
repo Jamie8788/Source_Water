@@ -49,6 +49,12 @@ export async function getLocations(opts = {}) {
   return { raw: data, items: norm(data, 'locations'), page }
 }
 
+// Bulk: load ALL locations (server caches for 30min)
+export async function getAllLocations() {
+  const { data } = await api.get('/wr/locations-all')
+  return data.locations || []
+}
+
 export const getLocation = (id) => wrGet(`/locations/${id}`)
 export const getLocationObservations = (id, opts = {}) =>
   wrGet(`/locations/${id}/observations`, { page: opts.page || 1, per_page: opts.perPage || 50 })

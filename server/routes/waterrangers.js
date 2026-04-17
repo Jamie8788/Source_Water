@@ -36,13 +36,50 @@ async function wrFetch(endpoint, query = {}) {
   return data
 }
 
-// GET /api/wr/locations
+// GET /api/wr/locations — single page (backwards compat)
 router.get('/locations', async (req, res) => {
   try {
     const data = await wrFetch('/locations.json', req.query)
     res.json(data)
   } catch (e) {
     console.error('[WR] locations error:', e.message)
+    res.status(502).json({ error: e.message })
+  }
+})
+
+// GET /api/wr/locations-all — BULK: fetches ALL locations (server-side pagination + 30min cache)
+// Water Rangers has 9,444+ locations — this loads them all
+let allLocationsCache = { data: null, ts: 0 }
+const ALL_LOC_TTL = 30 * 60 * 1000 // 30 min cache
+
+router.get('/locations-all', async (req, res) => {
+  try {
+    // Return cache if fresh
+    if (allLocationsCache.data && Date.now() - allLocationsCache.ts < ALL_LOC_TTL) {
+      console.log(`[WR] Returning cached ${allLocationsCache.data.length} locations`)
+      return res.json({ locations: allLocationsCache.data, cached: true, count: allLocationsCache.data.length })
+    }
+
+    console.log('[WR] Loading ALL locations from Water Rangers...')
+    const all = []
+    for (let page = 1; page <= 100; page++) {
+      const data = await wrFetch('/locations.json', { page, per_page: 100 })
+      const items = Array.isArray(data) ? data : []
+      if (items.length === 0) break
+      all.push(...items)
+      console.log(`[WR] Page ${page}: +${items.length} (total: ${all.length})`)
+      if (items.length < 100) break
+    }
+
+    allLocationsCache = { data: all, ts: Date.now() }
+    console.log(`[WR] Loaded ${all.length} total locations, cached for 30min`)
+    res.json({ locations: all, cached: false, count: all.length })
+  } catch (e) {
+    console.error('[WR] bulk locations error:', e.message)
+    // Return partial cache if available
+    if (allLocationsCache.data) {
+      return res.json({ locations: allLocationsCache.data, cached: true, count: allLocationsCache.data.length, partial: true })
+    }
     res.status(502).json({ error: e.message })
   }
 })
