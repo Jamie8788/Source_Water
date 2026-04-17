@@ -289,19 +289,32 @@ export default function WRMonitoringMap() {
         </div>
       )}
 
-      {/* Map */}
-      <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)', height: 500, marginBottom: 10, position: 'relative' }}>
+      {/* Active filter summary */}
+      {(countryFilter || bodyFilter || paramFilter || searchText || activeOnly) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8, padding: '6px 10px', background: 'rgba(99,102,241,.06)', border: '1px solid rgba(99,102,241,.15)', borderRadius: 8, alignItems: 'center' }}>
+          <span style={{ fontSize: 10, color: '#a78bfa', fontWeight: 700 }}>🔍 Showing {mappable.length.toLocaleString()} of {allLocations.length.toLocaleString()}:</span>
+          {countryFilter && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(245,158,11,.1)', color: '#f59e0b' }}>🌍 {countryFilter}</span>}
+          {bodyFilter && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(20,184,166,.1)', color: '#14b8a6' }}>{BODY_LABELS[bodyFilter] || bodyFilter}</span>}
+          {paramFilter && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(99,102,241,.1)', color: '#a78bfa' }}>🧪 {paramFilter.replace(/_/g, ' ')}</span>}
+          {searchText && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(255,255,255,.06)', color: 'var(--text-muted)' }}>"{searchText}"</span>}
+          {activeOnly && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(16,185,129,.1)', color: '#10b981' }}>Active only</span>}
+        </div>
+      )}
+
+      {/* Map — key changes on filter to force clean re-render */}
+      <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)', height: 500, marginBottom: 10, position: 'relative' }}
+        key={`map-${countryFilter}-${bodyFilter}-${paramFilter}-${activeOnly}-${searchText}-${mappable.length}`}>
         {loading && (
           <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 1000, background: 'rgba(0,0,0,.8)', color: 'white', padding: '8px 16px', borderRadius: 10, fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, maxWidth: 340, textAlign: 'center' }}>
             <RefreshCw size={12} className="animate-spin" /> {loadMsg || `Loading ${allLocations.length.toLocaleString()} sites...`}
           </div>
         )}
-        <MapContainer center={[45, -40]} zoom={3} style={{ height: '100%', width: '100%' }} scrollWheelZoom={true}>
+        <MapContainer center={[45, -40]} zoom={3} style={{ height: '100%', width: '100%' }} scrollWheelZoom={true} preferCanvas={true}>
           <TileLayer
             attribution='&copy; <a href="https://carto.com/">CARTO</a>'
             url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
           />
-          {!loading && <FitBounds locations={mappable} />}
+          <FitBounds locations={mappable} />
           {mappable.map(loc => {
             const color = BODY_COLORS[loc.water_body_type] || BODY_COLORS.other
             return (
