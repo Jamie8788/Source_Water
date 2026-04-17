@@ -92,6 +92,33 @@ function ResearchAI({ site, observations, analysis }) {
     { label: '🏠 Community Summary', prompt: `Write a simple, non-technical summary of water quality at ${site?.name} that a community member with no science background can understand. Is the water safe? What should they know?` },
   ]
 
+  // Build REAL context from THIS site's actual loaded data
+  const siteContext = useMemo(() => {
+    if (!site || !observations.length) return ''
+    const a = analysis
+    return `
+=== REAL DATA FOR: ${site.name} ===
+Location: ${site.name}, ${site.body_of_water || ''}, ${(site.water_body_type||'').replace(/_/g,' ')}, ${site.country}
+Coordinates: ${site.latitude}, ${site.longitude}
+Parameters tested: ${(site.tested_parameters||[]).join(', ')}
+Equipment: ${(site.tested_equipment||[]).join(', ')}
+First observation: ${site.first_observation_at || '?'}
+Last observation: ${site.last_observation_at || '?'}
+
+Total observations loaded: ${observations.length}
+Total readings: ${a.totalReadings}
+Anomalies detected: ${a.anomalies.length}
+QA breakdown: ${Object.entries(a.qaBreakdown).map(([k,v])=>`${k}: ${v}`).join(', ')}
+
+ANOMALIES (${a.anomalies.length}):
+${a.anomalies.map(x => `- ${x.param}: ${x.value} ${x.unit} (safe: ${x.threshold}) on ${x.date?.slice(0,10)} — ${x.explain}`).join('\n') || 'None'}
+
+PARAMETER TRENDS (${a.trends.length}):
+${a.trends.map(t => `- ${t.param}: mean=${t.mean} ${t.unit}, range=${t.min}-${t.max}, n=${t.count}, trend=${t.trend}`).join('\n')}
+
+IMPORTANT: This is REAL data loaded directly from Water Rangers API for this specific site. Only cite these actual numbers. Do not make up data.`
+  }, [site, observations, analysis])
+
   const send = async (text) => {
     const q = (text || input).trim()
     if (!q || loading) return
@@ -99,8 +126,13 @@ function ResearchAI({ site, observations, analysis }) {
     setMessages(prev => [...prev, { role: 'user', content: q }])
     setLoading(true)
     try {
-      const { data } = await api.post('/wr/agent', { question: `About site "${site.name}" (${site.country}, ${site.water_body_type}): ${q}`, pages: 1 })
-      const footer = `\n\n---\n*Analysis of ${site.name} — ${observations.length} observations, ${analysis.anomalies.length} anomalies, ${analysis.totalReadings} readings*`
+      // Send site-specific real data directly to Gemini via agent
+      const { data } = await api.post('/wr/agent', {
+        question: q,
+        siteContext, // pass the real site data
+        siteName: site.name,
+      })
+      const footer = `\n\n---\n*Based on ${observations.length} real observations at ${site.name} (${analysis.totalReadings} readings, ${analysis.anomalies.length} anomalies)*`
       setMessages(prev => [...prev, { role: 'assistant', content: data.answer + footer }])
     } catch (e) {
       setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${e.response?.data?.error || e.message}` }])

@@ -305,75 +305,37 @@ async function callGroq(messages) {
 // 3. Feeds everything to Gemini as context
 // 4. Returns grounded answer — no hallucination
 router.post('/agent', async (req, res) => {
-  const { question, pages = 3 } = req.body
+  const { question, pages = 3, siteContext, siteName } = req.body
   if (!question?.trim()) return res.status(400).json({ error: 'question required' })
 
   try {
-    console.log('[WR Agent] Fetching real data...')
+    let context
 
-    // Step 1: Fetch real data from Water Rangers
-    const [obsData, locData, dsData] = await Promise.all([
-      Promise.all(Array.from({ length: Math.min(pages, 5) }, (_, i) =>
-        wrFetch('/observations.json', { page: i + 1, per_page: 100 }).catch(() => [])
-      )),
-      wrFetch('/locations.json', { page: 1, per_page: 100 }).catch(() => []),
-      wrFetch('/datasets.json', { page: 1, per_page: 50 }).catch(() => []),
-    ])
+    if (siteContext) {
+      // ── Site-specific mode: client already has the data, just use it ──
+      console.log(`[WR Agent] Site-specific: ${siteName}`)
+      context = siteContext
+    } else {
+      // ── Global mode: fetch data from API ──
+      console.log('[WR Agent] Global mode, fetching data...')
+      const obsData = []
+      for (let i = 1; i <= Math.min(pages, 5); i++) {
+        try { const d = await wrFetch('/observations.json', { page: i, per_page: 100 }); if (Array.isArray(d)) obsData.push(...d) } catch {}
+      }
+      const analysis = analyzeObservations(obsData)
+      context = `${obsData.length} observations, ${analysis.totalReadings} readings, ${analysis.anomalies.length} anomalies.\n` +
+        `Anomalies: ${analysis.anomalies.slice(0, 15).map(a => `${a.param}: ${a.value} ${a.unit} (${a.threshold})`).join('; ')}\n` +
+        `Trends: ${analysis.trends.slice(0, 10).map(t => `${t.param}: mean=${t.mean}, trend=${t.trend}`).join('; ')}`
+    }
 
-    const observations = obsData.flat().filter(Array.isArray).length > 0
-      ? obsData.flat()
-      : obsData.reduce((a, d) => a.concat(Array.isArray(d) ? d : []), [])
-    const locations = Array.isArray(locData) ? locData : []
-    const datasets = Array.isArray(dsData) ? dsData : []
+    const systemPrompt = `You are a senior water quality research scientist. You have REAL data from Water Rangers.
 
-    console.log(`[WR Agent] Got ${observations.length} obs, ${locations.length} locs, ${datasets.length} datasets`)
-
-    // Step 2: Analyze
-    const analysis = analyzeObservations(observations)
-
-    // Step 3: Build grounded context
-    const context = `
-=== REAL-TIME WATER RANGERS DATA (fetched just now) ===
-
-SUMMARY:
-- ${observations.length} observations analyzed
-- ${analysis.totalReadings} total readings
-- ${locations.length} monitoring locations
-- ${datasets.length} active datasets
-- ${analysis.anomalies.length} anomalies detected (WHO threshold violations)
-
-QA STATUS BREAKDOWN:
-${Object.entries(analysis.qaCounts).map(([k, v]) => `- ${k}: ${v} observations`).join('\n')}
-
-ANOMALIES DETECTED (${analysis.anomalies.length}):
-${analysis.anomalies.slice(0, 30).map(a => `- ${a.param}: ${a.value} ${a.unit} (threshold: ${a.threshold}) on ${a.date?.slice(0, 10)}`).join('\n') || 'None'}
-
-PARAMETER STATISTICS (${analysis.trends.length} parameters):
-${analysis.trends.slice(0, 20).map(t => `- ${t.param}: mean=${t.mean} ${t.unit}, range=${t.min}-${t.max}, n=${t.count}`).join('\n')}
-
-MONITORING LOCATIONS (${locations.length}):
-Countries: ${[...new Set(locations.map(l => l.country))].join(', ')}
-Water body types: ${[...new Set(locations.map(l => l.water_body_type).filter(Boolean))].join(', ')}
-${locations.slice(0, 15).map(l => `- ${l.name} (${l.water_body_type}, ${l.country}) — ${l.tested_parameters?.length || 0} params, last obs: ${l.last_observation_at?.slice(0, 10) || 'N/A'}`).join('\n')}
-
-DATASETS (${datasets.length}):
-${datasets.slice(0, 10).map(d => `- ${d.name} (${d.dormant ? 'DORMANT' : 'ACTIVE'}, since ${d.start_date?.slice(0, 10) || '?'})${d.share_with_datastream ? ' [DataStream]' : ''}`).join('\n')}
-
-IMPORTANT: All data above is REAL and was just fetched from the Water Rangers API. Base your answer ONLY on this data. Do not make up numbers. If the data doesn't contain information to answer the question, say so.
-`
-
-    // Step 4: Call Gemini (primary) or Groq (fallback)
-    const systemPrompt = `You are a senior water quality research scientist with a PhD in Environmental Science. You have access to REAL-TIME data from Water Rangers monitoring network.
-
-Your answers must be:
-1. GROUNDED — cite specific values, dates, locations from the data provided
-2. SCIENTIFIC — use proper terminology, WHO/EPA standards
-3. QUANTITATIVE — include numbers, statistics, percentages
-4. ACTIONABLE — provide specific recommendations
-
-When asked for paper sections, use IEEE or academic formatting.
-When asked about anomalies, reference specific readings and thresholds.
-Never hallucinate data — only use what's provided in the context.
+CRITICAL RULES:
+1. ONLY cite numbers that appear in the data context below
+2. If a value is not in the data, say "not available in current data"
+3. Never invent readings, dates, or locations
+4. Be specific — cite actual values, dates, parameter names
+5. When asked for paper sections, use IEEE/academic formatting
 
 ${context}
 
@@ -399,14 +361,7 @@ USER QUESTION: ${question}`
 
     res.json({
       answer: reply,
-      grounding: {
-        observations: observations.length,
-        locations: locations.length,
-        datasets: datasets.length,
-        anomalies: analysis.anomalies.length,
-        parameters: analysis.trends.length,
-        totalReadings: analysis.totalReadings,
-      },
+      grounding: { site: siteName || 'global', mode: siteContext ? 'site-specific' : 'global' },
     })
 
   } catch (e) {
