@@ -68,18 +68,20 @@ router.get('/locations-all', async (req, res) => {
       return res.json({ locations: result, cached: true, count: result.length })
     }
 
-    console.log('[WR] Loading ALL 9,444+ locations in parallel...')
+    console.log('[WR] Loading ALL 9,444+ locations...')
     loadingInProgress = (async () => {
       const all = []
-      // 5 pages at a time (gentler on WR rate limits), 20 batches = 100 pages max
-      for (let batch = 0; batch < 20; batch++) {
-        const startPage = batch * 5 + 1
+      const failed = []
+
+      // Fetch 3 pages at a time with 300ms delay between batches
+      for (let batch = 0; batch < 35; batch++) {
+        const startPage = batch * 3 + 1
         const promises = []
-        for (let p = startPage; p < startPage + 5; p++) {
+        for (let p = startPage; p < startPage + 3; p++) {
           promises.push(
             wrFetch('/locations.json', { page: p, per_page: 100 })
-              .then(data => ({ page: p, items: Array.isArray(data) ? data : [] }))
-              .catch(() => ({ page: p, items: [] }))
+              .then(data => ({ page: p, items: Array.isArray(data) ? data : [], ok: true }))
+              .catch(() => ({ page: p, items: [], ok: false }))
           )
         }
         const results = await Promise.all(promises)
@@ -87,16 +89,28 @@ router.get('/locations-all', async (req, res) => {
 
         let batchTotal = 0
         for (const r of results) {
-          if (r.items.length > 0) {
-            all.push(...r.items)
-            batchTotal += r.items.length
-          }
+          if (r.items.length > 0) { all.push(...r.items); batchTotal += r.items.length }
+          else if (!r.ok) failed.push(r.page) // track failed pages for retry
         }
-        console.log(`[WR] Batch ${batch + 1}: pages ${startPage}-${startPage + 4}, +${batchTotal}, total: ${all.length}`)
-
-        // Only stop if this entire batch returned 0 new items
-        if (batchTotal === 0) break
+        console.log(`[WR] Batch ${batch + 1}: pages ${startPage}-${startPage + 2}, +${batchTotal}, total: ${all.length}`)
+        if (batchTotal === 0 && results.every(r => r.ok)) break // all pages empty = we're done
+        // Small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 300))
       }
+
+      // Retry any failed pages one at a time
+      if (failed.length > 0) {
+        console.log(`[WR] Retrying ${failed.length} failed pages: ${failed.join(',')}`)
+        for (const p of failed) {
+          try {
+            await new Promise(resolve => setTimeout(resolve, 500))
+            const data = await wrFetch('/locations.json', { page: p, per_page: 100 })
+            const items = Array.isArray(data) ? data : []
+            if (items.length > 0) { all.push(...items); console.log(`[WR] Retry page ${p}: +${items.length}`) }
+          } catch (e) { console.log(`[WR] Retry page ${p} failed again: ${e.message}`) }
+        }
+      }
+
       return all
     })()
 
