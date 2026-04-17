@@ -87,17 +87,36 @@ export default function WRMonitoringMap() {
   const [searchText, setSearchText] = useState('')
   const [activeOnly, setActiveOnly] = useState(false)
 
-  // Load ALL locations via bulk endpoint
+  const [loadMsg, setLoadMsg] = useState('')
+
+  // Load ALL locations via bulk endpoint (server fetches in parallel, cached 1hr)
   const loadAll = useCallback(async () => {
     setLoading(true); setError(null)
+    setLoadMsg('Connecting to Water Rangers...')
     try {
       const locations = await getAllLocations()
       setAllLocations(locations)
-    } catch (e) { setError(e.message) }
+      setLoadMsg('')
+    } catch (e) {
+      setError(e.message)
+      setLoadMsg('')
+    }
     finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { loadAll() }, [loadAll])
+  useEffect(() => {
+    loadAll()
+    // Update loading message while waiting
+    const msgs = [
+      'Fetching monitoring sites from Water Rangers...',
+      'Loading locations across Canada, US, UK...',
+      'Almost there — caching for instant future loads...',
+      'First load takes ~15 seconds, then it\'s instant...',
+    ]
+    let i = 0
+    const iv = setInterval(() => { i = (i + 1) % msgs.length; setLoadMsg(msgs[i]) }, 4000)
+    return () => clearInterval(iv)
+  }, [loadAll])
 
   // Unique values for filters
   const countries = useMemo(() => [...new Set(allLocations.map(l => l.country).filter(Boolean))].sort(), [allLocations])
@@ -273,8 +292,8 @@ export default function WRMonitoringMap() {
       {/* Map */}
       <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)', height: 500, marginBottom: 10, position: 'relative' }}>
         {loading && (
-          <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 1000, background: 'rgba(0,0,0,.7)', color: 'white', padding: '6px 14px', borderRadius: 8, fontSize: 11, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <RefreshCw size={12} className="animate-spin" /> Loading {allLocations.length.toLocaleString()} sites...
+          <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 1000, background: 'rgba(0,0,0,.8)', color: 'white', padding: '8px 16px', borderRadius: 10, fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, maxWidth: 340, textAlign: 'center' }}>
+            <RefreshCw size={12} className="animate-spin" /> {loadMsg || `Loading ${allLocations.length.toLocaleString()} sites...`}
           </div>
         )}
         <MapContainer center={[45, -40]} zoom={3} style={{ height: '100%', width: '100%' }} scrollWheelZoom={true}>
