@@ -25,7 +25,7 @@ const SUGGESTIONS = [
   '🐟 How do fish react to water quality?',
 ]
 
-const GREETING = "Hey! I am Nibi! I know everything about water! Ask me anything, or tap the mic and just talk to me!"
+const GREETING = "Hey! It's me, Water! I know everything about water! Ask me anything, or tap the mic and just talk to me!"
 
 // Clean spoken phrases — no punctuation that TTS spells out
 const IDLE_NUDGES = [
@@ -219,7 +219,7 @@ export default function AskWater() {
     try {
       const {data}=await api.post('/ai/public-chat',{
         messages:[
-          {role:'system',content:'You are Nibi, a cheerful water-drop character who is a water quality expert for SOURCE Water, Northern Ontario. Answer in 2 to 4 friendly sentences. Do not use markdown or asterisks. Occasionally use water emojis. Be warm and encourage curiosity. Speak simply and clearly.'},
+          {role:'system',content:'You are Water, a cheerful water-drop character who is a water quality expert for SOURCE Water, covering the Great Lakes region. Answer in 2 to 4 friendly sentences. Do not use markdown or asterisks. Occasionally use water emojis. Be warm and encourage curiosity. Speak simply and clearly.'},
           ...hist.slice(-10).map(m=>({role:m.role,content:m.content})),
         ]
       })
@@ -383,7 +383,7 @@ export default function AskWater() {
       <div style={{flex:1,display:'flex',flexDirection:'column',padding:'24px 20px 20px',position:'relative',zIndex:2,minWidth:0}}>
         <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14,flexShrink:0}}>
           <Sparkles size={17} color="#a78bfa"/>
-          <h1 style={{fontSize:17,fontWeight:900,color:'white',margin:0,letterSpacing:'-.01em'}}>Ask Nibi</h1>
+          <h1 style={{fontSize:17,fontWeight:900,color:'white',margin:0,letterSpacing:'-.01em'}}>Ask Water</h1>
           <span style={{fontSize:11,padding:'3px 9px',background:'rgba(99,102,241,.18)',border:'1px solid rgba(99,102,241,.32)',borderRadius:20,color:'#c4b5fd',fontWeight:700,letterSpacing:'.04em'}}>WATER AI</span>
           <span style={{marginLeft:'auto',fontSize:10,color:'rgba(255,255,255,.2)',display:'flex',alignItems:'center',gap:4}}>
             <span style={{width:6,height:6,borderRadius:'50%',background:'#10b981',display:'inline-block',boxShadow:'0 0 6px #10b981'}}/>Free · No account needed

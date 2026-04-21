@@ -9,7 +9,7 @@ import {
   Users, BookOpen, GraduationCap, LineChart, FlaskConical,
   CloudSun, Joystick, ShieldCheck, LogOut, ChevronDown,
   ChevronLeft, ChevronRight, Droplets, Building2, Circle,
-  UserCircle, Microscope, Compass, Satellite
+  UserCircle, Microscope, Compass, Satellite, BookMarked, Info, Handshake
 } from 'lucide-react'
 
 /* ─── Nav structure ─────────────────────────────────────────────── */
@@ -20,12 +20,11 @@ const NAV_GROUPS = [
     emoji: '🌐',
     defaultOpen: true,
     items: [
-      { label: 'Quick Actions',  icon: Compass,        path: '/quick-actions', color: '#f59e0b', sub: 'All portals · 3D map' },
+      { label: 'Quick Actions',  icon: Compass,        path: '/quick-actions', color: '#f59e0b', sub: 'All portals · site map' },
       { label: 'Dashboard',      icon: LayoutDashboard, path: '/dashboard',    color: '#3b82f6', sub: 'Home · key metrics' },
-      { label: 'Ask Water AI',   icon: Sparkles,        path: '/ask-water',    color: '#8b5cf6', sub: 'Chat · scan · analyse' },
-      { label: 'Live Map',       icon: Map,             path: '/map',          color: '#14b8a6', sub: 'Explore sites & data' },
+      { label: 'Ask Water (AI)', icon: Sparkles,        path: '/ask-water',    color: '#8b5cf6', sub: 'Chat · scan · analyse' },
+      { label: 'Site Map',       icon: Map,             path: '/monitoring',   color: '#14b8a6', sub: 'Explore monitoring sites' },
       { label: 'Alerts',         icon: BellRing,        path: '/alerts',       color: '#f59e0b', sub: 'Threshold warnings' },
-      { label: 'Reports',        icon: FileBarChart2,   path: '/reports',      color: '#0ea5e9', sub: 'Trends & exports' },
       { label: 'Community',      icon: Users,           path: '/social',       color: '#ec4899', sub: 'Posts · DMs · follows' },
     ],
   },
@@ -42,23 +41,20 @@ const NAV_GROUPS = [
         path: '/resources',
         color: '#10b981',
         sub: 'Guides · articles · links',
-        quickLinks: [
-          { label: '📂 Browse all',    path: '/resources' },
-          { label: '🔖 Bookmarks',     path: '/resources' },
-          { label: '🌊 Water quality', path: '/resources' },
-        ],
       },
       {
-        label: 'Quiz & Learn',
+        label: 'Quiz Yourself',
         icon: GraduationCap,
         path: '/quiz',
         color: '#f97316',
         sub: 'Test knowledge · earn XP',
-        quickLinks: [
-          { label: '▶ Start a quiz',   path: '/quiz' },
-          { label: '🏆 Leaderboard',   path: '/quiz' },
-          { label: '📊 My progress',   path: '/quiz' },
-        ],
+      },
+      {
+        label: 'Games',
+        icon: Joystick,
+        path: '/games',
+        color: '#a855f7',
+        sub: 'Play to learn',
       },
     ],
   },
@@ -69,18 +65,26 @@ const NAV_GROUPS = [
     defaultOpen: false,
     color: '#a855f7',
     items: [
-      { label: 'Monitoring Map', icon: Compass,     path: '/monitoring', color: '#6366f1', sub: 'Water Rangers sites' },
-      { label: 'Data Explorer',  icon: LineChart,    path: '/explorer',   color: '#14b8a6', sub: 'Observations · datasets' },
-      { label: 'AI Lab',         icon: FlaskConical, path: '/ai-lab',     color: '#a855f7', sub: 'Anomalies · trends · ML' },
-      { label: 'Methods',        icon: Microscope,   path: '/methods',    color: '#10b981', sub: 'Data quality · QA' },
-      { label: 'Weather',        icon: CloudSun,     path: '/weather',    color: '#0ea5e9', sub: 'Live conditions' },
+      { label: 'Dive into Data',    icon: LineChart,    path: '/explorer',   color: '#14b8a6', sub: 'Observations · datasets' },
+      { label: 'Wet Lab',           icon: FlaskConical, path: '/ai-lab',     color: '#a855f7', sub: 'Anomalies · trends · ML' },
+      { label: 'World Environment', icon: CloudSun,     path: '/weather',    color: '#0ea5e9', sub: 'Live conditions' },
+    ],
+  },
+  {
+    id: 'ABOUT',
+    label: 'About Us',
+    emoji: 'ℹ️',
+    defaultOpen: false,
+    color: '#94a3b8',
+    items: [
+      { label: 'Storyline',     icon: BookMarked, path: '/about/storyline',     color: '#64748b', sub: 'Our journey' },
+      { label: 'This Platform', icon: Info,       path: '/about/this-platform', color: '#64748b', sub: 'What SOURCE Water is' },
+      { label: 'Collaborators', icon: Handshake,  path: '/about/collaborators', color: '#64748b', sub: 'Partners & teams' },
     ],
   },
 ]
 
-const STANDALONE = [
-  { label: 'Games', icon: Joystick, path: '/games', color: '#a855f7', sub: 'Water activities' },
-]
+const STANDALONE = []
 
 /* ─── Claim-admin helper (unchanged logic) ──────────────────────── */
 function ClaimAdminButton({ collapsed }) {
@@ -190,10 +194,10 @@ function NavItem({ item, active, collapsed, onClick, onSubNav }) {
               {item.label}
             </div>
             <div style={{
-              fontSize: 10, color: active ? `${item.color}bb` : '#2d4260',
+              fontSize: 10, color: active ? '#ffffff' : hov ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.55)',
               marginTop: 1, lineHeight: 1.2, letterSpacing: '0.02em',
               transition: 'color 0.18s',
-              opacity: hov || active ? 1 : 0.7,
+              opacity: hov || active ? 1 : 0.85,
             }}>
               {item.sub}
             </div>
@@ -380,6 +384,23 @@ export default function Sidebar({ collapsed, onToggle }) {
           0%   { background-position:200% center; }
           100% { background-position:-200% center; }
         }
+        .sw-sidebar-scroll::-webkit-scrollbar { width: 10px; }
+        .sw-sidebar-scroll::-webkit-scrollbar-track {
+          background: rgba(255,255,255,0.04);
+          border-radius: 8px;
+        }
+        .sw-sidebar-scroll::-webkit-scrollbar-thumb {
+          background: linear-gradient(180deg, #7dd3fc, #38bdf8);
+          border-radius: 8px;
+          box-shadow: 0 0 8px rgba(125,211,252,0.5);
+          border: 2px solid transparent;
+          background-clip: padding-box;
+        }
+        .sw-sidebar-scroll::-webkit-scrollbar-thumb:hover {
+          background: linear-gradient(180deg, #ffffff, #7dd3fc);
+          background-clip: padding-box;
+          border: 2px solid transparent;
+        }
       `}</style>
 
       <aside
@@ -444,8 +465,8 @@ export default function Sidebar({ collapsed, onToggle }) {
                 }}>
                   SOURCE Water
                 </div>
-                <div style={{ fontSize:10, color:'#1e3a5a', letterSpacing:'0.08em', marginTop:1 }}>
-                  Environmental Intelligence
+                <div style={{ fontSize:10, color:'#ffffff', letterSpacing:'0.08em', marginTop:1, fontWeight:600 }}>
+                  Freshwater Intelligence
                 </div>
               </div>
               <button onClick={onToggle}
@@ -475,10 +496,10 @@ export default function Sidebar({ collapsed, onToggle }) {
         </div>
 
         {/* ── Nav scroll area ── */}
-        <nav style={{
+        <nav className="sw-sidebar-scroll" style={{
           flex:1, overflowY:'auto', overflowX:'hidden',
           padding:'6px 0', position:'relative', zIndex:1,
-          scrollbarWidth:'thin', scrollbarColor:'#1a3050 transparent',
+          scrollbarWidth:'auto', scrollbarColor:'#7dd3fc rgba(255,255,255,0.06)',
         }}>
           {/* Main grouped nav */}
           {NAV_GROUPS.map(group => (
@@ -594,7 +615,7 @@ export default function Sidebar({ collapsed, onToggle }) {
               <div style={{ minWidth:0 }}>
                 <div style={{ fontSize:10, color:'rgba(255,255,255,0.35)', lineHeight:1.2 }}>Managed by</div>
                 <div style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.65)', lineHeight:1.2 }}>
-                  NORDIK Institute · Algoma University
+                  NORDIK Institute
                 </div>
               </div>
             </div>

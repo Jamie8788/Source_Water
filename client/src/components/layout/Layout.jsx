@@ -14,6 +14,7 @@ import CMSPageBlocks from '../cms/CMSPageBlocks'
 import { useCMS } from '../../context/CMSContext'
 import GlobalDMPanel from '../chat/GlobalDMPanel'
 import SponsorStrip from './SponsorStrip'
+import FeedbackButton from './FeedbackButton'
 
 // Legacy shim so any page still importing useCms doesn't break
 export { useCMS as useCms }
@@ -136,6 +137,9 @@ export default function Layout({ children }) {
       )}
       {a11yOpen && <AccessibilityPanel onClose={() => setA11yOpen(false)} />}
       {dmOpen && <GlobalDMPanel onClose={closeDM} initialUserId={dmUserId} />}
+
+      {/* Global feedback button */}
+      <FeedbackButton />
     </div>
   )
 }

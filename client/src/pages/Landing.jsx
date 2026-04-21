@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useCMS } from '../context/CMSContext'
 import CMSField from '../components/cms/CMSField'
 import { Eye, EyeOff, Droplets, Map, BarChart2, Users, FlaskConical, Gamepad2, MessageSquare, ChevronRight } from 'lucide-react'
+import NibiMascotImage from '../components/NibiMascotImage'
 
 /* ── Animated Water Canvas ── */
 function WaterCanvas() {
@@ -216,7 +217,7 @@ export default function Landing() {
             </div>
             <div>
               <div className="text-white font-black text-lg tracking-tight">SOURCE <span style={{ color: '#818cf8' }}>Water</span></div>
-              <div className="text-xs font-semibold tracking-widest uppercase" style={{ color: '#475569' }}>NORDIK Institute · Algoma University</div>
+              <div className="text-xs font-semibold tracking-widest uppercase" style={{ color: '#94a3b8' }}>NORDIK Institute</div>
             </div>
           </div>
 
@@ -225,7 +226,7 @@ export default function Landing() {
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold mb-4"
               style={{ background: 'rgba(99,102,241,0.2)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}>
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"/>
-              <CMSField page="landing" block="badge" field="text" default="LIVE · Northern Ontario Water Intelligence" tag="span"/>
+              <CMSField page="landing" block="badge" field="text" default="LIVE · Great Lakes Intelligence and Engagement Platform" tag="span"/>
             </div>
             <h1 className="text-4xl lg:text-5xl font-black text-white leading-tight mb-4" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
               <CMSField page="landing" block="hero" field="title_line1" default="Protect our" tag="span"/><br/>
@@ -234,7 +235,7 @@ export default function Landing() {
               </span>
             </h1>
             <p className="text-lg mb-8 max-w-md" style={{ color: '#94a3b8' }}>
-              <CMSField page="landing" block="hero" field="subtitle" default="Real-time water quality monitoring, AI insights, and community science for Northern Ontario." tag="span" multiline/>
+              <CMSField page="landing" block="hero" field="subtitle" default="Real-time water quality monitoring, AI insights, and community science for the Great Lakes region and beyond." tag="span" multiline/>
             </p>
 
             {/* Stats */}
@@ -271,6 +272,19 @@ export default function Landing() {
         style={{ background: 'rgba(15,12,41,0.95)', borderLeft: '1px solid rgba(99,102,241,0.2)' }}>
 
         <div className="w-full max-w-sm">
+
+          {/* Nibi welcome mascot */}
+          <div className="flex items-end justify-center gap-3 mb-2">
+            <div className="relative">
+              <div className="px-4 py-2.5 rounded-2xl rounded-br-sm text-xs font-semibold"
+                style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color: 'white', boxShadow: '0 4px 20px rgba(99,102,241,0.3)', maxWidth: 200 }}>
+                Hi, I'm Water! Welcome to SOURCE Water.
+              </div>
+            </div>
+            <div style={{ width: 72, height: 96, flexShrink: 0 }}>
+              <NibiMascotImage mood="wave" size={72}/>
+            </div>
+          </div>
 
           {/* Logo icon */}
           <div className="mb-6 text-center">

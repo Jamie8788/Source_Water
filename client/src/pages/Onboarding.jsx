@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import api from '../utils/api'
-import { Check, ChevronRight, ChevronLeft, Pencil } from 'lucide-react'
+import { Check, ChevronRight, ChevronLeft } from 'lucide-react'
+import NibiMascotImage from '../components/NibiMascotImage'
 
 const COMMUNITIES = ['Sault Ste. Marie', 'Sudbury', 'Thunder Bay', 'Algoma', 'Manitoulin', 'Elliot Lake', 'Wawa', 'Kapuskasing', 'Timmins', 'Other']
 const INTERESTS = ['Water Quality Testing', 'Aquatic Ecology', 'Policy & Advocacy', 'Education & Outreach', 'Data Analysis', 'Field Sampling', 'Indigenous Water Rights', 'Climate & Weather']
@@ -16,10 +17,10 @@ const STEPS = [
 ]
 
 const FEATURES = [
-  { icon: '📊', title: 'Overview Dashboard', desc: 'Monitor water quality data, alerts, and trends across sites.' },
-  { icon: '⚡', title: 'Ask Water (AI)', desc: 'Ask questions about water quality and get instant AI-powered insights from Water, your AI guide!' },
-  { icon: '💬', title: 'Social Space', desc: 'Connect and discuss with other water protectors in your community.' },
-  { icon: '📚', title: 'Classroom', desc: 'Access learning resources and take quizzes to deepen your knowledge.' },
+  { icon: '📊', title: 'Dashboard', desc: 'Monitor water quality data, alerts, and trends across sites.' },
+  { icon: '⚡', title: 'Ask Water (AI)', desc: 'Ask questions about water and get instant AI-powered insights from Water, your guide!' },
+  { icon: '💬', title: 'Community', desc: 'Connect and discuss with other water stewards in your region.' },
+  { icon: '📚', title: 'Resources', desc: 'Access learning resources, games, and quizzes to deepen your knowledge.' },
 ]
 
 export default function Onboarding() {
@@ -59,8 +60,8 @@ export default function Onboarding() {
     <div className="min-h-screen flex flex-col items-center justify-start pt-8 px-4"
       style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0f172a 100%)' }}>
 
-      {/* Top: Step indicator + CMS toggle */}
-      <div className="w-full max-w-2xl flex items-center justify-between mb-8">
+      {/* Top: Step indicator */}
+      <div className="w-full max-w-2xl flex items-center justify-center mb-8">
         <div className="flex items-center gap-0">
           {STEPS.map((s, i) => (
             <div key={s.n} className="flex items-center">
@@ -86,13 +87,6 @@ export default function Onboarding() {
             </div>
           ))}
         </div>
-
-        {/* CMS Edit Mode toggle stub */}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold"
-          style={{ borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.5)' }}>
-          <Pencil className="w-3 h-3" /> CMS Edit Mode
-          <span className="ml-1 px-1.5 py-0.5 rounded text-xs" style={{ background: 'rgba(255,255,255,0.08)' }}>OFF</span>
-        </div>
       </div>
 
       {/* Card */}
@@ -101,25 +95,19 @@ export default function Onboarding() {
         {/* ── Step 1: Welcome ── */}
         {step === 1 && (
           <div className="text-center">
-            <div className="flex justify-center gap-2 mb-6">
-              {['w-10 h-10', 'w-7 h-7', 'w-5 h-5'].map((sz, i) => (
-                <div key={i} className={`${sz} rounded-full`} style={{
-                  background: 'linear-gradient(135deg, rgba(139,92,246,0.7), rgba(99,102,241,0.5))',
-                  alignSelf: 'flex-end',
-                  boxShadow: '0 0 20px rgba(139,92,246,0.3)'
-                }} />
-              ))}
+            <div className="flex justify-center mb-4">
+              <NibiMascotImage mood="openarms" size={140}/>
             </div>
             <h1 className="text-2xl font-bold text-white mb-3">
-              Welcome to SOURCE Water, {name}!
+              Woohoo, it's great to meet you, {name}!
             </h1>
             <p className="text-slate-400 mb-6 max-w-md mx-auto leading-relaxed">
-              I'm Water, your SOURCE Water guide! This platform helps communities monitor, learn about, and protect water quality across Northern Ontario.
+              Welcome to my home! I'll guide you as you explore this site — a place to monitor, learn about, and protect water quality across the Great Lakes region.
             </p>
             <div className="rounded-xl p-4 text-left mb-6" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <p className="font-semibold text-white text-sm mb-1">Your identity is set up!</p>
+              <p className="font-semibold text-white text-sm mb-1">Your account has been created!</p>
               <p className="text-slate-400 text-sm leading-relaxed">
-                Your account <span className="text-white font-semibold">@{user?.username}</span> works everywhere on this platform — the Social Space, Classroom, Research tools, and more. You'll never be asked to create a separate profile on any page.
+                Your account <span className="text-white font-semibold">@{user?.username}</span> works everywhere on this platform — Community, Resources, Research tools, and more. You'll never be asked to create a separate profile on any page.
               </p>
             </div>
             <button onClick={() => setStep(2)}
@@ -134,13 +122,12 @@ export default function Onboarding() {
         {step === 2 && (
           <div>
             <div className="flex items-center gap-4 mb-6">
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0"
-                style={{ background: 'linear-gradient(135deg, #ef4444, #f97316)' }}>
-                🛡️
+              <div style={{ width: 64, height: 86, flexShrink: 0 }}>
+                <NibiMascotImage mood="wave" size={64}/>
               </div>
               <div>
                 <h2 className="text-xl font-bold text-white">Tell us about yourself</h2>
-                <p className="text-slate-400 text-sm">This helps the community get to know you</p>
+                <p className="text-slate-400 text-sm">This helps your new community to know who they're working with</p>
               </div>
             </div>
 
@@ -197,8 +184,15 @@ export default function Onboarding() {
         {/* ── Step 3: Platform Tour ── */}
         {step === 3 && (
           <div>
-            <h2 className="text-xl font-bold text-white mb-1">Here's what you can do</h2>
-            <p className="text-slate-400 text-sm mb-5">Explore these sections using the navigation sidebar</p>
+            <div className="flex items-center gap-4 mb-4">
+              <div style={{ width: 64, height: 86, flexShrink: 0 }}>
+                <NibiMascotImage mood="pointing" size={64}/>
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white mb-1">Here's what you can do</h2>
+                <p className="text-slate-400 text-sm">Explore these sections using the navigation sidebar</p>
+              </div>
+            </div>
 
             <div className="grid grid-cols-2 gap-3 mb-5">
               {FEATURES.map(f => (
@@ -231,8 +225,10 @@ export default function Onboarding() {
         {/* ── Step 4: Get Started ── */}
         {step === 4 && (
           <div className="text-center">
-            <div className="text-5xl mb-4">🎉</div>
-            <h2 className="text-2xl font-bold text-white mb-3">You're all set!</h2>
+            <div className="flex justify-center mb-4">
+              <NibiMascotImage mood="jumping" size={140}/>
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-3">You're ready!</h2>
             <p className="text-slate-400 mb-6">
               Welcome to the SOURCE Water community. You're now ready to explore the platform.
             </p>
@@ -240,9 +236,9 @@ export default function Onboarding() {
             <div className="rounded-xl p-4 text-left mb-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
               <p className="font-semibold text-white text-sm mb-3">Quick start ideas:</p>
               {[
-                'Explore the Overview Dashboard to see current water data',
-                'Introduce yourself in the Social Space',
-                'Check out the Classroom for learning resources',
+                'Explore the Dashboard to see current water data',
+                'Introduce yourself in the Community',
+                'Check out Resources for learning materials',
                 'Ask Water (AI Assistant) any water quality questions',
               ].map(item => (
                 <div key={item} className="flex items-start gap-2.5 mb-2">
@@ -255,7 +251,7 @@ export default function Onboarding() {
             </div>
 
             <p className="text-slate-500 text-sm mb-6">
-              Need help? Email us at: <span className="text-white font-semibold">info@nordikinstitute.com</span>
+              Need help? Email us at: <span className="text-white font-semibold">water@nordikinstitute.com</span>
             </p>
 
             <button onClick={finish} disabled={loading}
