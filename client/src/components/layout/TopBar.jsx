@@ -5,8 +5,16 @@ import { useSound } from '../../context/SoundContext'
 import { useTheme } from '../../context/ThemeContext'
 import { useCMS } from '../../context/CMSContext'
 import CMSField from '../cms/CMSField'
-import { Bell, Search, ChevronDown, Volume2, VolumeX, Accessibility, Edit3, LogOut } from 'lucide-react'
+import { Bell, Search, ChevronDown, Volume2, VolumeX, Accessibility, Edit3, LogOut, Sparkles, Zap, ZapOff } from 'lucide-react'
 import api from '../../utils/api'
+
+// Toggle the global no-animations class on <html>. Persisted to localStorage so
+// the user's choice survives a refresh. Disables all CSS animations,
+// transitions, and the floating mascot wobble in one click.
+function applyAnimPref(off) {
+  document.documentElement.classList.toggle('sw-no-anim', off)
+  try { localStorage.setItem('sw-anim-off', off ? '1' : '0') } catch {}
+}
 
 export default function TopBar({ sidebarWidth, onA11yClick, onOpenDM }) {
   const { user, logout } = useAuth()
@@ -17,7 +25,13 @@ export default function TopBar({ sidebarWidth, onA11yClick, onOpenDM }) {
   const [unread, setUnread] = useState(0)
   const [searchVal, setSearchVal] = useState('')
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [animOff, setAnimOff] = useState(() => {
+    try { return localStorage.getItem('sw-anim-off') === '1' } catch { return false }
+  })
   const menuRef = useRef(null)
+
+  // Apply animation pref on mount + whenever it changes
+  useEffect(() => { applyAnimPref(animOff) }, [animOff])
 
   // Poll unread every 5s so badge stays live
   useEffect(() => {
@@ -84,12 +98,23 @@ export default function TopBar({ sidebarWidth, onA11yClick, onOpenDM }) {
         )}
 
         <button onClick={() => { play('click'); toggleSound() }}
-          className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
+          className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          title={enabled ? 'Mute sound' : 'Enable sound'}>
           {enabled ? <Volume2 className="w-4 h-4" style={{ color: 'var(--text-muted)' }}/> : <VolumeX className="w-4 h-4" style={{ color: 'var(--text-light)' }}/>}
         </button>
 
+        <button onClick={() => { play('click'); setAnimOff(o => !o) }}
+          className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          aria-label={animOff ? 'Turn animations on' : 'Turn animations off'}
+          title={animOff ? 'Animations OFF — click to enable' : 'Turn animations OFF'}>
+          {animOff
+            ? <ZapOff className="w-4 h-4" style={{ color: '#ef4444' }}/>
+            : <Zap className="w-4 h-4" style={{ color: 'var(--text-muted)' }}/>}
+        </button>
+
         <button onClick={() => { play('click'); onA11yClick() }}
-          className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
+          className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          title="Accessibility">
           <Accessibility className="w-4 h-4" style={{ color: 'var(--text-muted)' }}/>
         </button>
 

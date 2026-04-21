@@ -7,6 +7,25 @@
 /* Nuclear italic kill — must come AFTER @tailwind utilities so it wins */
 *, *::before, *::after { font-style: normal !important; }
 
+/* ── Global animation kill-switch ─────────────────────────────────────────
+   When the user clicks the Zap toggle in the TopBar, <html> gets the
+   `sw-no-anim` class. This freezes all CSS animations + transitions so the
+   page becomes static. Applied with !important to override any inline or
+   keyframe-driven motion (mascot wobble, ambient orbs, fish, ripple, etc).
+   The same toggle survives reload via localStorage `sw-anim-off`. */
+html.sw-no-anim, html.sw-no-anim *, html.sw-no-anim *::before, html.sw-no-anim *::after {
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+/* Hide ambient eye-candy entirely when animations are off */
+html.sw-no-anim .fish-layer,
+html.sw-no-anim .ambient-bg,
+html.sw-no-anim .water-ripple-bar { display: none !important; }
+
 /* ── CSS Variables — D2L Brightspace colour system ── */
 :root {
   /* D2L primary blue */
