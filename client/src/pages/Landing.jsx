@@ -206,6 +206,32 @@ export default function Landing() {
       <div className="flex-1 relative flex flex-col overflow-hidden" style={{ minHeight: '55vh' }}>
         <WaterCanvas />
 
+        {/* BIG centered mascot — floats over the hero, transparent PNG */}
+        <div
+          className="hidden lg:block pointer-events-none"
+          style={{
+            position: 'absolute',
+            right: -40,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            zIndex: 5,
+            animation: 'heroFloat 5s ease-in-out infinite',
+            filter: 'drop-shadow(0 25px 50px rgba(99,102,241,0.45))',
+          }}
+        >
+          <NibiMascotImage mood="wave" size={520}/>
+        </div>
+        <style>{`
+          @keyframes heroFloat {
+            0%,100% { transform: translateY(-50%) }
+            50%     { transform: translateY(calc(-50% - 14px)) }
+          }
+          @keyframes heroBubblePop {
+            0%   { opacity: 0; transform: translateY(8px) scale(0.94) }
+            100% { opacity: 1; transform: translateY(0) scale(1) }
+          }
+        `}</style>
+
         {/* Content over canvas */}
         <div className="relative z-10 flex flex-col h-full p-8 lg:p-12">
 
@@ -222,13 +248,13 @@ export default function Landing() {
           </div>
 
           {/* Hero text */}
-          <div className="py-10">
+          <div className="py-10 max-w-xl">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold mb-4"
               style={{ background: 'rgba(99,102,241,0.2)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}>
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"/>
               <CMSField page="landing" block="badge" field="text" default="LIVE · Great Lakes Intelligence and Engagement Platform" tag="span"/>
             </div>
-            <h1 className="text-4xl lg:text-5xl font-black text-white leading-tight mb-4" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+            <h1 className="text-4xl lg:text-6xl font-black text-white leading-[1.05] mb-4" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
               <CMSField page="landing" block="hero" field="title_line1" default="Protect our" tag="span"/><br/>
               <span style={{ background: 'linear-gradient(135deg,#818cf8,#14b8a6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                 <CMSField page="landing" block="hero" field="title_line2" default="Watersheds" tag="span"/>
@@ -268,21 +294,22 @@ export default function Landing() {
       </div>
 
       {/* ── Right: Auth Panel ── */}
-      <div className="w-full lg:w-[440px] flex-shrink-0 flex items-center justify-center p-8"
+      <div className="w-full lg:w-[440px] flex-shrink-0 flex items-center justify-center p-8 relative"
         style={{ background: 'rgba(15,12,41,0.95)', borderLeft: '1px solid rgba(99,102,241,0.2)' }}>
 
         <div className="w-full max-w-sm">
 
-          {/* Nibi welcome mascot */}
-          <div className="flex items-end justify-center gap-3 mb-2">
-            <div className="relative">
-              <div className="px-4 py-2.5 rounded-2xl rounded-br-sm text-xs font-semibold"
-                style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color: 'white', boxShadow: '0 4px 20px rgba(99,102,241,0.3)', maxWidth: 200 }}>
-                Hi, I'm Water! Welcome to SOURCE Water.
-              </div>
-            </div>
-            <div style={{ width: 72, height: 96, flexShrink: 0 }}>
-              <NibiMascotImage mood="wave" size={72}/>
+          {/* Speech bubble — positioned above the auth card, mascot lives in hero column */}
+          <div className="mb-4 flex justify-center">
+            <div className="px-4 py-2.5 rounded-2xl text-xs font-semibold text-center"
+              style={{
+                background: 'linear-gradient(135deg,#6366f1,#4f46e5)',
+                color: 'white',
+                boxShadow: '0 4px 20px rgba(99,102,241,0.35)',
+                maxWidth: 280,
+                animation: 'heroBubblePop 0.6s ease-out',
+              }}>
+              Hi, I'm Water! To get started, please create an account. I'm excited to meet another water protector!
             </div>
           </div>
 
