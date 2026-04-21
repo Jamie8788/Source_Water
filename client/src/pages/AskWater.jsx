@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Mic, MicOff, Send, Trash2, Volume2, VolumeX, Sparkles, Droplets } from 'lucide-react'
 import NibiMascotLive from '../components/NibiMascotLive'
 import api from '../utils/api'
-import { pickNibiVoice, NIBI_PROSODY } from '../utils/voice'
+import { speakAsNibi } from '../utils/voice'
 
 // ── Content ───────────────────────────────────────────────────────────────────
 const SUGGESTIONS = [
@@ -257,17 +257,11 @@ export default function AskWater() {
       })
     } catch(e) {
       if(e.name==='AbortError'||e.name==='abort') return
-      // Browser TTS fallback — deterministic kid/young female voice via shared util
-      try {
-        await new Promise(resolve=>{
-          const u = new SpeechSynthesisUtterance(clean.slice(0,350))
-          u.pitch=NIBI_PROSODY.pitch; u.rate=NIBI_PROSODY.rate; u.volume=NIBI_PROSODY.volume
-          const v=pickNibiVoice()
-          if(v) u.voice=v
-          u.onend=resolve; u.onerror=resolve
-          window.speechSynthesis.speak(u)
-        })
-      } catch{}
+      // Browser TTS fallback — use shared util that waits for voiceschanged
+      // so we never fire an utterance with the OS default (sore-throat) voice.
+      if(!ctrl.signal.aborted) {
+        try { await speakAsNibi(clean.slice(0,350)) } catch {}
+      }
     }
     if(!ctrl.signal.aborted) setStatus('idle')
   },[stopAudio])

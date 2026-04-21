@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
@@ -63,6 +63,13 @@ export default function Layout({ children }) {
 
   const openDM = (userId = null) => { setDmUserId(userId); setDmOpen(true) }
   const closeDM = () => { setDmOpen(false); setDmUserId(null) }
+
+  // Kill any in-flight TTS on every route change. Previously, Ask Water could
+  // leave a SpeechSynthesisUtterance running past unmount — producing a gravelly
+  // default-OS voice on the next page (reported on /quick-actions).
+  useEffect(() => {
+    try { window.speechSynthesis?.cancel() } catch {}
+  }, [location.pathname])
 
   // Persist sidebar state across navigation
   const handleToggleSidebar = () => {

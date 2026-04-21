@@ -15,6 +15,11 @@ const PREFERRED = [
   /^Victoria$/i,                  // macOS female
 ]
 
+// Names of voices we must NEVER pick — deep/male defaults that sound gravelly
+// with Nibi's high pitch setting (the "someone with a sore throat" bug on
+// Windows where Microsoft David is the system default).
+const AVOID = /^(Microsoft David|Microsoft Mark|Microsoft George|Microsoft James|Microsoft Richard|Alex|Daniel|Fred|Bruce|Ralph|Albert|Junior|Aaron|Arthur|Brian|Diego|Fred|Google UK English Male|Google Deutsch|Microsoft Pavel|Microsoft Stefan)/i
+
 export function pickNibiVoice() {
   if (typeof window === 'undefined' || !window.speechSynthesis) return null
   const voices = window.speechSynthesis.getVoices() || []
@@ -30,11 +35,14 @@ export function pickNibiVoice() {
   // Any en female
   const enFemale = voices.find(v => v.lang?.startsWith('en') && /female/i.test(v.name))
   if (enFemale) return enFemale
-  // Any en-US
-  const enUs = voices.find(v => v.lang === 'en-US')
+  // Any en-US that's not a known male voice
+  const enUs = voices.find(v => v.lang === 'en-US' && !AVOID.test(v.name))
   if (enUs) return enUs
-  // Any en
-  return voices.find(v => v.lang?.startsWith('en')) || voices[0]
+  // Any en that's not a known male voice
+  const enAny = voices.find(v => v.lang?.startsWith('en') && !AVOID.test(v.name))
+  if (enAny) return enAny
+  // Last resort — any non-male voice
+  return voices.find(v => !AVOID.test(v.name)) || voices[0]
 }
 
 // Consistent pitch/rate/volume for Nibi — the young female mascot voice.

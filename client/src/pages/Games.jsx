@@ -762,9 +762,388 @@ function OxygenDive({ onComplete }) {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   SONAR SWEEP — Flappy-style boat + sonar pulse trash hunt
+═══════════════════════════════════════════════════════════ */
+
+// Each pollution type is a real surface-water contaminant. The on-death info
+// card pulls from PARAM_META so the player learns the CCME-tracked parameter
+// the trash actually drives. NO drinking-water references (compliance).
+const TRASH = [
+  { kind: 'microplastic', emoji: '🧴', label: 'Microplastic',  pts: 8,  paramKey: 'turbidity',
+    why: 'Plastic fragments under 5mm. Filter-feeders mistake them for food; the particles biomagnify up the food chain and carry adsorbed pollutants with them.' },
+  { kind: 'tire',         emoji: '🛞', label: 'Tire fragment', pts: 14, paramKey: 'turbidity',
+    why: '6PPD-quinone — a tire-rubber additive — washes into urban streams and kills coho salmon at parts-per-trillion concentrations. One of the largest aquatic toxicity discoveries of the decade.' },
+  { kind: 'net',          emoji: '🕸️', label: 'Ghost net',     pts: 18, paramKey: 'turbidity',
+    why: 'Lost or abandoned fishing nets keep trapping fish, turtles, and birds for years. The Great Lakes have an estimated 100+ tonnes of ghost gear at any time.' },
+  { kind: 'phosphorus',   emoji: '🟢', label: 'Phosphorus blob', pts: 10, paramKey: 'dissolved_oxygen',
+    why: 'Phosphorus from fertilizer and detergent runoff fuels algae blooms. When the bloom dies and decomposes, oxygen crashes — the dead-zone mechanism behind Lake Erie summer hypoxia.' },
+  { kind: 'salt',         emoji: '🧂', label: 'Road salt plume', pts: 12, paramKey: 'conductivity',
+    why: 'Winter de-icing salt runs straight into streams. Chloride above ~120 mg/L harms freshwater invertebrates; many Northern Ontario urban creeks now exceed this year-round.' },
+  { kind: 'oil',          emoji: '🛢️', label: 'Oil sheen',      pts: 16, paramKey: 'dissolved_oxygen',
+    why: 'A thin oil film blocks atmospheric oxygen exchange — DO drops underneath, and PAH compounds in the oil are toxic to fish embryos.' },
+]
+
+const INVASIVES = [
+  { kind: 'lamprey',   emoji: '🪱', label: 'Sea lamprey',
+    why: 'Sea lamprey invaded the upper Great Lakes through the Welland Canal. They latch onto lake trout and bleed them out — a single lamprey can kill ~18 kg of fish in its lifetime.' },
+  { kind: 'carp',      emoji: '🐠', label: 'Asian carp',
+    why: 'Silver and bighead carp out-eat native species and have been moving toward the Great Lakes for decades. They can leap 3 m out of the water when startled.' },
+  { kind: 'zebra',     emoji: '🐚', label: 'Zebra mussel cluster',
+    why: 'A single female releases up to a million eggs a year. They strip plankton out of the water column, clearing it deceptively — and starving the food web below.' },
+]
+
+function SonarSweep({ onComplete }) {
+  const { play } = useSound()
+  const canvasRef = useRef(null)
+  const stateRef = useRef(null)
+  const inputRef = useRef({ thrust: false, ping: false, pingHandled: false })
+  const [hud, setHud] = useState({ score: 0, lives: 3, sonarCd: 0, depth: 0, recent: null })
+  const [done, setDone] = useState(false)
+  const [deathReason, setDeathReason] = useState(null)
+
+  const W = 560, H = 600
+  const SURFACE_Y = 220       // waterline
+  const FLOOR_Y   = H - 40    // lake bed
+  const SONAR_COOL = 90       // frames between pings
+  const SONAR_R    = 150      // ping reveal radius
+
+  const reset = useCallback(() => {
+    stateRef.current = {
+      boat:  { x: 130, y: 180, vy: 0 },
+      pulse: { x: 130, y: SURFACE_Y, r: 0, alive: false },
+      trash: [],
+      inv:   [],
+      sonarCd: 0,
+      tick: 0,
+      score: 0,
+      lives: 3,
+      level: 1,
+      scrollSpeed: 1.6,
+      spawnCd: 60,
+      invCd: 240,
+      recent: null,
+      recentTtl: 0,
+    }
+    setHud({ score: 0, lives: 3, sonarCd: 0, depth: 0, recent: null })
+    setDone(false); setDeathReason(null)
+  }, [])
+
+  useEffect(() => { reset() }, [reset])
+
+  // Input — keyboard (Space/Up = thrust, S/Down = sonar) + pointer (click thrust)
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (['Space', 'ArrowUp', 'KeyW'].includes(e.code)) { inputRef.current.thrust = true; e.preventDefault() }
+      if (['ArrowDown', 'KeyS'].includes(e.code))         { inputRef.current.ping = true; inputRef.current.pingHandled = false; e.preventDefault() }
+    }
+    const onKeyUp = (e) => {
+      if (['Space', 'ArrowUp', 'KeyW'].includes(e.code)) inputRef.current.thrust = false
+      if (['ArrowDown', 'KeyS'].includes(e.code))         inputRef.current.ping = false
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    return () => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp) }
+  }, [])
+
+  useEffect(() => {
+    if (done) return
+    const cv = canvasRef.current; if (!cv) return
+    const ctx = cv.getContext('2d')
+    let raf = 0, lastSync = 0
+
+    const onPointerDown = (e) => {
+      const rect = cv.getBoundingClientRect()
+      const y = (e.clientY - rect.top) * (H / rect.height)
+      // Tap upper half = thrust, tap lower half = sonar ping
+      if (y < SURFACE_Y) inputRef.current.thrust = true
+      else { inputRef.current.ping = true; inputRef.current.pingHandled = false }
+    }
+    const onPointerUp = () => { inputRef.current.thrust = false; inputRef.current.ping = false }
+    cv.addEventListener('pointerdown', onPointerDown)
+    cv.addEventListener('pointerup', onPointerUp)
+    cv.addEventListener('pointerleave', onPointerUp)
+
+    const die = (reason) => {
+      setDeathReason(reason); setDone(true); cancelAnimationFrame(raf)
+    }
+
+    const step = (now) => {
+      const s = stateRef.current
+      if (!s) return
+      s.tick++
+
+      // Boat physics — Flappy-style: gravity pulls down, thrust pushes up
+      const inp = inputRef.current
+      s.boat.vy += 0.32                          // gravity
+      if (inp.thrust) s.boat.vy -= 0.85          // thrust
+      s.boat.vy = Math.max(-6, Math.min(7, s.boat.vy))
+      s.boat.y += s.boat.vy
+      // Boat lives in the AIR/SURFACE zone — clamp above the waterline minus a hull
+      if (s.boat.y < 30) { s.boat.y = 30; s.boat.vy = 0 }
+      if (s.boat.y > SURFACE_Y - 6) {
+        // Hit the water hard
+        s.boat.y = SURFACE_Y - 6; s.boat.vy = 0
+        // Soft penalty — every ~2s touching water drains a life via wave damage
+        if (s.tick % 90 === 0) {
+          s.lives--; play('wrong')
+          if (s.lives <= 0) return die({
+            headline: 'Capsized — too much surface damage from wave wakes',
+            body: 'Even a research boat needs to ride the wakes carefully. Water-quality monitoring relies on stable platforms — sediment kicked up by hull-slamming makes the very turbidity readings you came to take useless.',
+            paramKey: 'turbidity',
+          })
+        }
+      }
+
+      // Sonar pulse trigger
+      if (inp.ping && !inp.pingHandled && s.sonarCd <= 0) {
+        inp.pingHandled = true
+        s.pulse = { x: s.boat.x, y: SURFACE_Y, r: 0, alive: true }
+        s.sonarCd = SONAR_COOL
+        play('bubble')
+        // Reveal nearby trash inside SONAR_R
+        for (const t of s.trash) {
+          const dx = t.x - s.boat.x, dy = t.y - SURFACE_Y
+          if (dx * dx + dy * dy < SONAR_R * SONAR_R) t.revealed = true
+        }
+      }
+      if (s.sonarCd > 0) s.sonarCd--
+
+      // Animate pulse
+      if (s.pulse.alive) {
+        s.pulse.r += 6
+        if (s.pulse.r > SONAR_R) s.pulse.alive = false
+      }
+
+      // Spawn trash
+      s.spawnCd--
+      if (s.spawnCd <= 0) {
+        const def = TRASH[(Math.random() * TRASH.length) | 0]
+        const y = SURFACE_Y + 30 + Math.random() * (FLOOR_Y - SURFACE_Y - 50)
+        s.trash.push({ ...def, x: W + 30, y, revealed: false, vx: -s.scrollSpeed, drift: (Math.random() - 0.5) * 0.4 })
+        s.spawnCd = Math.max(35, 90 - s.level * 6)
+      }
+
+      // Spawn invasive species (jumping out of water — must dodge)
+      s.invCd--
+      if (s.invCd <= 0) {
+        const def = INVASIVES[(Math.random() * INVASIVES.length) | 0]
+        // Lampreys/carp jump from surface; zebra mussels stick on the floor
+        const fromFloor = def.kind === 'zebra'
+        s.inv.push({
+          ...def,
+          x: W + 20,
+          y: fromFloor ? FLOOR_Y - 20 : SURFACE_Y,
+          vx: -s.scrollSpeed - 0.4,
+          jumping: !fromFloor,
+          phase: 0,
+          fromFloor,
+        })
+        s.invCd = Math.max(140, 280 - s.level * 14)
+      }
+
+      // Move trash + auto-scoop on hull contact (only revealed trash counts — sonar gates points)
+      s.trash = s.trash.map(t => {
+        t.x += t.vx
+        t.y += t.drift
+        if (t.y < SURFACE_Y + 10) t.drift = Math.abs(t.drift)
+        if (t.y > FLOOR_Y - 10)   t.drift = -Math.abs(t.drift)
+        // Hull-bottom collision (boat sits at boat.y; hull spans ~boat.x±26, y SURFACE_Y±6)
+        const hullX0 = s.boat.x - 26, hullX1 = s.boat.x + 26
+        const inX = t.x > hullX0 && t.x < hullX1
+        const nearSurface = t.y < SURFACE_Y + 28
+        if (inX && nearSurface) {
+          if (t.revealed) {
+            s.score += t.pts
+            s.recent = `+${t.pts}  ${t.emoji}  ${t.label}`
+            s.recentTtl = 90
+            play('coin')
+            return null
+          }
+          // Unrevealed trash gives no points but doesn't penalise — encourages sonar use
+        }
+        return t
+      }).filter(Boolean).filter(t => t.x > -40)
+
+      // Move invasives + collision = lose life with educational popup
+      s.inv = s.inv.map(iv => {
+        iv.x += iv.vx
+        if (iv.jumping) {
+          iv.phase += 0.05
+          // Arc up out of surface and back down
+          iv.y = SURFACE_Y - Math.sin(iv.phase) * 80
+          if (iv.phase > Math.PI) iv.jumping = false
+        }
+        return iv
+      }).filter(iv => iv.x > -40)
+
+      // Boat × invasive collision
+      for (const iv of s.inv) {
+        const dx = iv.x - s.boat.x, dy = iv.y - s.boat.y
+        if (dx * dx + dy * dy < 26 * 26) {
+          s.lives--
+          play('wrong')
+          iv.x = -200 // remove
+          if (s.lives <= 0) {
+            return die({
+              headline: `Capsized by ${iv.label}`,
+              body: iv.why,
+              // Invasives tie to ecosystem disruption — most directly affect DO via food-web shifts
+              paramKey: 'dissolved_oxygen',
+            })
+          }
+        }
+      }
+
+      // Level up — every 250 pts, scroll faster
+      if (s.score > s.level * 250) { s.level++; s.scrollSpeed += 0.3; play('levelUp') }
+
+      // Recent floating notice ttl
+      if (s.recentTtl > 0) s.recentTtl--
+
+      // ── Render ─────────────────────────────────────────────
+      // Sky
+      const sky = ctx.createLinearGradient(0, 0, 0, SURFACE_Y)
+      sky.addColorStop(0, '#0c4a6e'); sky.addColorStop(1, '#075985')
+      ctx.fillStyle = sky; ctx.fillRect(0, 0, W, SURFACE_Y)
+      // Water
+      const water = ctx.createLinearGradient(0, SURFACE_Y, 0, H)
+      water.addColorStop(0, '#0e7490'); water.addColorStop(1, '#082f49')
+      ctx.fillStyle = water; ctx.fillRect(0, SURFACE_Y, W, H - SURFACE_Y)
+      // Wave line
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1.5
+      ctx.beginPath()
+      for (let x = 0; x <= W; x += 8) {
+        const y = SURFACE_Y + Math.sin((x + s.tick * 2) * 0.04) * 2
+        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+      }
+      ctx.stroke()
+      // Lake floor
+      ctx.fillStyle = '#1c1917'
+      ctx.fillRect(0, FLOOR_Y, W, H - FLOOR_Y)
+
+      // Trash — silhouette unless revealed
+      for (const t of s.trash) {
+        if (t.revealed) {
+          ctx.font = '22px system-ui'
+          ctx.textAlign = 'center'
+          ctx.fillStyle = '#fff'
+          ctx.fillText(t.emoji, t.x, t.y + 6)
+          ctx.font = 'bold 9px system-ui'
+          ctx.fillStyle = '#fde68a'
+          ctx.fillText(t.label, t.x, t.y + 22)
+        } else {
+          // Hidden silhouette — dimmer and questionmarked
+          ctx.fillStyle = 'rgba(15,23,42,0.55)'
+          ctx.beginPath(); ctx.arc(t.x, t.y, 9, 0, Math.PI * 2); ctx.fill()
+          ctx.fillStyle = 'rgba(148,163,184,0.4)'
+          ctx.font = '10px system-ui'; ctx.textAlign = 'center'
+          ctx.fillText('?', t.x, t.y + 3)
+        }
+      }
+      ctx.textAlign = 'left'
+
+      // Invasives
+      for (const iv of s.inv) {
+        ctx.font = '22px system-ui'
+        ctx.textAlign = 'center'
+        ctx.fillText(iv.emoji, iv.x, iv.y + 6)
+        // Warning halo
+        ctx.strokeStyle = 'rgba(239,68,68,0.6)'; ctx.lineWidth = 1.5
+        ctx.beginPath(); ctx.arc(iv.x, iv.y, 16, 0, Math.PI * 2); ctx.stroke()
+      }
+      ctx.textAlign = 'left'
+
+      // Sonar pulse ring
+      if (s.pulse.alive) {
+        const a = 1 - s.pulse.r / SONAR_R
+        ctx.strokeStyle = `rgba(56,189,248,${a * 0.85})`; ctx.lineWidth = 2
+        ctx.beginPath(); ctx.arc(s.pulse.x, s.pulse.y, s.pulse.r, 0, Math.PI * 2); ctx.stroke()
+      }
+
+      // Boat hull — simple stylised research vessel
+      const bx = s.boat.x, by = s.boat.y
+      ctx.fillStyle = '#facc15'
+      ctx.beginPath()
+      ctx.moveTo(bx - 28, by); ctx.lineTo(bx + 28, by)
+      ctx.lineTo(bx + 22, by + 10); ctx.lineTo(bx - 22, by + 10); ctx.closePath()
+      ctx.fill()
+      // Cabin
+      ctx.fillStyle = '#0f172a'
+      ctx.fillRect(bx - 10, by - 12, 20, 12)
+      // Sonar antenna
+      ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2
+      ctx.beginPath(); ctx.moveTo(bx, by - 12); ctx.lineTo(bx, by - 24); ctx.stroke()
+
+      // Sonar cooldown bar (top-left)
+      ctx.fillStyle = '#1e293b'; ctx.fillRect(10, 10, 120, 8)
+      const ready = 1 - s.sonarCd / SONAR_COOL
+      ctx.fillStyle = s.sonarCd === 0 ? '#22c55e' : '#38bdf8'
+      ctx.fillRect(10, 10, 120 * ready, 8)
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 10px system-ui'
+      ctx.fillText(s.sonarCd === 0 ? 'SONAR READY (S)' : 'sonar charging…', 10, 30)
+
+      // Recent scoop floating notice
+      if (s.recentTtl > 0 && s.recent) {
+        ctx.fillStyle = `rgba(34,197,94,${Math.min(1, s.recentTtl / 60)})`
+        ctx.font = 'bold 13px system-ui'; ctx.textAlign = 'center'
+        ctx.fillText(s.recent, W / 2, 50)
+        ctx.textAlign = 'left'
+      }
+
+      // HUD sync
+      if (now - lastSync > 120) {
+        lastSync = now
+        setHud({ score: s.score, lives: s.lives, sonarCd: s.sonarCd, depth: Math.round(((s.boat.y) / SURFACE_Y) * 100), recent: s.recent })
+      }
+
+      raf = requestAnimationFrame(step)
+    }
+    raf = requestAnimationFrame(step)
+    return () => {
+      cancelAnimationFrame(raf)
+      cv.removeEventListener('pointerdown', onPointerDown)
+      cv.removeEventListener('pointerup', onPointerUp)
+      cv.removeEventListener('pointerleave', onPointerUp)
+    }
+  }, [done, play])
+
+  const finish = () => onComplete(hud.score)
+
+  return (
+    <div style={{ maxWidth: W, margin: '0 auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 8, fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+        <span>Score: <span style={{ color: '#22c55e' }}>{hud.score}</span></span>
+        <span>Sonar: <span style={{ color: hud.sonarCd === 0 ? '#22c55e' : '#38bdf8' }}>{hud.sonarCd === 0 ? 'READY' : '…'}</span></span>
+        <span>{'❤️'.repeat(Math.max(0, hud.lives))}</span>
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={W}
+        height={H}
+        style={{ width: '100%', maxWidth: W, height: 'auto', border: '1px solid #1e293b', borderRadius: 12, background: '#082f49', display: 'block', touchAction: 'none' }}
+      />
+      <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.5 }}>
+        SPACE / ↑ = thrust up (don't capsize) · S / ↓ = sonar ping (reveals upcoming trash) · sail over revealed trash to scoop · dodge invasive species · trash you didn't ping is invisible — ping early, ping often.
+      </div>
+
+      {done && deathReason && (
+        <DeathInfo
+          paramKey={deathReason.paramKey}
+          headline={deathReason.headline}
+          body={deathReason.body}
+          onPlayAgain={reset}
+          onExit={finish}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════
    HUB
 ═══════════════════════════════════════════════════════════ */
 const GAMES = [
+  { id: 'sonar',  title: 'Sonar Sweep',         emoji: '📡', desc: 'Flappy-style research boat. Ping sonar to reveal pollution under the lake, scoop it on the hull, dodge invasive species. Each scoop teaches a real surface-water contaminant.', points: 'Combo pts', badge: '🌊 ADDICTIVE', component: SonarSweep },
   { id: 'panic',  title: 'pH Panic',           emoji: '⚗️', desc: 'Sort falling pH samples into Acid / Aquatic-Life-OK / Base bands fast. Real CCME thresholds — info card on death.', points: 'Combo pts', badge: '🧪 LEARN', component: PHPanic },
   { id: 'shed',   title: 'Watershed Defender', emoji: '🛡️', desc: 'Pollution drops from upstream — drag forest, wetland, and grass buffers into the path. Lose three and you learn what really fixes it.', points: 'Unlimited', badge: '🌊 ARCADE', component: WatershedDefender },
   { id: 'ox',     title: 'Oxygen Dive',         emoji: '🐟', desc: 'You are a brook trout. Warm surface water is suffocating you — find cold seeps, dodge pike, survive Henry\'s Law.', points: 'Unlimited', badge: '🌌 SURVIVE', component: OxygenDive },
@@ -814,7 +1193,7 @@ export default function Games() {
           </div>
           <div>
             <h1 className="font-bold text-xl" style={{ color: 'var(--text)' }}>Water Learning Games</h1>
-            <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>3 addictive arcade games · real CCME aquatic-life science · learn-by-dying info cards</p>
+            <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>4 addictive arcade games · real CCME aquatic-life science · learn-by-dying info cards</p>
             <p className="text-xs mt-2 max-w-xl" style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
               Each game is built around a real water-science mechanic — when your run ends, an info card explains what just killed you so you actually take something away.
             </p>
