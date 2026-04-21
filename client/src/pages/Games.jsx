@@ -5,6 +5,7 @@ import { useSound } from '../context/SoundContext'
 import api from '../utils/api'
 import { ArrowLeft, Trophy } from 'lucide-react'
 import * as THREE from 'three'
+import NibiMascotImage from '../components/NibiMascotImage'
 
 const FACTS = [
   '🧪 pH 6.5–8.5 is safe for aquatic life — outside this, fish struggle.',
@@ -1172,10 +1173,18 @@ export default function Games() {
 
   return(
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-bold text-xl" style={{color:'var(--text)'}}>Water Learning Games</h1>
-          <p className="text-sm mt-0.5" style={{color:'var(--text-muted)'}}>6 arcade games · real water science · earn XP · beat your records</p>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div style={{ width: 84, height: 112, flexShrink: 0 }}>
+            <NibiMascotImage mood="spinning" size={84}/>
+          </div>
+          <div>
+            <h1 className="font-bold text-xl" style={{color:'var(--text)'}}>Water Learning Games</h1>
+            <p className="text-sm mt-0.5" style={{color:'var(--text-muted)'}}>6 arcade games · real water science · earn XP · beat your records</p>
+            <p className="text-xs mt-2 max-w-xl" style={{color:'var(--text-muted)', fontStyle:'italic'}}>
+              Games are not yet fully developed — we'd love to hear your feedback and any ideas to make them educational! For now, feel free to enjoy them just for fun.
+            </p>
+          </div>
         </div>
         <button onClick={()=>setStats(s=>!s)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all"
           style={{background:stats?'#6366f1':'var(--card-bg)',color:stats?'white':'var(--text-muted)',border:'1px solid var(--border)'}}>

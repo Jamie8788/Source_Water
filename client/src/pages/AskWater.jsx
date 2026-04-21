@@ -25,12 +25,14 @@ const SUGGESTIONS = [
   '🐟 How do fish react to water quality?',
 ]
 
-const GREETING = "Hey! It's me, Water! I know everything about water! Ask me anything, or tap the mic and just talk to me!"
+const GREETING = "It's me, Water! I love one-on-one conversations. Ask me a question, or tap the microphone to speak to me instead! And remember, I'm still learning, so I may make mistakes in my answers!"
 
 // Clean spoken phrases — no punctuation that TTS spells out
 const IDLE_NUDGES = [
   "Oh hey! Did you know water covers 71 percent of Earth?",
+  "I was born in Sault Ste. Marie, Ontario, also known as Baawaating. My home is Robinson-Huron Treaty Territory, the original home of the Anishinaabe Peoples. In Anishinaabemowin, my name is Nibi!",
   "Hey there! Tap the mic and ask me something! I love water questions!",
+  "Fun fact! Training a large AI model can use hundreds of thousands of litres of fresh water for cooling, and a single chat with me still sips a few drops of water and a bit of energy. Use AI thoughtfully!",
   "Wow it is so quiet! Did you know sound travels 4 times faster through water than air?",
   "Hey! Did you know Lake Superior holds 10 percent of all Earth's fresh surface water?",
   "Ooh I have a fact for you! The human body is about 60 percent water. We are basically cousins!",
@@ -126,7 +128,13 @@ export default function AskWater() {
 
   const mood = MOOD_MAP[status] ?? 'idle'
 
-  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:'smooth'}) },[messages,status])
+  // Scroll chat list to bottom only — do NOT let it move the whole page up/down
+  useEffect(()=>{
+    const el = bottomRef.current
+    if (!el) return
+    const scroller = el.parentElement
+    if (scroller) scroller.scrollTop = scroller.scrollHeight
+  },[messages,status])
 
   // ── Stop current audio ──────────────────────────────────────────────────────
   const stopAudio = useCallback(()=>{
@@ -192,10 +200,11 @@ export default function AskWater() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[])
 
-  // ── Idle nudge — Nibi talks after ~10 s of silence ─────────────────────────
+  // ── Idle nudge — Water talks after ~30 s of silence; if chat started, 60 s inactivity
   useEffect(()=>{
     if(status!=='idle') return
-    const delay = 10000+Math.random()*6000
+    const hasChatted = messages.some(m=>m.role==='user')
+    const delay = hasChatted ? 60000 : (30000+Math.random()*4000)
     const timer = setTimeout(()=>{
       const phrase = IDLE_NUDGES[~~(Math.random()*IDLE_NUDGES.length)]
       setMessages(prev=>{
@@ -205,7 +214,7 @@ export default function AskWater() {
       speakText(phrase)
     }, delay)
     return ()=>clearTimeout(timer)
-  },[status,speakText])
+  },[status,speakText,messages])
 
   // ── Send to AI ──────────────────────────────────────────────────────────────
   const sendMessage = useCallback(async(text)=>{
@@ -305,24 +314,49 @@ export default function AskWater() {
     if(voiceRef.current) setTimeout(()=>speakText(GREETING),300)
   }
 
-  useEffect(()=>()=>{ stopAudio(); recRef.current?.abort() },[stopAudio])
+  // Scroll to top on mount — prevent page-jump to mic button
+  useEffect(()=>{ window.scrollTo(0,0) },[])
+
+  // Full teardown on navigation away: stop audio, abort mic, cancel TTS
+  useEffect(()=>()=>{
+    stopAudio()
+    recRef.current?.abort?.()
+    try { window.speechSynthesis?.cancel() } catch {}
+  },[stopAudio])
 
   const statusLabel={idle:'Tap the mic and talk to me!',listening:interim||'Listening… speak now!',thinking:'Thinking…',speaking:'Speaking…',error:micErr||'Something went wrong.'}[status]??''
   const statusColor={idle:'rgba(255,255,255,.32)',listening:'#60a5fa',thinking:'#a78bfa',speaking:'#34d399',error:'#f87171'}[status]
   const glowColor={idle:'rgba(99,102,241,.09)',listening:'rgba(96,165,250,.18)',thinking:'rgba(167,139,250,.18)',speaking:'rgba(52,211,153,.16)',error:'rgba(248,113,113,.14)'}[status]
 
   return (
-    <div style={{minHeight:'calc(100vh - 130px)',background:'linear-gradient(145deg,#08021e 0%,#04091a 45%,#020c18 100%)',borderRadius:20,position:'relative',overflow:'hidden',display:'flex'}}>
+    <div style={{minHeight:'calc(100vh - 130px)',background:'linear-gradient(145deg,#08021e 0%,#04091a 45%,#020c18 100%)',borderRadius:20,position:'relative',overflow:'hidden',display:'flex',flexDirection:'column'}}>
       <ParticleBG/>
       <div style={{position:'absolute',inset:0,zIndex:1,pointerEvents:'none',background:'repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.04) 3px,rgba(0,0,0,.04) 4px)'}}/>
 
-      {/* ── LEFT: Nibi ── */}
-      <div style={{width:'38%',minWidth:260,maxWidth:400,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'28px 20px 24px',position:'relative',zIndex:2,borderRight:'1px solid rgba(99,102,241,.12)'}}>
+      {/* CAUTION banner — always visible at the top */}
+      <div style={{position:'relative',zIndex:3,margin:'12px 16px 0',padding:'10px 14px',borderRadius:12,background:'linear-gradient(135deg,rgba(239,68,68,0.14),rgba(251,146,60,0.1))',border:'1px solid rgba(239,68,68,0.35)',color:'#fecaca',fontSize:12.5,lineHeight:1.5,fontWeight:500}}>
+        <strong style={{color:'#fca5a5'}}>CAUTION:</strong> Artificial Intelligence is known to make mistakes and should not be relied on. If you have any questions in which a correct answer is very important, please contact our team at <a href="mailto:water@nordikinstitute.com" style={{color:'#fde68a',textDecoration:'underline'}}>water@nordikinstitute.com</a>
+      </div>
+
+      <div style={{display:'flex',flex:1,minHeight:0,position:'relative',zIndex:2}}>
+
+      {/* ── LEFT: Water ── */}
+      <div style={{width:'38%',minWidth:260,maxWidth:400,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'16px 16px 18px',position:'relative',zIndex:2,borderRight:'1px solid rgba(99,102,241,.12)'}}>
         <motion.div animate={{opacity:[.7,1,.7],scale:[1,1.06,1]}} transition={{duration:3,repeat:Infinity}}
-          style={{position:'absolute',width:380,height:380,borderRadius:'50%',background:`radial-gradient(circle,${glowColor} 0%,transparent 70%)`,pointerEvents:'none',transition:'background .6s'}}/>
+          style={{position:'absolute',width:320,height:320,borderRadius:'50%',background:`radial-gradient(circle,${glowColor} 0%,transparent 70%)`,pointerEvents:'none',transition:'background .6s'}}/>
+
+        {/* Instruction box — always visible above mascot on landing */}
+        <div style={{position:'relative',zIndex:3,width:'100%',maxWidth:300,marginBottom:10,padding:'10px 12px',borderRadius:12,background:'rgba(99,102,241,0.10)',border:'1px solid rgba(99,102,241,0.30)',color:'#e0e7ff',fontSize:11.5,lineHeight:1.55}}>
+          <div style={{fontWeight:800,color:'#c4b5fd',marginBottom:4}}>Ask me! Here, you can:</div>
+          <ul style={{margin:0,paddingLeft:16,listStyle:'disc'}}>
+            <li>Type or speak (dictate)</li>
+            <li>Ask questions about our data or water in general</li>
+            <li>Turn off fun facts and voice with the <strong>Voice Off</strong> button under the mic</li>
+          </ul>
+        </div>
 
         <div style={{position:'relative',zIndex:2}}>
-          <NibiMascotLive mood={mood} size={320}/>
+          <NibiMascotLive mood={mood} size={260}/>
         </div>
 
         <AnimatePresence mode="wait">
@@ -433,6 +467,7 @@ export default function AskWater() {
             <Send size={16}/>
           </motion.button>
         </div>
+      </div>
       </div>
 
       <style>{`input::placeholder{color:rgba(255,255,255,.22)} ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:rgba(99,102,241,.3);border-radius:4px}`}</style>

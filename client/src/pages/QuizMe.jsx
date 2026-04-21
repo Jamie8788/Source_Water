@@ -1282,6 +1282,8 @@ export default function QuizMe() {
   const [studyMode, setStudy] = useState(false)
   const [result, setResult]   = useState(null)
 
+  useEffect(() => { window.scrollTo(0, 0) }, [])
+
   return (
     <div>
       {phase === 'browse'  && <QuizBrowser onSelect={q => { setQuiz(q); setPhase('confirm') }}/>}

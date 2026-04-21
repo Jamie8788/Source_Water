@@ -2327,6 +2327,7 @@ function StreetViewPanel({ lat, lon }) {
 
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function Weather3D() {
+  useEffect(() => { window.scrollTo(0, 0) }, [])
   const [query, setQuery]               = useState('')
   const [weatherData, setWeatherData]   = useState(null)
   const [loading, setLoading]           = useState(false)

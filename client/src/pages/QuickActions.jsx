@@ -9,6 +9,7 @@ import {
   Microscope,
   BookOpen,
 } from 'lucide-react'
+import NibiMascotImage from '../components/NibiMascotImage'
 
 const MAP_ACTIONS = [
   {
@@ -202,8 +203,11 @@ export default function QuickActions() {
             }}
           />
 
-          <div className="relative mb-4 text-center md:mb-6 atlas-title-wrap">
-            <div className="mx-auto inline-block rounded-sm border border-[#6a4d2a] bg-gradient-to-b from-[#efe1c2] to-[#d4bc8e] px-5 py-3 shadow-[0_4px_12px_rgba(66,44,22,0.25)] atlas-title">
+          <div className="relative mb-4 flex items-center justify-center gap-4 md:mb-6 atlas-title-wrap">
+            <div className="hidden md:block" style={{ filter: 'drop-shadow(0 4px 10px rgba(66,44,22,0.3))' }}>
+              <NibiMascotImage mood="walking" size={96} />
+            </div>
+            <div className="relative inline-block rounded-sm border border-[#6a4d2a] bg-gradient-to-b from-[#efe1c2] to-[#d4bc8e] px-5 py-3 shadow-[0_4px_12px_rgba(66,44,22,0.25)] atlas-title">
               <span className="pointer-events-none absolute inset-0 atlas-title-sheen" />
               <h1 className="text-xl font-semibold uppercase tracking-[0.16em] text-[#3f2a17] md:text-2xl">
                 Great Lakes Explorer Chart

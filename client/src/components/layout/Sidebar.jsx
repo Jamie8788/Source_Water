@@ -20,12 +20,12 @@ const NAV_GROUPS = [
     emoji: '🌐',
     defaultOpen: true,
     items: [
-      { label: 'Quick Actions',  icon: Compass,        path: '/quick-actions', color: '#f59e0b', sub: 'All portals · site map' },
-      { label: 'Dashboard',      icon: LayoutDashboard, path: '/dashboard',    color: '#3b82f6', sub: 'Home · key metrics' },
-      { label: 'Ask Water (AI)', icon: Sparkles,        path: '/ask-water',    color: '#8b5cf6', sub: 'Chat · scan · analyse' },
-      { label: 'Site Map',       icon: Map,             path: '/monitoring',   color: '#14b8a6', sub: 'Explore monitoring sites' },
+      { label: 'Quick Actions',  icon: Compass,        path: '/quick-actions', color: '#f59e0b', sub: 'Explore pathways' },
+      { label: 'Dashboard',      icon: LayoutDashboard, path: '/dashboard',    color: '#3b82f6', sub: 'Key metrics · AI' },
+      { label: 'Ask Water (AI)', icon: Sparkles,        path: '/ask-water',    color: '#8b5cf6', sub: 'Chat · scan · analyze' },
+      { label: 'Site Map',       icon: Map,             path: '/monitoring',   color: '#14b8a6', sub: 'Explore live data' },
       { label: 'Alerts',         icon: BellRing,        path: '/alerts',       color: '#f59e0b', sub: 'Threshold warnings' },
-      { label: 'Community',      icon: Users,           path: '/social',       color: '#ec4899', sub: 'Posts · DMs · follows' },
+      { label: 'Community',      icon: Users,           path: '/social',       color: '#ec4899', sub: 'Posts · DMs · leaders' },
     ],
   },
   {
@@ -47,14 +47,14 @@ const NAV_GROUPS = [
         icon: GraduationCap,
         path: '/quiz',
         color: '#f97316',
-        sub: 'Test knowledge · earn XP',
+        sub: 'Assess learning · earn points',
       },
       {
         label: 'Games',
         icon: Joystick,
         path: '/games',
         color: '#a855f7',
-        sub: 'Play to learn',
+        sub: 'Fun for all',
       },
     ],
   },
@@ -65,8 +65,8 @@ const NAV_GROUPS = [
     defaultOpen: false,
     color: '#a855f7',
     items: [
-      { label: 'Dive into Data',    icon: LineChart,    path: '/explorer',   color: '#14b8a6', sub: 'Observations · datasets' },
-      { label: 'Wet Lab',           icon: FlaskConical, path: '/ai-lab',     color: '#a855f7', sub: 'Anomalies · trends · ML' },
+      { label: 'Dive into Data',    icon: LineChart,    path: '/explorer',   color: '#14b8a6', sub: 'Observation details' },
+      { label: 'Wet Lab',           icon: FlaskConical, path: '/ai-lab',     color: '#a855f7', sub: 'Reports · Advanced AI' },
       { label: 'World Environment', icon: CloudSun,     path: '/weather',    color: '#0ea5e9', sub: 'Live conditions' },
     ],
   },
@@ -77,9 +77,9 @@ const NAV_GROUPS = [
     defaultOpen: false,
     color: '#94a3b8',
     items: [
-      { label: 'Storyline',     icon: BookMarked, path: '/about/storyline',     color: '#64748b', sub: 'Our journey' },
-      { label: 'This Platform', icon: Info,       path: '/about/this-platform', color: '#64748b', sub: 'What SOURCE Water is' },
-      { label: 'Collaborators', icon: Handshake,  path: '/about/collaborators', color: '#64748b', sub: 'Partners & teams' },
+      { label: 'Storyline',     icon: BookMarked, path: '/about/storyline',     color: '#64748b', sub: 'Our team history' },
+      { label: 'This Platform', icon: Info,       path: '/about/this-platform', color: '#64748b', sub: 'Relating with Water' },
+      { label: 'Collaborators', icon: Handshake,  path: '/about/collaborators', color: '#64748b', sub: 'Partners · funders · sponsors' },
     ],
   },
 ]
@@ -407,7 +407,7 @@ export default function Sidebar({ collapsed, onToggle }) {
         data-sidebar
         className="fixed top-0 left-0 h-screen flex flex-col z-40"
         style={{
-          width: collapsed ? 60 : 252,
+          width: collapsed ? 64 : 280,
           transition: 'width 0.28s cubic-bezier(0.4,0,0.2,1)',
           background: 'linear-gradient(180deg, #050c1a 0%, #08132a 45%, #0c1e3e 100%)',
           borderRight: '1px solid rgba(255,255,255,0.05)',

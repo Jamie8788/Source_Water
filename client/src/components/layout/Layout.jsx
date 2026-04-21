@@ -2,9 +2,7 @@ import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
-import WaterMascot from '../mascot/WaterMascot'
-import WaterMascotGLB from '../mascot/WaterMascotGLB'
-import { isGLBMascotEnabled, isGLBTargetPage } from '../../utils/featureFlags'
+import SimpleFloatingMascot from '../mascot/SimpleFloatingMascot'
 import AccessibilityPanel from '../ui/AccessibilityPanel'
 import CMSToolbar from '../cms/CMSToolbar'
 import CMSField from '../cms/CMSField'
@@ -29,7 +27,6 @@ function AmbientBackground() {
         <div className="ambient-orb orb-2"/>
         <div className="ambient-orb orb-3"/>
         <div className="ambient-orb orb-4"/>
-        <div className="ambient-lines"/>
       </div>
       {/* Swimming fish layer */}
       <div className="fish-layer" aria-hidden="true">
@@ -64,9 +61,6 @@ export default function Layout({ children }) {
   const [dmUserId, setDmUserId] = useState(null)
   const { cmsMode } = useCMS()
 
-  // Feature flag: GLB mascot on target pages only
-  const glbEnabled = isGLBMascotEnabled() && isGLBTargetPage(location.pathname)
-
   const openDM = (userId = null) => { setDmUserId(userId); setDmOpen(true) }
   const closeDM = () => { setDmOpen(false); setDmUserId(null) }
 
@@ -79,7 +73,7 @@ export default function Layout({ children }) {
     })
   }
 
-  const sidebarW = sidebarCollapsed ? 56 : 240
+  const sidebarW = sidebarCollapsed ? 64 : 280
 
   return (
     <div className="min-h-screen relative" style={{ background: 'var(--page-bg)' }}>
@@ -131,10 +125,8 @@ export default function Layout({ children }) {
         </footer>
       </main>
 
-      {/* Hide floating mascot on /ask-water — that page has its own dedicated Nibi */}
-      {location.pathname !== '/ask-water' && (
-        glbEnabled ? <WaterMascotGLB /> : <WaterMascot />
-      )}
+      {/* Hide floating mascot on /ask-water — that page has its own dedicated Water */}
+      {location.pathname !== '/ask-water' && <SimpleFloatingMascot />}
       {a11yOpen && <AccessibilityPanel onClose={() => setA11yOpen(false)} />}
       {dmOpen && <GlobalDMPanel onClose={closeDM} initialUserId={dmUserId} />}
 

@@ -6,6 +6,7 @@ import { SoundProvider } from './context/SoundContext'
 import { AccessibilityProvider } from './context/AccessibilityContext'
 import { CMSProvider } from './context/CMSContext'
 import Layout from './components/layout/Layout'
+import ComingSoon from './components/ComingSoon'
 
 const Landing    = lazy(() => import('./pages/Landing'))
 const Onboarding = lazy(() => import('./pages/Onboarding'))
@@ -75,16 +76,16 @@ function AppRoutes() {
           <Route path="/map"        element={<MapPage />} />
           <Route path="/geoanalytics" element={<GeoAnalytics />} />
           <Route path="/monitoring"   element={<WRMonitoringMap />} />
-          <Route path="/explorer"     element={<WRDataExplorer />} />
-          <Route path="/ai-lab"       element={<WRAILab />} />
+          <Route path="/explorer"     element={<ComingSoon title="Dive into Data" message="Observation details, datasets, and exploration tools are being prepared. Check back soon." />} />
+          <Route path="/ai-lab"       element={<ComingSoon title="Wet Lab" message="Advanced AI reports, anomaly detection, and trend analysis are being prepared. Check back soon." />} />
           <Route path="/methods"      element={<WRMethods />} />
-          <Route path="/social"     element={<Social />} />
+          <Route path="/social"     element={<ComingSoon title="Community" message="Posts, DMs, and community feeds are being prepared. Check back soon." />} />
           <Route path="/quiz"       element={<QuizMe />} />
-          <Route path="/resources"  element={<Resources />} />
+          <Route path="/resources"  element={<ComingSoon title="Resources" message="Guides, articles, and learning materials are being curated for you." really />} />
           <Route path="/projects"   element={<Projects />} />
           <Route path="/analysis"   element={<Analysis />} />
           <Route path="/reports"    element={<Reports />} />
-          <Route path="/alerts"     element={<Alerts />} />
+          <Route path="/alerts"     element={<ComingSoon title="Alerts" message="Threshold warnings and live alerts are being prepared. Check back soon." />} />
           <Route path="/weather"    element={<Weather />} />
           <Route path="/games"      element={<Games />} />
           <Route path="/research"      element={<ResearchHub />} />
