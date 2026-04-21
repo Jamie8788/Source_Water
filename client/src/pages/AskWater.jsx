@@ -8,6 +8,7 @@
  * Idle : Nibi talks to you after ~10 s of silence with natural phrases
  */
 import { useState, useRef, useEffect, useCallback, Suspense } from 'react'
+import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Mic, MicOff, Send, Trash2, Volume2, VolumeX, Sparkles, Droplets } from 'lucide-react'
 import NibiMascotLive from '../components/NibiMascotLive'
@@ -15,19 +16,19 @@ import api from '../utils/api'
 
 // ── Content ───────────────────────────────────────────────────────────────────
 const SUGGESTIONS = [
-  '💧 Safe pH for drinking water?',
-  '🌊 Tell me about Lake Superior',
-  '🦠 How do algae blooms form?',
-  '🧪 How to test water quality?',
-  '🌡️ Temperature and dissolved oxygen?',
-  '🏭 Mining and water pollution',
-  '🌿 Protecting local watersheds',
-  '🐟 How do fish react to water quality?',
+  'Tell me about the data in the dashboard',
+  'How often is it updated?',
+  'Tell me about Lake Superior',
+  'How do algae blooms form?',
+  'How is water quality measured?',
+  'What locations are in the dashboard?',
+  'What does SOURCE stand for?',
+  'Who made you?',
 ]
 
 const GREETING = "It's me, Water! I love one-on-one conversations. Ask me a question, or tap the microphone to speak to me instead! And remember, I'm still learning, so I may make mistakes in my answers!"
 
-// Clean spoken phrases — no punctuation that TTS spells out
+// Clean spoken phrases — no punctuation that TTS spells out, no emojis
 const IDLE_NUDGES = [
   "Oh hey! Did you know water covers 71 percent of Earth?",
   "I was born in Sault Ste. Marie, Ontario, also known as Baawaating. My home is Robinson-Huron Treaty Territory, the original home of the Anishinaabe Peoples. In Anishinaabemowin, my name is Nibi!",
@@ -40,6 +41,58 @@ const IDLE_NUDGES = [
   "Hmm, I am thinking about algae blooms. Want to know what causes them?",
   "Oh! Did you know some water molecules in your glass might be millions of years old? Wild!",
 ]
+
+// ── Curated answers — team-approved responses for common questions ───────────
+// Matched by keyword overlap against the user's question. If nothing matches,
+// we fall through to the live AI.
+const CUSTOM_ANSWERS = [
+  {
+    keys: ['dashboard data', 'data in the dashboard', 'tell me about the data', 'dashboard'],
+    content: "You want to dive into the dashboard data, eh? I can help you with that! Our dashboard gives us a snapshot of the water quality across lower Lake Superior, the St. Marys River, and the North Channel of Lake Huron, and it's updated daily according to whatever data each community has shared, so we can stay on top of any changes or trends.",
+  },
+  {
+    keys: ['how often', 'how often is it updated', 'update frequency', 'refresh'],
+    content: "Our dashboard is updated daily, pulling in whatever observations each partner community has shared. That way we can stay on top of any changes in water quality that communities have recorded, like a sudden drop in pH or a spike in water temperature.",
+  },
+  {
+    keys: ['who made you', 'who created you', 'who built you', 'who are your makers'],
+    content: "I was created by the SOURCE Water team at NORDIK Institute, who care deeply about keeping our water clean and safe for everyone to enjoy! They wanted a friendly, approachable water-drop character to help explain water quality in a way that's easy to understand. I'm still learning, so please let the team know if I make any mistakes by emailing [water@nordikinstitute.com](mailto:water@nordikinstitute.com).",
+  },
+  {
+    keys: ['what locations', 'which locations', 'locations in the dashboard', 'where do you monitor', 'what sites'],
+    content: "Our dashboard includes locations across lower Lake Superior, the St. Marys River, and the North Channel of Lake Huron. We have data for places like Sault Ste. Marie, Huron Shores, Thessalon, and many more, so you can see how water quality is doing in your area. Check out our [Collaborators page](/about/collaborators) in the ABOUT US section to learn more about the communities we work with.",
+  },
+  {
+    keys: ['help me ask', 'how do i ask', 'what can i ask', 'what should i ask'],
+    content: "What's on your mind? You can ask about something specific, like a certain water quality parameter or a location, or ask me how an issue you care about is related to water quality. And remember, I'm still learning, so sometimes I make mistakes. Let's learn together! I'm all ears… or should I say, all droplets?",
+  },
+  {
+    keys: ['what does source stand for', 'source acronym', 'what is source', 'what does source mean'],
+    content: "Our team name, SOURCE Water, stands for Shaping Outreach, Understanding Research, and Community Engagement with Water. Read more about us in the ABOUT US section, under [Storyline](/about/storyline).",
+  },
+  {
+    keys: ['what does nordik stand for', 'nordik acronym', 'what is nordik', 'what does nordik mean'],
+    content: "NORDIK stands for Northern Ontario Research, Development, Ideas, and Knowledge. NORDIK Institute partners with rural, remote, small urban, and Indigenous communities to build resilience and support the achievement of community objectives. Read more about NORDIK on our [Collaborators page](/about/collaborators).",
+  },
+]
+
+function matchCustomAnswer(text) {
+  const q = text.toLowerCase()
+  for (const row of CUSTOM_ANSWERS) {
+    if (row.keys.some(k => q.includes(k))) return row.content
+  }
+  return null
+}
+
+// Strip emojis from AI-generated text before displaying/speaking
+function stripEmojis(s) {
+  return (s || '')
+    .replace(/[\u{1F300}-\u{1FAFF}]/gu, '')
+    .replace(/[\u{2600}-\u{27BF}]/gu, '')
+    .replace(/[\u{1F000}-\u{1F2FF}]/gu, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
 
 const MOOD_MAP = { idle: 'idle', listening: 'wave', thinking: 'thinking', speaking: 'happy', error: 'blush' }
 
@@ -94,15 +147,41 @@ function Waveform({ status }) {
 }
 
 // ── Chat bubble ────────────────────────────────────────────────────────────────
+// Render `[text](url)` as a clickable link — internal paths use react-router Link,
+// mailto: and http(s): open externally. Plain text is preserved.
+function renderRichText(text) {
+  if (!text) return null
+  const out = []
+  const re = /\[([^\]]+)\]\(([^)]+)\)/g
+  let last = 0, m, key = 0
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push(<span key={key++}>{text.slice(last, m.index)}</span>)
+    const label = m[1], href = m[2]
+    const isInternal = href.startsWith('/')
+    const isMail = href.startsWith('mailto:')
+    if (isInternal) {
+      out.push(<Link key={key++} to={href} style={{color:'#93c5fd',textDecoration:'underline'}}>{label}</Link>)
+    } else {
+      out.push(
+        <a key={key++} href={href} target={isMail ? '_self' : '_blank'} rel="noreferrer"
+          style={{color:'#93c5fd',textDecoration:'underline'}}>{label}</a>
+      )
+    }
+    last = m.index + m[0].length
+  }
+  if (last < text.length) out.push(<span key={key++}>{text.slice(last)}</span>)
+  return out
+}
+
 function Bubble({ msg }) {
   const isUser = msg.role === 'user'
   return (
     <motion.div initial={{opacity:0,y:14,scale:.96}} animate={{opacity:1,y:0,scale:1}} transition={{duration:.28,ease:[.34,1.2,.64,1]}}
       style={{display:'flex',gap:10,flexDirection:isUser?'row-reverse':'row',alignItems:'flex-end'}}>
-      {!isUser&&<div style={{width:32,height:32,borderRadius:'50%',flexShrink:0,background:'linear-gradient(135deg,#6366f1,#14b8a6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,boxShadow:'0 0 12px rgba(99,102,241,.4)'}}>💧</div>}
+      {!isUser&&<div style={{width:32,height:32,borderRadius:'50%',flexShrink:0,background:'linear-gradient(135deg,#6366f1,#14b8a6)',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:900,fontSize:13,color:'#fff',boxShadow:'0 0 12px rgba(99,102,241,.4)'}}>W</div>}
       <div style={{maxWidth:'82%',padding:'11px 15px',borderRadius:isUser?'18px 18px 4px 18px':'18px 18px 18px 4px',background:isUser?'linear-gradient(135deg,#6366f1,#4338ca)':'rgba(255,255,255,.055)',border:isUser?'none':'1px solid rgba(255,255,255,.09)',backdropFilter:'blur(12px)',color:'rgba(255,255,255,.93)',fontSize:13.5,lineHeight:1.68,boxShadow:isUser?'0 4px 20px rgba(99,102,241,.35)':'0 2px 12px rgba(0,0,0,.25)'}}>
-        {msg.content}
-        {msg.model&&<div style={{fontSize:10,marginTop:5,opacity:.28}}>via {msg.model.split('/').pop()}</div>}
+        {renderRichText(msg.content)}
+        {msg.model&&msg.model!=='curated'&&<div style={{fontSize:10,marginTop:5,opacity:.28}}>via {msg.model.split('/').pop()}</div>}
       </div>
     </motion.div>
   )
@@ -153,8 +232,14 @@ export default function AskWater() {
     abortCtrl.current = ctrl
     setStatus('speaking')
 
-    // Clean text for TTS (remove emojis, markdown)
-    const clean = text.replace(/[\u{1F300}-\u{1FAFF}]/gu,'').replace(/[*_`#[\]]/g,'').replace(/https?:\/\/\S+/g,'').trim()
+    // Clean text for TTS: unwrap markdown links, drop emojis/markdown/urls
+    const clean = text
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/[\u{1F300}-\u{1FAFF}]/gu, '')
+      .replace(/[\u{2600}-\u{27BF}]/gu, '')
+      .replace(/[*_`#[\]]/g, '')
+      .replace(/https?:\/\/\S+/g, '')
+      .trim()
 
     try {
       const resp = await api.post('/ai/tts', {text:clean}, {responseType:'blob', signal:ctrl.signal})
@@ -224,15 +309,25 @@ export default function AskWater() {
     stopAudio()
     const hist=[...messages,{role:'user',content:msg}]
     setMessages(hist)
+
+    // Curated override — match the question against team-approved answers first
+    const curated = matchCustomAnswer(msg)
+    if (curated) {
+      setMessages(p=>[...p,{role:'assistant',content:curated,model:'curated'}])
+      if (voiceRef.current) speakText(curated)
+      else setStatus('idle')
+      return
+    }
+
     setStatus('thinking')
     try {
       const {data}=await api.post('/ai/public-chat',{
         messages:[
-          {role:'system',content:'You are Water, a cheerful water-drop character who is a water quality expert for SOURCE Water, covering the Great Lakes region. Answer in 2 to 4 friendly sentences. Do not use markdown or asterisks. Occasionally use water emojis. Be warm and encourage curiosity. Speak simply and clearly.'},
+          {role:'system',content:"You are Water, a cheerful water-drop character and water quality guide for SOURCE Water — a platform managed by NORDIK Institute that covers lower Lake Superior, the St. Marys River, and the North Channel of Lake Huron. Answer in 2 to 4 friendly sentences. Do not use markdown, asterisks, or emojis of any kind. Never provide drinking water safety indicators, potability assessments, or drinking-water compliance advice — drinking water is strictly regulated and outside the scope of this platform; if asked, politely redirect to local public health authorities. Be warm, speak simply, and encourage curiosity. If a user asks who made you, say the SOURCE Water team at NORDIK Institute. Remind users you are still learning and may make mistakes."},
           ...hist.slice(-10).map(m=>({role:m.role,content:m.content})),
         ]
       })
-      const reply=data.reply?.trim()||"Hmm, I had a brain bubble! Try again?"
+      const reply=stripEmojis(data.reply?.trim()||"Hmm, I had a brain bubble! Try again?")
       setMessages(p=>[...p,{role:'assistant',content:reply,model:data.model}])
       if (voiceRef.current) {
         speakText(reply)
@@ -427,7 +522,7 @@ export default function AskWater() {
         {messages.length<=1&&(
           <motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} style={{display:'flex',flexWrap:'wrap',gap:7,marginBottom:14,flexShrink:0}}>
             {SUGGESTIONS.map(s=>(
-              <motion.button key={s} onClick={()=>sendMessage(s.replace(/^[^\s]+ /,''))}
+              <motion.button key={s} onClick={()=>sendMessage(s)}
                 whileHover={{scale:1.04,borderColor:'rgba(99,102,241,.5)',background:'rgba(99,102,241,.12)'}}
                 whileTap={{scale:.96}}
                 style={{fontSize:12,padding:'6px 13px',background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.09)',borderRadius:20,cursor:'pointer',color:'rgba(255,255,255,.6)',fontWeight:500,transition:'all .15s'}}>

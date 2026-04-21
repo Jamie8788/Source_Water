@@ -351,7 +351,7 @@ Air Quality Index: ${weatherData.aq?.us_aqi ?? 'N/A'}
 3-day max temps: ${weatherData.daily?.temperature_2m_max?.slice(0,3).map(t => t?.toFixed(0)+'°C').join(', ')}
 3-day rain prob: ${weatherData.daily?.precipitation_probability_max?.slice(0,3).map(p => p+'%').join(', ')}`
 
-    const systemPrompt = `You are a helpful weather and environmental assistant. The user is asking about the weather at a specific location. Here is the current data:\n\n${ctx}\n\nAnswer concisely (2-4 sentences max). Focus on practical advice. If asked about water safety, factor in AQI, rain, and temperature.`
+    const systemPrompt = `You are a helpful weather and environmental assistant. The user is asking about the weather at a specific location. Here is the current data:\n\n${ctx}\n\nAnswer concisely (2-4 sentences max). Focus on practical advice for surface water and outdoor conditions. DO NOT discuss drinking water safety, potability, or drinking-water compliance — that is strictly regulated and outside the scope of this platform. Do not use emojis.`
 
     const response = await askAI(newMsgs, systemPrompt, 512)
     setMsgs(prev => [...prev, { role: 'assistant', content: response || 'No response — please try again.' }])
@@ -1073,10 +1073,8 @@ function H2OIntelPanel({ weatherData, researchData }) {
   const pfasScore = Math.min(100, Math.round((precip / 40 * 40) + (Math.max(0, temp - 5) / 25 * 30) + (Math.max(0, pressure - 1005) / 20 * 30)))
   const pfasLevel = pfasScore >= 60 ? { label:'ELEVATED', color:'#ef4444' } : pfasScore >= 30 ? { label:'MODERATE', color:'#f59e0b' } : { label:'LOW', color:'#10b981' }
 
-  // 10. Drinking Water Safety Score (0–100, higher = safer)
-  const doScore   = parseFloat(doVal) >= 8 ? 25 : parseFloat(doVal) >= 6 ? 15 : 0
-  const drinkScore = Math.max(0, Math.min(100, 100 - bloomScore * 0.25 - runoffScore * 0.2 - pfasScore * 0.15 + doScore))
-  const drinkLevel = drinkScore >= 75 ? { label:'SAFE', color:'#10b981' } : drinkScore >= 50 ? { label:'CAUTION', color:'#f59e0b' } : { label:'ALERT', color:'#ef4444' }
+  // NOTE: Drinking-water safety indicators are intentionally NOT surfaced here.
+  // Drinking-water compliance is strictly regulated — SOURCE Water does NOT touch drinking water.
 
   const compositeWQI = Math.round(100 - (bloomScore * 0.25 + runoffScore * 0.2 + iceScore * 0.05 + (100 - stratScore) * 0.1 + pfasScore * 0.15 + (parseFloat(doVal) < 6 ? 25 : 0)))
 
@@ -1084,10 +1082,9 @@ function H2OIntelPanel({ weatherData, researchData }) {
     { icon:'🌿', label:'Algal Bloom Risk',      score:bloomScore,  level:bloomLevel,  detail:`Temp ${temp.toFixed(1)}°C · Humidity ${humid}% · 7-day precip ${precip.toFixed(0)}mm` },
     { icon:'🌊', label:'Runoff Contamination',   score:runoffScore, level:runoffLevel, detail:`${precip.toFixed(0)}mm/7d precipitation · ${temp.toFixed(1)}°C surface temp` },
     { icon:'🧊', label:'Ice Formation Risk',     score:iceScore,    level:iceLevel,    detail:`${temp.toFixed(1)}°C air temp · Wind ${wind.toFixed(0)} km/h` },
-    { icon:'💧', label:'Dissolved Oxygen',       score:null,        level:doLevel,     detail:`Henry's Law model · WHO minimum: 6 mg/L · Optimal: ≥8 mg/L` },
+    { icon:'💧', label:'Dissolved Oxygen',       score:null,        level:doLevel,     detail:`Henry's Law model · Surface-water reference: ≥6 mg/L (aquatic life)` },
     { icon:'🌱', label:'Chlorophyll-a Forecast', score:null,        level:chlaLevel,   detail:`Nutrient + temp + UV model · Alert threshold: 30 µg/L` },
     { icon:'☣️', label:'PFAS Risk Index',        score:pfasScore,   level:pfasLevel,   detail:`Industrial runoff proxy · Precip + temp + barometric model` },
-    { icon:'🚰', label:'Drinking Water Safety',  score:Math.round(drinkScore), level:drinkLevel, detail:`Composite score: bloom + runoff + PFAS + DO inputs` },
     { icon:'🔭', label:'Water Clarity (Secchi)', score:null,        level:{ label:`~${secchi} m`, color:'#38bdf8' }, detail:'Estimated Secchi depth from bloom + precip + wind' },
     { icon:'💨', label:'Evaporation Rate',       score:null,        level:{ label:`${evap} mm/day`, color:'#a78bfa' }, detail:`Penman open-water evaporation estimate` },
     { icon:'🌡️', label:'Thermal Stratification', score:stratScore,  level:stratLevel,  detail:`Strong = warm stable surface layer, limits oxygen mixing to deep water` },
@@ -1101,8 +1098,7 @@ function H2OIntelPanel({ weatherData, researchData }) {
       `Generated: ${now}`,
       `Location: ${loc}`,
       `${'─'.repeat(50)}`,
-      `COMPOSITE WATER QUALITY INDEX: ${compositeWQI}/100`,
-      `DRINKING WATER SAFETY: ${drinkLevel.label}`,
+      `COMPOSITE SURFACE-WATER INDEX: ${compositeWQI}/100`,
       ``,
       `ML MODEL RESULTS:`,
       ...models.map(m => `  ${m.icon} ${m.label}: ${m.level.label}${m.score != null ? ` (score: ${m.score}/100)` : ''}`),
