@@ -210,29 +210,46 @@ Keep it tight, concrete, and grounded in the numbers above. Do not invent readin
   const displayUnit = meta?.unit || (latest?.unit ? ` ${latest.unit}` : '')
   const isUnmapped = !meta
 
+  // Plain-English summary of the latest reading — explains the band in real-world
+  // terms with no jargon. Falls back gracefully when no reading exists.
+  const plainEnglishSummary = (() => {
+    if (!latest) return null
+    if (!meta || !cls) {
+      return `The most recent reading is ${latest.value}${displayUnit}. We don't have an aquatic-life threshold for this parameter yet, so on its own that number doesn't tell you "good" or "bad" — the AI summary below will compare it to the site's own history.`
+    }
+    if (cls.tone === 'safe')     return `The most recent reading is ${latest.value}${displayUnit}. That's inside the healthy range for fish, insects, and water plants — nothing to worry about right now.`
+    if (cls.tone === 'warning')  return `The most recent reading is ${latest.value}${displayUnit}. That's outside the comfort zone for sensitive species like trout or mayfly larvae. Not an emergency, but the water is putting stress on aquatic life.`
+    if (cls.tone === 'critical') return `The most recent reading is ${latest.value}${displayUnit}. That's in the danger zone — at this level, fish kills and ecosystem damage become likely. This is the kind of reading water managers act on.`
+    return `The most recent reading is ${latest.value}${displayUnit}.`
+  })()
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       style={{
         position: 'fixed', inset: 0, zIndex: 9000,
-        background: 'rgba(15,23,42,0.55)',
-        display: 'flex', justifyContent: 'flex-end',
+        background: 'rgba(15,23,42,0.65)',
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+        padding: '24px 16px', overflowY: 'auto',
       }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.() }}
     >
       <div
         style={{
-          width: 'min(620px, 100%)', height: '100%', background: '#fff',
-          boxShadow: '-12px 0 36px rgba(0,0,0,0.25)', overflowY: 'auto',
-          borderLeft: '1px solid rgba(15,23,42,0.12)',
+          width: 'min(960px, 100%)', background: '#fff',
+          boxShadow: '0 30px 80px rgba(0,0,0,0.35)',
+          borderRadius: 16,
+          border: '1px solid rgba(15,23,42,0.12)',
+          marginBottom: 24,
         }}
       >
-        {/* Header */}
+        {/* Header — sticks to the top of the modal */}
         <div style={{
           position: 'sticky', top: 0, zIndex: 2, background: '#0f172a', color: '#fff',
-          padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
+          borderTopLeftRadius: 16, borderTopRightRadius: 16,
         }}>
           <div>
             <div style={{ fontSize: 11, opacity: 0.7, letterSpacing: 1, textTransform: 'uppercase' }}>Parameter Deep-Dive</div>
@@ -261,15 +278,30 @@ Keep it tight, concrete, and grounded in the numbers above. Do not invent readin
           </div>
         </div>
 
-        <div style={{ padding: 18, color: '#0f172a' }}>
+        <div style={{ padding: '22px 28px 28px', color: '#0f172a' }}>
           {/* Plain-language intro */}
           {meta?.short && (
-            <p style={{ fontSize: 14, lineHeight: 1.55, color: '#334155', marginTop: 0 }}>{meta.short}</p>
+            <p style={{ fontSize: 15, lineHeight: 1.6, color: '#334155', marginTop: 0 }}>{meta.short}</p>
           )}
           {isUnmapped && (
             <p style={{ fontSize: 13, lineHeight: 1.55, color: '#475569', marginTop: 0, padding: 10, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-              No CCME aquatic-life band reference is configured for this parameter yet. We still show the site's full reading history, statistics, and an AI summary based on the actual numbers.
+              We don't have an aquatic-life threshold for this parameter yet, but we still show every reading at this site, the site's own statistics, and an AI summary based on the actual numbers.
             </p>
+          )}
+
+          {/* Plain-English "what this means" — the most important block on the page,
+              answers the question every visitor actually has: is this good or bad? */}
+          {plainEnglishSummary && (
+            <div style={{
+              marginTop: 14, padding: '12px 14px', borderRadius: 10,
+              background: '#fef3c7', border: '1px solid #fcd34d',
+              fontSize: 14, lineHeight: 1.55, color: '#78350f',
+            }}>
+              <strong style={{ display: 'block', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4, color: '#92400e' }}>
+                💬 What this means in plain English
+              </strong>
+              {plainEnglishSummary}
+            </div>
           )}
 
           {/* Current value card */}
@@ -312,9 +344,8 @@ Keep it tight, concrete, and grounded in the numbers above. Do not invent readin
           {/* Site-specific stats — only when we have observations */}
           {stats && (
             <>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginTop: 22, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <TrendingUp size={14} color="#0ea5e9" /> Site statistics
-              </h3>
+              <SectionHeader icon={<TrendingUp size={16} color="#0ea5e9" />} title="What this site's history shows"
+                hint="Quick numbers from every sample ever taken at this exact spot." />
               <StatsGrid stats={stats} unit={displayUnit} />
             </>
           )}
@@ -322,9 +353,8 @@ Keep it tight, concrete, and grounded in the numbers above. Do not invent readin
           {/* Range diagram — only for mapped parameters */}
           {meta && (
             <>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginTop: 22, marginBottom: 8 }}>
-                CCME aquatic-life bands
-              </h3>
+              <SectionHeader icon="🎯" title="Where this reading falls"
+                hint="The coloured bar shows the science-based safety zones. Green = healthy. Amber = stressful for sensitive species. Red = dangerous. The black arrow is this site's most recent reading." />
               <RangeBar meta={meta} pointerPct={pointerPct} pointerValue={latest?.value} />
             </>
           )}
@@ -332,22 +362,21 @@ Keep it tight, concrete, and grounded in the numbers above. Do not invent readin
           {/* Full time-series chart — every reading dot-coloured by CCME tone */}
           {series.length >= 2 && (
             <>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginTop: 22, marginBottom: 8 }}>
-                All readings at this site ({series.length})
-              </h3>
+              <SectionHeader icon="📈" title={`Every reading over time (${series.length} samples)`}
+                hint={meta
+                  ? 'Each dot is one water sample. Green dots are healthy readings, amber are stressful, red are critical. Hover any dot to see the value and date.'
+                  : 'Each dot is one water sample. Hover any dot to see the value and date.'} />
               <TimeSeriesChart series={series} meta={meta} paramKey={paramKey} />
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>
-                Each dot is a single reading. {meta ? 'Colour shows the CCME aquatic-life band: green = OK, amber = stress, red = critical.' : 'Colour-coding requires a CCME band definition for this parameter.'}
-              </div>
             </>
           )}
 
           {/* Anomaly badges — only if we found any */}
           {anomalies.length > 0 && (
             <>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginTop: 22, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <AlertTriangle size={14} color="#f59e0b" /> Anomalies detected ({anomalies.length})
-              </h3>
+              <SectionHeader
+                icon={<AlertTriangle size={16} color="#f59e0b" />}
+                title={`Unusual readings (${anomalies.length})`}
+                hint="These readings either landed in the danger zone or were way different from the site's normal range. Worth a closer look." />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {anomalies.slice(0, 8).map((a, i) => (
                   <div key={i} style={{
@@ -359,7 +388,7 @@ Keep it tight, concrete, and grounded in the numbers above. Do not invent readin
                   }}>
                     <span style={{ fontWeight: 700 }}>{a.value}{displayUnit}</span>
                     <span style={{ color: '#475569', flex: 1, marginLeft: 8 }}>
-                      {a.offBand && a.offSite ? 'CCME critical + 2σ outlier' : a.offBand ? `CCME: ${a.label}` : '> 2σ from site mean'}
+                      {a.offBand && a.offSite ? 'In danger zone AND way outside normal' : a.offBand ? `Danger zone — ${a.label}` : 'Way outside this site\'s normal range'}
                     </span>
                     <span style={{ color: '#64748b', fontSize: 11 }}>
                       {a.at ? new Date(a.at).toLocaleDateString() : '—'}
@@ -377,9 +406,11 @@ Keep it tight, concrete, and grounded in the numbers above. Do not invent readin
 
           {/* AI summary — REAL call to /api/ai/public-chat with the actual readings.
               Loading + error states; never canned/fake text. */}
-          <h3 style={{ fontSize: 14, fontWeight: 700, marginTop: 22, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Sparkles size={14} color="#a78bfa" /> AI analysis of this site's data
-          </h3>
+          <SectionHeader
+            icon={<Sparkles size={16} color="#a78bfa" />}
+            title="AI explainer (using this site's actual data)"
+            hint="A water scientist–style summary of what these specific readings mean — not a generic explanation. Updates every time you open this panel." />
+
           <div style={{
             padding: 12, borderRadius: 10,
             background: 'linear-gradient(180deg, rgba(167,139,250,0.06), rgba(99,102,241,0.04))',
@@ -410,19 +441,17 @@ Keep it tight, concrete, and grounded in the numbers above. Do not invent readin
           {/* Mechanism / story — mapped params only */}
           {meta?.mechanism && (
             <>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginTop: 22, marginBottom: 8 }}>
-                Why it changes
-              </h3>
-              <p style={{ fontSize: 13, lineHeight: 1.6, color: '#334155', margin: 0 }}>{meta.mechanism}</p>
+              <SectionHeader icon="🧪" title="Why this number goes up and down"
+                hint="The real-world drivers behind changes in this parameter." />
+              <p style={{ fontSize: 14, lineHeight: 1.65, color: '#334155', margin: 0 }}>{meta.mechanism}</p>
             </>
           )}
 
           {/* Impacts diagram — three columns with mini icons */}
           {meta?.impacts && (
             <>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginTop: 22, marginBottom: 8 }}>
-                Who it affects
-              </h3>
+              <SectionHeader icon="🐟" title="Who in the water this affects"
+                hint="Plain-English impact on fish, insects, and water plants." />
               <ImpactsRow impacts={meta.impacts} />
             </>
           )}
@@ -430,15 +459,14 @@ Keep it tight, concrete, and grounded in the numbers above. Do not invent readin
           {/* How measured */}
           {meta?.measured && (
             <>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginTop: 22, marginBottom: 8 }}>
-                How it's measured
-              </h3>
-              <p style={{ fontSize: 13, lineHeight: 1.6, color: '#334155', margin: 0 }}>{meta.measured}</p>
+              <SectionHeader icon="📏" title="How a volunteer measures this"
+                hint="What gear is used out in the field to take this reading." />
+              <p style={{ fontSize: 14, lineHeight: 1.65, color: '#334155', margin: 0 }}>{meta.measured}</p>
             </>
           )}
 
-          <div style={{ marginTop: 22, padding: '10px 12px', borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 11, color: '#64748b' }}>
-            Bands shown are CCME freshwater <strong>aquatic-life</strong> references. SOURCE Water is a surface-water platform — these thresholds describe stress on fish, insects, and plants and are <strong>not drinking-water guidelines</strong>.
+          <div style={{ marginTop: 24, padding: '12px 14px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 12, color: '#64748b', lineHeight: 1.55 }}>
+            ℹ️ The safety zones shown above come from CCME — Canadian Council of Ministers of the Environment — and describe stress on <strong>fish, insects, and water plants</strong>. They are <strong>not drinking-water guidelines</strong>. SOURCE Water is a surface-water / aquatic-life platform.
           </div>
         </div>
       </div>
@@ -446,30 +474,55 @@ Keep it tight, concrete, and grounded in the numbers above. Do not invent readin
   )
 }
 
+// Standard section heading + plain-English hint. Used everywhere instead of
+// raw <h3> so every section gets a consistent layman-friendly subtitle.
+function SectionHeader({ icon, title, hint }) {
+  return (
+    <div style={{ marginTop: 26, marginBottom: 10 }}>
+      <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 8, color: '#0f172a' }}>
+        {typeof icon === 'string' ? <span aria-hidden style={{ fontSize: 18 }}>{icon}</span> : icon}
+        {title}
+      </h3>
+      {hint && (
+        <p style={{ fontSize: 12.5, color: '#64748b', margin: '4px 0 0', lineHeight: 1.45 }}>{hint}</p>
+      )}
+    </div>
+  )
+}
+
 function StatsGrid({ stats, unit }) {
+  // Each cell carries a plain-English caption explaining what the number actually
+  // means — so a community volunteer doesn't need to know what "σ" or "median" is.
   const cells = [
-    { label: 'Readings', value: stats.n },
-    { label: 'Mean', value: `${stats.mean.toFixed(2)}${unit}` },
-    { label: 'Median', value: `${stats.median.toFixed(2)}${unit}` },
-    { label: 'Min', value: `${stats.min}${unit}` },
-    { label: 'Max', value: `${stats.max}${unit}` },
-    { label: 'σ (variability)', value: stats.sigma.toFixed(2) },
+    { label: 'How many readings', value: stats.n,
+      hint: 'Total water-quality samples taken at this site.' },
+    { label: 'Typical value', value: `${stats.mean.toFixed(2)}${unit}`,
+      hint: 'The average — what you\'d expect on a "normal" day.' },
+    { label: 'Middle value', value: `${stats.median.toFixed(2)}${unit}`,
+      hint: 'Half the readings were higher, half lower. Less skewed by outliers than the average.' },
+    { label: 'Lowest reading', value: `${stats.min}${unit}`,
+      hint: 'The single lowest value ever recorded here.' },
+    { label: 'Highest reading', value: `${stats.max}${unit}`,
+      hint: 'The single highest value ever recorded here.' },
+    { label: 'How much it bounces', value: stats.sigma.toFixed(2),
+      hint: 'Low number = readings are consistent. High number = the water swings around a lot.' },
   ]
   return (
     <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
         {cells.map(c => (
-          <div key={c.label} style={{ padding: 10, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>{c.label}</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', marginTop: 2 }}>{c.value}</div>
+          <div key={c.label} style={{ padding: 12, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{c.label}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#0f172a', marginTop: 2, lineHeight: 1.1 }}>{c.value}</div>
+            <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 6, lineHeight: 1.35 }}>{c.hint}</div>
           </div>
         ))}
       </div>
       {stats.dateRange && (
-        <div style={{ marginTop: 8, fontSize: 11, color: '#475569' }}>
-          {stats.dateRange.first.toLocaleDateString()} → {stats.dateRange.last.toLocaleDateString()}
+        <div style={{ marginTop: 10, fontSize: 12, color: '#475569' }}>
+          📅 First sample {stats.dateRange.first.toLocaleDateString()} · most recent {stats.dateRange.last.toLocaleDateString()}
           {stats.cadence != null && stats.cadence > 0 && (
-            <> · ~{stats.cadence < 1 ? '< 1' : stats.cadence.toFixed(1)} day{stats.cadence >= 2 ? 's' : ''} between samples</>
+            <> · samples come in roughly every {stats.cadence < 1 ? 'day or less' : `${stats.cadence.toFixed(1)} days`}</>
           )}
         </div>
       )}
