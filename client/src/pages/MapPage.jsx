@@ -1268,7 +1268,8 @@ export default function MapPage() {
         </aside>
       </div>
 
-      {/* Parameter Deep-Dive panel — full explainer with inline SVG diagrams */}
+      {/* Parameter Deep-Dive panel — full explainer with inline SVG diagrams,
+          site-specific stats, anomaly detection, and real AI summary */}
       {deepDiveParam && (
         <ParameterDeepDive
           paramKey={deepDiveParam}
@@ -1277,6 +1278,12 @@ export default function MapPage() {
               ? (wrDetail?.observations || [])
               : siteObservations
           }
+          siteName={
+            selected?.type === 'wr'
+              ? (selected.payload?.name || wrDetail?.location?.name)
+              : (selected?.payload?.name || selected?.payload?.location_name)
+          }
+          siteId={selected?.payload?.id}
           onClose={() => setDeepDiveParam(null)}
         />
       )}

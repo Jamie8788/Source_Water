@@ -12,9 +12,11 @@ import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaf
 import 'leaflet/dist/leaflet.css'
 import {
   MapPin, RefreshCw, AlertTriangle, X, Download, Filter,
-  ExternalLink, Search, Globe, Droplets, Camera, Activity,
+  ExternalLink, Search, Globe, Droplets, Camera, Activity, ChevronRight, Sparkles,
 } from 'lucide-react'
-import { getAllLocations, getLocations } from '../api/waterRangers'
+import { getAllLocations, getLocations, getLocationObservations } from '../api/waterRangers'
+import { matchParam } from '../utils/waterParams'
+import ParameterDeepDive from '../components/ParameterDeepDive'
 
 // Color by water body type
 const BODY_COLORS = {
@@ -80,6 +82,12 @@ export default function WRMonitoringMap() {
   const [selected, setSelected] = useState(null)
   const [showFilters, setShowFilters] = useState(false)
 
+  // Site observations + deep-dive panel state — fetched on demand when a site is selected
+  const [siteObs, setSiteObs] = useState([])
+  const [siteObsLoading, setSiteObsLoading] = useState(false)
+  const [siteObsError, setSiteObsError] = useState(null)
+  const [deepDiveParam, setDeepDiveParam] = useState(null)
+
   // Filters
   const [countryFilter, setCountryFilter] = useState('')
   const [bodyFilter, setBodyFilter] = useState('')
@@ -103,6 +111,25 @@ export default function WRMonitoringMap() {
     }
     finally { setLoading(false) }
   }, [])
+
+  // Fetch this site's observations whenever a new one is selected.
+  // We need real readings for the deep-dive panels (chart, anomalies, AI).
+  useEffect(() => {
+    if (!selected) { setSiteObs([]); setSiteObsError(null); return }
+    let cancelled = false
+    setSiteObsLoading(true); setSiteObsError(null); setSiteObs([])
+    getLocationObservations(selected.id, { perPage: 200 })
+      .then(data => {
+        if (cancelled) return
+        const items = Array.isArray(data?.observations) ? data.observations
+          : Array.isArray(data) ? data
+          : Array.isArray(data?.data) ? data.data : []
+        setSiteObs(items)
+      })
+      .catch(e => { if (!cancelled) setSiteObsError(e?.message || 'Could not load observations.') })
+      .finally(() => { if (!cancelled) setSiteObsLoading(false) })
+    return () => { cancelled = true }
+  }, [selected])
 
   useEffect(() => {
     loadAll()
@@ -409,19 +436,51 @@ export default function WRMonitoringMap() {
               </div>
             )}
 
-            {/* What's monitored — plain English */}
+            {/* What's monitored — every parameter is now a clickable deep-dive trigger.
+                Click → opens ParameterDeepDive with this site's actual observations,
+                CCME band analysis, anomaly detection, and a real AI summary. */}
             {selected.tested_parameters && selected.tested_parameters.length > 0 && (
               <div style={{ marginBottom: 12 }}>
-                <h4 style={{ color: 'var(--text)', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
-                  🧪 What's Monitored Here ({selected.tested_parameters.length} parameters)
+                <h4 style={{ color: 'var(--text)', fontSize: 12, fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>🧪 What's Monitored Here ({selected.tested_parameters.length} parameters)</span>
+                  {siteObsLoading && <span style={{ fontSize: 9, fontWeight: 500, color: 'var(--text-muted)' }}>loading readings…</span>}
+                  {!siteObsLoading && siteObs.length > 0 && <span style={{ fontSize: 9, fontWeight: 500, color: '#10b981' }}>{siteObs.length} readings loaded</span>}
                 </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {selected.tested_parameters.map((p, i) => (
-                    <div key={i} style={{ fontSize: 11, color: 'var(--text-muted)', padding: '3px 0', borderBottom: '1px solid var(--border)' }}>
-                      {getParamExplain(p)}
-                    </div>
-                  ))}
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Sparkles size={10} color="#a78bfa" /> Click any parameter for full chart, CCME bands, anomalies, and AI analysis of this site
                 </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {selected.tested_parameters.map((p, i) => {
+                    const mapped = matchParam(p)
+                    const key = mapped || (p?.toLowerCase().replace(/\s+/g, '_'))
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => setDeepDiveParam(key)}
+                        disabled={siteObsLoading}
+                        title={mapped ? 'Open full CCME deep-dive' : 'Open AI-powered analysis (no CCME band defined yet)'}
+                        style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          width: '100%', textAlign: 'left',
+                          fontSize: 11, color: 'var(--text-muted)', padding: '6px 8px',
+                          borderRadius: 6, border: '1px solid var(--border)',
+                          background: 'rgba(99,102,241,0.04)',
+                          cursor: siteObsLoading ? 'wait' : 'pointer',
+                        }}
+                        onMouseEnter={e => { if (!siteObsLoading) e.currentTarget.style.background = 'rgba(99,102,241,0.12)' }}
+                        onMouseLeave={e => e.currentTarget.style.background = 'rgba(99,102,241,0.04)'}
+                      >
+                        <span>{getParamExplain(p)}</span>
+                        <ChevronRight size={12} style={{ flexShrink: 0, opacity: 0.6 }} />
+                      </button>
+                    )
+                  })}
+                </div>
+                {siteObsError && (
+                  <div style={{ marginTop: 6, fontSize: 10, color: '#fca5a5' }}>
+                    Could not load readings: {siteObsError}. Deep-dive will still show CCME bands and AI context.
+                  </div>
+                )}
               </div>
             )}
 
@@ -448,6 +507,17 @@ export default function WRMonitoringMap() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Parameter deep-dive — slides in over the site modal when a chip is clicked */}
+      {deepDiveParam && selected && (
+        <ParameterDeepDive
+          paramKey={deepDiveParam}
+          observations={siteObs}
+          siteName={selected.name}
+          siteId={selected.id}
+          onClose={() => setDeepDiveParam(null)}
+        />
       )}
     </div>
   )

@@ -1,9 +1,138 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useSound } from '../context/SoundContext'
 import api from '../utils/api'
-import { ArrowLeft, Trophy } from 'lucide-react'
+import { ArrowLeft, Trophy, RotateCcw, Play, BarChart3 } from 'lucide-react'
 import NibiMascotImage from '../components/NibiMascotImage'
 import { PARAM_META, classifyValue, TONE_COLOR } from '../utils/waterParams'
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Tutorial gate — shown BEFORE each game starts so the player knows what to do.
+// Each game's TUTORIALS entry must explain controls, the goal, and the science.
+// ───────────────────────────────────────────────────────────────────────────────
+
+const TUTORIALS = {
+  sonar: {
+    title: 'Sonar Sweep',
+    objective: 'Pilot a research boat across a polluted lake. Ping sonar to reveal trash hiding underwater, then sail your hull over revealed trash to scoop it. Dodge invasive species jumping at you.',
+    controls: [
+      { keys: ['SPACE', '↑', 'W', 'tap top'],   action: 'Thrust UP — keeps the boat airborne (gravity pulls it into the water)' },
+      { keys: ['S', '↓', 'tap bottom'],          action: 'Sonar PING — reveals trash within radius. Unrevealed trash gives no points.' },
+    ],
+    tip: 'Hover above the waterline — you only get capsize damage if you sit IN the water for ~4 seconds. Ping early, ping often: trash you didn\'t reveal is invisible.',
+    learn: 'Each piece of trash maps to a real CCME-tracked parameter (turbidity, DO, conductivity). Tire fragments leak 6PPD-quinone — one of the deadliest urban runoff toxins discovered in the last decade.',
+  },
+  panic: {
+    title: 'pH Panic',
+    objective: 'Sort each falling water sample into ACID, AQUATIC-LIFE OK, or BASE bands before time runs out. Build combos to multiply points.',
+    controls: [
+      { keys: ['🔴 left button'],  action: 'ACID  (pH < 6.5)' },
+      { keys: ['🟢 middle button'], action: 'AQUATIC-LIFE OK  (pH 6.5–9.0, CCME band)' },
+      { keys: ['🔵 right button'],  action: 'BASE  (pH > 9.0)' },
+    ],
+    tip: 'Levels speed up as you score. A wrong answer breaks your combo and costs a life — start with 5.',
+    learn: 'pH is a log scale: pH 5 is 10× more acidic than pH 6. Below pH 5.5, brook trout eggs fail and aluminium leaches off lake sediments and clogs gills.',
+  },
+  shed: {
+    title: 'Watershed Defender',
+    objective: 'Pollution drops upstream every few seconds — manure, road salt, sewage, sediment, mine drainage. Place vegetated buffers in their path before they reach your lake.',
+    controls: [
+      { keys: ['Click buffer type'], action: 'Pick Forest, Wetland, or Grass strip' },
+      { keys: ['Click on map'],      action: 'Drop a buffer at that spot. Each buffer costs 1–2 budget; you refill every level.' },
+      { keys: ['⏸ Pause'],            action: 'Pauses the simulation' },
+    ],
+    tip: 'Wetlands stop almost everything but cost 2. Grass strips stop sediment + salt. Forest blocks runoff but not road salt.',
+    learn: 'These three are real best-management practices: vegetated buffer strips, wetland reconstruction, and grass swales. Most agencies also pair them with stormwater retention ponds.',
+  },
+  ox: {
+    title: 'Oxygen Dive',
+    objective: 'You are a brook trout in a warming lake. Surface water is hot and oxygen-poor — find the cold seeps from groundwater inflows before your DO meter hits zero.',
+    controls: [
+      { keys: ['↑ ↓ ← →', 'WASD'], action: 'Swim in any direction. Sprinting burns DO faster.' },
+    ],
+    tip: 'Stay deep — the green band at the bottom is cold, well-oxygenated refuge. Avoid the red warm plumes and pike (which appear on level 2+).',
+    learn: 'Henry\'s Law: cold water holds more dissolved gas. ~14 mg/L DO at 0°C drops to ~8 mg/L at 25°C. Below 3 mg/L most fish suffocate — the classic summer fish-kill trigger.',
+  },
+}
+
+function TutorialModal({ gameId, onStart, onCancel }) {
+  const t = TUTORIALS[gameId]
+  if (!t) return null
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.78)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ maxWidth: 540, width: '100%', background: '#0f172a', borderRadius: 18, border: '1px solid #334155', boxShadow: '0 30px 60px rgba(0,0,0,0.6)', overflow: 'hidden' }}>
+        <div style={{ background: 'linear-gradient(135deg,#0ea5e9,#6366f1)', padding: '18px 22px', color: '#fff' }}>
+          <div style={{ fontSize: 11, letterSpacing: 1, opacity: 0.85, textTransform: 'uppercase' }}>How to play</div>
+          <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4 }}>{t.title}</div>
+        </div>
+        <div style={{ padding: '18px 22px', color: '#e2e8f0' }}>
+          <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Goal</div>
+          <p style={{ fontSize: 13, lineHeight: 1.55, margin: 0, color: '#cbd5e1' }}>{t.objective}</p>
+
+          <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginTop: 16, marginBottom: 6 }}>Controls</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {t.controls.map((c, i) => (
+              <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: 10, background: '#1e293b', borderRadius: 8, border: '1px solid #334155' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flexShrink: 0 }}>
+                  {c.keys.map((k, j) => (
+                    <kbd key={j} style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#0b1224', border: '1px solid #475569', color: '#7dd3fc', fontFamily: 'monospace' }}>{k}</kbd>
+                  ))}
+                </div>
+                <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.4 }}>{c.action}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ marginTop: 16, padding: 12, background: 'rgba(245,158,11,0.08)', borderRadius: 8, border: '1px solid rgba(245,158,11,0.25)' }}>
+            <div style={{ fontSize: 11, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>💡 Tip</div>
+            <p style={{ fontSize: 12, color: '#fde68a', margin: 0, lineHeight: 1.5 }}>{t.tip}</p>
+          </div>
+
+          <div style={{ marginTop: 12, padding: 12, background: 'rgba(56,189,248,0.06)', borderRadius: 8, border: '1px solid rgba(56,189,248,0.2)' }}>
+            <div style={{ fontSize: 11, color: '#7dd3fc', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>🔬 What you'll learn</div>
+            <p style={{ fontSize: 12, color: '#bae6fd', margin: 0, lineHeight: 1.5 }}>{t.learn}</p>
+          </div>
+        </div>
+        <div style={{ padding: 14, display: 'flex', gap: 10, justifyContent: 'flex-end', background: '#0b1224', borderTop: '1px solid #1e293b' }}>
+          <button onClick={onCancel} style={{ padding: '8px 14px', borderRadius: 10, background: 'transparent', color: '#cbd5e1', border: '1px solid #334155', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>Cancel</button>
+          <button onClick={onStart} style={{ padding: '10px 18px', borderRadius: 10, background: '#22c55e', color: '#0b1224', border: 'none', cursor: 'pointer', fontWeight: 800, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Play size={14} /> Start
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Varied "you ran the boat into the water" capsize copy for Sonar Sweep —
+// previously the same identical body text fired every death, masking how
+// rich the science behind the game actually is.
+const CAPSIZE_REASONS = [
+  {
+    headline: 'Capsized — bow dug into the wave',
+    body: 'Research vessels need a stable platform — repeated hull slams stir up sediment and kick turbidity readings up by 30+ NTU instantly, ruining the very data you came to collect.',
+    paramKey: 'turbidity',
+  },
+  {
+    headline: 'Took on water — outboard flooded',
+    body: 'Most sampling boats run open hulls so crews can lower probes over the side. That same low freeboard is why staying airborne matters: a swamped sensor cable means a lost deployment.',
+    paramKey: 'turbidity',
+  },
+  {
+    headline: 'Wave wake stirred a sediment plume',
+    body: 'Hull slamming agitates shoreline sediment — the same mechanism that boat traffic uses to push turbidity into the warning band in busy summer harbours. Your DO probe just got buried in muck.',
+    paramKey: 'turbidity',
+  },
+  {
+    headline: 'Capsized in the surface boundary layer',
+    body: 'The top 30 cm of a lake is where DO and temperature stratify the most. Flopping the hull through it disturbs the very layer your instruments are trying to characterise.',
+    paramKey: 'dissolved_oxygen',
+  },
+  {
+    headline: 'Lost trim — sonar transducer fouled',
+    body: 'Sonar transducers must stay clear of bubbles and surface chop to read clean returns. Riding low into the wave train leaves the transducer in foam — which is why your last few pings missed the trash.',
+    paramKey: 'turbidity',
+  },
+]
 
 // SOURCE Water — Learning Games
 // 3 addictive arcade games. Each one is built around a real water-science
@@ -804,27 +933,30 @@ function SonarSweep({ onComplete }) {
   const W = 560, H = 600
   const SURFACE_Y = 220       // waterline
   const FLOOR_Y   = H - 40    // lake bed
-  const SONAR_COOL = 90       // frames between pings
-  const SONAR_R    = 150      // ping reveal radius
+  const SONAR_COOL = 55       // frames between pings (was 90 — too punishing)
+  const SONAR_R    = 170      // ping reveal radius
+  const START_LIVES = 5       // was 3 — players were dying before learning the controls
+  const WAVE_GRACE = 240      // frames you can sit IN the water before damage (~4s @ 60fps)
 
   const reset = useCallback(() => {
     stateRef.current = {
-      boat:  { x: 130, y: 180, vy: 0 },
+      boat:  { x: 130, y: 100, vy: 0 },     // start higher above water — gives air time
       pulse: { x: 130, y: SURFACE_Y, r: 0, alive: false },
       trash: [],
       inv:   [],
       sonarCd: 0,
       tick: 0,
       score: 0,
-      lives: 3,
+      lives: START_LIVES,
       level: 1,
       scrollSpeed: 1.6,
       spawnCd: 60,
-      invCd: 240,
+      invCd: 320,                            // first invasive comes later — let player learn first
+      waveContact: 0,                        // contiguous frames touching the water
       recent: null,
       recentTtl: 0,
     }
-    setHud({ score: 0, lives: 3, sonarCd: 0, depth: 0, recent: null })
+    setHud({ score: 0, lives: START_LIVES, sonarCd: 0, depth: 0, recent: null })
     setDone(false); setDeathReason(null)
   }, [])
 
@@ -881,17 +1013,21 @@ function SonarSweep({ onComplete }) {
       // Boat lives in the AIR/SURFACE zone — clamp above the waterline minus a hull
       if (s.boat.y < 30) { s.boat.y = 30; s.boat.vy = 0 }
       if (s.boat.y > SURFACE_Y - 6) {
-        // Hit the water hard
+        // Boat is touching/below the waterline. Accumulate continuous-contact
+        // frames; only damage after WAVE_GRACE (~4s) so the player has time to
+        // recover by thrusting up. Reset counter the moment they leave the water.
         s.boat.y = SURFACE_Y - 6; s.boat.vy = 0
-        // Soft penalty — every ~2s touching water drains a life via wave damage
-        if (s.tick % 90 === 0) {
+        s.waveContact++
+        if (s.waveContact >= WAVE_GRACE) {
+          s.waveContact = 0
           s.lives--; play('wrong')
-          if (s.lives <= 0) return die({
-            headline: 'Capsized — too much surface damage from wave wakes',
-            body: 'Even a research boat needs to ride the wakes carefully. Water-quality monitoring relies on stable platforms — sediment kicked up by hull-slamming makes the very turbidity readings you came to take useless.',
-            paramKey: 'turbidity',
-          })
+          if (s.lives <= 0) {
+            const reason = CAPSIZE_REASONS[(Math.random() * CAPSIZE_REASONS.length) | 0]
+            return die(reason)
+          }
         }
+      } else {
+        s.waveContact = 0
       }
 
       // Sonar pulse trigger
@@ -1082,6 +1218,16 @@ function SonarSweep({ onComplete }) {
       ctx.fillStyle = '#fff'; ctx.font = 'bold 10px system-ui'
       ctx.fillText(s.sonarCd === 0 ? 'SONAR READY (S)' : 'sonar charging…', 10, 30)
 
+      // Wave-contact warning bar — shows when boat is taking damage time
+      if (s.waveContact > 60) {
+        const warnPct = Math.min(1, s.waveContact / WAVE_GRACE)
+        ctx.fillStyle = '#1e293b'; ctx.fillRect(140, 10, 120, 8)
+        ctx.fillStyle = warnPct > 0.75 ? '#ef4444' : warnPct > 0.5 ? '#f59e0b' : '#fbbf24'
+        ctx.fillRect(140, 10, 120 * warnPct, 8)
+        ctx.fillStyle = '#fde68a'; ctx.font = 'bold 10px system-ui'
+        ctx.fillText('⚠ THRUST UP — taking on water', 140, 30)
+      }
+
       // Recent scoop floating notice
       if (s.recentTtl > 0 && s.recent) {
         ctx.fillStyle = `rgba(34,197,94,${Math.min(1, s.recentTtl / 60)})`
@@ -1152,6 +1298,12 @@ const GAMES = [
 export default function Games() {
   const { play } = useSound()
   const [active, setActive] = useState(null)
+  // tutorial-gate: when a game is selected, show the tutorial first; only on
+  // "Start" do we actually mount the game component
+  const [tutorialPending, setTutorialPending] = useState(null)
+  // restart key — incrementing it forces React to remount the game subtree,
+  // which is the cleanest way to fully reset internal canvas state
+  const [restartKey, setRestartKey] = useState(0)
   const [bests, setBests] = useState(() => { try { return JSON.parse(localStorage.getItem('sw_game_bests') || '{}') } catch { return {} } })
   const [history, setHistory] = useState(() => { try { return JSON.parse(localStorage.getItem('sw_game_history') || '[]') } catch { return [] } })
   const [stats, setStats] = useState(false)
@@ -1166,20 +1318,77 @@ export default function Games() {
     setActive(null)
   }
 
+  const launch = (id) => {
+    play('click')
+    setTutorialPending(id)
+  }
+
+  const beginAfterTutorial = () => {
+    if (!tutorialPending) return
+    setActive(tutorialPending)
+    setTutorialPending(null)
+    setRestartKey(k => k + 1)
+  }
+
   const totalPts = history.reduce((s, h) => s + h.score, 0)
   const topGame = Object.entries(bests).sort((a, b) => b[1] - a[1])[0]
 
+  // Per-game played-count helper for the in-game header
+  const playsFor = (id) => history.filter(h => h.gameId === id).length
+
   if (active) {
     const game = GAMES.find(g => g.id === active), GC = game.component
+    const plays = playsFor(active)
     return (
       <div className="max-w-3xl mx-auto">
-        <div className="flex items-center gap-3 mb-5">
+        <div className="flex items-center gap-3 mb-3">
           <button onClick={() => setActive(null)} className="p-2 rounded-xl" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)' }}><ArrowLeft className="w-5 h-5" style={{ color: 'var(--text-muted)' }} /></button>
           <span className="text-2xl">{game.emoji}</span>
           <h2 className="font-bold text-xl" style={{ color: 'var(--text)' }}>{game.title}</h2>
-          {bests[active] !== undefined && <span className="ml-auto text-sm font-bold" style={{ color: '#10b981' }}>🏅 Best: {bests[active]}</span>}
+          <button
+            onClick={() => setRestartKey(k => k + 1)}
+            title="Restart this run from scratch"
+            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold"
+            style={{ background: 'rgba(99,102,241,0.1)', color: '#a78bfa', border: '1px solid rgba(99,102,241,0.3)', cursor: 'pointer' }}
+          >
+            <RotateCcw className="w-4 h-4" /> Restart
+          </button>
+          <button
+            onClick={() => setTutorialPending(active)}
+            title="Show controls & objective"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold"
+            style={{ background: 'rgba(56,189,248,0.1)', color: '#7dd3fc', border: '1px solid rgba(56,189,248,0.3)', cursor: 'pointer' }}
+          >
+            How to play
+          </button>
         </div>
-        <GC onComplete={s => finish(active, s)} />
+
+        {/* In-game stats strip — Best, Plays, Avg, Last */}
+        <div className="flex flex-wrap gap-2 mb-4 text-xs">
+          <span style={{ padding: '4px 10px', borderRadius: 8, background: 'rgba(16,185,129,0.08)', color: '#10b981', border: '1px solid rgba(16,185,129,0.2)', fontWeight: 700 }}>
+            🏅 Best {bests[active] ?? 0}
+          </span>
+          <span style={{ padding: '4px 10px', borderRadius: 8, background: 'rgba(99,102,241,0.08)', color: '#a78bfa', border: '1px solid rgba(99,102,241,0.2)', fontWeight: 700 }}>
+            🎮 {plays} {plays === 1 ? 'play' : 'plays'}
+          </span>
+          {history.filter(h => h.gameId === active).length > 0 && (
+            <span style={{ padding: '4px 10px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.2)', fontWeight: 700 }}>
+              📊 Avg {Math.round(history.filter(h => h.gameId === active).reduce((sum, h) => sum + h.score, 0) / Math.max(1, plays))}
+            </span>
+          )}
+        </div>
+
+        {/* Game itself — restartKey forces a clean remount */}
+        <GC key={restartKey} onComplete={s => finish(active, s)} />
+
+        {/* Tutorial can be re-opened from inside a run */}
+        {tutorialPending && (
+          <TutorialModal
+            gameId={tutorialPending}
+            onStart={() => setTutorialPending(null)}
+            onCancel={() => setTutorialPending(null)}
+          />
+        )}
       </div>
     )
   }
@@ -1230,7 +1439,7 @@ export default function Games() {
 
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
         {GAMES.map(game => (
-          <div key={game.id} className="card p-5 cursor-pointer group" onClick={() => { play('click'); setActive(game.id) }}
+          <div key={game.id} className="card p-5 cursor-pointer group" onClick={() => launch(game.id)}
             style={{ transition: 'all 0.18s' }}
             onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)' }}
             onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '' }}>
@@ -1251,6 +1460,15 @@ export default function Games() {
           </div>
         ))}
       </div>
+
+      {/* Tutorial gate — appears when a card is clicked from the hub */}
+      {tutorialPending && (
+        <TutorialModal
+          gameId={tutorialPending}
+          onStart={beginAfterTutorial}
+          onCancel={() => setTutorialPending(null)}
+        />
+      )}
     </div>
   )
 }
