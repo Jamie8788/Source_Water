@@ -15,6 +15,8 @@ import {
   FlaskConical,
   X,
 } from 'lucide-react'
+import ParameterDeepDive from '../components/ParameterDeepDive'
+import { PARAM_META, PARAM_ORDER, classifyValue, TONE_COLOR } from '../utils/waterParams'
 
 // OSM base map center & zoom (Great Lakes region)
 const MAP_CENTER = [45.5, -75.7]
@@ -96,6 +98,18 @@ const MAP_CSS = `
     border: 1px solid rgba(15, 23, 42, 0.12);
     background: rgba(248, 250, 252, 0.98);
   }
+  @keyframes swPulse {
+    0%   { transform: scale(1);   opacity: 0.55; }
+    70%  { transform: scale(1.6); opacity: 0;    }
+    100% { transform: scale(1.6); opacity: 0;    }
+  }
+  .sw-param-chip {
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .sw-param-chip:hover {
+    background: #e0f2fe;
+  }
 `
 
 function riskBand(score) {
@@ -165,29 +179,55 @@ function parameterSummary(obs) {
 }
 
 // Numbered marker styling for monitoring points
-function createMonitoringIcon(number, isAI = false) {
-  const bgColor = isAI ? '#06b6d4' : '#22c55e' // Green for sites, cyan for AI/community
+function createMonitoringIcon(number, isAI = false, overrideColor = null, pulse = false) {
+  const bgColor = overrideColor || (isAI ? '#06b6d4' : '#22c55e') // Green for sites, cyan for USGS, custom for heatmap
+  const ring = pulse
+    ? `<div style="position:absolute;inset:-8px;border-radius:50%;border:3px solid ${bgColor};opacity:0.55;animation:swPulse 1.6s ease-out infinite"></div>`
+    : ''
   const html = `
-    <div style="
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 36px;
-      height: 36px;
-      background-color: ${bgColor};
-      border: 3px solid white;
-      border-radius: 50%;
-      font-weight: bold;
-      font-size: 14px;
-      color: white;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    ">${number || '•'}</div>
+    <div style="position:relative;width:36px;height:36px;">
+      ${ring}
+      <div style="
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        background-color: ${bgColor};
+        border: 3px solid white;
+        border-radius: 50%;
+        font-weight: bold;
+        font-size: 14px;
+        color: white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        position: relative;
+        z-index: 1;
+      ">${number || '•'}</div>
+    </div>
   `
   return L.divIcon({
     html,
     iconSize: [36, 36],
     className: 'monitoring-point-icon',
   })
+}
+
+// Compact dot icon — used when WR national toggle is on (1000s of sites; numbers
+// would be unreadable). Coloured by heatmap band when active.
+function createWrDotIcon(color = '#0ea5e9', pulse = false) {
+  const ring = pulse
+    ? `<div style="position:absolute;inset:-6px;border-radius:50%;border:2px solid ${color};opacity:0.55;animation:swPulse 1.6s ease-out infinite"></div>`
+    : ''
+  const html = `
+    <div style="position:relative;width:18px;height:18px;">
+      ${ring}
+      <div style="
+        width:18px;height:18px;border-radius:50%;background:${color};
+        border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.3);position:relative;z-index:1;
+      "></div>
+    </div>
+  `
+  return L.divIcon({ html, iconSize: [18, 18], className: 'monitoring-point-icon' })
 }
 
 // Popup style for point details
@@ -236,13 +276,25 @@ function MonitoringPopup({ title, subtitle, description, onDive }) {
 }
 
 // Site marker component
-function SiteMarker({ site, index, onSelect }) {
+function SiteMarker({ site, index, onSelect, heatmapParam, isAnomaly }) {
   const handlePopupClick = () => onSelect({ type: 'site', payload: site })
-  
+
+  let overrideColor = null
+  let bandLabel = null
+  if (heatmapParam) {
+    const v = Number(site?.[heatmapParam])
+    if (Number.isFinite(v)) {
+      const cls = classifyValue(heatmapParam, v)
+      if (cls) { overrideColor = cls.color; bandLabel = cls.label }
+    } else {
+      overrideColor = '#cbd5e1' // grey when no reading for this parameter
+    }
+  }
+
   return (
     <Marker
       position={[site.latitude, site.longitude]}
-      icon={createMonitoringIcon(index + 1, false)}
+      icon={createMonitoringIcon(index + 1, false, overrideColor, isAnomaly)}
       eventHandlers={{
         click: handlePopupClick,
       }}
@@ -252,8 +304,40 @@ function SiteMarker({ site, index, onSelect }) {
         <MonitoringPopup
           title={site.name || 'Monitoring Site'}
           subtitle={site.organization || 'Source Water'}
-          description={site.body_of_water || site.location_name || 'Great Lakes Region'}
+          description={
+            heatmapParam && bandLabel
+              ? `${PARAM_META[heatmapParam].label}: ${site[heatmapParam]}${PARAM_META[heatmapParam].unit} — ${bandLabel}`
+              : site.body_of_water || site.location_name || 'Great Lakes Region'
+          }
           onDive={handlePopupClick}
+        />
+      </Popup>
+    </Marker>
+  )
+}
+
+// WR national location marker — small dot, opens detail panel.
+function WrMarker({ loc, onSelect, heatmapParam }) {
+  const handle = () => onSelect({ type: 'wr', payload: loc })
+  let color = '#0ea5e9'
+  if (heatmapParam) {
+    const v = Number(loc?.latest?.[heatmapParam])
+    if (Number.isFinite(v)) color = classifyValue(heatmapParam, v)?.color || color
+    else color = '#cbd5e1'
+  }
+  return (
+    <Marker
+      position={[loc.latitude, loc.longitude]}
+      icon={createWrDotIcon(color)}
+      eventHandlers={{ click: handle }}
+      title={loc.name}
+    >
+      <Popup>
+        <MonitoringPopup
+          title={loc.name || 'Water Rangers Site'}
+          subtitle={loc.organization_name || 'Water Rangers community'}
+          description={loc.body_of_water || loc.location_description || 'Community monitoring location'}
+          onDive={handle}
         />
       </Popup>
     </Marker>
@@ -299,7 +383,7 @@ function ScaleControl() {
 }
 
 // Clustered map layers
-function MapControls({ sites, usgsRows, selected, onSelect }) {
+function MapControls({ sites, usgsRows, wrRows, selected, onSelect, heatmapParam, anomalyIds }) {
   return (
     <>
       <MarkerClusterGroup
@@ -309,7 +393,14 @@ function MapControls({ sites, usgsRows, selected, onSelect }) {
         disableClusteringAtZoom={11}
       >
         {sites.map((site, idx) => (
-          <SiteMarker key={`site-${site.id}`} site={site} index={idx} onSelect={onSelect} />
+          <SiteMarker
+            key={`site-${site.id}`}
+            site={site}
+            index={idx}
+            onSelect={onSelect}
+            heatmapParam={heatmapParam}
+            isAnomaly={anomalyIds?.has(site.id)}
+          />
         ))}
       </MarkerClusterGroup>
 
@@ -323,6 +414,19 @@ function MapControls({ sites, usgsRows, selected, onSelect }) {
           <UsgsMarker key={`usgs-${station.siteCode}`} station={station} index={idx} onSelect={onSelect} />
         ))}
       </MarkerClusterGroup>
+
+      {wrRows && wrRows.length > 0 && (
+        <MarkerClusterGroup
+          chunkedLoading
+          maxClusterRadius={60}
+          showCoverageOnHover={true}
+          disableClusteringAtZoom={12}
+        >
+          {wrRows.map((loc) => (
+            <WrMarker key={`wr-${loc.id}`} loc={loc} onSelect={onSelect} heatmapParam={heatmapParam} />
+          ))}
+        </MarkerClusterGroup>
+      )}
     </>
   )
 }
@@ -338,6 +442,19 @@ export default function MapPage() {
   const [siteIntelligence, setSiteIntelligence] = useState(null)
   const [siteIntelligenceLoading, setSiteIntelligenceLoading] = useState(false)
 
+  // Water Rangers national community sites (9,444+) — loaded on demand
+  const [wrSites, setWrSites] = useState([])
+  const [wrLoading, setWrLoading] = useState(false)
+  const [wrError, setWrError] = useState('')
+  const [wrLoaded, setWrLoaded] = useState(false)
+
+  // WR site detail (when user clicks a WR pin)
+  const [wrDetail, setWrDetail] = useState(null)
+  const [wrDetailLoading, setWrDetailLoading] = useState(false)
+
+  // Parameter Deep-Dive panel (Map tab feature: click any param chip → full explainer)
+  const [deepDiveParam, setDeepDiveParam] = useState(null)
+
   const [filters, setFilters] = useState({
     source: 'all',
     status: 'all',
@@ -348,6 +465,9 @@ export default function MapPage() {
     searchText: '',
     basemap: 'light',
     radar: false,
+    nationalWR: false,        // toggle: load all 9,444 WR sites across Canada
+    heatmapParam: '',         // '' | 'ph' | 'turbidity' | ... — colours sites by CCME band
+    timeWindowDays: 365,      // time-travel slider (anything between 7..365)
   })
 
   // Load initial data
@@ -463,23 +583,86 @@ export default function MapPage() {
       .finally(() => setSiteIntelligenceLoading(false))
   }, [selected])
 
+  // Load Water Rangers national locations on demand from real /api/wr/locations-all
+  useEffect(() => {
+    if (!filters.nationalWR || wrLoaded) return
+    setWrLoading(true)
+    setWrError('')
+    api.get('/wr/locations-all', { timeout: 120000 })
+      .then((resp) => {
+        const list = Array.isArray(resp.data?.locations) ? resp.data.locations : []
+        // Normalise: ensure latitude/longitude are numeric and present
+        const norm = list
+          .map((loc) => ({
+            ...loc,
+            latitude: Number(loc.latitude ?? loc.lat),
+            longitude: Number(loc.longitude ?? loc.lng ?? loc.lon),
+          }))
+          .filter((l) => Number.isFinite(l.latitude) && Number.isFinite(l.longitude))
+        setWrSites(norm)
+        setWrLoaded(true)
+      })
+      .catch((err) => {
+        console.error('[MapPage] WR national load failed', err)
+        setWrError('Could not load Water Rangers national sites — please try again in a moment.')
+      })
+      .finally(() => setWrLoading(false))
+  }, [filters.nationalWR, wrLoaded])
+
+  // When a WR site is selected, fetch its real observations from the WR API
+  useEffect(() => {
+    if (!selected || selected.type !== 'wr') {
+      setWrDetail(null)
+      return
+    }
+    const loc = selected.payload
+    setWrDetailLoading(true)
+    api.get(`/wr/locations/${loc.id}/observations`)
+      .then((resp) => {
+        const obs = Array.isArray(resp.data?.observations)
+          ? resp.data.observations
+          : Array.isArray(resp.data)
+            ? resp.data
+            : []
+        setWrDetail({ location: loc, observations: obs })
+      })
+      .catch((err) => {
+        console.error('[MapPage] WR observations load failed', err)
+        setWrDetail({ location: loc, observations: [], error: true })
+      })
+      .finally(() => setWrDetailLoading(false))
+  }, [selected])
+
   const cutoffDate = useMemo(() => {
     const days = Number(filters.dateRange)
     if (!Number.isFinite(days) || days <= 0) return null
     return Date.now() - days * 86400000
   }, [filters.dateRange])
 
+  // Time-travel cutoff (lets users see only sites with observations newer than N days)
+  const timeWindowCutoff = useMemo(() => {
+    const days = Number(filters.timeWindowDays)
+    if (!Number.isFinite(days) || days <= 0) return null
+    return Date.now() - days * 86400000
+  }, [filters.timeWindowDays])
+
 
 
   const filteredSites = useMemo(() => {
     return sites.filter((site) => {
-      if (filters.source === 'usgs') return false
+      if (filters.source === 'usgs' || filters.source === 'wr') return false
       const status = statusBand(site.status)
       if (filters.status !== 'all' && status !== filters.status) return false
       if (filters.alertLevel !== 'all') {
         if (filters.alertLevel === 'high' && status !== 'critical') return false
         if (filters.alertLevel === 'medium' && status !== 'warning') return false
         if (filters.alertLevel === 'low' && status !== 'active') return false
+      }
+
+      // Time-travel — only sites with a measurement inside the chosen window
+      if (timeWindowCutoff) {
+        const ts = new Date(site.last_observation_at || site.observed_at || site.updated_at || 0).getTime()
+        if (Number.isFinite(ts) && ts > 0 && ts < timeWindowCutoff) return false
       }
 
       if (filters.searchText.trim()) {
@@ -490,7 +673,35 @@ export default function MapPage() {
 
       return true
     })
-  }, [sites, filters])
+  }, [sites, filters, timeWindowCutoff])
+
+  // WR national sites — only shown when nationalWR toggle is on
+  const filteredWr = useMemo(() => {
+    if (!filters.nationalWR || !wrSites.length) return []
+    return wrSites.filter((loc) => {
+      if (filters.source === 'sites' || filters.source === 'usgs') return false
+      if (filters.searchText.trim()) {
+        const q = filters.searchText.trim().toLowerCase()
+        const hay = `${loc?.name || ''} ${loc?.organization_name || ''} ${loc?.body_of_water || ''} ${loc?.location_description || ''}`.toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      return true
+    })
+  }, [wrSites, filters])
+
+  // Anomaly pulse — flag sites whose latest reading lands in a 'critical' CCME band
+  const anomalyIds = useMemo(() => {
+    const ids = new Set()
+    for (const s of filteredSites) {
+      for (const key of PARAM_ORDER) {
+        const v = Number(s?.[key])
+        if (!Number.isFinite(v)) continue
+        const cls = classifyValue(key, v)
+        if (cls?.tone === 'critical') { ids.add(s.id); break }
+      }
+    }
+    return ids
+  }, [filteredSites])
 
   const filteredUsgs = useMemo(() => {
     return usgsRows.filter((station) => {
@@ -520,9 +731,10 @@ export default function MapPage() {
   const publicStats = useMemo(() => {
     const totalSites = filteredSites.length
     const totalUsgs = filteredUsgs.length
-    const criticalSites = filteredSites.filter((s) => statusBand(s.status) === 'critical').length
-    return { totalSites, totalUsgs, criticalSites }
-  }, [filteredSites, filteredUsgs])
+    const totalWr = filteredWr.length
+    const criticalSites = anomalyIds.size
+    return { totalSites, totalUsgs, totalWr, criticalSites }
+  }, [filteredSites, filteredUsgs, filteredWr, anomalyIds])
 
   const selectedSite = selected?.type === 'site' ? selected.payload : null
   const selectedUsgs = selected?.type === 'usgs' ? selected.payload : null
@@ -621,10 +833,16 @@ export default function MapPage() {
         {/* Map container */}
         <div className="flex-1 relative overflow-hidden">
           {/* Filter bar - overlaid on map */}
-          <div className="absolute left-3 top-3 z-20 rounded-lg bg-white px-4 py-3 shadow-lg">
+          <div className="absolute left-3 top-3 z-20 rounded-lg bg-white px-4 py-3 shadow-lg" style={{ maxWidth: 'calc(100% - 24px)' }}>
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold text-slate-700">
                 Sites: {publicStats.totalSites} | USGS Live: {publicStats.totalUsgs}
+                {filters.nationalWR && ` | WR Canada: ${publicStats.totalWr}`}
+                {anomalyIds.size > 0 && (
+                  <span className="ml-2 rounded bg-red-100 px-2 py-0.5 text-red-700">
+                    ⚠ {anomalyIds.size} critical
+                  </span>
+                )}
               </span>
               <span className="rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-700">
                 Latest Measured Data: {latestMeasuredTimestamp}
@@ -635,6 +853,22 @@ export default function MapPage() {
               >
                 Export Measured CSV
               </button>
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={filters.nationalWR}
+                  onChange={(e) => setFilters((f) => ({ ...f, nationalWR: e.target.checked }))}
+                />
+                Show all 9,444 Water Rangers sites (Canada)
+              </label>
+              {wrLoading && (
+                <span className="rounded bg-sky-50 px-2 py-1 text-[11px] text-sky-700">
+                  Loading national community sites…
+                </span>
+              )}
+              {wrError && (
+                <span className="rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-700">{wrError}</span>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-2 md:grid-cols-7">
               <input
@@ -706,6 +940,72 @@ export default function MapPage() {
                 <option value="high">High Priority</option>
               </select>
             </div>
+
+            {/* Heatmap parameter + time-travel slider */}
+            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold text-slate-700">Heatmap by:</span>
+                <select
+                  value={filters.heatmapParam}
+                  onChange={(e) => setFilters((f) => ({ ...f, heatmapParam: e.target.value }))}
+                  className="flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
+                >
+                  <option value="">Off (status colours)</option>
+                  {PARAM_ORDER.map((k) => (
+                    <option key={k} value={k}>{PARAM_META[k].label} (CCME aquatic-life bands)</option>
+                  ))}
+                </select>
+                {filters.heatmapParam && (
+                  <button
+                    onClick={() => setDeepDiveParam(filters.heatmapParam)}
+                    className="rounded bg-sky-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-sky-700"
+                    title="Open the deep-dive explainer for this parameter"
+                  >
+                    Deep-Dive
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold text-slate-700">Time-travel:</span>
+                <input
+                  type="range"
+                  min="7"
+                  max="365"
+                  step="7"
+                  value={filters.timeWindowDays}
+                  onChange={(e) => setFilters((f) => ({ ...f, timeWindowDays: Number(e.target.value) }))}
+                  className="flex-1"
+                  aria-label="Show only sites with measurements in the past N days"
+                />
+                <span className="text-[11px] tabular-nums text-slate-700">past {filters.timeWindowDays} days</span>
+              </div>
+            </div>
+
+            {/* Heatmap legend (inline SVG) */}
+            {filters.heatmapParam && PARAM_META[filters.heatmapParam] && (
+              <div className="mt-2 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-700">
+                    {PARAM_META[filters.heatmapParam].label} bands
+                  </span>
+                  <span className="text-[10px] text-slate-500">CCME aquatic-life</span>
+                </div>
+                <div className="flex h-3 w-full overflow-hidden rounded">
+                  {PARAM_META[filters.heatmapParam].ranges.map((r, i) => (
+                    <div
+                      key={i}
+                      title={`${r.label} (${r.min}–${r.max >= 9999 ? '∞' : r.max}${PARAM_META[filters.heatmapParam].unit}): ${r.note}`}
+                      style={{ flex: 1, background: TONE_COLOR[r.tone] }}
+                    />
+                  ))}
+                </div>
+                <div className="mt-1 flex justify-between text-[10px] text-slate-500">
+                  {PARAM_META[filters.heatmapParam].ranges.map((r, i) => (
+                    <span key={i}>{r.label}</span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <MapContainer
@@ -732,8 +1032,11 @@ export default function MapPage() {
             <MapControls
               sites={filteredSites}
               usgsRows={filteredUsgs}
+              wrRows={filteredWr}
               selected={selected}
               onSelect={setSelected}
+              heatmapParam={filters.heatmapParam}
+              anomalyIds={anomalyIds}
             />
           </MapContainer>
         </div>
@@ -793,14 +1096,30 @@ export default function MapPage() {
                 </div>
 
                 <div className="rounded bg-slate-50 p-3">
-                  <div className="mb-2 text-xs font-semibold text-slate-700">Latest Readings</div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-700">Latest Readings</span>
+                    <span className="text-[10px] text-slate-500">click for deep-dive</span>
+                  </div>
                   {siteParameterList.length === 0 && <div className="text-xs text-slate-500">No recent data</div>}
-                  {siteParameterList.map((p) => (
-                    <div key={p.key} className="mb-1 flex justify-between text-xs">
-                      <span className="text-slate-600">{p.label}</span>
-                      <span className="font-semibold text-slate-700">{p.value}{p.unit}</span>
-                    </div>
-                  ))}
+                  {siteParameterList.map((p) => {
+                    const cls = classifyValue(p.key, p.value)
+                    return (
+                      <button
+                        key={p.key}
+                        type="button"
+                        onClick={() => setDeepDiveParam(p.key)}
+                        className="sw-param-chip mb-1 flex w-full items-center justify-between rounded px-1.5 py-1 text-xs"
+                        style={{ background: 'transparent' }}
+                        title={`Open ${p.label} explainer with CCME aquatic-life bands`}
+                      >
+                        <span className="flex items-center gap-2 text-slate-700">
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: cls?.color || '#cbd5e1', display: 'inline-block' }} />
+                          {p.label}
+                        </span>
+                        <span className="font-semibold text-slate-800">{p.value}{p.unit}</span>
+                      </button>
+                    )
+                  })}
                 </div>
 
                 <div className="rounded bg-slate-50 p-3">
@@ -866,9 +1185,101 @@ export default function MapPage() {
                 </a>
               </div>
             )}
+
+            {selected?.type === 'wr' && (
+              <div className="space-y-4 text-sm text-slate-700">
+                <div className="rounded bg-slate-50 p-3">
+                  <h3 className="font-bold">{selected.payload.name || 'Water Rangers Site'}</h3>
+                  <p className="text-xs text-slate-600 mt-1">
+                    {selected.payload.body_of_water || selected.payload.location_description || 'Community monitoring location'}
+                  </p>
+                  <p className="text-xs text-slate-500">{selected.payload.organization_name || 'Water Rangers community'}</p>
+                </div>
+
+                {wrDetailLoading && (
+                  <div className="rounded bg-sky-50 p-3 text-xs text-sky-800">Loading observations from Water Rangers…</div>
+                )}
+
+                {!wrDetailLoading && wrDetail && (
+                  <div className="rounded bg-cyan-50 p-3 border border-cyan-100">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-cyan-900">Latest Community Readings</span>
+                      <span className="text-[10px] text-cyan-700">click for deep-dive</span>
+                    </div>
+                    {(() => {
+                      const obs = wrDetail.observations?.[0]
+                      if (!obs) return <div className="text-xs text-cyan-800">No recent observations from this site.</div>
+                      const rows = []
+                      // Try inline shape first
+                      for (const k of PARAM_ORDER) {
+                        const v = Number(obs[k])
+                        if (Number.isFinite(v)) rows.push({ key: k, value: v })
+                      }
+                      // Fallback: WR readings array
+                      if (!rows.length && Array.isArray(obs.readings)) {
+                        for (const r of obs.readings) {
+                          const name = String(r?.parameter || '').toLowerCase()
+                          for (const k of PARAM_ORDER) {
+                            if (PARAM_META[k].aliases.some(a => name.includes(a))) {
+                              const v = Number(r.value)
+                              if (Number.isFinite(v) && !rows.find(x => x.key === k)) rows.push({ key: k, value: v })
+                            }
+                          }
+                        }
+                      }
+                      if (!rows.length) return <div className="text-xs text-cyan-800">Observation present but no recognised parameter readings.</div>
+                      return rows.map((p) => {
+                        const meta = PARAM_META[p.key]
+                        const cls = classifyValue(p.key, p.value)
+                        return (
+                          <button
+                            key={p.key}
+                            type="button"
+                            onClick={() => setDeepDiveParam(p.key)}
+                            className="sw-param-chip mb-1 flex w-full items-center justify-between rounded px-1.5 py-1 text-xs"
+                            style={{ background: 'transparent' }}
+                          >
+                            <span className="flex items-center gap-2 text-cyan-900">
+                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: cls?.color || '#cbd5e1', display: 'inline-block' }} />
+                              {meta.label}
+                            </span>
+                            <span className="font-semibold text-cyan-900">{p.value}{meta.unit}</span>
+                          </button>
+                        )
+                      })
+                    })()}
+                    <div className="mt-2 text-[10px] text-cyan-700">
+                      Source: Water Rangers community API · Last fetched {new Date().toLocaleTimeString()}
+                    </div>
+                  </div>
+                )}
+
+                <a
+                  href={`https://app.waterrangers.com/locations/${selected.payload.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex rounded bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700"
+                >
+                  Open on Water Rangers
+                </a>
+              </div>
+            )}
           </div>
         </aside>
       </div>
+
+      {/* Parameter Deep-Dive panel — full explainer with inline SVG diagrams */}
+      {deepDiveParam && (
+        <ParameterDeepDive
+          paramKey={deepDiveParam}
+          observations={
+            selected?.type === 'wr'
+              ? (wrDetail?.observations || [])
+              : siteObservations
+          }
+          onClose={() => setDeepDiveParam(null)}
+        />
+      )}
     </div>
   )
 }
