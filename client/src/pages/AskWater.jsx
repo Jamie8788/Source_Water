@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Mic, MicOff, Send, Trash2, Volume2, VolumeX, Sparkles, Droplets } from 'lucide-react'
 import NibiMascotLive from '../components/NibiMascotLive'
 import api from '../utils/api'
+import { pickNibiVoice, NIBI_PROSODY } from '../utils/voice'
 
 // ── Content ───────────────────────────────────────────────────────────────────
 const SUGGESTIONS = [
@@ -256,19 +257,12 @@ export default function AskWater() {
       })
     } catch(e) {
       if(e.name==='AbortError'||e.name==='abort') return
-      // Browser TTS fallback — kid girl voice
+      // Browser TTS fallback — deterministic kid/young female voice via shared util
       try {
         await new Promise(resolve=>{
           const u = new SpeechSynthesisUtterance(clean.slice(0,350))
-          u.pitch=1.8; u.rate=1.05; u.volume=.95
-          const voices=window.speechSynthesis.getVoices()
-          // Prefer kid/young female voices: Ana (Edge), Samantha (Mac), Zira (Win)
-          const v=voices.find(v=>/\bana\b/i.test(v.name))
-            ||voices.find(v=>/samantha|victoria/i.test(v.name))
-            ||voices.find(v=>/zira|hazel/i.test(v.name))
-            ||voices.find(v=>v.name.includes('Google') && v.name.includes('US') && /female/i.test(v.name))
-            ||voices.find(v=>v.lang?.startsWith('en') && /female/i.test(v.name))
-            ||voices.find(v=>v.lang?.startsWith('en'))
+          u.pitch=NIBI_PROSODY.pitch; u.rate=NIBI_PROSODY.rate; u.volume=NIBI_PROSODY.volume
+          const v=pickNibiVoice()
           if(v) u.voice=v
           u.onend=resolve; u.onerror=resolve
           window.speechSynthesis.speak(u)

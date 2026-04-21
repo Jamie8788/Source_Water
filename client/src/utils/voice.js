@@ -1,0 +1,69 @@
+// Shared voice selection for SOURCE Water mascot TTS.
+// Ensures the same kid-like female voice is used everywhere the mascot speaks,
+// regardless of browser/OS default. Call pickNibiVoice() to get the best
+// available voice — it walks a deterministic preference list and returns the
+// first match, falling back to any en-US female, then any en voice.
+
+const PREFERRED = [
+  // Most consistent kid/young female voices across platforms
+  /^Microsoft Ana/i,              // Edge — kid voice
+  /^Google US English$/i,         // Chrome — deterministic fallback
+  /^Samantha$/i,                  // macOS/iOS default female
+  /^Microsoft Zira/i,             // Windows default female
+  /^Microsoft Hazel/i,            // Windows en-GB female
+  /^Karen$/i,                     // macOS en-AU female
+  /^Victoria$/i,                  // macOS female
+]
+
+export function pickNibiVoice() {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return null
+  const voices = window.speechSynthesis.getVoices() || []
+  if (!voices.length) return null
+
+  for (const rx of PREFERRED) {
+    const hit = voices.find(v => rx.test(v.name))
+    if (hit) return hit
+  }
+  // Any en-US female
+  const enUsFemale = voices.find(v => v.lang === 'en-US' && /female/i.test(v.name))
+  if (enUsFemale) return enUsFemale
+  // Any en female
+  const enFemale = voices.find(v => v.lang?.startsWith('en') && /female/i.test(v.name))
+  if (enFemale) return enFemale
+  // Any en-US
+  const enUs = voices.find(v => v.lang === 'en-US')
+  if (enUs) return enUs
+  // Any en
+  return voices.find(v => v.lang?.startsWith('en')) || voices[0]
+}
+
+// Consistent pitch/rate/volume for Nibi — the young female mascot voice.
+export const NIBI_PROSODY = { pitch: 1.8, rate: 1.05, volume: 0.95 }
+
+// Speak a string with the Nibi voice. Resolves when done or on error.
+// If the browser hasn't loaded voices yet, waits once for voiceschanged.
+export function speakAsNibi(text) {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return Promise.resolve()
+  return new Promise(resolve => {
+    const go = () => {
+      const u = new SpeechSynthesisUtterance(text)
+      u.pitch = NIBI_PROSODY.pitch
+      u.rate  = NIBI_PROSODY.rate
+      u.volume = NIBI_PROSODY.volume
+      const v = pickNibiVoice()
+      if (v) u.voice = v
+      u.onend = resolve
+      u.onerror = resolve
+      window.speechSynthesis.speak(u)
+    }
+    const voices = window.speechSynthesis.getVoices()
+    if (voices && voices.length) { go(); return }
+    const onReady = () => {
+      window.speechSynthesis.removeEventListener('voiceschanged', onReady)
+      go()
+    }
+    window.speechSynthesis.addEventListener('voiceschanged', onReady)
+    // Fallback — some browsers never fire voiceschanged
+    setTimeout(go, 300)
+  })
+}

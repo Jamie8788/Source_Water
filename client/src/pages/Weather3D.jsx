@@ -1151,10 +1151,6 @@ function H2OIntelPanel({ weatherData, researchData }) {
             <div style={{ fontSize:9, color:'#475569' }}>WQI</div>
             <div style={{ fontSize:16, fontWeight:900, color: compositeWQI>75?'#10b981':compositeWQI>50?'#38bdf8':compositeWQI>25?'#f59e0b':'#ef4444' }}>{wx ? compositeWQI : '--'}</div>
           </div>
-          <div style={{ textAlign:'center' }}>
-            <div style={{ fontSize:9, color:'#475569' }}>Safety</div>
-            <div style={{ fontSize:11, fontWeight:800, color:drinkLevel.color }}>{wx ? drinkLevel.label : '--'}</div>
-          </div>
           {wx && <button onClick={exportReport} style={{ padding:'4px 8px', borderRadius:6, background:'rgba(99,102,241,0.15)', border:'1px solid rgba(99,102,241,0.3)', color:'#a5b4fc', fontSize:9, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>⬇ Export</button>}
         </div>
       </div>
@@ -2622,6 +2618,23 @@ export default function Weather3D() {
             position: 'absolute', bottom: 0, right: 0, width: 240, height: 30,
             background: '#000', zIndex: 21, pointerEvents: 'none',
           }} />
+
+          {/* Drag-lock overlay on globe view — prevents iframe rotation so markers stay aligned.
+              Users navigate via search or by clicking a site marker (both re-center the globe). */}
+          {activeView === 'globe' && (
+            <div
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchStart={(e) => e.preventDefault()}
+              style={{
+                position: 'absolute',
+                top: 0, left: 0, right: 0, bottom: 36,
+                zIndex: 12,
+                cursor: 'default',
+                background: 'transparent',
+              }}
+              title="Click a site marker or search to navigate — globe rotation is locked so pins stay aligned"
+            />
+          )}
 
           {/* Research site markers — globe view only */}
           {showMarkers && (
