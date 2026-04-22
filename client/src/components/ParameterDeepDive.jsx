@@ -40,14 +40,20 @@ export default function ParameterDeepDive({ paramKey, observations, onClose, sit
           if (obs && obs[a] != null && obs[a] !== '') { n = Number(obs[a]); break }
         }
       }
-      // WR readings shape
+      // WR readings shape — use matchParam so air/atmospheric readings are excluded
+      // (otherwise "Air temperature" gets pulled in as water temperature)
       if (n == null && Array.isArray(obs?.readings)) {
         for (const r of obs.readings) {
           const name = String(r?.parameter || '').toLowerCase()
-          const aliasHit = meta
-            ? meta.aliases?.some(a => name.includes(a))
-            : name.includes(String(paramKey).toLowerCase())
-          if (aliasHit) {
+          let isMatch = false
+          if (meta) {
+            isMatch = matchParam(r?.parameter) === paramKey
+          } else {
+            // Non-meta param (e.g. salinity, air_temperature) — normalize underscores to spaces
+            const target = String(paramKey).toLowerCase().replace(/_/g, ' ')
+            isMatch = name.includes(target)
+          }
+          if (isMatch) {
             n = Number(r?.value)
             if (r?.unit) unit = r.unit
             break

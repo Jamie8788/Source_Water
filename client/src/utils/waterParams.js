@@ -121,9 +121,16 @@ export const PARAM_ORDER = ['ph', 'turbidity', 'temperature', 'dissolved_oxygen'
 // Match a Water Rangers / WR parameter name string to our canonical key.
 // WR parameter strings are free-form (e.g. "Water Temperature", "Dissolved Oxygen (mg/L)")
 // so we do case-insensitive substring matching against our alias list.
+//
+// HARD EXCLUSION: anything that is clearly an air/atmospheric/ambient reading is
+// rejected before alias matching. This stops "Air temperature" from being matched
+// as water temperature (because "air temperature".includes("temperature") is true).
+const NON_WATER_NAME = /\b(air|atmospheric|ambient|sky|cloud)\b/i
+
 export function matchParam(rawName) {
   if (!rawName) return null
   const s = String(rawName).toLowerCase().trim()
+  if (NON_WATER_NAME.test(s)) return null
   for (const key of PARAM_ORDER) {
     const meta = PARAM_META[key]
     if (meta.aliases.some(a => s.includes(a))) return key
