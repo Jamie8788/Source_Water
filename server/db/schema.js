@@ -372,6 +372,7 @@ async function initSchema() {
     }
     // Migrations: add columns that may be missing from pre-existing Supabase tables
     const migrations = [
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS website TEXT`,
       `ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS deleted INTEGER DEFAULT 0`,
       `ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS edited INTEGER DEFAULT 0`,
       `ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS message_type TEXT DEFAULT 'text'`,

@@ -111,13 +111,27 @@ export default function Profile() {
   const [form, setForm] = useState({
     display_name: user?.display_name || '',
     bio: user?.bio || '',
-    community: user?.community || '',
+    location: user?.location || '',
     website: user?.website || '',
   })
   const [pwd, setPwd] = useState({ current: '', newPass: '', confirm: '' })
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [msgType, setMsgType] = useState('success')
+
+  // Resync form state whenever the authenticated user loads or changes.
+  // Without this, if Profile mounts before AuthContext has finished fetching
+  // the user, the form stays empty forever — which is exactly what users were
+  // hitting when they tried to "edit" and saw blank bio / location fields.
+  useEffect(() => {
+    if (!user) return
+    setForm({
+      display_name: user.display_name || '',
+      bio: user.bio || '',
+      location: user.location || '',
+      website: user.website || '',
+    })
+  }, [user])
 
   const points = user?.total_points || 840
   const level = Math.floor(points / 500) + 1
@@ -137,7 +151,7 @@ export default function Profile() {
     e.preventDefault()
     if (pwd.newPass !== pwd.confirm) { setMsg('Passwords do not match.'); setMsgType('error'); return }
     try {
-      await api.put('/users/me/password', { current_password: pwd.current, new_password: pwd.newPass })
+      await api.put('/users/me/password', { current: pwd.current, newPassword: pwd.newPass })
       play('success'); setMsg('Password changed successfully.'); setMsgType('success')
       setPwd({ current: '', newPass: '', confirm: '' })
     } catch (err) { setMsg(err.response?.data?.error || 'Failed to change password.'); setMsgType('error') }
@@ -190,7 +204,7 @@ export default function Profile() {
               <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>@{user?.username}</div>
               {user?.bio && <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.5, maxWidth: 500 }}>{user.bio}</p>}
               <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
-                {user?.community && <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><MapPin style={{ width: 11, height: 11 }}/>{user.community}</span>}
+                {user?.location && <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><MapPin style={{ width: 11, height: 11 }}/>{user.location}</span>}
                 <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Calendar style={{ width: 11, height: 11 }}/>Joined {user?.created_at ? new Date(user.created_at).toLocaleDateString('en-CA', { year: 'numeric', month: 'long' }) : 'January 2024'}</span>
               </div>
             </div>
@@ -341,7 +355,7 @@ export default function Profile() {
                 </div>
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 5 }}>Community</label>
-                  <input value={form.community} onChange={e => setForm(f => ({ ...f, community: e.target.value }))} placeholder="e.g. Sault Ste. Marie" style={{ width: '100%', background: 'var(--card-bg)', border: '1.5px solid var(--border)', borderRadius: 9, padding: '8px 12px', fontSize: 13, color: 'var(--text)', outline: 'none' }}/>
+                  <input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} placeholder="e.g. Sault Ste. Marie" style={{ width: '100%', background: 'var(--card-bg)', border: '1.5px solid var(--border)', borderRadius: 9, padding: '8px 12px', fontSize: 13, color: 'var(--text)', outline: 'none' }}/>
                 </div>
               </div>
               <div>

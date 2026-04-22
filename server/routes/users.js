@@ -39,10 +39,10 @@ router.get('/:id', requireAuth, async (req, res) => {
 // PUT /api/users/me (update own profile)
 router.put('/me', requireAuth, upload.single('avatar_file'), async (req, res) => {
   try {
-    const { display_name, bio, location, organization, phone, title, research_role, institution, research_area, sound_enabled, theme, onboarding_completed } = req.body
+    const { display_name, bio, location, organization, phone, title, research_role, institution, research_area, website, sound_enabled, theme, onboarding_completed } = req.body
     const updates = []
     const vals = []
-    const fields = { display_name, bio, location, organization, phone, title, research_role, institution, research_area }
+    const fields = { display_name, bio, location, organization, phone, title, research_role, institution, research_area, website }
     Object.entries(fields).forEach(([k, v]) => { if (v !== undefined) { updates.push(`${k}=?`); vals.push(v) } })
     if (sound_enabled !== undefined) { updates.push('sound_enabled=?'); vals.push(sound_enabled === 'true' || sound_enabled === true ? 1 : 0) }
     if (theme !== undefined) { updates.push('theme=?'); vals.push(theme) }
