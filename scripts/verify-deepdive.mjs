@@ -165,45 +165,57 @@ async function main() {
   // we surface (not just temperature) against the raw WR API value.
   console.log('\n── Verifying full parameter extraction across many sites ──')
   let livePass = 0, liveTotal = 0
+  let totalChecks = 0, totalPassed = 0
   const tested = new Set()
-  const targetCount = 8
-  for (let page = 1; page <= 10 && tested.size < targetCount; page++) {
+  const targetCount = 15
+  for (let page = 1; page <= 15 && tested.size < targetCount; page++) {
     const recent = await wr('/observations.json', { per_page: 30, page })
     const obsList = Array.isArray(recent) ? recent : (recent.observations || recent.data || [])
     if (!obsList.length) break
     for (const o of obsList) {
-      // Skip duplicate sites — we want diversity
       const sid = o.location_id || o.id
       if (tested.has(sid)) continue
-      // Only test observations that have at least 3 numeric readings (skip weather-only)
       const numReadings = (o.readings || []).filter(r => Number.isFinite(Number(r.value))).length
       if (numReadings < 3) continue
       tested.add(sid)
       liveTotal++
-      if (verifyAllParams(o)) livePass++
+      const result = verifyAllParams(o)
+      totalChecks += result.total
+      totalPassed += result.passed
+      if (result.allOk) livePass++
       if (tested.size >= targetCount) break
     }
   }
 
-  console.log(`\n═══ RESULT: ${livePass}/${liveTotal} live observations verified, ${unitPass}/${cases.length} unit tests passed ═══`)
-  process.exit(livePass === liveTotal && unitPass === cases.length ? 0 : 1)
+  console.log('\n═══════════════════════════════════════════════════════════')
+  console.log(`  FINAL RESULT`)
+  console.log(`  Sites verified:     ${livePass}/${liveTotal}`)
+  console.log(`  Per-value checks:   ${totalPassed}/${totalChecks}`)
+  console.log(`  Unit tests passed:  ${unitPass}/${cases.length}`)
+  console.log('═══════════════════════════════════════════════════════════')
+  const allClean = livePass === liveTotal && unitPass === cases.length && totalPassed === totalChecks
+  console.log(allClean ? '  ✓ ALL CLEAN — no fabricated or mismatched values' : '  ✗ FAILURES DETECTED')
+  console.log('═══════════════════════════════════════════════════════════')
+  process.exit(allClean ? 0 : 1)
 }
 
-// Pull EVERY value from raw readings and check that our extraction returns
-// the exact same number for every parameter we map. Critical: verify that
-// pH, DO, conductivity, turbidity, water-temp don't accidentally pull from
-// the wrong field (e.g. air_temp, weather, hardness, alkalinity, chlorine).
+// For each site, run a battery of checks across ALL 5 parameters:
+//   1. If the WR raw readings contain the parameter, our extraction must return
+//      the EXACT same number.
+//   2. If the WR raw readings do NOT contain the parameter, our extraction must
+//      return null (no fabrication, no fallback to wrong field).
+//   3. For temperature specifically, we never pull the air_temperature value.
+//   4. For conductivity specifically, we never pull a secchi/hardness/alkalinity value.
 function verifyAllParams(obs) {
-  console.log(`\n── Site ${obs.location_id || '?'} (obs ${obs.id || '?'}) ──`)
+  console.log(`\n── Site ${obs.location_id || '?'} ──`)
   const raw = {}
   for (const r of (obs.readings || [])) {
     const name = String(r.parameter || '').toLowerCase()
     const val = Number(r.value)
     if (Number.isFinite(val)) raw[name] = { value: val, unit: r.unit || '' }
   }
-  console.log('  Raw:', Object.entries(raw).map(([k, v]) => `${k}=${v.value}`).join(', '))
+  console.log('  Raw:', Object.entries(raw).map(([k, v]) => `${k}=${v.value}`).join(', ') || '(none)')
 
-  // Truth: walk the raw readings and pick the right one for each param key.
   const truth = {
     temperature:      raw.water_temperature?.value ?? raw.temperature?.value ?? null,
     ph:               raw.ph?.value ?? raw.p_h?.value ?? null,
@@ -214,22 +226,40 @@ function verifyAllParams(obs) {
 
   const checks = []
   for (const key of ['temperature', 'ph', 'dissolved_oxygen', 'conductivity', 'turbidity']) {
-    if (truth[key] == null) continue  // not present in this observation — skip
     const got = extractSeries(key, [obs])[0]?.value ?? null
-    const ok = got === truth[key]
-    checks.push({ key, ok, expected: truth[key], got })
-    // Extra sanity: confirm we didn't accidentally pull the air value
-    if (key === 'temperature' && raw.air_temperature) {
-      const notAir = got !== raw.air_temperature.value
-      checks.push({ key: 'temp ≠ air', ok: notAir, expected: `≠${raw.air_temperature.value}`, got })
+    if (truth[key] != null) {
+      // Should match exactly
+      checks.push({ key, ok: got === truth[key], expected: truth[key], got })
+    } else {
+      // Not in raw → must return null (no fabrication)
+      checks.push({ key: `${key} (absent)`, ok: got === null, expected: 'null', got })
     }
   }
-  let allOk = true
-  for (const c of checks) {
-    console.log(`  ${c.ok ? 'PASS' : 'FAIL'}  ${c.key.padEnd(18)} expected=${c.expected}  got=${c.got}`)
-    if (!c.ok) allOk = false
+  // Cross-field anti-fabrication checks
+  if (raw.air_temperature) {
+    const got = extractSeries('temperature', [obs])[0]?.value ?? null
+    checks.push({ key: 'temp ≠ air',     ok: got !== raw.air_temperature.value, expected: `≠${raw.air_temperature.value}`, got })
   }
-  return allOk
+  if (raw.secchi_depth) {
+    const got = extractSeries('conductivity', [obs])[0]?.value ?? null
+    checks.push({ key: 'cond ≠ secchi',  ok: got !== raw.secchi_depth.value,    expected: `≠${raw.secchi_depth.value}`,    got })
+  }
+  if (raw.hardness) {
+    const got = extractSeries('conductivity', [obs])[0]?.value ?? null
+    checks.push({ key: 'cond ≠ hardness',ok: got !== raw.hardness.value,         expected: `≠${raw.hardness.value}`,         got })
+  }
+  if (raw.alkalinity) {
+    const got = extractSeries('ph', [obs])[0]?.value ?? null
+    checks.push({ key: 'ph ≠ alkalinity',ok: got !== raw.alkalinity.value,       expected: `≠${raw.alkalinity.value}`,       got })
+  }
+
+  let allOk = true, passed = 0
+  for (const c of checks) {
+    const tag = c.ok ? 'PASS' : 'FAIL'
+    console.log(`  ${tag}  ${c.key.padEnd(20)} expected=${c.expected}  got=${c.got}`)
+    if (c.ok) passed++; else allOk = false
+  }
+  return { allOk, passed, total: checks.length }
 }
 
 main().catch(e => { console.error('Fatal:', e); process.exit(1) })
