@@ -21,7 +21,7 @@ const MOOD_MAP = {
   // New poses
   'Water_Mascot_Lab-Coat_Tube_View.png': 'nibi_labcoat',
   'Water_Mascot_Pointing-Side.png': 'nibi_pointing',
-  'Water_Mascot_Open-Arms_01.png': 'nibi_openarms',
+  'Water_Mascot_Open-Arms_02.png': 'nibi_openarms',
   'Water_Mascot_Jumping_01.png': 'nibi_jumping',
   'Water_Mascot_Tablet_01.png': 'nibi_tablet',
   'Water_Mascot_Trophy.png': 'nibi_trophy',
@@ -37,9 +37,11 @@ const MOOD_MAP = {
 
 async function removeWhiteBg(inputPath, outputBase) {
   // Load image and ensure alpha channel
+  // Render at 1400px wide so on-page 520px displays are a clean downscale
+  // instead of a near-native blur. Lanczos3 keeps edges crisp.
   const img = sharp(inputPath).ensureAlpha()
   const { data, info } = await img
-    .resize(600, null, { withoutEnlargement: true })
+    .resize(1400, null, { withoutEnlargement: true, kernel: 'lanczos3' })
     .raw()
     .toBuffer({ resolveWithObject: true })
 
@@ -70,8 +72,8 @@ async function removeWhiteBg(inputPath, outputBase) {
 
   const processed = sharp(data, { raw: { width, height, channels: 4 } })
 
-  // Save WebP with alpha
-  await processed.clone().webp({ quality: 90, alphaQuality: 100 }).toFile(`${outputBase}.webp`)
+  // Save WebP with alpha — q95 + effort 6 for sharper edges at display sizes
+  await processed.clone().webp({ quality: 95, alphaQuality: 100, effort: 6 }).toFile(`${outputBase}.webp`)
   // Save PNG with alpha
   await processed.clone().png({ compressionLevel: 9 }).toFile(`${outputBase}.png`)
 
