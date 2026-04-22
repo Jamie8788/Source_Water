@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useCMS } from '../context/CMSContext'
 import CMSField from '../components/cms/CMSField'
 import api from '../utils/api'
+import { getAllLocations } from '../api/waterRangers'
 import {
   Map, MessageSquare, BarChart2, Users, FlaskConical, BookOpen,
   Gamepad2, Bell, TrendingUp, Activity, AlertTriangle, Droplets,
@@ -148,6 +149,10 @@ export default function Dashboard() {
   const [posts, setPosts] = useState([])
   const [leaderboard, setLeaderboard] = useState([])
   const [timeGreet, setTimeGreet] = useState('')
+  // Water Rangers KPIs — same data source as the Monitoring Map, so the
+  // Dashboard "Monitoring Sites" tile reconciles with the map's 9,438 count
+  // instead of showing the sparse local `sites` table (~33 rows).
+  const [wr, setWr] = useState({ sites: 0, sampled: 0 })
 
   useEffect(() => {
     const h = new Date().getHours()
@@ -158,6 +163,13 @@ export default function Dashboard() {
     api.get('/admin/alerts').then(r => setAlerts((r.data.alerts || []).slice(0, 3))).catch(() => {})
     api.get('/posts?limit=4').then(r => setPosts(r.data.posts || [])).catch(() => {})
     api.get('/leaderboard?limit=5').then(r => setLeaderboard(r.data.leaderboard || [])).catch(() => {})
+    // Cached server-side for 30min, so this is cheap on repeat loads.
+    getAllLocations()
+      .then(locs => setWr({
+        sites: locs.length,
+        sampled: locs.filter(l => l.last_observation_at).length,
+      }))
+      .catch(() => {})
     loadPage('dashboard')
   }, [])
 
@@ -232,12 +244,17 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── KPI Row ── */}
+      {/* ── KPI Row ──
+          Sites + Sampled Stations come from Water Rangers (same source as
+          /map, so numbers reconcile). Alerts + Members are platform data
+          and stay on the local DB. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard icon={Droplets} label="Monitoring Sites" value={stats.total_sites || 0}
+        <KPICard icon={Droplets} label="Monitoring Sites" value={wr.sites}
+          sub="Water Rangers global network"
           color="#6366f1" onClick={() => navigate('/map')}/>
-        <KPICard icon={Activity} label="Water Samples" value={stats.total_observations || 0}
-          color="#14b8a6" onClick={() => navigate('/analysis')}/>
+        <KPICard icon={Activity} label="Sampled Stations" value={wr.sampled}
+          sub="Sites with recorded observations"
+          color="#14b8a6" onClick={() => navigate('/map')}/>
         <KPICard icon={Bell} label="Active Alerts" value={alerts.filter(a => a.is_active).length}
           color="#f59e0b" onClick={() => navigate('/alerts')}/>
         <KPICard icon={Users} label="Community Members" value={stats.total_users || 0}
