@@ -33,7 +33,7 @@ function buildGlobeUrl(center, zoom, layer = 'wind', height = 'surface', animate
   const hSeg = height === 'surface' ? 'surface/level' : `${height}/level`
   switch (layer) {
     case 'temp':       return `https://earth.nullschool.net/#current/wind/${hSeg}/overlay=temp/orthographic=${c}`
-    case 'precip':     return `https://earth.nullschool.net/#current/wind/${hSeg}/overlay=precip_3h/orthographic=${c}`
+    case 'precip':     return `https://earth.nullschool.net/#current/wind/${hSeg}/overlay=precip_3hr/orthographic=${c}`
     case 'humid':      return `https://earth.nullschool.net/#current/wind/${hSeg}/overlay=rh/orthographic=${c}`
     case 'ocean':      return `https://earth.nullschool.net/#current/ocean/surface/currents/orthographic=${c}`
     case 'pm25':       return `https://earth.nullschool.net/#current/part/${hSeg}/overlay=pm2p5/orthographic=${c}`
@@ -2602,38 +2602,36 @@ export default function Weather3D() {
             <span style={{ fontSize: 11, fontWeight: 700, color: '#38bdf8', letterSpacing: '0.03em' }}>SOURCE Water</span>
           </div>
 
-          {/* Cover nullschool/windy attribution branding */}
+          {/* Subtle bottom fade — softens nullschool/windy attribution without hiding it.
+              Pointer-events: none so it never blocks globe interaction. */}
           <div style={{
-            position: 'absolute', bottom: 0, left: 0, right: 0, height: 36,
-            background: 'linear-gradient(to top, rgba(0,0,0,0.98) 70%, transparent)',
-            zIndex: 20, pointerEvents: 'none',
-          }} />
-          {/* Cover bottom-left "earth" badge and "Windy.com" logo */}
-          <div style={{
-            position: 'absolute', bottom: 0, left: 0, width: 200, height: 44,
-            background: '#000', zIndex: 21, pointerEvents: 'none',
-          }} />
-          {/* Bottom-right attribution cover */}
-          <div style={{
-            position: 'absolute', bottom: 0, right: 0, width: 240, height: 30,
-            background: '#000', zIndex: 21, pointerEvents: 'none',
+            position: 'absolute', bottom: 0, left: 0, right: 0, height: 14,
+            background: 'linear-gradient(to top, rgba(0,0,0,0.45), transparent)',
+            zIndex: 8, pointerEvents: 'none',
           }} />
 
-          {/* Drag-lock overlay on globe view — prevents iframe rotation so markers stay aligned.
-              Users navigate via search or by clicking a site marker (both re-center the globe). */}
+          {/* Globe interaction is now FREE — user can drag/zoom/rotate. Site
+              markers may visually drift if the iframe is rotated; click any
+              research-site chip or "Recenter" to snap the iframe back. */}
           {activeView === 'globe' && (
-            <div
-              onMouseDown={(e) => e.preventDefault()}
-              onTouchStart={(e) => e.preventDefault()}
-              style={{
-                position: 'absolute',
-                top: 0, left: 0, right: 0, bottom: 36,
-                zIndex: 12,
-                cursor: 'default',
-                background: 'transparent',
+            <button
+              onClick={() => {
+                // Force the iframe to remount at the current globeCenter — this
+                // resets nullschool's internal rotation back to our coordinates.
+                setGlobeCenter(c => ({ ...c }))
               }}
-              title="Click a site marker or search to navigate — globe rotation is locked so pins stay aligned"
-            />
+              title="Recenter the globe to the current pinned location"
+              style={{
+                position: 'absolute', bottom: 12, left: 12, zIndex: 22,
+                padding: '5px 10px', borderRadius: 8,
+                background: 'rgba(6,10,24,0.82)', backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(56,189,248,0.3)', color: '#7dd3fc',
+                fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5,
+              }}
+            >
+              🎯 Recenter
+            </button>
           )}
 
           {/* Research site markers — globe view only */}
@@ -2650,25 +2648,57 @@ export default function Weather3D() {
             />
           )}
 
-          {/* Searched city pin */}
+          {/* Searched city pin + "Save as site" button (promotes the search to
+              a red-dot custom site that persists in localStorage) */}
           {activeView === 'globe' && pinLabel && !QUICK_LOCATIONS.find(l => l.name === pinLabel) && !customSites.find(l => l.name === pinLabel) && (
             <div style={{
               position: 'absolute', top: '47%', left: '50%',
               transform: 'translate(-50%, -100%)',
-              pointerEvents: 'none',
               display: 'flex', flexDirection: 'column', alignItems: 'center',
-              filter: 'drop-shadow(0 2px 10px rgba(0,0,0,0.9))', zIndex: 10,
+              filter: 'drop-shadow(0 2px 10px rgba(0,0,0,0.9))', zIndex: 14,
             }}>
               <div style={{
                 background: 'rgba(6,10,24,0.95)', border: '1.5px solid rgba(99,102,241,0.7)',
                 borderRadius: 8, padding: '5px 12px', color: '#e2e8f0',
                 fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap',
                 backdropFilter: 'blur(8px)', marginBottom: 5,
-              }}>📍 {pinLabel}</div>
-              <div style={{ width: 2, height: 14, background: '#6366f1' }} />
+                display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'auto',
+              }}>
+                <span>📍 {pinLabel}</span>
+                {weatherData?.lat != null && weatherData?.lon != null && (
+                  <button
+                    onClick={() => {
+                      const list = loadLS('sw_custom_sites', [])
+                      if (list.find(s => s.name === pinLabel)) return
+                      const next = [...list, {
+                        id: Date.now(),
+                        name: pinLabel,
+                        lat: weatherData.lat,
+                        lon: weatherData.lon,
+                        notes: weatherData.location || '',
+                        addedAt: new Date().toISOString(),
+                      }]
+                      saveLS('sw_custom_sites', next)
+                      setCustomSites(next)
+                    }}
+                    title="Save this location as a red-dot site"
+                    style={{
+                      padding: '3px 8px', borderRadius: 6,
+                      background: 'rgba(168,85,247,0.25)',
+                      border: '1px solid rgba(168,85,247,0.5)',
+                      color: '#e9d5ff', fontSize: 10, fontWeight: 700,
+                      cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    ⭐ Save as site
+                  </button>
+                )}
+              </div>
+              <div style={{ width: 2, height: 14, background: '#6366f1', pointerEvents: 'none' }} />
               <div style={{
                 width: 12, height: 12, borderRadius: '50%', background: '#6366f1',
                 boxShadow: '0 0 0 4px rgba(99,102,241,0.35), 0 0 16px rgba(99,102,241,0.7)',
+                pointerEvents: 'none',
               }} />
             </div>
           )}
