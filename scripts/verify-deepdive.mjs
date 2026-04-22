@@ -35,13 +35,18 @@ const PARAM_META = {
 const PARAM_ORDER = ['ph', 'turbidity', 'temperature', 'dissolved_oxygen', 'conductivity']
 const NON_WATER_NAME = /(^|[^a-z])(air|atmospheric|ambient|sky|cloud)([^a-z]|$)/i
 
+function aliasMatchesAsToken(haystack, alias) {
+  const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i').test(haystack)
+}
+
 function matchParam(rawName) {
   if (!rawName) return null
-  const s = String(rawName).toLowerCase().trim()
+  const s = String(rawName).toLowerCase().trim().replace(/_/g, ' ')
   if (NON_WATER_NAME.test(s)) return null
   for (const key of PARAM_ORDER) {
     const meta = PARAM_META[key]
-    if (meta.aliases.some(a => s.includes(a))) return key
+    if (meta.aliases.some(a => aliasMatchesAsToken(s, a))) return key
   }
   return null
 }
@@ -63,9 +68,12 @@ function extractSeries(paramKey, observations) {
         if (meta) isMatch = matchParam(r?.parameter) === paramKey
         else {
           const target = String(paramKey).toLowerCase().replace(/_/g, ' ')
-          isMatch = String(r?.parameter || '').toLowerCase().includes(target)
+          isMatch = String(r?.parameter || '').toLowerCase().replace(/_/g, ' ').includes(target)
         }
-        if (isMatch) { n = Number(r?.value); if (r?.unit) unit = r.unit; break }
+        if (isMatch) {
+          const candidate = Number(r?.value)
+          if (Number.isFinite(candidate)) { n = candidate; if (r?.unit) unit = r.unit; break }
+        }
       }
     }
     if (Number.isFinite(n)) out.push({ value: n, unit, at: obs?.observed_at })
@@ -120,7 +128,7 @@ async function main() {
   console.log('Pre-flight unit tests on matchParam:')
   const cases = [
     ['Air temperature', null],
-    ['air_temperature', null],            // snake_case form from WR API — was missed by \bair\b
+    ['air_temperature', null],
     ['atmospheric_pressure', null],
     ['ambient_temp', null],
     ['Water temperature', 'temperature'],
@@ -129,12 +137,20 @@ async function main() {
     ['Air temp (°C)', null],
     ['pH', 'ph'],
     ['Dissolved oxygen', 'dissolved_oxygen'],
-    ['oxygen', 'dissolved_oxygen'],       // WR returns just "oxygen"
+    ['oxygen', 'dissolved_oxygen'],
     ['Atmospheric pressure', null],
     ['Turbidity (NTU)', 'turbidity'],
-    // Words that contain air/sky as substrings — must NOT be excluded
-    ['Repair', null],                      // no real param, but should not blow up
+    ['Repair', null],
     ['stairwell', null],
+    // Critical false-positive guards from the wider verification
+    ['secchi_depth', null],               // contains 'ec' — must NOT match conductivity
+    ['hardness', null],
+    ['alkalinity', null],
+    ['chlorine', null],
+    ['current_weather', null],
+    ['previous_weather', null],
+    ['conductivity', 'conductivity'],
+    ['specific_conductance', 'conductivity'],
   ]
   let unitPass = 0
   for (const [input, expect] of cases) {
@@ -145,40 +161,75 @@ async function main() {
   }
   console.log(`Unit: ${unitPass}/${cases.length} passed\n`)
 
-  // Live: pull a batch and prioritize ones with BOTH air + water temp readings
-  // (those are the ones the old bug would have miscategorised).
-  console.log('\n── Pulling observations to find air+water temp combos ──')
+  // Live: pull a wide batch from different pages and verify EVERY parameter
+  // we surface (not just temperature) against the raw WR API value.
+  console.log('\n── Verifying full parameter extraction across many sites ──')
   let livePass = 0, liveTotal = 0
-  let foundCombo = 0
-  for (let page = 1; page <= 5 && foundCombo < 3; page++) {
-    const recent = await wr('/observations.json', { per_page: 50, page })
+  const tested = new Set()
+  const targetCount = 8
+  for (let page = 1; page <= 10 && tested.size < targetCount; page++) {
+    const recent = await wr('/observations.json', { per_page: 30, page })
     const obsList = Array.isArray(recent) ? recent : (recent.observations || recent.data || [])
     if (!obsList.length) break
     for (const o of obsList) {
-      const readings = o.readings || []
-      const names = readings.map(r => String(r.parameter || '').toLowerCase())
-      const hasAir = names.some(n => n.includes('air') && n.includes('temp'))
-      const hasWater = names.some(n => !n.includes('air') && n.includes('temp'))
-      if (hasAir && hasWater) {
-        liveTotal++
-        if (testObservation(o, `Site ${o.location_name || o.location_id}`)) livePass++
-        foundCombo++
-        if (foundCombo >= 3) break
-      }
-    }
-  }
-  if (foundCombo === 0) {
-    console.log('  (no observations with both air+water temp found in first 5 pages — sampling 3 plain ones)')
-    const recent = await wr('/observations.json', { per_page: 3, page: 1 })
-    const obsList = Array.isArray(recent) ? recent : (recent.observations || recent.data || [])
-    for (const o of obsList.slice(0, 3)) {
+      // Skip duplicate sites — we want diversity
+      const sid = o.location_id || o.id
+      if (tested.has(sid)) continue
+      // Only test observations that have at least 3 numeric readings (skip weather-only)
+      const numReadings = (o.readings || []).filter(r => Number.isFinite(Number(r.value))).length
+      if (numReadings < 3) continue
+      tested.add(sid)
       liveTotal++
-      if (testObservation(o, `Site ${o.location_name || o.location_id}`)) livePass++
+      if (verifyAllParams(o)) livePass++
+      if (tested.size >= targetCount) break
     }
   }
 
   console.log(`\n═══ RESULT: ${livePass}/${liveTotal} live observations verified, ${unitPass}/${cases.length} unit tests passed ═══`)
   process.exit(livePass === liveTotal && unitPass === cases.length ? 0 : 1)
+}
+
+// Pull EVERY value from raw readings and check that our extraction returns
+// the exact same number for every parameter we map. Critical: verify that
+// pH, DO, conductivity, turbidity, water-temp don't accidentally pull from
+// the wrong field (e.g. air_temp, weather, hardness, alkalinity, chlorine).
+function verifyAllParams(obs) {
+  console.log(`\n── Site ${obs.location_id || '?'} (obs ${obs.id || '?'}) ──`)
+  const raw = {}
+  for (const r of (obs.readings || [])) {
+    const name = String(r.parameter || '').toLowerCase()
+    const val = Number(r.value)
+    if (Number.isFinite(val)) raw[name] = { value: val, unit: r.unit || '' }
+  }
+  console.log('  Raw:', Object.entries(raw).map(([k, v]) => `${k}=${v.value}`).join(', '))
+
+  // Truth: walk the raw readings and pick the right one for each param key.
+  const truth = {
+    temperature:      raw.water_temperature?.value ?? raw.temperature?.value ?? null,
+    ph:               raw.ph?.value ?? raw.p_h?.value ?? null,
+    dissolved_oxygen: raw.dissolved_oxygen?.value ?? raw.oxygen?.value ?? raw.do?.value ?? null,
+    conductivity:     raw.conductivity?.value ?? raw.specific_conductance?.value ?? null,
+    turbidity:        raw.turbidity?.value ?? null,
+  }
+
+  const checks = []
+  for (const key of ['temperature', 'ph', 'dissolved_oxygen', 'conductivity', 'turbidity']) {
+    if (truth[key] == null) continue  // not present in this observation — skip
+    const got = extractSeries(key, [obs])[0]?.value ?? null
+    const ok = got === truth[key]
+    checks.push({ key, ok, expected: truth[key], got })
+    // Extra sanity: confirm we didn't accidentally pull the air value
+    if (key === 'temperature' && raw.air_temperature) {
+      const notAir = got !== raw.air_temperature.value
+      checks.push({ key: 'temp ≠ air', ok: notAir, expected: `≠${raw.air_temperature.value}`, got })
+    }
+  }
+  let allOk = true
+  for (const c of checks) {
+    console.log(`  ${c.ok ? 'PASS' : 'FAIL'}  ${c.key.padEnd(18)} expected=${c.expected}  got=${c.got}`)
+    if (!c.ok) allOk = false
+  }
+  return allOk
 }
 
 main().catch(e => { console.error('Fatal:', e); process.exit(1) })

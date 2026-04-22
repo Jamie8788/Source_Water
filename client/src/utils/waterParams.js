@@ -119,26 +119,34 @@ export const PARAM_META = {
 export const PARAM_ORDER = ['ph', 'turbidity', 'temperature', 'dissolved_oxygen', 'conductivity']
 
 // Match a Water Rangers / WR parameter name string to our canonical key.
-// WR parameter strings are free-form (e.g. "Water Temperature", "Dissolved Oxygen (mg/L)")
-// so we do case-insensitive substring matching against our alias list.
+// WR parameter strings are free-form (e.g. "Water Temperature", "specific_conductance")
+// so we normalize underscores to spaces and match aliases as whole tokens.
 //
 // HARD EXCLUSION: anything that is clearly an air/atmospheric/ambient reading is
 // rejected before alias matching. This stops "Air temperature" / "air_temperature"
-// from being matched as water temperature (substring match would otherwise hit
-// "temperature").
+// from being matched as water temperature.
 //
 // Custom boundary instead of \b because the WR API uses snake_case
 // (e.g. "air_temperature"), and \b treats _ as a word char — so \bair\b fails.
 // We use (start | non-letter) before and (non-letter | end) after.
 const NON_WATER_NAME = /(^|[^a-z])(air|atmospheric|ambient|sky|cloud)([^a-z]|$)/i
 
+// Strict whole-token match: alias must be flanked by string boundary or non-letter.
+// Necessary because short aliases like "ec" (electrical conductivity) would
+// otherwise match inside unrelated names like "secchi" → false-positive.
+function aliasMatchesAsToken(haystack, alias) {
+  const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i').test(haystack)
+}
+
 export function matchParam(rawName) {
   if (!rawName) return null
-  const s = String(rawName).toLowerCase().trim()
+  // Normalize underscores → spaces so snake_case input matches space-separated aliases
+  const s = String(rawName).toLowerCase().trim().replace(/_/g, ' ')
   if (NON_WATER_NAME.test(s)) return null
   for (const key of PARAM_ORDER) {
     const meta = PARAM_META[key]
-    if (meta.aliases.some(a => s.includes(a))) return key
+    if (meta.aliases.some(a => aliasMatchesAsToken(s, a))) return key
   }
   return null
 }

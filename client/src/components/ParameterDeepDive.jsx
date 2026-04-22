@@ -41,22 +41,27 @@ export default function ParameterDeepDive({ paramKey, observations, onClose, sit
         }
       }
       // WR readings shape — use matchParam so air/atmospheric readings are excluded
-      // (otherwise "Air temperature" gets pulled in as water temperature)
+      // (otherwise "Air temperature" gets pulled in as water temperature). Skip
+      // matches that have non-numeric values rather than breaking — otherwise an
+      // earlier weather/text reading can swallow the loop and leave n=null.
       if (n == null && Array.isArray(obs?.readings)) {
         for (const r of obs.readings) {
-          const name = String(r?.parameter || '').toLowerCase()
+          const name = String(r?.parameter || '').toLowerCase().replace(/_/g, ' ')
           let isMatch = false
           if (meta) {
             isMatch = matchParam(r?.parameter) === paramKey
           } else {
-            // Non-meta param (e.g. salinity, air_temperature) — normalize underscores to spaces
             const target = String(paramKey).toLowerCase().replace(/_/g, ' ')
-            isMatch = name.includes(target)
+            isMatch = name === target || name.includes(target)
           }
           if (isMatch) {
-            n = Number(r?.value)
-            if (r?.unit) unit = r.unit
-            break
+            const candidate = Number(r?.value)
+            if (Number.isFinite(candidate)) {
+              n = candidate
+              if (r?.unit) unit = r.unit
+              break
+            }
+            // Matched param name but value isn't numeric — keep looking
           }
         }
       }
