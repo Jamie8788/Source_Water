@@ -79,7 +79,7 @@ function AppRoutes() {
           <Route path="/explorer"     element={<ComingSoon title="Dive into Data" message="Observation details, datasets, and exploration tools are being prepared. Check back soon." />} />
           <Route path="/ai-lab"       element={<ComingSoon title="Wet Lab" message="Advanced AI reports, anomaly detection, and trend analysis are being prepared. Check back soon." />} />
           <Route path="/methods"      element={<WRMethods />} />
-          <Route path="/social"     element={<ComingSoon title="Community" message="Posts, DMs, and community feeds are being prepared. Check back soon." />} />
+          <Route path="/social"     element={<Social />} />
           <Route path="/quiz"       element={<QuizMe />} />
           <Route path="/resources"  element={<ComingSoon title="Resources" message="Guides, articles, and learning materials are being curated for you." really />} />
           <Route path="/projects"   element={<Projects />} />

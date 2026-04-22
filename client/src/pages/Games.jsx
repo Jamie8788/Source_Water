@@ -1786,9 +1786,8 @@ export default function Games() {
           </div>
           <div>
             <h1 className="font-bold text-xl" style={{ color: 'var(--text)' }}>Water Learning Games</h1>
-            <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>4 addictive arcade games · real CCME aquatic-life science · learn-by-dying info cards</p>
-            <p className="text-xs mt-2 max-w-xl" style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
-              Each game is built around a real water-science mechanic — when your run ends, an info card explains what just killed you so you actually take something away.
+            <p className="text-sm mt-1 max-w-xl" style={{ color: 'var(--text-muted)' }}>
+              Games are not yet fully developed — we'd love to hear your feedback and any ideas to make them educational! For now, feel free to enjoy them just for fun.
             </p>
           </div>
         </div>
