@@ -9,7 +9,7 @@ import {
   Map, Sparkles, BellRing, Users, FlaskConical, BookOpen,
   Joystick, Bell, TrendingUp, Activity, AlertTriangle, Droplets,
   ChevronRight, Award, Zap, ArrowUpRight, GraduationCap,
-  LineChart, CloudSun
+  LineChart, CloudSun, BarChart2, Shield
 } from 'lucide-react'
 import PageAmbience from '../components/layout/PageAmbience'
 
