@@ -123,9 +123,14 @@ export const PARAM_ORDER = ['ph', 'turbidity', 'temperature', 'dissolved_oxygen'
 // so we do case-insensitive substring matching against our alias list.
 //
 // HARD EXCLUSION: anything that is clearly an air/atmospheric/ambient reading is
-// rejected before alias matching. This stops "Air temperature" from being matched
-// as water temperature (because "air temperature".includes("temperature") is true).
-const NON_WATER_NAME = /\b(air|atmospheric|ambient|sky|cloud)\b/i
+// rejected before alias matching. This stops "Air temperature" / "air_temperature"
+// from being matched as water temperature (substring match would otherwise hit
+// "temperature").
+//
+// Custom boundary instead of \b because the WR API uses snake_case
+// (e.g. "air_temperature"), and \b treats _ as a word char — so \bair\b fails.
+// We use (start | non-letter) before and (non-letter | end) after.
+const NON_WATER_NAME = /(^|[^a-z])(air|atmospheric|ambient|sky|cloud)([^a-z]|$)/i
 
 export function matchParam(rawName) {
   if (!rawName) return null
