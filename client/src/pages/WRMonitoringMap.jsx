@@ -32,7 +32,15 @@ const BODY_LABELS = {
   wetland: 'Wetland', ocean: 'Ocean', estuary: 'Estuary',
   canal: 'Canal', reservoir: 'Reservoir', spring: 'Spring',
   channelized_stream: 'Channelized Stream', ditch: 'Ditch',
+  other: 'Other / Unclassified',
 }
+
+// Known water body types — anything NOT in here is treated as "other"
+// and rendered with the orange fallback color. Keeps the legend honest.
+const KNOWN_BODY_TYPES = new Set([
+  'river_or_stream','lake','pond','wetland','ocean','estuary',
+  'canal','reservoir','spring','channelized_stream','ditch',
+])
 
 // Plain English for common parameters
 const PARAM_EXPLAIN = {
@@ -158,7 +166,11 @@ export default function WRMonitoringMap() {
   const filtered = useMemo(() => {
     return allLocations.filter(l => {
       if (countryFilter && l.country !== countryFilter) return false
-      if (bodyFilter && l.water_body_type !== bodyFilter) return false
+      if (bodyFilter) {
+        if (bodyFilter === 'other') {
+          if (KNOWN_BODY_TYPES.has(l.water_body_type)) return false
+        } else if (l.water_body_type !== bodyFilter) return false
+      }
       if (paramFilter && !(l.tested_parameters || []).includes(paramFilter)) return false
       if (activeOnly) {
         if (!l.last_observation_at) return false
@@ -375,7 +387,13 @@ export default function WRMonitoringMap() {
 
       {/* Legend */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10, padding: '6px 10px', background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8 }}>
-        {Object.entries(BODY_COLORS).filter(([type]) => allLocations.some(l => l.water_body_type === type)).map(([type, color]) => (
+        {Object.entries(BODY_COLORS).filter(([type]) => {
+          // Show a legend chip if any site matches this exact type, OR for
+          // the "other" swatch if any site has an unknown type that falls
+          // through to BODY_COLORS.other on the map.
+          if (type === 'other') return allLocations.some(l => !KNOWN_BODY_TYPES.has(l.water_body_type))
+          return allLocations.some(l => l.water_body_type === type)
+        }).map(([type, color]) => (
           <button key={type} onClick={() => setBodyFilter(bodyFilter === type ? '' : type)} style={{
             display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, padding: '2px 6px', borderRadius: 4,
             color: bodyFilter === type ? 'white' : 'var(--text-muted)', cursor: 'pointer',
