@@ -1051,67 +1051,60 @@ function H2OIntelPanel({ weatherData, researchData }) {
   const stratScore = Math.min(100, Math.round(Math.max(0, temp - 8) / 22 * 100))
   const stratLevel = stratScore >= 70 ? { label:'Strong', color:'#f97316' } : stratScore >= 35 ? { label:'Moderate', color:'#f59e0b' } : { label:'Weak / Mixed', color:'#10b981' }
 
-  // Forecast trend cards
-  const forecastCards = wx?.daily ? Array.from({length:5},(_,i)=>{
-    const t = (wx.daily.temperature_2m_max?.[i]??15 + wx.daily.temperature_2m_min?.[i]??5)/2
-    const p = wx.daily.precipitation_sum?.[i]??0
-    const bRisk = Math.min(100,Math.round((Math.max(0,t-12)/20*40)+(Math.min(p,10)/10*25)))
-    const date = new Date(); date.setDate(date.getDate()+i)
-    return { day: i===0?'Today':i===1?'Tmrw':date.toLocaleDateString('en',{weekday:'short'}), bloom:bRisk, precip:p.toFixed(1) }
-  }) : []
-
   // 7. Dissolved Oxygen Prediction (mg/L) — Henry's law: DO decreases as temp rises
   const doVal = Math.max(4, Math.min(14, (14.6 - 0.4 * temp + 0.007 * (pressure - 1013)))).toFixed(1)
   const doLevel = parseFloat(doVal) >= 8 ? { label:`${doVal} mg/L`, color:'#10b981' } : parseFloat(doVal) >= 6 ? { label:`${doVal} mg/L`, color:'#f59e0b' } : { label:`${doVal} mg/L`, color:'#ef4444' }
 
-  // 8. Chlorophyll-a Forecast (µg/L proxy) — nutrient + temp + light model
+  // The previous build had a "Chlorophyll-a Forecast (µg/L)", "PFAS Risk Index"
+  // (using barometric pressure as a population proxy), "Secchi Depth (m)" and a
+  // "Composite WQI" — all of which dressed simple polynomials of weather inputs
+  // as if they were calibrated measurements/forecasts. Removed: indicators
+  // shown here are now ONLY transparent functions of live weather conditions
+  // (real Open-Meteo / wttr.in inputs), labelled as such.
+
   const uvIdx = wx?.current?.uv_index ?? 4
-  const chlaScore = Math.min(50, Math.round((Math.max(0, temp - 10) / 20 * 20) + (bloomScore / 100 * 20) + (uvIdx / 11 * 10)))
-  const chlaLevel = chlaScore >= 30 ? { label:`~${chlaScore} µg/L`, color:'#ef4444' } : chlaScore >= 15 ? { label:`~${chlaScore} µg/L`, color:'#f59e0b' } : { label:`~${chlaScore} µg/L`, color:'#10b981' }
-
-  // 9. PFAS Risk Index — industrial/urban runoff proxy (precip + temp + population proxy via pressure)
-  const pfasScore = Math.min(100, Math.round((precip / 40 * 40) + (Math.max(0, temp - 5) / 25 * 30) + (Math.max(0, pressure - 1005) / 20 * 30)))
-  const pfasLevel = pfasScore >= 60 ? { label:'ELEVATED', color:'#ef4444' } : pfasScore >= 30 ? { label:'MODERATE', color:'#f59e0b' } : { label:'LOW', color:'#10b981' }
-
-  // NOTE: Drinking-water safety indicators are intentionally NOT surfaced here.
-  // Drinking-water compliance is strictly regulated — SOURCE Water does NOT touch drinking water.
-
-  const compositeWQI = Math.round(100 - (bloomScore * 0.25 + runoffScore * 0.2 + iceScore * 0.05 + (100 - stratScore) * 0.1 + pfasScore * 0.15 + (parseFloat(doVal) < 6 ? 25 : 0)))
 
   const models = [
-    { icon:'🌿', label:'Algal Bloom Risk',      score:bloomScore,  level:bloomLevel,  detail:`Temp ${temp.toFixed(1)}°C · Humidity ${humid}% · 7-day precip ${precip.toFixed(0)}mm` },
-    { icon:'🌊', label:'Runoff Contamination',   score:runoffScore, level:runoffLevel, detail:`${precip.toFixed(0)}mm/7d precipitation · ${temp.toFixed(1)}°C surface temp` },
-    { icon:'🧊', label:'Ice Formation Risk',     score:iceScore,    level:iceLevel,    detail:`${temp.toFixed(1)}°C air temp · Wind ${wind.toFixed(0)} km/h` },
-    { icon:'💧', label:'Dissolved Oxygen',       score:null,        level:doLevel,     detail:`Henry's Law model · Surface-water reference: ≥6 mg/L (aquatic life)` },
-    { icon:'🌱', label:'Chlorophyll-a Forecast', score:null,        level:chlaLevel,   detail:`Nutrient + temp + UV model · Alert threshold: 30 µg/L` },
-    { icon:'☣️', label:'PFAS Risk Index',        score:pfasScore,   level:pfasLevel,   detail:`Industrial runoff proxy · Precip + temp + barometric model` },
-    { icon:'🔭', label:'Water Clarity (Secchi)', score:null,        level:{ label:`~${secchi} m`, color:'#38bdf8' }, detail:'Estimated Secchi depth from bloom + precip + wind' },
-    { icon:'💨', label:'Evaporation Rate',       score:null,        level:{ label:`${evap} mm/day`, color:'#a78bfa' }, detail:`Penman open-water evaporation estimate` },
-    { icon:'🌡️', label:'Thermal Stratification', score:stratScore,  level:stratLevel,  detail:`Strong = warm stable surface layer, limits oxygen mixing to deep water` },
+    { icon:'🌿', label:'Bloom-favourable conditions',
+      score:bloomScore, level:bloomLevel,
+      detail:`Weather indicator · drivers: temp ${temp.toFixed(1)}°C · humidity ${humid}% · 7-day precip ${precip.toFixed(0)}mm. Not a chlorophyll measurement.` },
+    { icon:'🌊', label:'Runoff potential',
+      score:runoffScore, level:runoffLevel,
+      detail:`Weather indicator from precipitation × surface temp. ${precip.toFixed(0)}mm over 7 days.` },
+    { icon:'🧊', label:'Ice formation conditions',
+      score:iceScore, level:iceLevel,
+      detail:`Air temp ${temp.toFixed(1)}°C · wind ${wind.toFixed(0)} km/h. Conditions only — not a forecast of actual ice cover.` },
+    { icon:'💧', label:'DO equilibrium estimate',
+      score:null, level:doLevel,
+      detail:`Henry's Law calculation from air temp ${temp.toFixed(1)}°C and pressure. Aquatic-life reference: ≥6 mg/L.` },
+    { icon:'💨', label:'Open-water evaporation',
+      score:null, level:{ label:`${evap} mm/day`, color:'#a78bfa' },
+      detail:`Penman simplified estimate from temp · humidity · wind.` },
+    { icon:'🌡️', label:'Thermal stratification index',
+      score:stratScore, level:stratLevel,
+      detail:`Surface-temp signal · Strong = stable warm layer that limits oxygen mixing.` },
   ]
 
   const exportReport = () => {
     const loc = wx?.location ?? 'Unknown Location'
     const now = new Date().toLocaleString()
     const lines = [
-      `SOURCE WATER — H₂O INTELLIGENCE REPORT`,
+      `SOURCE WATER — WEATHER-DERIVED WATER INDICATORS`,
       `Generated: ${now}`,
       `Location: ${loc}`,
       `${'─'.repeat(50)}`,
-      `COMPOSITE SURFACE-WATER INDEX: ${compositeWQI}/100`,
-      ``,
-      `ML MODEL RESULTS:`,
+      `INDICATOR ESTIMATES (transparent functions of live weather):`,
       ...models.map(m => `  ${m.icon} ${m.label}: ${m.level.label}${m.score != null ? ` (score: ${m.score}/100)` : ''}`),
       ``,
-      `ENVIRONMENTAL CONDITIONS:`,
+      `LIVE WEATHER INPUTS (open-meteo.com / wttr.in):`,
       `  Temperature: ${temp.toFixed(1)}°C`,
       `  Humidity: ${humid}%`,
       `  7-day Precipitation: ${precip.toFixed(0)}mm`,
       `  Wind Speed: ${wind.toFixed(0)} km/h`,
       `  UV Index: ${uvIdx}`,
       ``,
-      `SOURCE Water Research Intelligence Platform`,
-      `Powered by open-meteo.com · Models by SOURCE Water`,
+      `Note: indicators are derived from weather conditions only.`,
+      `They are NOT calibrated water-quality measurements or forecasts.`,
     ]
     const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
     const a = document.createElement('a')
@@ -1125,8 +1118,8 @@ function H2OIntelPanel({ weatherData, researchData }) {
     const q = aiInput.trim()
     setAiInput('')
     const ctx = models.map(m=>`${m.label}: ${m.level.label}${m.score!=null?` (${m.score}/100)`:''}`).join(', ')
-    const sys = `You are SOURCE Water's AI analyst. Answer concisely about water quality using ONLY the ML model data provided. No fluff.`
-    const prompt = `Location: ${wx?.location??'unknown'}. ML Data: ${ctx}. Composite WQI: ${compositeWQI}/100. Question: ${q}`
+    const sys = `You are SOURCE Water's AI analyst. Answer concisely using ONLY the weather-derived water indicators provided. These are transparent functions of live weather (not calibrated measurements). Be honest about that limitation.`
+    const prompt = `Location: ${wx?.location??'unknown'}. Weather-derived indicators: ${ctx}. Question: ${q}`
     setAiChat(h=>[...h,{role:'user',text:q}])
     setAiLoading(true)
     try {
@@ -1144,20 +1137,16 @@ function H2OIntelPanel({ weatherData, researchData }) {
       <div style={{ padding:'10px 12px', borderRadius:10, background:'linear-gradient(135deg,rgba(99,102,241,0.12),rgba(20,184,166,0.08))', border:'1px solid rgba(99,102,241,0.2)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <div>
           <div style={{ fontSize:11, fontWeight:800, color:'#a5b4fc', letterSpacing:'0.08em' }}>SOURCE WATER</div>
-          <div style={{ fontSize:9, color:'#475569', marginTop:1 }}>H₂O Intelligence Engine · {models.length} Active ML Models</div>
+          <div style={{ fontSize:9, color:'#475569', marginTop:1 }}>Weather-derived water indicators · {models.length} live</div>
         </div>
         <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-          <div style={{ textAlign:'center' }}>
-            <div style={{ fontSize:9, color:'#475569' }}>WQI</div>
-            <div style={{ fontSize:16, fontWeight:900, color: compositeWQI>75?'#10b981':compositeWQI>50?'#38bdf8':compositeWQI>25?'#f59e0b':'#ef4444' }}>{wx ? compositeWQI : '--'}</div>
-          </div>
           {wx && <button onClick={exportReport} style={{ padding:'4px 8px', borderRadius:6, background:'rgba(99,102,241,0.15)', border:'1px solid rgba(99,102,241,0.3)', color:'#a5b4fc', fontSize:9, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>⬇ Export</button>}
         </div>
       </div>
 
       {/* Sub-tabs */}
       <div style={{ display:'flex', gap:3, background:'rgba(255,255,255,0.03)', borderRadius:8, padding:3 }}>
-        {[{id:'models',label:'🧬 Models'},{id:'forecast',label:'📅 Forecast'},{id:'index',label:'💧 WQI'},{id:'ai',label:'🤖 AI Analyst'}].map(t=>(
+        {[{id:'models',label:'📊 Indicators'},{id:'ai',label:'🤖 AI Analyst'}].map(t=>(
           <button key={t.id} onClick={()=>setSubTab(t.id)} style={{
             flex:1, padding:'5px 0', fontSize:9, fontWeight:subTab===t.id?700:400,
             background:subTab===t.id?'rgba(99,102,241,0.2)':'none',
@@ -1167,7 +1156,7 @@ function H2OIntelPanel({ weatherData, researchData }) {
         ))}
       </div>
 
-      {!wx && <div style={{textAlign:'center',padding:'30px 0',color:'#334155',fontSize:13}}><div style={{fontSize:28,marginBottom:8}}>💧</div>Search a location to run water ML models</div>}
+      {!wx && <div style={{textAlign:'center',padding:'30px 0',color:'#334155',fontSize:13}}><div style={{fontSize:28,marginBottom:8}}>💧</div>Search a location to view weather-derived water indicators</div>}
 
       {wx && subTab === 'models' && (
         <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
@@ -1190,84 +1179,10 @@ function H2OIntelPanel({ weatherData, researchData }) {
         </div>
       )}
 
-      {wx && subTab === 'forecast' && (
-        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          <div style={{ fontSize:10, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.06em' }}>5-Day Multi-Parameter Forecast</div>
-          <ResponsiveContainer width="100%" height={110}>
-            <AreaChart data={forecastCards} margin={{top:4,right:4,left:-28,bottom:0}}>
-              <defs>
-                <linearGradient id="bloomGrad2" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
-                  <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                </linearGradient>
-                <linearGradient id="runoffGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
-              <XAxis dataKey="day" tick={{fill:'#475569',fontSize:9}} axisLine={false} tickLine={false}/>
-              <YAxis domain={[0,100]} tick={{fill:'#475569',fontSize:9}} axisLine={false} tickLine={false}/>
-              <Tooltip contentStyle={{background:'#0f172a',border:'1px solid rgba(255,255,255,0.1)',borderRadius:6,fontSize:10}} labelStyle={{color:'#94a3b8'}} formatter={(v,n)=>[v, n==='bloom'?'🌿 Bloom':'🌡️ Temp']}/>
-              <Area type="monotone" dataKey="bloom" stroke="#10b981" fill="url(#bloomGrad2)" strokeWidth={2} dot={{fill:'#10b981',r:2}}/>
-            </AreaChart>
-          </ResponsiveContainer>
-          <div style={{ display:'flex', gap:4 }}>
-            {forecastCards.map(d=>(
-              <div key={d.day} style={{ flex:1, textAlign:'center', background:'rgba(255,255,255,0.03)', borderRadius:8, padding:'6px 2px', border:'1px solid rgba(255,255,255,0.06)' }}>
-                <div style={{ fontSize:9, color:'#475569' }}>{d.day}</div>
-                <div style={{ fontSize:11, fontWeight:700, color: d.bloom>=60?'#ef4444':d.bloom>=30?'#f59e0b':'#10b981' }}>{d.bloom}</div>
-                <div style={{ fontSize:8, color:'#334155' }}>🌧{d.precip}mm</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ padding:'8px 10px', borderRadius:9, background:'rgba(99,102,241,0.06)', border:'1px solid rgba(99,102,241,0.12)', fontSize:9, color:'#64748b', lineHeight:1.6 }}>
-            <strong style={{color:'#a5b4fc'}}>SOURCE Water Model:</strong> Bloom Risk combines temperature, humidity, precipitation, and wind speed. Scores ≥60 = high algal bloom probability.
-          </div>
-        </div>
-      )}
-
-      {wx && subTab === 'index' && (
-        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          <div style={{ textAlign:'center', padding:'12px 0 6px' }}>
-            <div style={{ fontSize:9, fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:6 }}>SOURCE Water Composite WQI</div>
-            {(() => {
-              const col = compositeWQI>75?'#10b981':compositeWQI>50?'#38bdf8':compositeWQI>25?'#f59e0b':'#ef4444'
-              const lbl = compositeWQI>75?'Excellent':compositeWQI>50?'Good':compositeWQI>25?'Fair':'Poor'
-              return (
-                <>
-                  <div style={{ fontSize:52, fontWeight:900, color:col, lineHeight:1 }}>{compositeWQI}</div>
-                  <div style={{ fontSize:14, fontWeight:700, color:col, marginTop:4 }}>{lbl}</div>
-                  <div style={{ fontSize:9, color:'#475569', marginTop:3 }}>{wx.location}</div>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5, marginTop:12, textAlign:'left' }}>
-                    {[
-                      {label:'Algal Bloom', val:bloomScore, w:'25%'},
-                      {label:'Runoff Risk', val:runoffScore, w:'20%'},
-                      {label:'PFAS Index', val:pfasScore, w:'15%'},
-                      {label:'Stratification', val:stratScore, w:'10%'},
-                      {label:'Ice Risk', val:iceScore, w:'5%'},
-                      {label:'DO Penalty', val:parseFloat(doVal)<6?25:0, w:'—'},
-                    ].map(item=>(
-                      <div key={item.label} style={{ padding:'6px 8px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
-                        <div style={{ fontSize:8, color:'#475569' }}>{item.label} <span style={{color:'#1e293b'}}>({item.w})</span></div>
-                        <div style={{ fontSize:12, fontWeight:700, color: item.val>=60?'#ef4444':item.val>=30?'#f59e0b':'#10b981', marginTop:1 }}>{item.val}</div>
-                        <div style={{ height:3, background:'rgba(255,255,255,0.06)', borderRadius:3, marginTop:3, overflow:'hidden' }}>
-                          <div style={{ height:'100%', width:`${item.val}%`, background:item.val>=60?'#ef4444':item.val>=30?'#f59e0b':'#10b981', borderRadius:3 }}/>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )
-            })()}
-          </div>
-        </div>
-      )}
-
       {wx && subTab === 'ai' && (
         <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
           <div style={{ padding:'8px 10px', borderRadius:9, background:'rgba(99,102,241,0.08)', border:'1px solid rgba(99,102,241,0.2)', fontSize:9, color:'#64748b', lineHeight:1.5 }}>
-            <strong style={{color:'#a5b4fc'}}>💧 SOURCE Water AI Analyst</strong> — Ask anything about the ML results for {wx.location}.
+            <strong style={{color:'#a5b4fc'}}>💧 SOURCE Water AI Analyst</strong> — Ask about the weather-derived water indicators for {wx.location}.
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:280, overflowY:'auto' }}>
             {aiChat.length === 0 && (
@@ -1659,7 +1574,7 @@ function MLResearchPanel({ weatherData, researchData }) {
   if (!weatherData) return (
     <div style={{ textAlign: 'center', padding: '40px 0', color: '#334155', fontSize: 13 }}>
       <div style={{ fontSize: 28, marginBottom: 8 }}>🧪</div>
-      Search a location to see ML analysis
+      Search a location to see weather-derived water indicators
     </div>
   )
 
@@ -1693,7 +1608,10 @@ function MLResearchPanel({ weatherData, researchData }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em' }}>WQI 5-Day Forecast</div>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em' }}>5-Day WQI Heuristic</div>
+            <div style={{ fontSize: 8, color: '#334155', marginTop: 1 }}>Derived from forecast temp · humidity · precip · wind. Not a measurement.</div>
+          </div>
           <div style={{ fontSize: 10, color: trend === 'worsening' ? '#ef4444' : trend === 'improving' ? '#10b981' : '#f59e0b', display: 'flex', alignItems: 'center', gap: 3 }}>
             {trend === 'worsening' ? <TrendingUp size={10} /> : trend === 'improving' ? <TrendingDown size={10} /> : <Activity size={10} />}
             {trend}
@@ -2424,7 +2342,7 @@ export default function Weather3D() {
     { id: 'weather',  label: '🌤 Weather' },
     { id: 'h2o',      label: '💧 H₂O Intel' },
     { id: 'lakes',    label: '🌊 Great Lakes' },
-    { id: 'ml',       label: '🧪 ML' },
+    { id: 'ml',       label: '🧪 Indicators' },
     { id: 'sites',    label: '📍 Sites' },
     { id: 'submit',   label: '📋 Submit', badge: obsCount || null },
     { id: 'mysites',  label: '⭐ Mine', badge: customSites.length || null },
