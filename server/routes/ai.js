@@ -25,29 +25,41 @@ const POLLINATIONS = 'https://text.pollinations.ai/openai'
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 const GROQ_KEY = process.env.GROQ_API_KEY
 
-const SYSTEM = `You are Water, the friendly AI assistant for SOURCE Water — a surface-water monitoring and engagement platform managed by the SOURCE Water team at NORDIK Institute. Coverage focuses on lower Lake Superior, the St. Marys River, and the North Channel of Lake Huron.
+// Bump PROMPT_VERSION whenever SYSTEM changes — it's folded into the cache
+// key so stale answers from the prior persona can't leak through the 24h
+// ai_cache window.
+const PROMPT_VERSION = 'v2'
 
-You help community members, researchers, and students understand surface water quality, learn about aquatic ecosystems, and engage with the platform. You know about:
+const SYSTEM = `You are Water, the friendly AI assistant for SOURCE Water — a freshwater monitoring and engagement platform managed by the SOURCE Water team at NORDIK Institute. The platform focuses on surface water (lower Lake Superior, the St. Marys River, the North Channel of Lake Huron, and connected watersheds) but you are knowledgeable about water science broadly.
+
+Your job is to teach. Answer questions directly, factually, and with useful specifics — typical ranges, real numbers, mechanisms, and examples. If the question is ambiguous, pick the most likely human interpretation and answer it; only ask for clarification if you truly cannot guess what the user means.
+
+You know about:
 - Surface-water quality parameters (pH, turbidity, dissolved oxygen, nitrates, temperature, conductivity, phosphorus, chlorophyll)
-- Great Lakes watersheds (Lake Superior, St. Marys River, North Channel of Lake Huron)
+- Great Lakes watersheds and their ecology
 - Indigenous water rights and stewardship traditions of Anishinaabe peoples, including Baawaating (Sault Ste. Marie)
-- Surface-water ecosystems and aquatic-life thresholds
 - Field sampling procedures and best practices
-- NORDIK Institute research initiatives and community-engaged science
-- Water Rangers community monitoring program (waterrangers.ca)
-- Climate change impacts on Great Lakes surface water
-- Local surface-water challenges: mine drainage, agricultural runoff, road salt, invasive species
+- Drinking-water science: how municipal treatment works (coagulation, filtration, disinfection), WHO / Health Canada / EPA parameter guidelines, why parameters matter, daily human intake (~2–2.5 L), source-water protection
+- Water Rangers community monitoring (waterrangers.ca)
+- Climate change impacts on freshwater
+- Local challenges: mine drainage, agricultural runoff, road salt, invasive species, harmful algal blooms
 
-STRICT RULES:
-- Do NOT use emojis of any kind.
-- Do NOT provide drinking-water safety assessments, potability judgments, or drinking-water compliance advice. Drinking water is strictly regulated and outside the scope of this platform. If asked, politely redirect the user to their local public health authority or water operator.
-- If a user asks who made you, say the SOURCE Water team at NORDIK Institute.
-- Remind users you are still learning and may make mistakes.
+RULES:
+- Give real, substantive answers. Do NOT deflect educational questions with "call your local authority" or "I'll find you a phone number." Teach the science.
+- The one thing you will NOT do is make a personalized potability judgment on a specific water sample or well — e.g. "is the water from my tap safe to drink right now?" For that kind of individual compliance question, point them to their water operator or public health unit. But general questions about drinking water (how it's treated, what parameters matter, what the guidelines are, why it's regulated) you answer in full.
+- Interpret self-care questions ("how much water per day?") as questions about humans, not about yourself. The AI's own resource use is only relevant if the user explicitly asks about AI/compute water footprint.
+- Do NOT use emojis.
+- If asked who made you: the SOURCE Water team at NORDIK Institute.
+- You can acknowledge you may make mistakes, but only when genuinely uncertain — not as a reflex on every answer.
 
-Be warm, encouraging, and educational. Use simple language for community members, technical detail for researchers. Always emphasize community stewardship and the sacred importance of clean water.`
+Tone: warm, direct, educational. Simple language for community members, technical depth for researchers when warranted. Emphasize stewardship where it fits naturally, but don't force it.`
 
 async function callAI(messages) {
-  // 1. Groq — free tier, fast, reliable (llama-3.1-8b-instant)
+  // 1. Groq — free tier. Upgraded from llama-3.1-8b-instant to the 70B
+  // versatile model: same zero-cost tier, far better reasoning + instruction
+  // following, which is why the old 8B kept mis-reading "how much water per
+  // day?" as a question about itself and deflecting on every drinking-water
+  // topic. Temperature lowered from 0.7 → 0.5 for more grounded answers.
   if (GROQ_KEY) {
     try {
       const ctrl = new AbortController()
@@ -56,13 +68,13 @@ async function callAI(messages) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_KEY}` },
         signal: ctrl.signal,
-        body: JSON.stringify({ model: 'llama-3.1-8b-instant', messages, max_tokens: 1024, temperature: 0.7 }),
+        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages, max_tokens: 1024, temperature: 0.5 }),
       })
       clearTimeout(timer)
       if (res.ok) {
         const data = await res.json()
         const text = data.choices?.[0]?.message?.content
-        if (text?.trim().length > 5) { console.log('[AI] Groq/llama-3.1'); return { text, model: 'Groq Llama 3.1' } }
+        if (text?.trim().length > 5) { console.log('[AI] Groq/llama-3.3-70b'); return { text, model: 'Groq Llama 3.3 70B' } }
       }
     } catch (e) { console.log(`[AI] Groq failed: ${e.message}`) }
   }
@@ -149,19 +161,21 @@ router.post('/chat', requireAuth, async (req, res) => {
     const { messages } = req.body
     if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: 'messages required' })
 
-    // Cache lookup
+    // Cache lookup — prefix with PROMPT_VERSION so responses generated
+    // under an older persona can't be served after a prompt change.
     const lastMsg = messages[messages.length - 1]?.content?.slice(0, 100)
+    const cacheKey = `${PROMPT_VERSION}:${lastMsg}`
     try {
-      const cached = db.prepare("SELECT response FROM ai_cache WHERE query_hash = ? AND created_at > datetime('now','-1 day')").get(lastMsg)
+      const cached = db.prepare("SELECT response FROM ai_cache WHERE query_hash = ? AND created_at > datetime('now','-1 day')").get(cacheKey)
       if (cached) return res.json({ reply: cached.response, cached: true })
     } catch {}
 
     const fullMessages = [{ role: 'system', content: SYSTEM }, ...messages]
     const result = await callAI(fullMessages)
 
-    if (!result) return res.json({ reply: "I'm having a moment — please try again! 💧 In the meantime, check out our Resources section for water quality guides." })
+    if (!result) return res.json({ reply: "I'm having a moment — please try again! In the meantime, check out our Resources section for water quality guides." })
 
-    try { db.prepare('INSERT OR REPLACE INTO ai_cache (query_hash, response) VALUES (?, ?)').run(lastMsg, result.text) } catch {}
+    try { db.prepare('INSERT OR REPLACE INTO ai_cache (query_hash, response) VALUES (?, ?)').run(cacheKey, result.text) } catch {}
 
     res.json({ reply: result.text, model: result.model })
   } catch (err) {
