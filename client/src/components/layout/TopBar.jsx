@@ -60,9 +60,9 @@ export default function TopBar({ sidebarWidth, onA11yClick, onOpenDM }) {
       }}
     >
       {/* SOURCE Water team logo — left of search bar */}
-      <div className="flex items-center flex-shrink-0" style={{ height: 40 }}>
+      <div className="flex items-center flex-shrink-0" style={{ height: 56 }}>
         <img src="/logos/source-water.png" alt="SOURCE Water"
-          style={{ height: 36, width: 'auto', objectFit: 'contain' }}/>
+          style={{ height: 46, width: 'auto', objectFit: 'contain', display: 'block' }}/>
       </div>
 
       {/* Search bar — narrower to make room for the logo */}
