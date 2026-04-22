@@ -6,9 +6,10 @@ import CMSField from '../components/cms/CMSField'
 import api from '../utils/api'
 import { getAllLocations } from '../api/waterRangers'
 import {
-  Map, MessageSquare, BarChart2, Users, FlaskConical, BookOpen,
-  Gamepad2, Bell, TrendingUp, Activity, AlertTriangle, Droplets,
-  ChevronRight, Award, Zap, Shield, ArrowUpRight, Satellite
+  Map, Sparkles, BellRing, Users, FlaskConical, BookOpen,
+  Joystick, Bell, TrendingUp, Activity, AlertTriangle, Droplets,
+  ChevronRight, Award, Zap, ArrowUpRight, GraduationCap,
+  LineChart, CloudSun
 } from 'lucide-react'
 import PageAmbience from '../components/layout/PageAmbience'
 
@@ -79,30 +80,43 @@ function KPICard({ icon: Icon, label, value, sub, trend, color, spark, onClick }
   )
 }
 
-/* ── Quick Action Card ── */
+/* ── Quick Action Card ──
+   Tiles mirror the sidebar 1:1 (same paths, same labels) so navigating
+   from Dashboard never lands on a replaced/legacy page. Tiles whose route
+   currently renders <ComingSoon> get a "Soon" badge so users know what
+   they're clicking before they get there. */
 const ACTIONS = [
-  { id: 'map',       icon: Map,           label: 'Interactive Map',    desc: 'Explore 3D monitoring sites',        path: '/map',       gradient: 'linear-gradient(135deg,#0ea5e9,#6366f1)', shadow: 'rgba(99,102,241,0.3)' },
-  { id: 'ai',        icon: MessageSquare, label: 'Ask Water AI',       desc: 'AI-powered water quality expert',    path: '/ask-water', gradient: 'linear-gradient(135deg,#8b5cf6,#ec4899)', shadow: 'rgba(139,92,246,0.3)' },
-  { id: 'analysis',  icon: BarChart2,     label: 'Data Analysis',      desc: 'Upload & analyze datasets',          path: '/analysis',  gradient: 'linear-gradient(135deg,#f59e0b,#ef4444)', shadow: 'rgba(245,158,11,0.3)' },
-  { id: 'social',    icon: Users,         label: 'Social Space',       desc: 'Community feed & messages',          path: '/social',    gradient: 'linear-gradient(135deg,#10b981,#14b8a6)', shadow: 'rgba(16,185,129,0.3)' },
-  { id: 'geoanalytics', icon: Map,        label: 'GeoAnalytics',       desc: 'Satellite & geospatial analysis',    path: '/geoanalytics', gradient: 'linear-gradient(135deg,#06b6d4,#14b8a6)', shadow: 'rgba(6,182,212,0.3)' },
-  { id: 'quiz',      icon: FlaskConical,  label: 'Quiz Me',            desc: 'Test your water knowledge',          path: '/quiz',      gradient: 'linear-gradient(135deg,#f472b6,#a78bfa)', shadow: 'rgba(244,114,182,0.3)' },
-  { id: 'resources', icon: BookOpen,      label: 'Resources',          desc: 'Guides, protocols & education',      path: '/resources', gradient: 'linear-gradient(135deg,#06b6d4,#3b82f6)', shadow: 'rgba(6,182,212,0.3)' },
-  { id: 'games',     icon: Gamepad2,      label: 'Games',              desc: 'Learn while having fun',             path: '/games',     gradient: 'linear-gradient(135deg,#84cc16,#10b981)', shadow: 'rgba(132,204,22,0.3)' },
-  { id: 'projects',  icon: FlaskConical,  label: 'Research Hub',       desc: 'Active research projects',           path: '/projects',  gradient: 'linear-gradient(135deg,#f97316,#ef4444)', shadow: 'rgba(249,115,22,0.3)' },
+  { id: 'monitoring', icon: Map,            label: 'Site Map',         desc: 'Live Water Rangers network',       path: '/monitoring', gradient: 'linear-gradient(135deg,#0ea5e9,#14b8a6)', shadow: 'rgba(20,184,166,0.3)' },
+  { id: 'ai',         icon: Sparkles,       label: 'Ask Water (AI)',   desc: 'Chat · scan · analyze',            path: '/ask-water',  gradient: 'linear-gradient(135deg,#8b5cf6,#ec4899)', shadow: 'rgba(139,92,246,0.3)' },
+  { id: 'social',     icon: Users,          label: 'Community',        desc: 'Posts · DMs · leaderboard',        path: '/social',     gradient: 'linear-gradient(135deg,#10b981,#14b8a6)', shadow: 'rgba(16,185,129,0.3)' },
+  { id: 'quiz',       icon: GraduationCap,  label: 'Quiz Yourself',    desc: 'Earn points · test knowledge',     path: '/quiz',       gradient: 'linear-gradient(135deg,#f472b6,#a78bfa)', shadow: 'rgba(244,114,182,0.3)' },
+  { id: 'games',      icon: Joystick,       label: 'Games',            desc: 'Fun for all',                      path: '/games',      gradient: 'linear-gradient(135deg,#84cc16,#10b981)', shadow: 'rgba(132,204,22,0.3)' },
+  { id: 'weather',    icon: CloudSun,       label: 'World Environment',desc: 'Live conditions',                  path: '/weather',    gradient: 'linear-gradient(135deg,#0ea5e9,#6366f1)', shadow: 'rgba(99,102,241,0.3)' },
+  { id: 'alerts',     icon: BellRing,       label: 'Alerts',           desc: 'Threshold warnings',               path: '/alerts',     gradient: 'linear-gradient(135deg,#f59e0b,#ef4444)', shadow: 'rgba(245,158,11,0.3)', soon: true },
+  { id: 'resources',  icon: BookOpen,       label: 'Resources',        desc: 'Guides · articles · links',        path: '/resources',  gradient: 'linear-gradient(135deg,#06b6d4,#3b82f6)', shadow: 'rgba(6,182,212,0.3)',   soon: true },
+  { id: 'explorer',   icon: LineChart,      label: 'Dive into Data',   desc: 'Observation details',              path: '/explorer',   gradient: 'linear-gradient(135deg,#14b8a6,#0ea5e9)', shadow: 'rgba(20,184,166,0.3)', soon: true },
+  { id: 'ai-lab',     icon: FlaskConical,   label: 'Wet Lab',          desc: 'Reports · advanced AI',            path: '/ai-lab',     gradient: 'linear-gradient(135deg,#a855f7,#8b5cf6)', shadow: 'rgba(168,85,247,0.3)', soon: true },
 ]
 
 function ActionCard({ action }) {
   const navigate = useNavigate()
   return (
     <button onClick={() => navigate(action.path)}
-      className="rounded-2xl p-5 text-left transition-all duration-200 group hover:scale-[1.02] hover:shadow-2xl"
+      className="relative rounded-2xl p-5 text-left transition-all duration-200 group hover:scale-[1.02] hover:shadow-2xl"
       style={{ background: action.gradient, boxShadow: `0 4px 20px ${action.shadow}` }}>
+      {action.soon && (
+        <span className="absolute top-2 right-2 text-[9px] font-black tracking-wider px-1.5 py-0.5 rounded-md uppercase"
+          style={{ background: 'rgba(255,255,255,0.95)', color: '#1e293b', letterSpacing: '0.08em' }}>
+          Soon
+        </span>
+      )}
       <div className="flex items-start justify-between mb-3">
         <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
           <action.icon className="w-5 h-5 text-white"/>
         </div>
-        <ArrowUpRight className="w-4 h-4 text-white/60 group-hover:text-white group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all"/>
+        {!action.soon && (
+          <ArrowUpRight className="w-4 h-4 text-white/60 group-hover:text-white group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all"/>
+        )}
       </div>
       <div className="font-bold text-white text-sm">
         <CMSField page="dashboard" block={`action-${action.id}`} field="label" default={action.label}
@@ -251,10 +265,10 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard icon={Droplets} label="Monitoring Sites" value={wr.sites}
           sub="Water Rangers global network"
-          color="#6366f1" onClick={() => navigate('/map')}/>
+          color="#6366f1" onClick={() => navigate('/monitoring')}/>
         <KPICard icon={Activity} label="Sampled Stations" value={wr.sampled}
           sub="Sites with recorded observations"
-          color="#14b8a6" onClick={() => navigate('/map')}/>
+          color="#14b8a6" onClick={() => navigate('/monitoring')}/>
         <KPICard icon={Bell} label="Active Alerts" value={alerts.filter(a => a.is_active).length}
           color="#f59e0b" onClick={() => navigate('/alerts')}/>
         <KPICard icon={Users} label="Community Members" value={stats.total_users || 0}
@@ -286,7 +300,7 @@ export default function Dashboard() {
                   <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"/> Garden River Site A
                 </span>
               </h3>
-              <button onClick={() => navigate('/map')} className="text-xs font-semibold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">
+              <button onClick={() => navigate('/monitoring')} className="text-xs font-semibold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">
                 All sites <ChevronRight className="w-3 h-3"/>
               </button>
             </div>
