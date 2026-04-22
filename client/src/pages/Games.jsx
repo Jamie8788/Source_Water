@@ -643,16 +643,56 @@ function OxygenDive({ onComplete }) {
   const [hud, setHud] = useState({ score: 0, doMg: 8, depth: 0, level: 1, lives: 3 })
   const [done, setDone] = useState(false)
   const [deathReason, setDeathReason] = useState(null)
+  // doFlashRef drives the HUD ring pulse on rapid DO changes (set inside the
+  // RAF loop, read by React the next time HUD syncs).
+  const doFlashRef = useRef(0)
 
   const W = 560, H = 600
 
   const reset = useCallback(() => {
+    // Pre-seed ambient particle pools so the very first frame is alive.
+    const ambientBubbles = []
+    for (let i = 0; i < 26; i++) {
+      ambientBubbles.push({
+        x: Math.random() * W,
+        y: 60 + Math.random() * (H - 80),
+        r: 1 + Math.random() * 2.4,
+        vy: -(0.18 + Math.random() * 0.5),
+        vx: (Math.random() - 0.5) * 0.18,
+        wob: Math.random() * Math.PI * 2,
+      })
+    }
+    const sediment = []
+    for (let i = 0; i < 36; i++) {
+      sediment.push({
+        x: Math.random() * W,
+        y: 110 + Math.random() * (H - 160),
+        vy: -0.05 + Math.random() * 0.12,
+        vx: (Math.random() - 0.5) * 0.25,
+        r: 0.5 + Math.random() * 1.1,
+        a: 0.18 + Math.random() * 0.22,
+      })
+    }
+    const currents = []
+    for (let i = 0; i < 8; i++) {
+      currents.push({
+        x: Math.random() * W,
+        y: 80 + Math.random() * (H - 120),
+        len: 30 + Math.random() * 60,
+        vx: 0.4 + Math.random() * 0.7,
+        a: 0.05 + Math.random() * 0.06,
+      })
+    }
     stateRef.current = {
-      fish: { x: W / 2, y: 90, vx: 0, vy: 0 },
+      fish: { x: W / 2, y: 90, vx: 0, vy: 0, facing: 1 },
       seeps: [],
       warmPlumes: [],
       predators: [],
       doMg: 8,
+      prevDO: 8,
+      doDelta: 0,            // smoothed delta — drives meter flash
+      doDropFlash: 0,        // 0..1, fades; spikes red when DO drops fast
+      doRiseFlash: 0,        // 0..1, fades; spikes green when seep absorbed
       level: 1,
       score: 0,
       lives: 3,
@@ -660,6 +700,17 @@ function OxygenDive({ onComplete }) {
       plumeCd: 220,
       predCd: 600,
       tick: 0,
+      // ambient FX
+      ambientBubbles,
+      sediment,
+      currents,
+      // event FX (rising bubbles from seeps, drift particles from plumes,
+      // wake from fish, predator wake)
+      seepBubbles: [],       // {x, y, vy, r, ttl}
+      plumeShimmer: [],      // {x, y, vx, vy, ttl, r}
+      fishWake: [],          // {x, y, ttl}
+      sparkles: [],          // green DO recovery sparkles {x, y, vx, vy, ttl}
+      hitFlash: 0,           // 0..1, flashes red full-screen on damage
     }
     setHud({ score: 0, doMg: 8, depth: 0, level: 1, lives: 3 })
     setDone(false); setDeathReason(null)
@@ -684,7 +735,13 @@ function OxygenDive({ onComplete }) {
   useEffect(() => {
     if (done) return
     const cv = canvasRef.current; if (!cv) return
+    // Hi-DPI sharp canvas — sets internal buffer to dpr× CSS size, then scales
+    // the drawing context so all our coordinates stay in CSS pixels.
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    cv.width = W * dpr
+    cv.height = H * dpr
     const ctx = cv.getContext('2d')
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     let raf = 0
     let lastSync = 0
 
@@ -692,6 +749,7 @@ function OxygenDive({ onComplete }) {
       const s = stateRef.current
       if (!s) return
       s.tick++
+      const t = s.tick
 
       // Move fish
       const k = keysRef.current
@@ -700,6 +758,8 @@ function OxygenDive({ onComplete }) {
       if (k.up) s.fish.vy -= 0.4
       if (k.down) s.fish.vy += 0.4
       s.fish.vx *= 0.92; s.fish.vy *= 0.92
+      // Track facing for asymmetric fish render
+      if (Math.abs(s.fish.vx) > 0.15) s.fish.facing = s.fish.vx > 0 ? 1 : -1
       s.fish.x = Math.max(14, Math.min(W - 14, s.fish.x + s.fish.vx))
       s.fish.y = Math.max(40, Math.min(H - 14, s.fish.y + s.fish.vy))
 
@@ -713,20 +773,38 @@ function OxygenDive({ onComplete }) {
       const speed = Math.hypot(s.fish.vx, s.fish.vy)
       s.doMg -= speed * 0.0025
 
+      // Track DO trend so the meter can flash when something interesting
+      // happens (sudden plume hit vs seep absorption).
+      const rawDelta = s.doMg - s.prevDO
+      s.doDelta = s.doDelta * 0.85 + rawDelta * 0.15
+      s.prevDO = s.doMg
+
       // Spawn cold seeps
       s.seepCd--
       if (s.seepCd <= 0) {
-        s.seeps.push({ x: 30 + Math.random() * (W - 60), y: 100 + Math.random() * (H - 160), r: 28, ttl: 360 })
+        s.seeps.push({
+          x: 30 + Math.random() * (W - 60),
+          y: 100 + Math.random() * (H - 160),
+          r: 28,
+          ttl: 360,
+          age: 0,
+        })
         s.seepCd = Math.max(60, 140 - s.level * 10)
       }
 
       // Spawn warm plumes
       s.plumeCd--
       if (s.plumeCd <= 0) {
-        s.warmPlumes.push({ x: -40, y: 80 + Math.random() * 160, vx: 1 + s.level * 0.2, r: 32 })
+        s.warmPlumes.push({
+          x: -40,
+          y: 80 + Math.random() * 160,
+          vx: 1 + s.level * 0.2,
+          r: 32,
+          age: 0,
+        })
         s.plumeCd = Math.max(120, 240 - s.level * 12)
       }
-      s.warmPlumes = s.warmPlumes.map((p) => ({ ...p, x: p.x + p.vx })).filter((p) => p.x < W + 60)
+      s.warmPlumes = s.warmPlumes.map((p) => ({ ...p, x: p.x + p.vx, age: (p.age || 0) + 1 })).filter((p) => p.x < W + 60)
 
       // Spawn predators (pike) at depth
       s.predCd--
@@ -736,21 +814,56 @@ function OxygenDive({ onComplete }) {
       }
       s.predators = s.predators.map((p) => ({ ...p, x: p.x + p.vx })).filter((p) => p.x < W + 60)
 
-      // Seep absorption — restores DO
+      // Seep absorption — restores DO + spawn green sparkles + rise flash
       s.seeps = s.seeps.map((sp) => {
         sp.ttl--
+        sp.age = (sp.age || 0) + 1
         const dx = s.fish.x - sp.x, dy = s.fish.y - sp.y
-        if (dx * dx + dy * dy < sp.r * sp.r) {
+        const inside = dx * dx + dy * dy < sp.r * sp.r
+        if (inside) {
           s.doMg = Math.min(12, s.doMg + 0.18)
           s.score += 1
+          s.doRiseFlash = Math.min(1, s.doRiseFlash + 0.06)
+          if (t % 4 === 0) {
+            s.sparkles.push({
+              x: s.fish.x + (Math.random() - 0.5) * 16,
+              y: s.fish.y + (Math.random() - 0.5) * 16,
+              vx: (Math.random() - 0.5) * 0.6,
+              vy: -0.4 - Math.random() * 0.6,
+              ttl: 32 + Math.random() * 18,
+            })
+          }
+        }
+        // Spawn rising bubbles from seep core
+        if (t % 6 === 0) {
+          s.seepBubbles.push({
+            x: sp.x + (Math.random() - 0.5) * sp.r * 0.5,
+            y: sp.y + sp.r * 0.4,
+            r: 0.8 + Math.random() * 1.6,
+            vy: -(0.5 + Math.random() * 0.6),
+            ttl: 80 + Math.random() * 40,
+          })
         }
         return sp
       }).filter((sp) => sp.ttl > 0)
 
-      // Warm plume — drains DO fast
+      // Warm plume — drains DO fast + spawns shimmer
       for (const p of s.warmPlumes) {
         const dx = s.fish.x - p.x, dy = s.fish.y - p.y
-        if (dx * dx + dy * dy < p.r * p.r) s.doMg -= 0.04
+        if (dx * dx + dy * dy < p.r * p.r) {
+          s.doMg -= 0.04
+          s.doDropFlash = Math.min(1, s.doDropFlash + 0.025)
+        }
+        if (t % 3 === 0) {
+          s.plumeShimmer.push({
+            x: p.x + (Math.random() - 0.5) * p.r * 0.8,
+            y: p.y + (Math.random() - 0.5) * p.r * 0.6,
+            vx: p.vx * 0.4 + (Math.random() - 0.5) * 0.4,
+            vy: -0.2 - Math.random() * 0.4,
+            ttl: 30 + Math.random() * 30,
+            r: 1 + Math.random() * 2,
+          })
+        }
       }
 
       // Predator collision
@@ -758,6 +871,7 @@ function OxygenDive({ onComplete }) {
         const dx = s.fish.x - p.x, dy = s.fish.y - p.y
         if (dx * dx + dy * dy < 28 * 28) {
           s.lives--
+          s.hitFlash = 1
           play('wrong')
           s.fish.x = W / 2; s.fish.y = 90
           if (s.lives <= 0) {
@@ -776,6 +890,7 @@ function OxygenDive({ onComplete }) {
       if (s.doMg <= 0) {
         s.doMg = 0
         s.lives--
+        s.hitFlash = 1
         play('wrong')
         s.fish.x = W / 2; s.fish.y = H / 2; s.doMg = 4
         if (s.lives <= 0) {
@@ -793,8 +908,57 @@ function OxygenDive({ onComplete }) {
       // Level up
       if (s.score > s.level * 60) { s.level++; play('levelUp') }
 
+      // ── Update ambient FX ───────────────────────────────
+      for (const b of s.ambientBubbles) {
+        b.wob += 0.04
+        b.x += b.vx + Math.sin(b.wob) * 0.15
+        b.y += b.vy
+        if (b.y < 50) {
+          b.y = H - 6 - Math.random() * 30
+          b.x = Math.random() * W
+        }
+        if (b.x < 0) b.x = W
+        if (b.x > W) b.x = 0
+      }
+      for (const sd of s.sediment) {
+        sd.x += sd.vx
+        sd.y += sd.vy + Math.sin((t + sd.x) * 0.01) * 0.04
+        if (sd.x < 0) sd.x = W
+        if (sd.x > W) sd.x = 0
+        if (sd.y < 100 || sd.y > H - 30) {
+          sd.y = 110 + Math.random() * (H - 160)
+          sd.x = Math.random() * W
+        }
+      }
+      for (const c of s.currents) {
+        c.x += c.vx
+        if (c.x > W + c.len) {
+          c.x = -c.len
+          c.y = 80 + Math.random() * (H - 120)
+        }
+      }
+      // bubbles + shimmer + sparkles
+      s.seepBubbles = s.seepBubbles.map(b => ({ ...b, y: b.y + b.vy, ttl: b.ttl - 1 })).filter(b => b.ttl > 0 && b.y > 40)
+      s.plumeShimmer = s.plumeShimmer.map(p => ({ ...p, x: p.x + p.vx, y: p.y + p.vy, ttl: p.ttl - 1 })).filter(p => p.ttl > 0)
+      s.sparkles = s.sparkles.map(p => ({ ...p, x: p.x + p.vx, y: p.y + p.vy, ttl: p.ttl - 1 })).filter(p => p.ttl > 0)
+      // fish wake — small trail when sprinting
+      if (speed > 1.4 && t % 2 === 0) {
+        s.fishWake.push({
+          x: s.fish.x - s.fish.facing * 8,
+          y: s.fish.y + 2,
+          ttl: 18,
+        })
+      }
+      s.fishWake = s.fishWake.map(w => ({ ...w, ttl: w.ttl - 1 })).filter(w => w.ttl > 0)
+
+      // decay flashes
+      s.doDropFlash *= 0.92
+      s.doRiseFlash *= 0.90
+      s.hitFlash *= 0.88
+      doFlashRef.current = Math.max(s.doDropFlash, s.doRiseFlash)
+
       // ── Render ─────────────────────────────────────────────
-      // Water column gradient — warm surface (red), cold deep (blue)
+      // Water column gradient — surface warmer (greenish-blue), deep colder (navy)
       const grad = ctx.createLinearGradient(0, 0, 0, H)
       grad.addColorStop(0, '#0c4a6e')
       grad.addColorStop(0.4, '#075985')
@@ -802,61 +966,232 @@ function OxygenDive({ onComplete }) {
       ctx.fillStyle = grad
       ctx.fillRect(0, 0, W, H)
 
-      // Surface heat band (warning)
-      ctx.fillStyle = 'rgba(239,68,68,0.10)'
+      // Animated surface caustics — wavy bright lines just below the waterline
+      ctx.save()
+      const causticY = 36
+      for (let i = 0; i < 4; i++) {
+        ctx.beginPath()
+        ctx.strokeStyle = `rgba(186,230,253,${0.08 + 0.04 * Math.sin(t * 0.04 + i)})`
+        ctx.lineWidth = 1
+        ctx.moveTo(0, causticY + i * 6)
+        for (let x = 0; x <= W; x += 14) {
+          const yy = causticY + i * 6 + Math.sin((x + t * 1.4) * 0.05 + i) * 3.5
+          ctx.lineTo(x, yy)
+        }
+        ctx.stroke()
+      }
+      ctx.restore()
+
+      // Surface heat band (warning) — subtle vertical gradient instead of flat fill
+      const warmGrad = ctx.createLinearGradient(0, 40, 0, 130)
+      warmGrad.addColorStop(0, 'rgba(248,113,113,0.20)')
+      warmGrad.addColorStop(1, 'rgba(248,113,113,0.02)')
+      ctx.fillStyle = warmGrad
       ctx.fillRect(0, 40, W, 90)
-      ctx.fillStyle = 'rgba(239,68,68,0.25)'
-      ctx.font = 'bold 11px system-ui'
-      ctx.fillText('Warm surface — low DO', 10, 56)
 
-      // Cold deep band (refuge)
-      ctx.fillStyle = 'rgba(34,197,94,0.10)'
+      // Cold deep band (refuge) — gradient up from bottom
+      const coldGrad = ctx.createLinearGradient(0, H - 140, 0, H)
+      coldGrad.addColorStop(0, 'rgba(34,197,94,0.02)')
+      coldGrad.addColorStop(1, 'rgba(34,197,94,0.16)')
+      ctx.fillStyle = coldGrad
       ctx.fillRect(0, H - 140, W, 140)
-      ctx.fillStyle = 'rgba(34,197,94,0.4)'
-      ctx.fillText('Cold deep water — high DO', 10, H - 120)
 
-      // Cold seeps
+      // Zone labels — small glassy chips, top-left
+      ctx.fillStyle = 'rgba(248,113,113,0.85)'
+      ctx.font = 'bold 10px system-ui'
+      ctx.fillText('▲ WARM SURFACE · LOW DO', 10, 56)
+      ctx.fillStyle = 'rgba(34,197,94,0.85)'
+      ctx.fillText('▼ COLD DEEP · HIGH DO', 10, H - 124)
+
+      // Currents — long faint horizontal streaks (visible water motion)
+      for (const c of s.currents) {
+        const cg = ctx.createLinearGradient(c.x, c.y, c.x + c.len, c.y)
+        cg.addColorStop(0, `rgba(125,211,252,0)`)
+        cg.addColorStop(0.5, `rgba(125,211,252,${c.a})`)
+        cg.addColorStop(1, `rgba(125,211,252,0)`)
+        ctx.fillStyle = cg
+        ctx.fillRect(c.x, c.y - 0.6, c.len, 1.2)
+      }
+
+      // Suspended sediment — tiny tan dots in mid-water
+      ctx.fillStyle = 'rgba(217,180,116,0.4)'
+      for (const sd of s.sediment) {
+        ctx.globalAlpha = sd.a
+        ctx.beginPath(); ctx.arc(sd.x, sd.y, sd.r, 0, Math.PI * 2); ctx.fill()
+      }
+      ctx.globalAlpha = 1
+
+      // Ambient bubbles (background layer)
+      ctx.fillStyle = 'rgba(186,230,253,0.35)'
+      for (const b of s.ambientBubbles) {
+        ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill()
+      }
+
+      // ── Cold seeps — animated radial glow + concentric ripples + bubbles ──
       for (const sp of s.seeps) {
-        ctx.fillStyle = `rgba(56,189,248,${0.18 + 0.4 * Math.sin(s.tick * 0.05)})`
-        ctx.beginPath(); ctx.arc(sp.x, sp.y, sp.r, 0, Math.PI * 2); ctx.fill()
-        ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 1.5
-        ctx.beginPath(); ctx.arc(sp.x, sp.y, sp.r, 0, Math.PI * 2); ctx.stroke()
-        ctx.fillStyle = '#fff'; ctx.font = '11px system-ui'; ctx.textAlign = 'center'
-        ctx.fillText('❄ cold seep', sp.x, sp.y + 4)
-        ctx.textAlign = 'left'
+        const fade = Math.min(1, Math.min(sp.ttl, 60) / 60) * Math.min(1, sp.age / 30)
+        const pulse = 1 + Math.sin(sp.age * 0.06) * 0.08
+        const rOuter = sp.r * pulse * 1.6
+        // Outer aura
+        const auraGrad = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, rOuter)
+        auraGrad.addColorStop(0, `rgba(125,211,252,${0.55 * fade})`)
+        auraGrad.addColorStop(0.45, `rgba(56,189,248,${0.22 * fade})`)
+        auraGrad.addColorStop(1, 'rgba(56,189,248,0)')
+        ctx.fillStyle = auraGrad
+        ctx.beginPath(); ctx.arc(sp.x, sp.y, rOuter, 0, Math.PI * 2); ctx.fill()
+        // Concentric expanding ripples
+        for (let i = 0; i < 3; i++) {
+          const phase = ((sp.age * 0.025) + i * 0.33) % 1
+          const rr = sp.r * (0.6 + phase * 1.2)
+          ctx.strokeStyle = `rgba(125,211,252,${(1 - phase) * 0.55 * fade})`
+          ctx.lineWidth = 1.4
+          ctx.beginPath(); ctx.arc(sp.x, sp.y, rr, 0, Math.PI * 2); ctx.stroke()
+        }
+        // Bright core dot
+        ctx.fillStyle = `rgba(224,242,254,${0.85 * fade})`
+        ctx.beginPath(); ctx.arc(sp.x, sp.y, 2.5, 0, Math.PI * 2); ctx.fill()
       }
+      // Seep bubbles (rising)
+      ctx.fillStyle = 'rgba(186,230,253,0.7)'
+      for (const b of s.seepBubbles) {
+        ctx.globalAlpha = Math.min(1, b.ttl / 60)
+        ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill()
+      }
+      ctx.globalAlpha = 1
 
-      // Warm plumes
+      // ── Warm plumes — animated heat shimmer + asymmetric pulsing core ──
       for (const p of s.warmPlumes) {
-        ctx.fillStyle = 'rgba(239,68,68,0.35)'
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill()
-        ctx.fillStyle = '#fff'; ctx.font = '11px system-ui'; ctx.textAlign = 'center'
-        ctx.fillText('🔥 warm plume', p.x, p.y + 4)
-        ctx.textAlign = 'left'
+        const pulse = 1 + Math.sin(p.age * 0.08) * 0.12
+        const rR = p.r * pulse
+        // Soft halo
+        const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rR * 1.7)
+        halo.addColorStop(0, 'rgba(248,113,113,0.45)')
+        halo.addColorStop(0.4, 'rgba(239,68,68,0.22)')
+        halo.addColorStop(1, 'rgba(239,68,68,0)')
+        ctx.fillStyle = halo
+        ctx.beginPath(); ctx.arc(p.x, p.y, rR * 1.7, 0, Math.PI * 2); ctx.fill()
+        // Wobbly inner ring (heat distortion outline)
+        ctx.strokeStyle = 'rgba(254,202,202,0.35)'
+        ctx.lineWidth = 1.2
+        ctx.beginPath()
+        const segs = 18
+        for (let i = 0; i <= segs; i++) {
+          const a = (i / segs) * Math.PI * 2
+          const wob = Math.sin(a * 4 + p.age * 0.1) * 2.5
+          const rr = rR + wob
+          const xx = p.x + Math.cos(a) * rr
+          const yy = p.y + Math.sin(a) * rr
+          if (i === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy)
+        }
+        ctx.stroke()
+        // Core hot dot
+        ctx.fillStyle = 'rgba(254,226,226,0.7)'
+        ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill()
+      }
+      // Plume shimmer particles (rising heat)
+      for (const sh of s.plumeShimmer) {
+        ctx.fillStyle = `rgba(252,165,165,${(sh.ttl / 60) * 0.55})`
+        ctx.beginPath(); ctx.arc(sh.x, sh.y, sh.r, 0, Math.PI * 2); ctx.fill()
       }
 
-      // Predators
+      // ── Predators — emoji + dark wake ──
       for (const p of s.predators) {
+        ctx.fillStyle = 'rgba(2,6,23,0.35)'
+        ctx.beginPath(); ctx.ellipse(p.x - 16, p.y + 4, 18, 4, 0, 0, Math.PI * 2); ctx.fill()
         ctx.font = '24px system-ui'
         ctx.fillText('🦈', p.x - 12, p.y + 8)
       }
 
-      // Fish (player)
-      ctx.font = '24px system-ui'
-      ctx.fillText('🐟', s.fish.x - 12, s.fish.y + 8)
+      // ── Fish wake (sprint trail) ──
+      for (const w of s.fishWake) {
+        const fade = w.ttl / 18
+        ctx.fillStyle = `rgba(186,230,253,${fade * 0.5})`
+        ctx.beginPath(); ctx.arc(w.x, w.y, 3 * fade + 1, 0, Math.PI * 2); ctx.fill()
+      }
 
-      // DO meter
-      const cls = classifyValue('dissolved_oxygen', s.doMg)
-      const meterX = W - 26, meterY = 50, meterH = 200
-      ctx.fillStyle = '#1e293b'
-      ctx.fillRect(meterX, meterY, 16, meterH)
-      ctx.fillStyle = cls?.color || '#94a3b8'
-      const fillH = (s.doMg / 12) * meterH
-      ctx.fillRect(meterX, meterY + meterH - fillH, 16, fillH)
-      ctx.fillStyle = '#fff'; ctx.font = 'bold 11px system-ui'; ctx.textAlign = 'right'
-      ctx.fillText(`${s.doMg.toFixed(1)}`, meterX - 4, meterY + 12)
-      ctx.fillText('mg/L', meterX - 4, meterY + 26)
+      // ── Fish (player) — emoji facing direction ──
+      ctx.save()
+      ctx.translate(s.fish.x, s.fish.y)
+      if (s.fish.facing < 0) ctx.scale(-1, 1)
+      ctx.font = '24px system-ui'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('🐟', 0, 0)
+      ctx.restore()
       ctx.textAlign = 'left'
+      ctx.textBaseline = 'alphabetic'
+
+      // ── Green DO recovery sparkles (over the fish) ──
+      for (const sp of s.sparkles) {
+        ctx.fillStyle = `rgba(134,239,172,${sp.ttl / 50})`
+        ctx.beginPath(); ctx.arc(sp.x, sp.y, 1.6, 0, Math.PI * 2); ctx.fill()
+      }
+
+      // ── DO meter — premium vertical gauge with band markers + flash glow ──
+      const cls = classifyValue('dissolved_oxygen', s.doMg)
+      const meterX = W - 26, meterY = 50, meterH = 220, meterW = 16
+      // Outer flash glow on rapid change
+      if (s.doDropFlash > 0.05 || s.doRiseFlash > 0.05) {
+        const glowColor = s.doRiseFlash > s.doDropFlash ? '34,197,94' : '239,68,68'
+        const glowAlpha = Math.max(s.doDropFlash, s.doRiseFlash) * 0.6
+        ctx.fillStyle = `rgba(${glowColor},${glowAlpha})`
+        ctx.fillRect(meterX - 6, meterY - 6, meterW + 12, meterH + 12)
+      }
+      // Meter background (glass)
+      ctx.fillStyle = 'rgba(15,23,42,0.85)'
+      ctx.fillRect(meterX, meterY, meterW, meterH)
+      ctx.strokeStyle = 'rgba(148,163,184,0.4)'
+      ctx.lineWidth = 1
+      ctx.strokeRect(meterX + 0.5, meterY + 0.5, meterW - 1, meterH - 1)
+      // Banded gradient inside (red bottom of scale, green top — DO 0..12)
+      const bandGrad = ctx.createLinearGradient(0, meterY + meterH, 0, meterY)
+      bandGrad.addColorStop(0,    '#dc2626')      // 0
+      bandGrad.addColorStop(3 / 12, '#ef4444')   // 3
+      bandGrad.addColorStop(5 / 12, '#f59e0b')   // 5
+      bandGrad.addColorStop(7 / 12, '#22c55e')   // 7
+      bandGrad.addColorStop(1,    '#16a34a')      // 12
+      ctx.globalAlpha = 0.25
+      ctx.fillStyle = bandGrad
+      ctx.fillRect(meterX, meterY, meterW, meterH)
+      ctx.globalAlpha = 1
+      // Active fill — current DO level
+      const fillH = Math.max(0, Math.min(1, s.doMg / 12)) * meterH
+      const liveGrad = ctx.createLinearGradient(0, meterY + meterH, 0, meterY)
+      liveGrad.addColorStop(0,    cls?.color || '#22c55e')
+      liveGrad.addColorStop(1,    '#bbf7d0')
+      ctx.fillStyle = liveGrad
+      ctx.fillRect(meterX + 1, meterY + meterH - fillH + 1, meterW - 2, fillH - 2)
+      // Threshold tick at 3 mg/L (CCME suffocation threshold)
+      const tickY = meterY + meterH - (3 / 12) * meterH
+      ctx.strokeStyle = 'rgba(239,68,68,0.85)'
+      ctx.lineWidth = 1.4
+      ctx.beginPath(); ctx.moveTo(meterX - 4, tickY); ctx.lineTo(meterX + meterW + 4, tickY); ctx.stroke()
+      // Tick label
+      ctx.fillStyle = 'rgba(248,113,113,0.95)'
+      ctx.font = 'bold 9px system-ui'
+      ctx.textAlign = 'right'
+      ctx.fillText('3', meterX - 6, tickY + 3)
+      // Value readout
+      ctx.fillStyle = '#e2e8f0'
+      ctx.font = 'bold 12px system-ui'
+      ctx.fillText(`${s.doMg.toFixed(1)}`, meterX - 6, meterY + 12)
+      ctx.font = '9px system-ui'
+      ctx.fillStyle = 'rgba(148,163,184,0.85)'
+      ctx.fillText('mg/L DO', meterX - 6, meterY + 24)
+      ctx.textAlign = 'left'
+
+      // ── Damage hit flash (full-screen red) ──
+      if (s.hitFlash > 0.04) {
+        ctx.fillStyle = `rgba(239,68,68,${s.hitFlash * 0.35})`
+        ctx.fillRect(0, 0, W, H)
+      }
+
+      // ── Vignette (focuses attention on the fish) ──
+      const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.7)
+      vg.addColorStop(0, 'rgba(0,0,0,0)')
+      vg.addColorStop(1, 'rgba(0,0,0,0.45)')
+      ctx.fillStyle = vg
+      ctx.fillRect(0, 0, W, H)
 
       // HUD sync
       if (now - lastSync > 120) {
@@ -872,23 +1207,50 @@ function OxygenDive({ onComplete }) {
 
   const finish = () => onComplete(hud.score)
 
+  // HUD chip styling — glassy
+  const chip = {
+    background: 'rgba(15,23,42,0.55)',
+    border: '1px solid rgba(148,163,184,0.18)',
+    backdropFilter: 'blur(10px)',
+    padding: '6px 10px',
+    borderRadius: 8,
+    fontWeight: 700,
+    fontSize: 12,
+    color: 'var(--text)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+  }
+  const doColor = hud.doMg < 3 ? '#ef4444' : hud.doMg < 5 ? '#f59e0b' : '#22c55e'
+
   return (
     <div style={{ maxWidth: W, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 8, fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
-        <span>Score: <span style={{ color: '#22c55e' }}>{hud.score}</span></span>
-        <span>Level: <span style={{ color: '#fbbf24' }}>{hud.level}</span></span>
-        <span>DO: <span style={{ color: hud.doMg < 3 ? '#ef4444' : hud.doMg < 5 ? '#f59e0b' : '#22c55e' }}>{hud.doMg} mg/L</span></span>
-        <span>Depth: {hud.depth}%</span>
-        <span>{'❤️'.repeat(Math.max(0, hud.lives))}</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+        <span style={chip}>SCORE <span style={{ color: '#22c55e' }}>{hud.score}</span></span>
+        <span style={chip}>LV <span style={{ color: '#fbbf24' }}>{hud.level}</span></span>
+        <span style={{ ...chip, boxShadow: hud.doMg < 3 ? '0 0 12px rgba(239,68,68,0.6)' : 'none' }}>
+          DO <span style={{ color: doColor }}>{hud.doMg} mg/L</span>
+        </span>
+        <span style={chip}>DEPTH {hud.depth}%</span>
+        <span style={chip}>{'❤'.repeat(Math.max(0, hud.lives))}</span>
       </div>
       <canvas
         ref={canvasRef}
         width={W}
         height={H}
-        style={{ width: '100%', maxWidth: W, height: 'auto', border: '1px solid #1e293b', borderRadius: 12, background: '#082f49', display: 'block' }}
+        style={{
+          width: '100%',
+          maxWidth: W,
+          height: 'auto',
+          border: '1px solid rgba(56,189,248,0.25)',
+          borderRadius: 14,
+          background: '#082f49',
+          display: 'block',
+          boxShadow: '0 12px 40px rgba(2,6,23,0.55), 0 0 0 1px rgba(56,189,248,0.08) inset',
+        }}
       />
-      <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>
-        Arrow keys / WASD to swim · stay deep for cold-seep refuge · avoid warm plumes and pike · DO drops while you sprint
+      <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.55 }}>
+        Arrow keys / WASD to swim · stay deep for cold-seep refuge · avoid red warm plumes &amp; pike · DO drops while you sprint
       </div>
 
       {done && deathReason && (
