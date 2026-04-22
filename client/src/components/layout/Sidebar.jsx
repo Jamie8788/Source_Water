@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Sparkles, Map, BellRing, FileBarChart2,
   Users, BookOpen, GraduationCap, LineChart, FlaskConical,
   CloudSun, Joystick, ShieldCheck, LogOut, ChevronDown,
-  ChevronLeft, ChevronRight, Droplets, Building2, Circle,
+  ChevronLeft, ChevronRight, Droplets, Circle,
   UserCircle, Microscope, Compass, Satellite, BookMarked, Info, Handshake
 } from 'lucide-react'
 
@@ -605,19 +605,14 @@ export default function Sidebar({ collapsed, onToggle }) {
               <UserCircle style={{ width:13, height:13, color:'#2d4260', flexShrink:0 }}/>
             </button>
 
-            {/* Org */}
+            {/* Org — NORDIK Institute logo */}
             <div style={{
               display:'flex', alignItems:'center', gap:8,
-              padding:'6px 10px', borderRadius:9,
-              background:'rgba(255,255,255,0.02)',
+              padding:'8px 10px', borderRadius:9,
+              background:'rgba(255,255,255,0.95)',
             }}>
-              <Building2 style={{ width:12, height:12, color:'#1e3a5a', flexShrink:0 }}/>
-              <div style={{ minWidth:0 }}>
-                <div style={{ fontSize:10, color:'rgba(255,255,255,0.35)', lineHeight:1.2 }}>Managed by</div>
-                <div style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.65)', lineHeight:1.2 }}>
-                  NORDIK Institute
-                </div>
-              </div>
+              <img src="/logos/nordik.png" alt="NORDIK Institute"
+                style={{ width:'100%', maxHeight:36, objectFit:'contain' }}/>
             </div>
 
             {/* Theme picker */}

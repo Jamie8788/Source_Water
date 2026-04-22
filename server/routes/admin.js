@@ -39,6 +39,28 @@ router.get('/stats', requireAuth, requireAdmin, async (req, res) => {
   }
 })
 
+// GET /api/admin/public-stats
+// Unauthenticated — powers the landing page counters. Lightweight: only the
+// three numbers we actually render (sites, observations, communities/users).
+router.get('/public-stats', async (req, res) => {
+  try {
+    const row = await db.get(`
+      SELECT
+        (SELECT COUNT(*) FROM sites)        AS sites,
+        (SELECT COUNT(*) FROM observations) AS samples,
+        (SELECT COUNT(*) FROM users)        AS members
+    `, [])
+    res.json({
+      sites: parseInt(row?.sites ?? 0),
+      samples: parseInt(row?.samples ?? 0),
+      members: parseInt(row?.members ?? 0),
+    })
+  } catch (err) {
+    console.error('[admin/public-stats]', err.message)
+    res.status(503).json({ error: 'stats unavailable' })
+  }
+})
+
 // GET /api/admin/activity-log
 router.get('/activity-log', requireAuth, requireAdmin, async (req, res) => {
   const { limit = 50, offset = 0, user_id } = req.query

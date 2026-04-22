@@ -3,8 +3,9 @@ import { useNavigate, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useCMS } from '../context/CMSContext'
 import CMSField from '../components/cms/CMSField'
-import { Eye, EyeOff, Droplets, Map, BarChart2, Users, FlaskConical, Gamepad2, MessageSquare, ChevronRight } from 'lucide-react'
+import { Eye, EyeOff, Droplets, ChevronRight } from 'lucide-react'
 import NibiMascotImage from '../components/NibiMascotImage'
+import api from '../utils/api'
 
 /* ── Animated Water Canvas ── */
 function WaterCanvas() {
@@ -144,15 +145,6 @@ function WaterCanvas() {
   return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ display: 'block' }}/>
 }
 
-const FEATURES = [
-  { icon: Map,          label: 'Live Map',       desc: '3D interactive monitoring sites', color: '#818cf8' },
-  { icon: BarChart2,    label: 'Analytics',      desc: 'Real-time water quality data',    color: '#34d399' },
-  { icon: MessageSquare,label: 'Ask Water AI',   desc: 'AI-powered water expert',          color: '#f472b6' },
-  { icon: Users,        label: 'Community',      desc: 'Connect with water stewards',     color: '#fbbf24' },
-  { icon: FlaskConical, label: 'Research',       desc: 'Scientific tools & datasets',     color: '#60a5fa' },
-  { icon: Gamepad2,     label: 'Learn & Play',   desc: 'Earn points, protect water',      color: '#a78bfa' },
-]
-
 function CountUp({ target, suffix = '' }) {
   const [val, setVal] = useState(0)
   useEffect(() => {
@@ -182,6 +174,18 @@ export default function Landing() {
   const [showPass, setShowPass] = useState(false)
   const [form, setForm] = useState({ identifier: '', password: '', username: '', email: '', display_name: '' })
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  // Live platform counters (sites/samples/members). Public endpoint; falls
+  // back to silent 0s if the API is briefly unavailable so the page still
+  // renders cleanly.
+  const [stats, setStats] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    api.get('/admin/public-stats')
+      .then(r => { if (!cancelled) setStats(r.data) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   const handleLogin = async e => {
     e.preventDefault(); setError(''); setLoading(true)
@@ -219,7 +223,7 @@ export default function Landing() {
             filter: 'drop-shadow(0 25px 50px rgba(99,102,241,0.45))',
           }}
         >
-          <NibiMascotImage mood="wave" size={520}/>
+          <NibiMascotImage mood="openarms" size={520}/>
         </div>
         <style>{`
           @keyframes heroFloat {
@@ -261,40 +265,45 @@ export default function Landing() {
               </span>
             </h1>
             <p className="text-lg mb-8 max-w-md" style={{ color: '#94a3b8' }}>
-              <CMSField page="landing" block="hero" field="subtitle" default="Real-time water quality monitoring, AI insights, and community science for the Great Lakes region and beyond." tag="span" multiline/>
+              <CMSField page="landing" block="hero" field="subtitle" default="Real-time water quality data capability, AI insights, and community engagement with surface fresh water." tag="span" multiline/>
             </p>
 
-            {/* Stats */}
+            {/* Stats — real counts from /api/admin/public-stats */}
             <div className="flex gap-8 mb-10">
               {[
-                { target: 250000, suffix: '+', label: 'Lakes' },
-                { target: 12000, suffix: '+', label: 'Samples' },
-                { target: 800, suffix: '+', label: 'Members' },
+                { key: 'sites',   label: 'Sites' },
+                { key: 'samples', label: 'Samples' },
+                { key: 'members', label: 'Communities' },
               ].map(s => (
                 <div key={s.label}>
-                  <div className="text-2xl font-black text-white"><CountUp target={s.target} suffix={s.suffix}/></div>
+                  <div className="text-2xl font-black text-white">
+                    {stats ? <CountUp target={stats[s.key] || 0}/> : '—'}
+                  </div>
                   <div className="text-xs font-semibold" style={{ color: '#64748b' }}>{s.label}</div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Feature grid */}
-          <div className="grid grid-cols-3 gap-2 max-w-md">
-            {FEATURES.map(f => (
-              <div key={f.label} className="rounded-xl p-3 transition-all duration-200 cursor-pointer hover:scale-105"
-                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <f.icon className="w-4 h-4 mb-1.5" style={{ color: f.color }}/>
-                <div className="text-xs font-bold text-white">{f.label}</div>
-                <div className="text-xs mt-0.5" style={{ color: '#475569', fontSize: 10 }}>{f.desc}</div>
-              </div>
-            ))}
+          {/* Partner logos — NORDIK Institute + SOURCE Water team */}
+          <div className="flex items-center gap-6 max-w-md">
+            <div className="flex-1 rounded-xl px-4 py-3 flex items-center justify-center"
+              style={{ background: 'rgba(255,255,255,0.95)', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <img src="/logos/nordik.png" alt="NORDIK Institute"
+                style={{ maxHeight: 56, width: 'auto', objectFit: 'contain' }}/>
+            </div>
+            <div className="flex-1 rounded-xl px-4 py-3 flex items-center justify-center"
+              style={{ background: 'rgba(255,255,255,0.95)', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <img src="/logos/source-water.png" alt="SOURCE Water"
+                style={{ maxHeight: 56, width: 'auto', objectFit: 'contain' }}/>
+            </div>
           </div>
         </div>
       </div>
 
       {/* ── Right: Auth Panel ── */}
-      <div className="w-full lg:w-[440px] flex-shrink-0 flex items-center justify-center p-8 relative"
+      {/* Align panel to top — matches the SOURCE Water logo height in hero column so login is reachable without scrolling */}
+      <div className="w-full lg:w-[440px] flex-shrink-0 flex items-start justify-center p-8 pt-8 relative"
         style={{ background: 'rgba(15,12,41,0.95)', borderLeft: '1px solid rgba(99,102,241,0.2)' }}>
 
         <div className="w-full max-w-sm">

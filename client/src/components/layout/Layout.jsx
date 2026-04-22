@@ -126,7 +126,7 @@ export default function Layout({ children }) {
             </p>
             <p style={{ color: 'var(--text-muted)' }}>
               <CMSField page="global" block="footer" field="tagline"
-                default="Managed by NORDIK Institute, Algoma University · Real-Time Monitoring · Community Science"/>
+                default="Managed by NORDIK Institute · Real-Time Monitoring · Community Science"/>
             </p>
           </div>
         </footer>

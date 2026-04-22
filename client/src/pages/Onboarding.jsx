@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -39,6 +39,13 @@ export default function Onboarding() {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const toggle = (arr, val) => arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]
 
+  // Enlarged scrollbar for the tour — scoped to onboarding by toggling an
+  // html class. Removed on unmount so the rest of the app is unaffected.
+  useEffect(() => {
+    document.documentElement.classList.add('sw-onboarding-scroll')
+    return () => document.documentElement.classList.remove('sw-onboarding-scroll')
+  }, [])
+
   const finish = async () => {
     setLoading(true)
     try {
@@ -57,8 +64,20 @@ export default function Onboarding() {
   const name = user?.display_name || user?.username || 'there'
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-start pt-8 px-4"
+    <div className="min-h-screen flex flex-col items-center justify-start pt-8 px-4 onboarding-root"
       style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0f172a 100%)' }}>
+      {/* Larger, easier-to-grab scrollbar for this flow — scoped via html.sw-onboarding-scroll */}
+      <style>{`
+        html.sw-onboarding-scroll { scrollbar-width: auto; scrollbar-color: #14b8a6 rgba(255,255,255,0.08); }
+        html.sw-onboarding-scroll::-webkit-scrollbar,
+        html.sw-onboarding-scroll *::-webkit-scrollbar { width: 18px; height: 18px; }
+        html.sw-onboarding-scroll::-webkit-scrollbar-track,
+        html.sw-onboarding-scroll *::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 9px; }
+        html.sw-onboarding-scroll::-webkit-scrollbar-thumb,
+        html.sw-onboarding-scroll *::-webkit-scrollbar-thumb { background: linear-gradient(135deg,#0ea5e9,#14b8a6); border-radius: 9px; border: 3px solid #0f172a; min-height: 60px; }
+        html.sw-onboarding-scroll::-webkit-scrollbar-thumb:hover,
+        html.sw-onboarding-scroll *::-webkit-scrollbar-thumb:hover { background: linear-gradient(135deg,#38bdf8,#2dd4bf); }
+      `}</style>
 
       {/* Top: Step indicator */}
       <div className="w-full max-w-2xl flex items-center justify-center mb-8">
