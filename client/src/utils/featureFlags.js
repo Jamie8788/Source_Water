@@ -16,3 +16,9 @@ export const isGLBTargetPage = (pathname) => {
   return getGLBTargetPages().includes(pathname)
 }
 
+// Watershed Defender V2 — research-grade simulation/strategy variant.
+// Off by default; opt in by setting VITE_WATERSHED_V2_ENABLED=true.
+export const isWatershedV2Enabled = () => {
+  return import.meta.env.VITE_WATERSHED_V2_ENABLED === 'true'
+}
+

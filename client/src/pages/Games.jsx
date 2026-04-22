@@ -4,6 +4,8 @@ import api from '../utils/api'
 import { ArrowLeft, Trophy, RotateCcw, Play, BarChart3 } from 'lucide-react'
 import NibiMascotImage from '../components/NibiMascotImage'
 import { PARAM_META, classifyValue, TONE_COLOR } from '../utils/waterParams'
+import { isWatershedV2Enabled } from '../utils/featureFlags'
+import WatershedDefenderV2 from '../games/WatershedDefenderV2'
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Tutorial gate — shown BEFORE each game starts so the player knows what to do.
@@ -32,7 +34,19 @@ const TUTORIALS = {
     tip: 'Levels speed up as you score. A wrong answer breaks your combo and costs a life — start with 5.',
     learn: 'pH is a log scale: pH 5 is 10× more acidic than pH 6. Below pH 5.5, brook trout eggs fail and aluminium leaches off lake sediments and clogs gills.',
   },
-  shed: {
+  shed: isWatershedV2Enabled() ? {
+    title: 'Watershed Defender · Sim',
+    objective: 'You are the watershed manager for a procedurally generated drainage (forested headwaters → agriculture → urban → lake). Run the sim through 5 simulated years. Each year is scored against CCME aquatic-life thresholds plus an ecosystem-health index (brook trout + mayfly).',
+    controls: [
+      { keys: ['▶ Run / ⏸ Pause'], action: 'Start or stop the simulation. 1× / 2× / 4× / 8× set ticks per frame.' },
+      { keys: ['Click an intervention'], action: 'Select from the tray: riparian buffer, constructed wetland, detention pond, cover crops, bioswale, septic upgrade.' },
+      { keys: ['Click a hex'],     action: 'Place the selected intervention if its placement rule allows it (the hex outlines green when valid, red when not).' },
+      { keys: ['Shift + Click'],    action: 'Remove an intervention from a hex.' },
+      { keys: ['Toggle a policy'],  action: 'Enact watershed-wide rules — fertilizer ordinance, salt management, industrial permit reform. They cost annual budget instead of placement.' },
+    ],
+    tip: 'Source attenuation (cover crops, septic upgrades) is cheap and works at the parcel that produces the load. In-transit sinks (constructed wetlands, ponds) capture what passes through them. Match the tool to the dominant stressor at the outlet — the right rail tells you which CCME parameter is failing.',
+    learn: 'The catalogue and CCME thresholds are real best-management practices and water-quality guidelines. Hydrology, weather, ecology and the lake itself are simulated and not tied to any specific real-world location.',
+  } : {
     title: 'Watershed Defender',
     objective: 'Pollution drops upstream every few seconds — manure, road salt, sewage, sediment, mine drainage. Place vegetated buffers in their path before they reach your lake.',
     controls: [
@@ -1288,10 +1302,18 @@ function SonarSweep({ onComplete }) {
 /* ═══════════════════════════════════════════════════════════
    HUB
 ═══════════════════════════════════════════════════════════ */
+const SHED_V2 = isWatershedV2Enabled()
+const SHED_TITLE = SHED_V2 ? 'Watershed Defender · Sim'             : 'Watershed Defender'
+const SHED_DESC  = SHED_V2
+  ? 'Sim-strategy: a procedurally generated drainage with seasons, weather, agriculture, urban runoff and a downstream lake. Place riparian buffers, wetlands, ponds, cover crops and policies. Score is CCME aquatic-life compliance × ecosystem index.'
+  : 'Pollution drops from upstream — drag forest, wetland, and grass buffers into the path. Lose three and you learn what really fixes it.'
+const SHED_BADGE = SHED_V2 ? '🧠 SIM/STRATEGY' : '🌊 ARCADE'
+const SHED_COMPONENT = SHED_V2 ? WatershedDefenderV2 : WatershedDefender
+
 const GAMES = [
   { id: 'sonar',  title: 'Sonar Sweep',         emoji: '📡', desc: 'Flappy-style research boat. Ping sonar to reveal pollution under the lake, scoop it on the hull, dodge invasive species. Each scoop teaches a real surface-water contaminant.', points: 'Combo pts', badge: '🌊 ADDICTIVE', component: SonarSweep },
   { id: 'panic',  title: 'pH Panic',           emoji: '⚗️', desc: 'Sort falling pH samples into Acid / Aquatic-Life-OK / Base bands fast. Real CCME thresholds — info card on death.', points: 'Combo pts', badge: '🧪 LEARN', component: PHPanic },
-  { id: 'shed',   title: 'Watershed Defender', emoji: '🛡️', desc: 'Pollution drops from upstream — drag forest, wetland, and grass buffers into the path. Lose three and you learn what really fixes it.', points: 'Unlimited', badge: '🌊 ARCADE', component: WatershedDefender },
+  { id: 'shed',   title: SHED_TITLE, emoji: '🛡️', desc: SHED_DESC, points: SHED_V2 ? '0–100 / yr' : 'Unlimited', badge: SHED_BADGE, component: SHED_COMPONENT },
   { id: 'ox',     title: 'Oxygen Dive',         emoji: '🐟', desc: 'You are a brook trout. Warm surface water is suffocating you — find cold seeps, dodge pike, survive Henry\'s Law.', points: 'Unlimited', badge: '🌌 SURVIVE', component: OxygenDive },
 ]
 
