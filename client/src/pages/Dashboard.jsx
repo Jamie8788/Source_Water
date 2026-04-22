@@ -152,7 +152,9 @@ export default function Dashboard() {
   useEffect(() => {
     const h = new Date().getHours()
     setTimeGreet(h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening')
-    api.get('/admin/stats').then(r => setStats(r.data)).catch(() => {})
+    // public-stats is readable by any logged-in user (admin/stats was admin-only,
+    // which made every counter silently fall back to 0 for regular users).
+    api.get('/admin/public-stats').then(r => setStats(r.data)).catch(() => {})
     api.get('/admin/alerts').then(r => setAlerts((r.data.alerts || []).slice(0, 3))).catch(() => {})
     api.get('/posts?limit=4').then(r => setPosts(r.data.posts || [])).catch(() => {})
     api.get('/leaderboard?limit=5').then(r => setLeaderboard(r.data.leaderboard || [])).catch(() => {})
@@ -233,17 +235,13 @@ export default function Dashboard() {
       {/* ── KPI Row ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard icon={Droplets} label="Monitoring Sites" value={stats.total_sites || 0}
-          trend={12} color="#6366f1" spark={[2,3,5,4,6,5,7,8,7,9,10,11]}
-          onClick={() => navigate('/map')}/>
+          color="#6366f1" onClick={() => navigate('/map')}/>
         <KPICard icon={Activity} label="Water Samples" value={stats.total_observations || 0}
-          trend={8} color="#14b8a6" spark={[5,4,7,8,6,9,10,8,11,12,10,13]}
-          onClick={() => navigate('/analysis')}/>
+          color="#14b8a6" onClick={() => navigate('/analysis')}/>
         <KPICard icon={Bell} label="Active Alerts" value={alerts.filter(a => a.is_active).length}
-          trend={alerts.length > 0 ? -3 : 0} color="#f59e0b"
-          onClick={() => navigate('/alerts')}/>
+          color="#f59e0b" onClick={() => navigate('/alerts')}/>
         <KPICard icon={Users} label="Community Members" value={stats.total_users || 0}
-          trend={5} color="#ec4899" spark={[10,12,11,14,13,15,16,15,18,20,19,22]}
-          onClick={() => navigate('/social')}/>
+          color="#ec4899" onClick={() => navigate('/social')}/>
       </div>
 
       {/* ── Main grid ── */}

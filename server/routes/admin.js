@@ -40,20 +40,33 @@ router.get('/stats', requireAuth, requireAdmin, async (req, res) => {
 })
 
 // GET /api/admin/public-stats
-// Unauthenticated — powers the landing page counters. Lightweight: only the
-// three numbers we actually render (sites, observations, communities/users).
+// Unauthenticated — powers the landing page counters AND the logged-in
+// dashboard KPIs for non-admin users. Only COUNT(*) reads, no PII leak.
+// Returns both the short-name keys (sites/samples/members) the landing
+// page uses AND the total_* keys the dashboard uses, so callers don't
+// have to translate.
 router.get('/public-stats', async (req, res) => {
   try {
     const row = await db.get(`
       SELECT
-        (SELECT COUNT(*) FROM sites)        AS sites,
-        (SELECT COUNT(*) FROM observations) AS samples,
-        (SELECT COUNT(*) FROM users)        AS members
+        (SELECT COUNT(*) FROM sites)                   AS sites,
+        (SELECT COUNT(*) FROM observations)            AS samples,
+        (SELECT COUNT(*) FROM users)                   AS members,
+        (SELECT COUNT(*) FROM quiz_attempts)           AS quiz_attempts,
+        (SELECT COUNT(*) FROM alerts WHERE active=1)   AS active_alerts
     `, [])
+    const sites = parseInt(row?.sites ?? 0)
+    const samples = parseInt(row?.samples ?? 0)
+    const members = parseInt(row?.members ?? 0)
     res.json({
-      sites: parseInt(row?.sites ?? 0),
-      samples: parseInt(row?.samples ?? 0),
-      members: parseInt(row?.members ?? 0),
+      // short-name keys (landing page)
+      sites, samples, members,
+      // total_* keys (dashboard) — same numbers, alternate field names
+      total_sites: sites,
+      total_observations: samples,
+      total_users: members,
+      total_quiz_attempts: parseInt(row?.quiz_attempts ?? 0),
+      active_alerts: parseInt(row?.active_alerts ?? 0),
     })
   } catch (err) {
     console.error('[admin/public-stats]', err.message)
