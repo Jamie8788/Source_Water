@@ -86,10 +86,22 @@ const NAV_GROUPS = [
 
 const STANDALONE = []
 
-/* ─── Claim-admin helper (unchanged logic) ──────────────────────── */
+/* ─── Claim-admin helper ─────────────────────────────────────────── */
+// Only renders when the server confirms no admin exists yet. This stops the
+// button from showing up for regular users whose username happens to contain
+// the substring "admin" (e.g. "Testeadmin001").
 function ClaimAdminButton({ collapsed }) {
   const [claiming, setClaiming] = useState(false)
-  const [hidden, setHidden] = useState(false)
+  const [hidden, setHidden] = useState(true) // hide by default until we confirm
+
+  useEffect(() => {
+    let cancelled = false
+    api.get('/auth/admin-exists')
+      .then(r => { if (!cancelled) setHidden(r.data?.exists !== false) })
+      .catch(() => { if (!cancelled) setHidden(true) })
+    return () => { cancelled = true }
+  }, [])
+
   if (hidden) return null
 
   const claim = async () => {
@@ -540,8 +552,9 @@ export default function Sidebar({ collapsed, onToggle }) {
             />
           )}
 
-          {/* Claim admin */}
-          {!isAdmin && user && user.username?.toLowerCase().includes('admin') && (
+          {/* Claim admin — the button itself checks /auth/admin-exists and
+              hides when an admin is already in place */}
+          {!isAdmin && user && (
             <ClaimAdminButton collapsed={collapsed}/>
           )}
 

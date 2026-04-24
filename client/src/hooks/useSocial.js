@@ -52,8 +52,9 @@ export function useFeed() {
 
   useEffect(() => {
     fetchPosts(true, false)
-    // Background poll every 30s — silent so feed doesn't flash/reload
-    const t = setInterval(() => fetchPosts(true, true), 30000)
+    // Background poll every 10s — silent so feed doesn't flash. Short enough
+    // that reactions/comments from other users feel near-realtime.
+    const t = setInterval(() => fetchPosts(true, true), 10000)
     return () => clearInterval(t)
   }, [fetchPosts])
 

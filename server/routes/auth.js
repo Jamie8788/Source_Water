@@ -143,6 +143,18 @@ router.get('/check-username', async (req, res) => {
   res.json({ available: !existing })
 })
 
+// GET /api/auth/admin-exists
+// Public, cheap — used by the sidebar to decide whether to show "Claim Admin"
+router.get('/admin-exists', async (_req, res) => {
+  try {
+    const row = await db.get(
+      `SELECT 1 AS x FROM users WHERE (role='admin' OR is_admin=1) AND is_active=1 LIMIT 1`, [])
+    res.json({ exists: !!row })
+  } catch (err) {
+    res.json({ exists: true }) // fail closed — hide the button on error
+  }
+})
+
 // POST /api/auth/bootstrap-admin
 // Promotes the calling user to admin IF no admin exists yet (first-run safety net)
 router.post('/bootstrap-admin', async (req, res) => {

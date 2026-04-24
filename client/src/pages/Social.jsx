@@ -677,6 +677,16 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0, onHashtagCl
   const [reactorsOpen, setReactorsOpen] = useState(null) // null | 'all' | reaction_type
   const reactTimer = useRef(null)
   const lastTap    = useRef(0)
+  const lastLocalReact = useRef(0) // suppress poll-sync briefly after user action
+
+  // Sync reaction state from fresh poll data — skip if the user just reacted
+  // locally within the last 2s so we don't clobber an in-flight optimistic call.
+  const reactionsKey = JSON.stringify(post.reactions || {})
+  useEffect(() => {
+    if (Date.now() - lastLocalReact.current < 2000) return
+    setReactCounts(post.reactions || {})
+    setMyReaction(post.my_reaction || null)
+  }, [reactionsKey, post.my_reaction])
 
   const author      = post.user || { display_name:post.display_name, username:post.username }
   const totalReacts = Object.values(reactCounts).reduce((a,b)=>a+b,0)
@@ -696,6 +706,7 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0, onHashtagCl
 
   const handleReact = async (type) => {
     setShowReact(false)
+    lastLocalReact.current = Date.now()
     const isFirst = !myReaction
     const isSame  = myReaction === type
     // Tapping your current reaction clears it; tapping a different one switches;
@@ -707,6 +718,7 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0, onHashtagCl
     const data = res.data || {}
     if (data.reactions) setReactCounts(data.reactions)
     setMyReaction(data.my_reaction ?? null)
+    lastLocalReact.current = Date.now()
     if (isFirst && data.awarded) {
       setPointAnim(true); setTimeout(() => setPointAnim(false), 1200)
     }
