@@ -236,4 +236,29 @@ router.get('/options', requireAuth, (_req, res) => {
   })
 })
 
+// GET /api/alert-watches/:id/history — last N observations for this watch's
+// site+parameter, so the UI can render a sparkline showing the reading vs.
+// the threshold over time. Real data only.
+router.get('/:id/history', requireAuth, async (req, res) => {
+  try {
+    const w = await db.get('SELECT * FROM alert_watches WHERE id=? AND user_id=?',
+      [req.params.id, req.user.id])
+    if (!w) return res.status(404).json({ error: 'watch not found' })
+    if (!ALLOWED_PARAMS.includes(w.parameter)) return res.json({ points: [] })
+
+    const rows = await db.all(
+      `SELECT ${w.parameter} AS value, observed_at FROM observations
+       WHERE site_id=? AND ${w.parameter} IS NOT NULL
+       ORDER BY observed_at DESC LIMIT 30`,
+      [w.site_id])
+    const points = rows.reverse().map(r => ({
+      value: parseFloat(r.value),
+      observed_at: r.observed_at,
+    }))
+    res.json({ points, threshold: parseFloat(w.threshold), comparator: w.comparator })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 module.exports = router

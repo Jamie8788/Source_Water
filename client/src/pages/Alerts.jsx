@@ -1,11 +1,71 @@
 import PageAmbience from '../components/layout/PageAmbience'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
+import 'leaflet/dist/leaflet.css'
+import { LineChart, Line, ReferenceLine, YAxis, Tooltip as RTooltip, ResponsiveContainer } from 'recharts'
 import api from '../utils/api'
 import {
   AlertTriangle, Info, CheckCircle, Bell, BellOff,
   MapPin, Clock, RefreshCw, ChevronDown,
   Activity, Plus, Trash2, Power, PowerOff,
+  Target, Database, Zap, BookOpen,
 } from 'lucide-react'
+
+/* ── Parameter guidance (Canadian drinking water + CCME aquatic life) ── */
+/* Sources: Health Canada Guidelines for Canadian Drinking Water Quality,
+   CCME Water Quality Guidelines for Aquatic Life. Real values — not made up. */
+const PARAM_GUIDE = {
+  ph: { unit: '', safe: '6.5 – 8.5', ideal: '6.5 – 8.5',
+    hint: 'Health Canada aesthetic objective. <6.5 = corrosive; >8.5 = scaling.',
+    typicalAlgoma: '6.8 – 7.4 (Algoma lakes skew slightly acidic)' },
+  dissolved_oxygen: { unit: 'mg/L', safe: '≥ 6.5', ideal: '8 – 12',
+    hint: 'CCME cold-water aquatic life. <4 mg/L is stressful for fish; <2 mg/L is lethal.',
+    typicalAlgoma: '8 – 11 mg/L' },
+  turbidity: { unit: 'NTU', safe: '≤ 1', ideal: '< 0.1',
+    hint: 'Health Canada: ≤1 NTU for treated water; <0.3 for filtered. High = sediment/runoff.',
+    typicalAlgoma: '0.2 – 3 NTU' },
+  water_temp: { unit: '°C', safe: 'site-dependent', ideal: 'varies',
+    hint: 'No single threshold. >20°C stresses cold-water fish; trout spawning needs <10°C.',
+    typicalAlgoma: 'Summer: 18 – 24°C; Winter: 0 – 4°C' },
+  air_temp: { unit: '°C', safe: 'n/a', ideal: 'n/a',
+    hint: 'Context for observation — not a water quality parameter itself.', typicalAlgoma: '—' },
+  chlorine: { unit: 'mg/L', safe: '0.2 – 4.0', ideal: '0.5 – 2',
+    hint: 'Health Canada: 0.2 mg/L residual minimum in distribution, 4 mg/L maximum.',
+    typicalAlgoma: '0.3 – 1.5 mg/L in treated water' },
+  conductivity: { unit: 'µS/cm', safe: '< 1000', ideal: '100 – 500',
+    hint: 'CCME: sudden changes indicate contamination. Road salt spikes push this up.',
+    typicalAlgoma: '80 – 250 µS/cm' },
+  nitrate_nitrogen: { unit: 'mg/L', safe: '≤ 10', ideal: '< 3',
+    hint: 'Health Canada MAC: 10 mg/L as N. Higher suggests fertilizer/septic runoff.',
+    typicalAlgoma: '< 1 mg/L typically' },
+  phosphorus: { unit: 'µg/L', safe: '≤ 20', ideal: '< 10',
+    hint: 'CCME: >30 µg/L risks algal blooms. Main driver of eutrophication.',
+    typicalAlgoma: '5 – 15 µg/L' },
+  chlorophyll_a: { unit: 'µg/L', safe: '< 10', ideal: '< 2.5',
+    hint: 'Proxy for algae. >10 µg/L = eutrophic; >25 = hypereutrophic / bloom likely.',
+    typicalAlgoma: '1 – 5 µg/L' },
+  hardness: { unit: 'mg/L CaCO₃', safe: 'n/a', ideal: '60 – 120',
+    hint: 'Aesthetic: <60 = soft; 120–180 = hard; >180 = very hard (scaling).',
+    typicalAlgoma: '20 – 60 mg/L (soft)' },
+  alkalinity: { unit: 'mg/L CaCO₃', safe: '20 – 200', ideal: '60 – 120',
+    hint: 'Buffers pH changes. <20 = vulnerable to acidification.',
+    typicalAlgoma: '10 – 40 mg/L' },
+  chloride: { unit: 'mg/L', safe: '≤ 250', ideal: '< 100',
+    hint: 'Health Canada aesthetic: 250 mg/L. Road salt is the big source.',
+    typicalAlgoma: '1 – 15 mg/L (rural); higher near highways' },
+  nitrites: { unit: 'mg/L', safe: '≤ 1', ideal: '< 0.1',
+    hint: 'Health Canada MAC: 1 mg/L as N. Short-lived; converts to nitrate.', typicalAlgoma: '< 0.05 mg/L' },
+  tds: { unit: 'mg/L', safe: '≤ 500', ideal: '< 250',
+    hint: 'Total Dissolved Solids. Aesthetic threshold — correlates with conductivity.',
+    typicalAlgoma: '50 – 150 mg/L' },
+  total_coliforms: { unit: 'CFU/100mL', safe: '0 (treated)', ideal: '0',
+    hint: 'Health Canada: zero in treated water. Presence = contamination.', typicalAlgoma: '0 in treated supply' },
+  secchi_depth: { unit: 'm', safe: 'site-dependent', ideal: '> 3',
+    hint: 'Transparency. Lower = murkier. Lakes drop in clarity during blooms.',
+    typicalAlgoma: '2 – 6 m in oligotrophic lakes' },
+  water_depth: { unit: 'm', safe: 'n/a', ideal: 'n/a',
+    hint: 'Physical measurement — context, not quality.', typicalAlgoma: '—' },
+}
 
 /* ── Pulse ring animation ── */
 function PulseRing({ color, size = 10 }) {
@@ -33,11 +93,150 @@ function timeAgo(d) {
   return Math.floor(diff / 86400000) + 'd ago'
 }
 
-/* ── Real Alert Card (from DB) ── */
+/* ── Map of watched sites ── */
+function FitBounds({ points }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!points.length) return
+    const coords = points.filter(p => p.lat && p.lng).map(p => [p.lat, p.lng])
+    if (coords.length === 1) map.setView(coords[0], 10)
+    else if (coords.length > 1) map.fitBounds(coords, { padding: [40, 40] })
+  }, [points, map])
+  return null
+}
+
+function WatchesMap({ watches, sites }) {
+  const points = useMemo(() => {
+    const bySite = new Map(sites.map(s => [s.id, s]))
+    return watches.map(w => {
+      const s = bySite.get(w.site_id)
+      if (!s || !s.latitude || !s.longitude) return null
+      return {
+        ...w,
+        lat: parseFloat(s.latitude),
+        lng: parseFloat(s.longitude),
+        site_name: s.name,
+        body_of_water: s.body_of_water,
+      }
+    }).filter(Boolean)
+  }, [watches, sites])
+
+  if (watches.length === 0) return null
+
+  if (points.length === 0) {
+    return (
+      <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 14, padding: '24px', marginBottom: 20, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
+        Your watched sites don't have coordinates on file — map view unavailable.
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 14, padding: 14, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <MapPin style={{ width: 14, height: 14, color: '#6366f1' }}/>
+          <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--text)' }}>Watched Sites Map</div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, fontSize: 11, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+          <LegendDot color="#ef4444" label="Triggered"/>
+          <LegendDot color="#10b981" label="OK"/>
+          <LegendDot color="#64748b" label="No data"/>
+        </div>
+      </div>
+      <div style={{ height: 280, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)' }}>
+        <MapContainer center={[46.5, -84]} zoom={6} style={{ height: '100%', width: '100%' }} scrollWheelZoom={false}>
+          <TileLayer
+            attribution='&copy; OpenStreetMap'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <FitBounds points={points}/>
+          {points.map(p => {
+            const color = !p.has_data ? '#64748b' : p.triggered ? '#ef4444' : '#10b981'
+            return (
+              <CircleMarker
+                key={p.id}
+                center={[p.lat, p.lng]}
+                radius={p.triggered ? 11 : 8}
+                pathOptions={{
+                  color,
+                  fillColor: color,
+                  fillOpacity: p.triggered ? 0.85 : 0.6,
+                  weight: p.triggered ? 3 : 2,
+                }}>
+                <Popup>
+                  <div style={{ fontSize: 12, minWidth: 180 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>{p.site_name}</div>
+                    <div style={{ color: '#64748b', marginBottom: 6 }}>{p.body_of_water || 'Water body'}</div>
+                    <div style={{ padding: '6px 8px', borderRadius: 6, background: p.triggered ? '#fee2e2' : '#dcfce7', border: `1px solid ${p.triggered ? '#fecaca' : '#bbf7d0'}` }}>
+                      <div style={{ fontWeight: 700 }}>
+                        {p.parameter_label || p.parameter} {p.comparator} {p.threshold}
+                      </div>
+                      <div style={{ marginTop: 3 }}>
+                        Latest: <strong>{p.current_value ?? '—'}</strong>
+                        {p.triggered && <span style={{ color: '#dc2626', marginLeft: 6 }}>⚠ triggered</span>}
+                      </div>
+                      {p.observed_at && <div style={{ color: '#64748b', marginTop: 3 }}>{timeAgo(p.observed_at)}</div>}
+                    </div>
+                  </div>
+                </Popup>
+              </CircleMarker>
+            )
+          })}
+        </MapContainer>
+      </div>
+    </div>
+  )
+}
+
+function LegendDot({ color, label }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: color }}/>
+      {label}
+    </span>
+  )
+}
+
+/* ── Sparkline: last 30 observations vs threshold ── */
+function WatchSparkline({ watchId, comparator, threshold, severityColor }) {
+  const [data, setData] = useState([])
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    api.get(`/alert-watches/${watchId}/history`)
+      .then(r => { if (!cancelled) { setData(r.data?.points || []); setLoaded(true) } })
+      .catch(() => { if (!cancelled) setLoaded(true) })
+    return () => { cancelled = true }
+  }, [watchId])
+
+  if (!loaded) return <div style={{ height: 40, fontSize: 10, color: 'var(--text-muted)', padding: '8px 0' }}>Loading history…</div>
+  if (data.length < 2) return <div style={{ height: 40, fontSize: 10, color: 'var(--text-muted)', padding: '8px 0' }}>Not enough observations yet to chart.</div>
+
+  return (
+    <div style={{ height: 52, marginTop: 6 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 4, right: 2, bottom: 0, left: 2 }}>
+          <YAxis hide domain={['auto', 'auto']}/>
+          <RTooltip
+            contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border)', fontSize: 11, borderRadius: 8 }}
+            labelFormatter={(_, p) => p?.[0]?.payload?.observed_at ? new Date(p[0].payload.observed_at).toLocaleDateString() : ''}
+            formatter={(v) => [v, 'Value']}
+          />
+          <ReferenceLine y={threshold} stroke={severityColor} strokeDasharray="3 3" strokeWidth={1.5}/>
+          <Line type="monotone" dataKey="value" stroke={severityColor} strokeWidth={2} dot={false}/>
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+/* ── Alert Card ── */
 function AlertCard({ alert, onExpand, expanded }) {
   const cfg = SEV_CONFIG[alert.severity] || SEV_CONFIG.info
   const Icon = cfg.icon
   const isActive = alert.active === 1 || alert.active === true
+  const guide = PARAM_GUIDE[alert.parameter]
 
   return (
     <div style={{
@@ -108,12 +307,30 @@ function AlertCard({ alert, onExpand, expanded }) {
             )}
           </div>
         )}
+
+        {expanded && guide && (
+          <div style={{ marginTop: 14, padding: '10px 12px', background: 'rgba(14,165,233,0.05)', border: '1px solid rgba(14,165,233,0.18)', borderRadius: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <BookOpen style={{ width: 12, height: 12, color: '#0ea5e9' }}/>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Context</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5, marginBottom: 4 }}>
+              <strong>Safe range:</strong> {guide.safe} {guide.unit} · <strong>Ideal:</strong> {guide.ideal} {guide.unit}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>{guide.hint}</div>
+            {guide.typicalAlgoma !== '—' && (
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5, marginTop: 3 }}>
+                <strong>Typical Algoma:</strong> {guide.typicalAlgoma}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-/* ── Stats Bar (real numbers) ── */
+/* ── Stats Bar ── */
 function StatsBar({ alerts, watchCount }) {
   const active = alerts.filter(a => a.active === 1 || a.active === true)
   const high   = active.filter(a => a.severity === 'high').length
@@ -149,11 +366,70 @@ function StatsBar({ alerts, watchCount }) {
   )
 }
 
+/* ── How Alerts Work — 3-step explainer ── */
+function HowItWorks() {
+  const steps = [
+    { icon: Target,   color: '#6366f1', title: 'You set a rule', body: 'Pick a site, a parameter (pH, DO, turbidity, etc.), a comparator (>, <, ≥, ≤) and a number. That\'s your watch.' },
+    { icon: Database, color: '#0ea5e9', title: 'We read real data', body: 'The checker pulls the latest observation for that site+parameter from the database — Water Rangers & Algoma partner data. No AI, no guessing.' },
+    { icon: Zap,      color: '#f59e0b', title: 'Alert only if it crosses', body: 'Pure math: if latest value crosses your threshold, one alert fires. We never create a duplicate while an alert is still active.' },
+  ]
+  return (
+    <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 20px', marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <Activity style={{ width: 15, height: 15, color: '#0ea5e9' }}/>
+        <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text)' }}>How alerts work</span>
+        <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: 'rgba(16,185,129,0.12)', color: '#10b981', letterSpacing: '0.05em' }}>NO FAKE DATA</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+        {steps.map((s, i) => (
+          <div key={i} style={{ position: 'relative', padding: '12px 14px', borderRadius: 11, border: '1px solid var(--border)', background: 'rgba(0,0,0,0.02)' }}>
+            <div style={{ position: 'absolute', top: -8, left: 12, padding: '2px 8px', borderRadius: 20, background: s.color, color: '#fff', fontSize: 10, fontWeight: 800 }}>
+              STEP {i + 1}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, marginBottom: 6 }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: `${s.color}14`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <s.icon style={{ width: 14, height: 14, color: s.color }}/>
+              </div>
+              <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--text)' }}>{s.title}</div>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>{s.body}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ── Parameter guidance card (shown inside Add Watch form) ── */
+function GuidanceCard({ param }) {
+  const g = PARAM_GUIDE[param]
+  if (!g) return null
+  return (
+    <div style={{ gridColumn: '1 / -1', padding: '10px 12px', background: 'rgba(14,165,233,0.05)', border: '1px solid rgba(14,165,233,0.18)', borderRadius: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <BookOpen style={{ width: 12, height: 12, color: '#0ea5e9' }}/>
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Guidance</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, fontSize: 12, color: 'var(--text)' }}>
+        <div><strong>Safe:</strong> {g.safe} {g.unit}</div>
+        <div><strong>Ideal:</strong> {g.ideal} {g.unit}</div>
+        <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>{g.hint}</div>
+        {g.typicalAlgoma !== '—' && (
+          <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <strong>Typical Algoma:</strong> {g.typicalAlgoma}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /* ── My Watches Panel ── */
 function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, onCheck, checking }) {
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState({ site_id: '', parameter: '', comparator: '>', threshold: '', severity: 'medium' })
   const [busy, setBusy] = useState(false)
+  const [expandedId, setExpandedId] = useState(null)
 
   const reset = () => { setForm({ site_id: '', parameter: '', comparator: '>', threshold: '', severity: 'medium' }); setAdding(false) }
 
@@ -171,7 +447,7 @@ function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, o
         <div>
           <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--text)' }}>My Watches</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-            Custom thresholds you set on real monitoring sites. The checker reads the latest observation and fires an alert when your condition is met.
+            Custom thresholds on real monitoring sites. Each watch reads the latest observation and fires an alert if your condition is met.
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -204,7 +480,7 @@ function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, o
             style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}>
             {(options.comparators || ['>','<','>=','<=']).map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <input type="number" step="any" placeholder="Threshold (e.g. 6.5)" value={form.threshold}
+          <input type="number" step="any" placeholder={form.parameter && PARAM_GUIDE[form.parameter] ? `e.g. ${PARAM_GUIDE[form.parameter].ideal.split(' ')[0]}` : 'Threshold'} value={form.threshold}
             onChange={e => setForm(f => ({ ...f, threshold: e.target.value }))}
             style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}/>
           <select value={form.severity} onChange={e => setForm(f => ({ ...f, severity: e.target.value }))}
@@ -217,6 +493,7 @@ function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, o
             style={{ padding: '8px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, background: '#10b981', color: '#fff', opacity: (busy || !form.site_id || !form.parameter || form.threshold === '') ? 0.5 : 1 }}>
             {busy ? 'Saving…' : 'Save'}
           </button>
+          <GuidanceCard param={form.parameter}/>
         </div>
       )}
 
@@ -228,37 +505,59 @@ function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, o
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {watches.map(w => {
             const sevCfg = SEV_CONFIG[w.severity] || SEV_CONFIG.info
+            const isOpen = expandedId === w.id
+            const guide = PARAM_GUIDE[w.parameter]
             return (
               <div key={w.id} style={{
-                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                padding: '10px 12px',
                 borderRadius: 10, border: `1px solid ${w.triggered ? sevCfg.border : 'var(--border)'}`,
                 background: w.triggered ? sevCfg.bg : 'transparent',
               }}>
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: sevCfg.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, position: 'relative' }}>
-                  <Activity style={{ width: 14, height: 14, color: sevCfg.color }}/>
-                  {w.triggered && <span style={{ position: 'absolute', top: -2, right: -2 }}><PulseRing color={sevCfg.color} size={6}/></span>}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <span>{w.parameter_label || w.parameter}</span>
-                    <span style={{ color: sevCfg.color }}>{w.comparator} {w.threshold}</span>
-                    <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>at {w.site_name}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: sevCfg.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, position: 'relative' }}>
+                    <Activity style={{ width: 14, height: 14, color: sevCfg.color }}/>
+                    {w.triggered && <span style={{ position: 'absolute', top: -2, right: -2 }}><PulseRing color={sevCfg.color} size={6}/></span>}
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {w.has_data
-                      ? <>Latest: <strong style={{ color: w.triggered ? sevCfg.color : 'var(--text)' }}>{w.current_value}</strong> · {timeAgo(w.observed_at)}</>
-                      : <em>No observations recorded yet</em>}
-                    {w.last_checked_at && <> · checked {timeAgo(w.last_checked_at)}</>}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span>{w.parameter_label || w.parameter}</span>
+                      <span style={{ color: sevCfg.color }}>{w.comparator} {w.threshold}{guide?.unit ? ` ${guide.unit}` : ''}</span>
+                      <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>at {w.site_name}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                      {w.has_data
+                        ? <>Latest: <strong style={{ color: w.triggered ? sevCfg.color : 'var(--text)' }}>{w.current_value}</strong> · {timeAgo(w.observed_at)}</>
+                        : <em>No observations recorded yet</em>}
+                      {w.last_checked_at && <> · checked {timeAgo(w.last_checked_at)}</>}
+                    </div>
                   </div>
+                  <button onClick={() => setExpandedId(isOpen ? null : w.id)} title={isOpen ? 'Hide history' : 'Show history'}
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 6, color: 'var(--text-muted)' }}>
+                    <ChevronDown style={{ width: 14, height: 14, transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}/>
+                  </button>
+                  <button onClick={() => onToggle(w)} title={w.active ? 'Pause' : 'Activate'}
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 6, color: w.active ? '#10b981' : 'var(--text-muted)' }}>
+                    {w.active ? <Power style={{ width: 14, height: 14 }}/> : <PowerOff style={{ width: 14, height: 14 }}/>}
+                  </button>
+                  <button onClick={() => onDelete(w.id)} title="Delete"
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 6, color: '#ef4444' }}>
+                    <Trash2 style={{ width: 14, height: 14 }}/>
+                  </button>
                 </div>
-                <button onClick={() => onToggle(w)} title={w.active ? 'Pause' : 'Activate'}
-                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 6, color: w.active ? '#10b981' : 'var(--text-muted)' }}>
-                  {w.active ? <Power style={{ width: 14, height: 14 }}/> : <PowerOff style={{ width: 14, height: 14 }}/>}
-                </button>
-                <button onClick={() => onDelete(w.id)} title="Delete"
-                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 6, color: '#ef4444' }}>
-                  <Trash2 style={{ width: 14, height: 14 }}/>
-                </button>
+
+                {isOpen && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+                      Recent observations vs threshold
+                    </div>
+                    <WatchSparkline watchId={w.id} comparator={w.comparator} threshold={parseFloat(w.threshold)} severityColor={sevCfg.color}/>
+                    {guide && (
+                      <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                        <strong style={{ color: 'var(--text)' }}>Safe range:</strong> {guide.safe} {guide.unit} · {guide.hint}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -307,7 +606,6 @@ export default function Alerts() {
 
   useEffect(() => {
     loadAlerts(); loadWatches(); loadSites(); loadOptions()
-    // Refresh alerts + watch readings every 30s
     const t = setInterval(() => { loadAlerts(); loadWatches() }, 30000)
     return () => clearInterval(t)
   }, [])
@@ -370,7 +668,7 @@ export default function Alerts() {
     <div style={{ position: 'relative', minHeight: '100vh' }}>
       <PageAmbience variant="dashboard"/>
 
-      <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 4px', position: 'relative', zIndex: 1 }}>
+      <div style={{ maxWidth: 920, margin: '0 auto', padding: '0 4px', position: 'relative', zIndex: 1 }}>
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
@@ -381,7 +679,7 @@ export default function Alerts() {
               </div>
               <div>
                 <h1 style={{ fontSize: 20, fontWeight: 900, color: 'var(--text)', margin: 0 }}>Water Quality Alerts</h1>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Real alerts derived from your monitoring sites — no demo data</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Every alert is derived from a real observation row — no demo data, no AI guessing.</div>
               </div>
             </div>
           </div>
@@ -399,6 +697,10 @@ export default function Alerts() {
         </div>
 
         <StatsBar alerts={alerts} watchCount={watches.length}/>
+
+        <HowItWorks/>
+
+        <WatchesMap watches={watches} sites={sites}/>
 
         <WatchesPanel
           watches={watches}
@@ -451,16 +753,18 @@ export default function Alerts() {
           </div>
         )}
 
-        {/* Info panel */}
+        {/* Data provenance footer */}
         <div style={{ marginTop: 24, background: 'linear-gradient(135deg, rgba(14,165,233,0.06), rgba(99,102,241,0.04))', border: '1px solid rgba(14,165,233,0.15)', borderRadius: 14, padding: '16px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <Activity style={{ width: 15, height: 15, color: '#0ea5e9' }}/>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>How alerts work</span>
+            <Database style={{ width: 15, height: 15, color: '#0ea5e9' }}/>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Where does this data come from?</span>
           </div>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
-            Each watch you add reads the latest observation for that site and parameter. When the value crosses your threshold,
-            a real alert row is created and shown above. Sites and observations come from this platform's database, including
-            data imported from Water Rangers and Algoma District monitoring partners. Nothing here is mocked.
+            Observations come from Water Rangers (citizen monitoring) and Algoma District partners that have been imported
+            into this platform. When you press "Check now," each active watch reads the most recent row in the observations
+            table for its site and parameter. Alerts are pure threshold math — no AI, no predictions — so every alert can
+            be traced back to one exact measurement. Safe ranges shown in guidance cards are from Health Canada Guidelines
+            for Canadian Drinking Water Quality and CCME Water Quality Guidelines for Aquatic Life.
           </p>
         </div>
       </div>
