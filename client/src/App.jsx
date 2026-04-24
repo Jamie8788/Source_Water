@@ -55,10 +55,18 @@ function AdminGuard() {
   return <Outlet />
 }
 
-// Alerts tab: admins see the real feature; everyone else still gets Coming Soon
+// Alerts tab: admins see the real feature; everyone else still gets Coming Soon.
+// Also trust the canonical admin identifiers as a fallback in case isAdmin is
+// stale in localStorage — users with username 'admin' or email
+// admin@sourcewater.app always get through.
 function AlertsRoute() {
-  const { isAdmin } = useAuth()
-  return isAdmin
+  const { user, isAdmin } = useAuth()
+  const isPlatformAdmin = user && (
+    isAdmin ||
+    user.username?.toLowerCase() === 'admin' ||
+    user.email?.toLowerCase() === 'admin@sourcewater.app'
+  )
+  return isPlatformAdmin
     ? <Alerts />
     : <ComingSoon title="Alerts" message="Threshold warnings and live alerts are being prepared. Check back soon." />
 }
