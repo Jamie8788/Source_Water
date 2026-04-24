@@ -167,6 +167,7 @@ export default function Dashboard() {
   // Dashboard "Monitoring Sites" tile reconciles with the map's 9,438 count
   // instead of showing the sparse local `sites` table (~33 rows).
   const [wr, setWr] = useState({ sites: 0, sampled: 0 })
+  const [latestObs, setLatestObs] = useState(null) // real observation or null
 
   useEffect(() => {
     const h = new Date().getHours()
@@ -177,6 +178,7 @@ export default function Dashboard() {
     api.get('/admin/alerts').then(r => setAlerts((r.data.alerts || []).slice(0, 3))).catch(() => {})
     api.get('/posts?limit=4').then(r => setPosts(r.data.posts || [])).catch(() => {})
     api.get('/leaderboard?limit=5').then(r => setLeaderboard(r.data.leaderboard || [])).catch(() => {})
+    api.get('/sites/latest-observation').then(r => setLatestObs(r.data?.observation || null)).catch(() => {})
     // Cached server-side for 30min, so this is cheap on repeat loads.
     getAllLocations()
       .then(locs => setWr({
@@ -192,14 +194,17 @@ export default function Dashboard() {
   const nextLevel = level * 100
   const levelPct = Math.min(100, (points % 100))
 
-  // Simulated water quality for demo
-  const WATER_PARAMS = [
-    { label: 'pH', value: 7.3, unit: '', min: 0, max: 14, good_min: 6.5, good_max: 8.5 },
-    { label: 'Dissolved O₂', value: 8.7, unit: ' mg/L', min: 0, max: 14, good_min: 6, good_max: 14 },
-    { label: 'Turbidity', value: 2.1, unit: ' NTU', min: 0, max: 100, good_min: 0, good_max: 5 },
-    { label: 'Temperature', value: 14.5, unit: '°C', min: 0, max: 30, good_min: 5, good_max: 22 },
-    { label: 'Conductivity', value: 380, unit: ' µS/cm', min: 0, max: 1500, good_min: 50, good_max: 800 },
-  ]
+  // Real water quality — derived from the most recent observation in the DB.
+  // Only parameters that actually have a value on that row are shown.
+  const WATER_PARAMS = latestObs ? [
+    { key: 'ph',               label: 'pH',           unit: '',         min: 0, max: 14,   good_min: 6.5, good_max: 8.5 },
+    { key: 'dissolved_oxygen', label: 'Dissolved O₂', unit: ' mg/L',    min: 0, max: 14,   good_min: 6,   good_max: 14  },
+    { key: 'turbidity',        label: 'Turbidity',    unit: ' NTU',     min: 0, max: 100,  good_min: 0,   good_max: 5   },
+    { key: 'water_temp',       label: 'Temperature',  unit: '°C',       min: 0, max: 30,   good_min: 5,   good_max: 22  },
+    { key: 'conductivity',     label: 'Conductivity', unit: ' µS/cm',   min: 0, max: 1500, good_min: 50,  good_max: 800 },
+  ].filter(p => latestObs[p.key] != null)
+    .map(p => ({ ...p, value: parseFloat(latestObs[p.key]) }))
+    : []
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-5 relative">
@@ -296,17 +301,32 @@ export default function Dashboard() {
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-gray-800 flex items-center gap-2">
                 <Droplets className="w-4 h-4 text-indigo-500"/> Live Water Quality
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-50 text-green-600 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"/> Garden River Site A
-                </span>
+                {latestObs?.site_name && (
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-50 text-green-600 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"/> {latestObs.site_name}
+                  </span>
+                )}
               </h3>
               <button onClick={() => navigate('/monitoring')} className="text-xs font-semibold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">
                 All sites <ChevronRight className="w-3 h-3"/>
               </button>
             </div>
-            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-              {WATER_PARAMS.map(p => <WaterGauge key={p.label} {...p}/>)}
-            </div>
+            {WATER_PARAMS.length > 0 ? (
+              <>
+                <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+                  {WATER_PARAMS.map(p => <WaterGauge key={p.label} {...p}/>)}
+                </div>
+                {latestObs?.observed_at && (
+                  <div className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
+                    Latest reading · {new Date(latestObs.observed_at).toLocaleString()}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-sm text-center py-6" style={{ color: 'var(--text-muted)' }}>
+                No observations recorded yet. Real values will appear here once a site logs a reading.
+              </div>
+            )}
           </div>
 
           {/* Recent social posts */}

@@ -17,6 +17,24 @@ router.get('/', requireAuth, async (req, res) => {
   res.json(enriched)
 })
 
+// GET /api/sites/latest-observation — most recent observation across all sites.
+// Used by the Dashboard "Live Water Quality" panel. Returns null if no
+// observations exist yet (no fake fallback).
+router.get('/latest-observation', requireAuth, async (_req, res) => {
+  try {
+    const row = await db.get(
+      `SELECT o.*, s.name AS site_name, s.body_of_water, s.community
+       FROM observations o
+       JOIN sites s ON o.site_id = s.id
+       ORDER BY o.observed_at DESC LIMIT 1`, [])
+    if (!row) return res.json({ observation: null })
+    res.json({ observation: row })
+  } catch (err) {
+    console.error('GET /sites/latest-observation error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // GET /api/sites/:id
 router.get('/:id', requireAuth, async (req, res) => {
   const site = await db.get('SELECT * FROM sites WHERE id=?', [req.params.id])
