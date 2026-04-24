@@ -107,6 +107,12 @@ export async function toggleReaction(postId, userId, reactionType) {
   return r?.data?.added !== undefined ? r.data.added : (r ? true : false)
 }
 
+// ── Who reacted ───────────────────────────────────────────────────────────────
+export async function fetchReactors(postId) {
+  const r = await api.get(`/posts/${postId}/reactors`).catch(() => null)
+  return r?.data?.reactors || {}
+}
+
 // ── Bookmarks (server-persisted) ──────────────────────────────────────────────
 export async function addBookmark(postId) {
   const r = await api.post(`/posts/${postId}/bookmark`).catch(() => null)

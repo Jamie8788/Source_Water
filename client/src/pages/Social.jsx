@@ -8,7 +8,7 @@ import api from '../utils/api'
 import {
   useFeed, createPost, deletePost, fetchComments, addComment, deleteComment,
   toggleReaction, useConversations, useMessages, sendDM, deleteDM, editDM, searchUsers,
-  addBookmark, removeBookmark, fetchBookmarkIds,
+  addBookmark, removeBookmark, fetchBookmarkIds, fetchReactors,
 } from '../hooks/useSocial'
 import {
   Send, X, Image, Video, Mic, MicOff, Search, UserPlus,
@@ -146,6 +146,89 @@ function Avatar({ user, size=40, story=false, seen=false, onClick }) {
 }
 
 /* ─── Media Grid ─────────────────────────────────────────────── */
+/* ─── Reactors Modal: shows who reacted to a post, grouped by type ─────── */
+function ReactorsModal({ postId, initialType=null, onClose }) {
+  const [data, setData] = useState(null)
+  const [tab, setTab] = useState(initialType || 'all')
+
+  useEffect(() => {
+    let alive = true
+    fetchReactors(postId).then(d => { if (alive) setData(d) })
+    return () => { alive = false }
+  }, [postId])
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const groups = data || {}
+  const present = REACTIONS.filter(r => (groups[r.type]||[]).length > 0)
+  const all = present.flatMap(r => (groups[r.type]||[]).map(u => ({ ...u, _type: r.type })))
+  const list = tab === 'all' ? all : (groups[tab] || []).map(u => ({ ...u, _type: tab }))
+  const total = all.length
+
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center anim-fade"
+      style={{background:'rgba(0,0,0,0.55)'}} onClick={onClose}>
+      <div className="rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col anim-pop-in"
+        style={{background:'var(--card-bg)',border:'1px solid var(--border)'}}
+        onClick={e=>e.stopPropagation()}>
+        <div className="px-5 py-3 flex items-center justify-between border-b" style={{borderColor:'var(--border)'}}>
+          <div className="font-black text-base" style={{color:'var(--text)'}}>Reactions</div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100">
+            <X className="w-4 h-4" style={{color:'var(--text-muted)'}}/>
+          </button>
+        </div>
+        <div className="px-3 py-2 flex gap-1 overflow-x-auto border-b" style={{borderColor:'var(--border)'}}>
+          <button onClick={()=>setTab('all')}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all"
+            style={{background: tab==='all'?'rgba(99,102,241,0.12)':'transparent',
+                    color: tab==='all'?'#6366f1':'var(--text-muted)'}}>
+            All {total}
+          </button>
+          {present.map(r => (
+            <button key={r.type} onClick={()=>setTab(r.type)}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1"
+              style={{background: tab===r.type?r.color+'1c':'transparent',
+                      color: tab===r.type?r.color:'var(--text-muted)'}}>
+              <span style={{fontSize:14}}>{r.emoji}</span>
+              {(groups[r.type]||[]).length}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 overflow-y-auto px-2 py-2">
+          {data === null && (
+            <div className="px-4 py-8 text-center text-sm" style={{color:'var(--text-muted)'}}>Loading…</div>
+          )}
+          {data !== null && list.length === 0 && (
+            <div className="px-4 py-8 text-center text-sm" style={{color:'var(--text-muted)'}}>No one yet.</div>
+          )}
+          {list.map(u => {
+            const meta = REACTIONS.find(r=>r.type===u._type)
+            return (
+              <div key={`${u.id}-${u._type}`} className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors">
+                <div className="relative">
+                  <Avatar user={u} size={40}/>
+                  <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center"
+                    style={{background:'var(--card-bg)',border:'1.5px solid var(--border)',fontSize:11}}>{meta?.emoji}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-sm truncate" style={{color:'var(--text)'}}>
+                    {u.display_name || u.username}
+                  </div>
+                  <div className="text-xs truncate" style={{color:'var(--text-muted)'}}>@{u.username}{u.role?` · ${u.role}`:''}</div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function MediaLightbox({ media, start=0, onClose }) {
   const [idx, setIdx] = useState(start)
   const touchStart = useRef(null)
@@ -591,6 +674,7 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0, onHashtagCl
   const [heartAnim, setHeartAnim]       = useState(false)
   const [pointAnim, setPointAnim]       = useState(false)
   const [bookmarked, setBookmarked]     = useState(() => getBookmarks().has(post.id))
+  const [reactorsOpen, setReactorsOpen] = useState(null) // null | 'all' | reaction_type
   const reactTimer = useRef(null)
   const lastTap    = useRef(0)
 
@@ -751,16 +835,18 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0, onHashtagCl
           </div>
         )}
 
-        {/* Reactions summary */}
+        {/* Reactions summary — tap to see who reacted */}
         {totalReacts>0 && (
-          <div className="flex items-center gap-1 mb-2">
+          <button onClick={e=>{e.stopPropagation();setReactorsOpen('all')}}
+            className="flex items-center gap-1 mb-2 px-1.5 py-0.5 -ml-1.5 rounded-md hover:bg-gray-100 transition-colors"
+            title="See who reacted">
             <div className="flex">
               {REACTIONS.filter(r=>reactCounts[r.type]>0).slice(0,3).map(r=>(
                 <span key={r.type} className="text-sm -ml-0.5 first:ml-0">{r.emoji}</span>
               ))}
             </div>
             <span className="text-xs" style={{color:'var(--text-muted)'}}>{totalReacts}</span>
-          </div>
+          </button>
         )}
 
         {/* Reaction summary pills */}
@@ -892,6 +978,11 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0, onHashtagCl
             </div>
           </div>
         </div>
+      )}
+
+      {reactorsOpen && (
+        <ReactorsModal postId={post.id} initialType={reactorsOpen}
+          onClose={()=>setReactorsOpen(null)}/>
       )}
     </div>
   )

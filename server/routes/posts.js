@@ -133,6 +133,29 @@ router.put('/:id/pin', requireAuth, async (req, res) => {
   res.json({ success: true })
 })
 
+// GET /api/posts/:id/reactors — list users who reacted, grouped by reaction_type
+router.get('/:id/reactors', requireAuth, async (req, res) => {
+  try {
+    const rows = await db.all(
+      `SELECT pr.reaction_type, u.id, u.username, u.display_name,
+              u.avatar_emoji, u.avatar_bg_color, u.avatar_url, u.role
+       FROM post_reactions pr
+       JOIN users u ON u.id = pr.user_id
+       WHERE pr.post_id=? AND u.is_active=1
+       ORDER BY pr.created_at DESC`,
+      [req.params.id])
+    const grouped = {}
+    rows.forEach(r => {
+      const { reaction_type, ...user } = r
+      if (!grouped[reaction_type]) grouped[reaction_type] = []
+      grouped[reaction_type].push(user)
+    })
+    res.json({ reactors: grouped, total: rows.length })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // POST /api/posts/:id/react
 router.post('/:id/react', requireAuth, async (req, res) => {
   const { reaction_type } = req.body
