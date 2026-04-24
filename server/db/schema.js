@@ -162,6 +162,15 @@ async function initSchema() {
       )
     `)
     await db.exec(`
+      CREATE TABLE IF NOT EXISTS post_bookmarks (
+        id SERIAL PRIMARY KEY,
+        post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(post_id, user_id)
+      )
+    `)
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS comments (
         id SERIAL PRIMARY KEY,
         post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
@@ -638,6 +647,13 @@ async function initSchema() {
         reaction_type TEXT,
         created_at TEXT DEFAULT (datetime('now')),
         UNIQUE(post_id, user_id, reaction_type)
+      );
+      CREATE TABLE IF NOT EXISTS post_bookmarks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        created_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(post_id, user_id)
       );
       CREATE TABLE IF NOT EXISTS comments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

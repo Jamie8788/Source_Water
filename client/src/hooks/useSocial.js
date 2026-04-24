@@ -107,6 +107,24 @@ export async function toggleReaction(postId, userId, reactionType) {
   return r?.data?.added !== undefined ? r.data.added : (r ? true : false)
 }
 
+// ── Bookmarks (server-persisted) ──────────────────────────────────────────────
+export async function addBookmark(postId) {
+  const r = await api.post(`/posts/${postId}/bookmark`).catch(() => null)
+  return r?.data?.bookmarked === true
+}
+export async function removeBookmark(postId) {
+  const r = await api.delete(`/posts/${postId}/bookmark`).catch(() => null)
+  return r?.data?.bookmarked === false
+}
+export async function fetchBookmarkIds() {
+  const r = await api.get('/posts/bookmarks/ids').catch(() => null)
+  return Array.isArray(r?.data?.ids) ? r.data.ids : []
+}
+export async function fetchBookmarkedPosts() {
+  const r = await api.get('/posts/bookmarks').catch(() => null)
+  return Array.isArray(r?.data?.posts) ? r.data.posts : []
+}
+
 // ── Shared legacy API helper ──────────────────────────────────────────────────
 function legacyGet(path) {
   const token = localStorage.getItem('sw_token') || localStorage.getItem('sb_access_token')

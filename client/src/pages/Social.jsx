@@ -8,6 +8,7 @@ import api from '../utils/api'
 import {
   useFeed, createPost, deletePost, fetchComments, addComment, deleteComment,
   toggleReaction, useConversations, useMessages, sendDM, deleteDM, editDM, searchUsers,
+  addBookmark, removeBookmark, fetchBookmarkIds,
 } from '../hooks/useSocial'
 import {
   Send, X, Image, Video, Mic, MicOff, Search, UserPlus,
@@ -145,8 +146,68 @@ function Avatar({ user, size=40, story=false, seen=false, onClick }) {
 }
 
 /* ─── Media Grid ─────────────────────────────────────────────── */
+function MediaLightbox({ media, start=0, onClose }) {
+  const [idx, setIdx] = useState(start)
+  const touchStart = useRef(null)
+
+  const next = useCallback(() => setIdx(i => (i+1) % media.length), [media.length])
+  const prev = useCallback(() => setIdx(i => (i-1+media.length) % media.length), [media.length])
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose()
+      else if (e.key === 'ArrowRight') next()
+      else if (e.key === 'ArrowLeft') prev()
+    }
+    document.addEventListener('keydown', onKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = ''
+    }
+  }, [next, prev, onClose])
+
+  const onTouchStart = (e) => { touchStart.current = e.touches[0].clientX }
+  const onTouchEnd = (e) => {
+    if (touchStart.current == null) return
+    const dx = e.changedTouches[0].clientX - touchStart.current
+    if (Math.abs(dx) > 40) { dx > 0 ? prev() : next() }
+    touchStart.current = null
+  }
+
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center anim-fade"
+      style={{background:'rgba(0,0,0,0.94)'}}
+      onClick={onClose} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+      <button onClick={onClose}
+        className="absolute top-4 right-4 z-20 p-2 rounded-full text-white/90 hover:bg-white/10">
+        <X className="w-6 h-6"/>
+      </button>
+      {media.length > 1 && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full text-white/90 text-sm font-semibold"
+          style={{background:'rgba(0,0,0,0.5)'}}>{idx+1} / {media.length}</div>
+      )}
+      <img src={mediaUrl(media[idx])} alt=""
+        onClick={e=>e.stopPropagation()}
+        className="max-w-[92vw] max-h-[88vh] object-contain rounded-xl"
+        style={{boxShadow:'0 20px 60px rgba(0,0,0,0.6)'}}/>
+      {media.length > 1 && (
+        <>
+          <button onClick={e=>{e.stopPropagation();prev()}}
+            className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full text-white hover:bg-white/10"
+            style={{background:'rgba(0,0,0,0.4)'}}>‹</button>
+          <button onClick={e=>{e.stopPropagation();next()}}
+            className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full text-white hover:bg-white/10"
+            style={{background:'rgba(0,0,0,0.4)'}}>›</button>
+        </>
+      )}
+    </div>
+  )
+}
+
 function MediaGrid({ media, type }) {
   const [errs, setErrs] = useState({})
+  const [lightbox, setLightbox] = useState(null) // null | starting index
   if (!media?.length) return null
   const isVid = type==='video' || media[0]?.match(/\.(mp4|webm|mov)$/i) || media[0]?.includes('video')
   if (isVid) return (
@@ -157,18 +218,26 @@ function MediaGrid({ media, type }) {
   const good = media.slice(0,4).filter((_,i)=>!errs[i])
   if (!good.length) return null
   const cols = good.length===1?1:good.length===2?2:3
+  const open = (i) => (e) => { e.stopPropagation(); setLightbox(i) }
   return (
-    <div className="grid gap-1 mb-3 rounded-2xl overflow-hidden" style={{gridTemplateColumns:`repeat(${cols},1fr)`}}>
-      {media.slice(0,4).map((src,i)=>errs[i]?null:(
-        <div key={i} className="relative" style={{paddingBottom:good.length===1?'56%':'100%'}}>
-          <img src={mediaUrl(src)} alt="" className="absolute inset-0 w-full h-full object-cover"
-            onError={()=>setErrs(p=>({...p,[i]:true}))}/>
-          {i===3&&media.length>4&&(
-            <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-black text-2xl">+{media.length-4}</div>
-          )}
-        </div>
-      ))}
-    </div>
+    <>
+      <div className="grid gap-1 mb-3 rounded-2xl overflow-hidden" style={{gridTemplateColumns:`repeat(${cols},1fr)`}}>
+        {media.slice(0,4).map((src,i)=>errs[i]?null:(
+          <button type="button" key={i} onClick={open(i)}
+            className="relative block w-full overflow-hidden cursor-zoom-in group"
+            style={{paddingBottom:good.length===1?'56%':'100%'}}>
+            <img src={mediaUrl(src)} alt="" className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+              onError={()=>setErrs(p=>({...p,[i]:true}))}/>
+            {i===3&&media.length>4&&(
+              <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-black text-2xl">+{media.length-4}</div>
+            )}
+          </button>
+        ))}
+      </div>
+      {lightbox !== null && (
+        <MediaLightbox media={media} start={lightbox} onClose={()=>setLightbox(null)}/>
+      )}
+    </>
   )
 }
 
@@ -563,9 +632,16 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0, onHashtagCl
     lastTap.current = now
   }
 
-  const handleBookmark = (e) => {
+  const handleBookmark = async (e) => {
     e.stopPropagation()
-    setBookmarked(toggleBookmarkPost(post.id))
+    const next = !bookmarked
+    setBookmarked(next)                  // optimistic
+    toggleBookmarkPost(post.id)          // keep localStorage cache in sync
+    const ok = next ? await addBookmark(post.id) : await removeBookmark(post.id)
+    if (!ok) {                           // revert on server failure
+      setBookmarked(!next)
+      toggleBookmarkPost(post.id)
+    }
   }
 
   // Render content with clickable hashtags
@@ -1433,7 +1509,7 @@ function TrendingCard({ posts, activeTag, onTagClick }) {
 export default function Social() {
   const { user, updateUser } = useAuth()
   const { play } = useSound()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { posts, loading, setPosts, refresh: refreshFeed } = useFeed()
 
   const [showDM, setShowDM]           = useState(searchParams.get('dm')==='1')
@@ -1448,7 +1524,20 @@ export default function Social() {
   // Feed filters
   const [searchQuery, setSearchQuery] = useState('')
   const [filterMode, setFilterMode]   = useState('all') // all | research | saved
-  const [activeHashtag, setActiveHashtag] = useState(null)
+  const [activeHashtag, setActiveHashtag] = useState(() => {
+    const t = searchParams.get('tag')
+    return t ? (t.startsWith('#') ? t : `#${t}`) : null
+  })
+
+  // Keep the ?tag=... URL param in sync so hashtag pages are shareable
+  useEffect(() => {
+    const current = searchParams.get('tag')
+    const want = activeHashtag ? activeHashtag.replace(/^#/, '') : null
+    if (want === current || (!want && !current)) return
+    const next = new URLSearchParams(searchParams)
+    if (want) next.set('tag', want); else next.delete('tag')
+    setSearchParams(next, { replace: true })
+  }, [activeHashtag]) // eslint-disable-line
 
   // Notifications
   const [showNotifs, setShowNotifs]   = useState(false)
@@ -1510,6 +1599,14 @@ export default function Social() {
       if(me) setMyMonthPts(me.points||0)
     }).catch(()=>{})
   },[user?.id])
+
+  // Hydrate server bookmarks into the localStorage cache so saved posts sync across devices
+  useEffect(() => {
+    if (!user?.id) return
+    fetchBookmarkIds().then(ids => {
+      try { localStorage.setItem(BKEY, JSON.stringify(ids)) } catch {}
+    }).catch(() => {})
+  }, [user?.id])
 
   const handlePost = (newPost) => {
     if (newPost) {

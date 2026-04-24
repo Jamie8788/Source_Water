@@ -153,11 +153,12 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
     await db.run(`DELETE FROM observations WHERE site_id IN (${ph})`, userSiteIds).catch(() => {})
   }
 
-  // Delete reactions/comments on the user's own posts before deleting posts
+  // Delete reactions/comments/bookmarks on the user's own posts before deleting posts
   const userPostIds = (await db.all('SELECT id FROM posts WHERE user_id=?', [uid])).map(p => p.id)
   if (userPostIds.length) {
     const ph = userPostIds.map(() => '?').join(',')
     await db.run(`DELETE FROM post_reactions WHERE post_id IN (${ph})`, userPostIds).catch(() => {})
+    await db.run(`DELETE FROM post_bookmarks WHERE post_id IN (${ph})`, userPostIds).catch(() => {})
     await db.run(`DELETE FROM comments WHERE post_id IN (${ph})`, userPostIds).catch(() => {})
   }
 
@@ -171,6 +172,7 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
     'DELETE FROM project_datasets WHERE uploaded_by=?',
     'DELETE FROM research_projects WHERE created_by=?',
     'DELETE FROM post_reactions WHERE user_id=?',
+    'DELETE FROM post_bookmarks WHERE user_id=?',
     'DELETE FROM comments WHERE user_id=?',
     'DELETE FROM posts WHERE user_id=?',
     'DELETE FROM leaderboard_points WHERE user_id=?',

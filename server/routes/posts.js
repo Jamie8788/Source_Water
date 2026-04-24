@@ -21,6 +21,36 @@ async function enrichPost(post) {
   }
 }
 
+// GET /api/posts/bookmarks — must be above /:id routes so it isn't captured as an id
+router.get('/bookmarks', requireAuth, async (req, res) => {
+  try {
+    const rows = await db.all(
+      `SELECT p.* FROM posts p
+       JOIN post_bookmarks b ON b.post_id = p.id
+       JOIN users u ON p.user_id = u.id
+       WHERE b.user_id=? AND u.is_active=1
+       ORDER BY b.created_at DESC`,
+      [req.user.id])
+    const posts = (await Promise.all(rows.map(enrichPost))).filter(Boolean)
+    res.json({ posts })
+  } catch (err) {
+    console.error('GET /posts/bookmarks error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/posts/bookmarks/ids — cheap id-list for hydrating UI state
+router.get('/bookmarks/ids', requireAuth, async (req, res) => {
+  try {
+    const rows = await db.all(
+      'SELECT post_id FROM post_bookmarks WHERE user_id=?',
+      [req.user.id])
+    res.json({ ids: rows.map(r => r.post_id) })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // GET /api/posts
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -180,6 +210,30 @@ router.delete('/:id/comments/:cid', requireAuth, async (req, res) => {
   if (c.user_id !== req.user.id && !req.user.is_admin) return res.status(403).json({ error: 'Forbidden' })
   await db.run('DELETE FROM comments WHERE id=?', [req.params.cid])
   res.json({ success: true })
+})
+
+// POST /api/posts/:id/bookmark
+router.post('/:id/bookmark', requireAuth, async (req, res) => {
+  try {
+    await db.run(
+      'INSERT OR IGNORE INTO post_bookmarks (post_id,user_id) VALUES (?,?)',
+      [req.params.id, req.user.id])
+    res.json({ bookmarked: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// DELETE /api/posts/:id/bookmark
+router.delete('/:id/bookmark', requireAuth, async (req, res) => {
+  try {
+    await db.run(
+      'DELETE FROM post_bookmarks WHERE post_id=? AND user_id=?',
+      [req.params.id, req.user.id])
+    res.json({ bookmarked: false })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // POST /api/posts/:id/poll/vote
