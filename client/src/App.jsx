@@ -55,6 +55,14 @@ function AdminGuard() {
   return <Outlet />
 }
 
+// Alerts tab: admins see the real feature; everyone else still gets Coming Soon
+function AlertsRoute() {
+  const { isAdmin } = useAuth()
+  return isAdmin
+    ? <Alerts />
+    : <ComingSoon title="Alerts" message="Threshold warnings and live alerts are being prepared. Check back soon." />
+}
+
 function QuizCreatorGuard() {
   const { user, isQuizCreator } = useAuth()
   if (!user || !isQuizCreator) return <Navigate to="/quiz" replace />
@@ -85,7 +93,7 @@ function AppRoutes() {
           <Route path="/projects"   element={<Projects />} />
           <Route path="/analysis"   element={<Analysis />} />
           <Route path="/reports"    element={<Reports />} />
-          <Route path="/alerts"     element={<ComingSoon title="Alerts" message="Threshold warnings and live alerts are being prepared. Check back soon." />} />
+          <Route path="/alerts"     element={<AlertsRoute />} />
           <Route path="/weather"    element={<Weather />} />
           <Route path="/games"      element={<Games />} />
           <Route path="/research"      element={<ResearchHub />} />
