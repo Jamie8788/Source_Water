@@ -96,6 +96,7 @@ app.use('/api/upload',         require('./routes/upload'))
 app.use('/api/notifications', require('./routes/notifications'))
 app.use('/api/geoai',          require('./routes/geoai'))  // 🌍 GeoAI — isolated microservice
 app.use('/api/wr',             require('./routes/waterrangers'))  // Water Rangers API proxy
+app.use('/api/alert-watches',  require('./routes/alert-watches')) // user-defined threshold rules
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }))

@@ -240,6 +240,26 @@ async function initSchema() {
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `)
+    // User-defined threshold watches. When a watch's condition is met against
+    // the latest observation for (site_id, parameter), the checker inserts a
+    // row into the alerts table above. Real data only — no seed data.
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS alert_watches (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        site_id INTEGER REFERENCES sites(id) ON DELETE CASCADE,
+        parameter TEXT NOT NULL,
+        comparator TEXT NOT NULL,
+        threshold REAL NOT NULL,
+        severity TEXT DEFAULT 'medium',
+        label TEXT,
+        active INTEGER DEFAULT 1,
+        last_checked_at TIMESTAMPTZ,
+        last_triggered_at TIMESTAMPTZ,
+        last_value REAL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
     await db.exec(`
       CREATE TABLE IF NOT EXISTS research_projects (
         id SERIAL PRIMARY KEY,
@@ -769,6 +789,21 @@ async function initSchema() {
         severity TEXT DEFAULT 'info', message TEXT,
         active INTEGER DEFAULT 1,
         created_by INTEGER REFERENCES users(id),
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS alert_watches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        site_id INTEGER REFERENCES sites(id) ON DELETE CASCADE,
+        parameter TEXT NOT NULL,
+        comparator TEXT NOT NULL,
+        threshold REAL NOT NULL,
+        severity TEXT DEFAULT 'medium',
+        label TEXT,
+        active INTEGER DEFAULT 1,
+        last_checked_at TEXT,
+        last_triggered_at TEXT,
+        last_value REAL,
         created_at TEXT DEFAULT (datetime('now'))
       );
       CREATE TABLE IF NOT EXISTS research_projects (

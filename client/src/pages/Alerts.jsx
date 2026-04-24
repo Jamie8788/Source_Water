@@ -1,10 +1,10 @@
 import PageAmbience from '../components/layout/PageAmbience'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import api from '../utils/api'
 import {
   AlertTriangle, Info, CheckCircle, Bell, BellOff,
   MapPin, Clock, RefreshCw, ChevronDown,
-  Eye, Share2, Activity,
+  Activity, Plus, Trash2, Power, PowerOff,
 } from 'lucide-react'
 
 /* ── Pulse ring animation ── */
@@ -17,124 +17,27 @@ function PulseRing({ color, size = 10 }) {
   )
 }
 
-const PRESET_ALERTS = [
-  {
-    id: 1, title: 'Boil Water Advisory — Whitefish Lake Station',
-    message: 'Turbidity readings exceeded WHO guideline of 5 NTU at three consecutive sampling points (readings: 8.2, 9.1, 7.8 NTU). E. coli presence confirmed in preliminary screening. Boil all water before consumption. Do not use for infant formula preparation.',
-    severity: 'high', type: 'boil-water', is_active: true,
-    site_name: 'Whitefish Lake Station', site_id: 'WLS-01',
-    region: 'Algoma District', population_affected: '~2,400 residents',
-    issued_by: 'Dr. Sarah Chen', agency: 'NORDIK Institute',
-    created_at: new Date(Date.now() - 2 * 3600000).toISOString(),
-    parameters: { turbidity: 8.2, ecoli: 'detected', ph: 6.8 },
-    updates: [
-      { time: '2 hrs ago', text: 'Initial boil water advisory issued. Field team dispatched.' },
-      { time: '1 hr ago', text: 'Secondary testing samples collected. Results pending 4–6 hours.' },
-    ]
-  },
-  {
-    id: 2, title: 'pH Anomaly — Garden River Site B',
-    message: 'pH dropped to 5.2 — significantly below baseline of 7.1 and below safe drinking water standard. Suspected cause: agricultural runoff following last week\'s precipitation event. Downstream monitoring stations have been alerted.',
-    severity: 'high', type: 'warning', is_active: true,
-    site_name: 'Garden River Site B', site_id: 'GRB-02',
-    region: 'Garden River First Nation',
-    issued_by: 'Amara Diallo', agency: 'Community Monitoring Network',
-    created_at: new Date(Date.now() - 6 * 3600000).toISOString(),
-    parameters: { ph: 5.2, conductivity: 680, turbidity: 3.1 },
-    updates: [
-      { time: '6 hrs ago', text: 'pH anomaly detected. Upstream agricultural sites identified as probable source.' },
-    ]
-  },
-  {
-    id: 3, title: 'Elevated Phosphorus — Echo Bay',
-    message: 'Phosphorus concentration measured at 0.052 mg/L, nearly double the 0.03 mg/L threshold. Elevated risk of algal bloom within 3–5 days if warm conditions persist. Visual monitoring recommended for shoreline users.',
-    severity: 'medium', type: 'advisory', is_active: true,
-    site_name: 'Echo Bay Monitor', site_id: 'EBM-04',
-    region: 'North Channel',
-    issued_by: 'Marcus Osei', agency: 'Student Research Team',
-    created_at: new Date(Date.now() - 12 * 3600000).toISOString(),
-    parameters: { phosphorus: 0.052, nitrogen: 0.8, temperature: 22.1 },
-    updates: []
-  },
-  {
-    id: 4, title: 'Seasonal Conductivity Rise — Thessalon River',
-    message: 'Conductivity elevated to 820 µS/cm following recent precipitation. Pattern consistent with seasonal spring runoff. No immediate health risk identified but continued monitoring is recommended.',
-    severity: 'low', type: 'advisory', is_active: true,
-    site_name: 'Thessalon River Gauge', site_id: 'TRG-07',
-    region: 'North Huron',
-    issued_by: 'Linda Swanson', agency: 'Community Volunteers',
-    created_at: new Date(Date.now() - 24 * 3600000).toISOString(),
-    parameters: { conductivity: 820, ph: 7.2, turbidity: 1.8 },
-    updates: []
-  },
-  {
-    id: 5, title: 'Beach Closure — Gros Cap',
-    message: 'E. coli colony counts: 240 CFU/100mL, exceeding the 200 CFU/100mL recreational water standard. Beach closed to all swimming. Signs posted. Resampling scheduled in 72 hours.',
-    severity: 'high', type: 'beach-closure', is_active: false,
-    site_name: 'Gros Cap Beach', site_id: 'GCB-03',
-    region: 'Sault Ste. Marie',
-    issued_by: 'City of Sault Ste. Marie', agency: 'Public Health',
-    created_at: new Date(Date.now() - 72 * 3600000).toISOString(),
-    parameters: { ecoli: 240, ph: 7.4, temperature: 18.5 },
-    updates: [
-      { time: '3 days ago', text: 'Beach closure implemented. Warning signage posted.' },
-      { time: '2 days ago', text: 'Resampling in progress. Preliminary results expected tomorrow.' },
-    ]
-  },
-  {
-    id: 6, title: 'Dissolved Oxygen Low — Batchawana Bay',
-    message: 'Dissolved oxygen dropped to 4.2 mg/L (threshold: 6.0 mg/L) at depth. Possible risk to aquatic life including fish habitat. No human health risk at this time.',
-    severity: 'medium', type: 'environmental', is_active: true,
-    site_name: 'Batchawana Bay Deep', site_id: 'BBD-09',
-    region: 'Algoma Highlands',
-    issued_by: 'Dr. Sarah Chen', agency: 'NORDIK Institute',
-    created_at: new Date(Date.now() - 36 * 3600000).toISOString(),
-    parameters: { dissolved_oxygen: 4.2, temperature: 8.1, depth: 12 },
-    updates: []
-  },
-]
-
 const SEV_CONFIG = {
-  high: {
-    color: '#ef4444', bg: 'rgba(239,68,68,0.06)', border: 'rgba(239,68,68,0.2)',
-    badge: 'rgba(239,68,68,0.12)', badgeText: '#ef4444',
-    icon: AlertTriangle, label: 'Critical',
-  },
-  medium: {
-    color: '#f59e0b', bg: 'rgba(245,158,11,0.06)', border: 'rgba(245,158,11,0.2)',
-    badge: 'rgba(245,158,11,0.12)', badgeText: '#f59e0b',
-    icon: AlertTriangle, label: 'Warning',
-  },
-  low: {
-    color: '#10b981', bg: 'rgba(16,185,129,0.06)', border: 'rgba(16,185,129,0.2)',
-    badge: 'rgba(16,185,129,0.12)', badgeText: '#10b981',
-    icon: Info, label: 'Advisory',
-  },
-  info: {
-    color: '#0ea5e9', bg: 'rgba(14,165,233,0.06)', border: 'rgba(14,165,233,0.2)',
-    badge: 'rgba(14,165,233,0.12)', badgeText: '#0ea5e9',
-    icon: Info, label: 'Info',
-  },
-}
-
-const TYPE_LABELS = {
-  'boil-water': 'Boil Water', warning: 'Warning', advisory: 'Advisory',
-  'beach-closure': 'Beach Closure', 'do-not-drink': 'Do Not Drink', environmental: 'Environmental',
+  high:   { color: '#ef4444', bg: 'rgba(239,68,68,0.06)',  border: 'rgba(239,68,68,0.2)',  badge: 'rgba(239,68,68,0.12)',  badgeText: '#ef4444', icon: AlertTriangle, label: 'Critical' },
+  medium: { color: '#f59e0b', bg: 'rgba(245,158,11,0.06)', border: 'rgba(245,158,11,0.2)', badge: 'rgba(245,158,11,0.12)', badgeText: '#f59e0b', icon: AlertTriangle, label: 'Warning' },
+  low:    { color: '#10b981', bg: 'rgba(16,185,129,0.06)', border: 'rgba(16,185,129,0.2)', badge: 'rgba(16,185,129,0.12)', badgeText: '#10b981', icon: Info,          label: 'Advisory' },
+  info:   { color: '#0ea5e9', bg: 'rgba(14,165,233,0.06)', border: 'rgba(14,165,233,0.2)', badge: 'rgba(14,165,233,0.12)', badgeText: '#0ea5e9', icon: Info,          label: 'Info' },
 }
 
 function timeAgo(d) {
+  if (!d) return ''
   const diff = Date.now() - new Date(d)
-  if (diff < 60000) return 'just now'
-  if (diff < 3600000) return Math.floor(diff / 60000) + 'min ago'
-  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago'
+  if (diff < 60000)   return 'just now'
+  if (diff < 3600000) return Math.floor(diff / 60000)   + 'min ago'
+  if (diff < 86400000)return Math.floor(diff / 3600000) + 'h ago'
   return Math.floor(diff / 86400000) + 'd ago'
 }
 
-/* ── Alert Card ── */
+/* ── Real Alert Card (from DB) ── */
 function AlertCard({ alert, onExpand, expanded }) {
   const cfg = SEV_CONFIG[alert.severity] || SEV_CONFIG.info
   const Icon = cfg.icon
-  const paramKeys = Object.keys(alert.parameters || {})
+  const isActive = alert.active === 1 || alert.active === true
 
   return (
     <div style={{
@@ -143,29 +46,26 @@ function AlertCard({ alert, onExpand, expanded }) {
       overflow: 'hidden', transition: 'all 0.2s',
       boxShadow: expanded ? `0 0 24px ${cfg.color}18` : 'none',
     }}>
-      {/* Header bar */}
       <div style={{ height: 3, background: `linear-gradient(90deg, ${cfg.color}, ${cfg.color}60)` }}/>
 
       <div style={{ padding: '16px 18px' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-          {/* Icon */}
           <div style={{ width: 38, height: 38, borderRadius: 10, background: cfg.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, position: 'relative' }}>
             <Icon style={{ width: 17, height: 17, color: cfg.color }}/>
-            {alert.is_active && (
+            {isActive && (
               <span style={{ position: 'absolute', top: -3, right: -3 }}>
                 <PulseRing color={cfg.color} size={7}/>
               </span>
             )}
           </div>
 
-          {/* Title and meta */}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', lineHeight: 1.3 }}>{alert.title}</div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', lineHeight: 1.3 }}>
+                {alert.message || `${alert.parameter || 'Parameter'} alert`}
+              </div>
               <button onClick={() => onExpand(alert.id)}
-                style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, borderRadius: 6, transition: 'all 0.15s' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.08)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, borderRadius: 6 }}>
                 <ChevronDown style={{ width: 15, height: 15, transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}/>
               </button>
             </div>
@@ -174,10 +74,7 @@ function AlertCard({ alert, onExpand, expanded }) {
               <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: cfg.badge, color: cfg.badgeText }}>
                 {cfg.label}
               </span>
-              <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'rgba(99,102,241,0.08)', color: '#818cf8' }}>
-                {TYPE_LABELS[alert.type] || alert.type}
-              </span>
-              {alert.is_active
+              {isActive
                 ? <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(16,185,129,0.1)', color: '#10b981' }}>
                     <PulseRing color="#10b981" size={6}/> Active
                   </span>
@@ -190,113 +87,47 @@ function AlertCard({ alert, onExpand, expanded }) {
 
             <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
               {alert.site_name && <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><MapPin style={{ width: 11, height: 11 }}/>{alert.site_name}</span>}
-              {alert.region && <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Globe2 style={{ width: 11, height: 11 }}/>{alert.region}</span>}
+              {alert.parameter && <span>· {alert.parameter}</span>}
             </div>
           </div>
         </div>
 
-        {/* Params row */}
-        {paramKeys.length > 0 && (
+        {(alert.current_value != null || alert.threshold_value != null) && (
           <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-            {paramKeys.map(k => (
-              <div key={k} style={{ padding: '5px 12px', borderRadius: 8, background: cfg.bg, border: `1px solid ${cfg.border}`, fontSize: 12 }}>
-                <span style={{ color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em' }}>{k.replace(/_/g,' ')}</span>
-                <span style={{ marginLeft: 6, fontWeight: 700, color: cfg.color }}>
-                  {typeof alert.parameters[k] === 'number' ? alert.parameters[k] : alert.parameters[k]}
-                </span>
+            {alert.current_value != null && (
+              <div style={{ padding: '5px 12px', borderRadius: 8, background: cfg.bg, border: `1px solid ${cfg.border}`, fontSize: 12 }}>
+                <span style={{ color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em' }}>Current</span>
+                <span style={{ marginLeft: 6, fontWeight: 700, color: cfg.color }}>{alert.current_value}</span>
               </div>
-            ))}
+            )}
+            {alert.threshold_value != null && (
+              <div style={{ padding: '5px 12px', borderRadius: 8, background: 'var(--border)', fontSize: 12 }}>
+                <span style={{ color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em' }}>Threshold</span>
+                <span style={{ marginLeft: 6, fontWeight: 700, color: 'var(--text)' }}>{alert.threshold_value}</span>
+              </div>
+            )}
           </div>
         )}
       </div>
-
-      {/* Expanded content */}
-      {expanded && (
-        <div style={{ padding: '0 18px 18px', borderTop: `1px solid ${cfg.border}`, paddingTop: 14 }}>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 12 }}>{alert.message}</p>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8, marginBottom: 14 }}>
-            {alert.population_affected && (
-              <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.1)', borderRadius: 9, padding: '8px 12px', fontSize: 12 }}>
-                <div style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Population Affected</div>
-                <div style={{ fontWeight: 700, color: 'var(--text)', marginTop: 2 }}>{alert.population_affected}</div>
-              </div>
-            )}
-            {alert.issued_by && (
-              <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.1)', borderRadius: 9, padding: '8px 12px', fontSize: 12 }}>
-                <div style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Issued By</div>
-                <div style={{ fontWeight: 700, color: 'var(--text)', marginTop: 2 }}>{alert.issued_by}</div>
-              </div>
-            )}
-            {alert.agency && (
-              <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.1)', borderRadius: 9, padding: '8px 12px', fontSize: 12 }}>
-                <div style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Agency</div>
-                <div style={{ fontWeight: 700, color: 'var(--text)', marginTop: 2 }}>{alert.agency}</div>
-              </div>
-            )}
-            {alert.site_id && (
-              <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.1)', borderRadius: 9, padding: '8px 12px', fontSize: 12 }}>
-                <div style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Site ID</div>
-                <div style={{ fontWeight: 700, color: 'var(--text)', marginTop: 2 }}>{alert.site_id}</div>
-              </div>
-            )}
-          </div>
-
-          {/* Timeline updates */}
-          {alert.updates?.length > 0 && (
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Update Timeline</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-                {alert.updates.map((u, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 4 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.color, flexShrink: 0 }}/>
-                      {i < alert.updates.length - 1 && <div style={{ width: 1, flex: 1, background: 'var(--border)', minHeight: 12, marginTop: 2 }}/>}
-                    </div>
-                    <div style={{ paddingBottom: 10 }}>
-                      <span style={{ fontSize: 11, color: cfg.color, fontWeight: 700 }}>{u.time}</span>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>{u.text}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 0', borderRadius: 9, background: cfg.bg, border: `1px solid ${cfg.border}`, color: cfg.color, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-              <Eye style={{ width: 13, height: 13 }}/> View on Map
-            </button>
-            <button style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 0', borderRadius: 9, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.15)', color: '#818cf8', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-              <Share2 style={{ width: 13, height: 13 }}/> Share Alert
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
 
-/* Fake Globe2 since not in lucide */
-function Globe2({ style, className }) {
-  return <MapPin style={style} className={className}/>
-}
-
-/* ── STATS BAR ── */
-function StatsBar({ alerts }) {
-  const active = alerts.filter(a => a.is_active)
-  const high = active.filter(a => a.severity === 'high').length
+/* ── Stats Bar (real numbers) ── */
+function StatsBar({ alerts, watchCount }) {
+  const active = alerts.filter(a => a.active === 1 || a.active === true)
+  const high   = active.filter(a => a.severity === 'high').length
   const medium = active.filter(a => a.severity === 'medium').length
-  const low = active.filter(a => a.severity === 'low').length
+  const low    = active.filter(a => a.severity === 'low').length
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12, marginBottom: 20 }}>
       {[
         { label: 'Active Alerts', value: active.length, color: '#ef4444', icon: Bell, pulse: active.length > 0 },
-        { label: 'Critical', value: high, color: '#ef4444', icon: AlertTriangle },
-        { label: 'Warnings', value: medium, color: '#f59e0b', icon: AlertTriangle },
-        { label: 'Advisories', value: low, color: '#10b981', icon: Info },
-        { label: 'Resolved (7d)', value: 8, color: '#64748b', icon: CheckCircle },
+        { label: 'Critical',      value: high,           color: '#ef4444', icon: AlertTriangle },
+        { label: 'Warnings',      value: medium,         color: '#f59e0b', icon: AlertTriangle },
+        { label: 'Advisories',    value: low,            color: '#10b981', icon: Info },
+        { label: 'My Watches',    value: watchCount,     color: '#6366f1', icon: Activity },
       ].map(s => (
         <div key={s.label} style={{
           background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12,
@@ -318,28 +149,222 @@ function StatsBar({ alerts }) {
   )
 }
 
+/* ── My Watches Panel ── */
+function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, onCheck, checking }) {
+  const [adding, setAdding] = useState(false)
+  const [form, setForm] = useState({ site_id: '', parameter: '', comparator: '>', threshold: '', severity: 'medium' })
+  const [busy, setBusy] = useState(false)
+
+  const reset = () => { setForm({ site_id: '', parameter: '', comparator: '>', threshold: '', severity: 'medium' }); setAdding(false) }
+
+  const submit = async () => {
+    if (!form.site_id || !form.parameter || form.threshold === '') return
+    setBusy(true)
+    const ok = await onCreate({ ...form, threshold: parseFloat(form.threshold), site_id: parseInt(form.site_id) })
+    setBusy(false)
+    if (ok) reset()
+  }
+
+  return (
+    <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 14, padding: '16px 18px', marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--text)' }}>My Watches</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+            Custom thresholds you set on real monitoring sites. The checker reads the latest observation and fires an alert when your condition is met.
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onCheck} disabled={checking || watches.length === 0}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: watches.length ? 'pointer' : 'not-allowed', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', opacity: watches.length ? 1 : 0.5 }}>
+            <RefreshCw style={{ width: 13, height: 13, animation: checking ? 'spin 1s linear infinite' : 'none' }}/>
+            Check now
+          </button>
+          <button onClick={() => setAdding(a => !a)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: 'none', background: '#6366f1', color: '#fff' }}>
+            <Plus style={{ width: 13, height: 13 }}/>
+            {adding ? 'Cancel' : 'Add watch'}
+          </button>
+        </div>
+      </div>
+
+      {adding && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, padding: 12, marginBottom: 12, background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 10 }}>
+          <select value={form.site_id} onChange={e => setForm(f => ({ ...f, site_id: e.target.value }))}
+            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}>
+            <option value="">Site…</option>
+            {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <select value={form.parameter} onChange={e => setForm(f => ({ ...f, parameter: e.target.value }))}
+            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}>
+            <option value="">Parameter…</option>
+            {options.parameters?.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </select>
+          <select value={form.comparator} onChange={e => setForm(f => ({ ...f, comparator: e.target.value }))}
+            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}>
+            {(options.comparators || ['>','<','>=','<=']).map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <input type="number" step="any" placeholder="Threshold (e.g. 6.5)" value={form.threshold}
+            onChange={e => setForm(f => ({ ...f, threshold: e.target.value }))}
+            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}/>
+          <select value={form.severity} onChange={e => setForm(f => ({ ...f, severity: e.target.value }))}
+            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}>
+            <option value="low">Advisory</option>
+            <option value="medium">Warning</option>
+            <option value="high">Critical</option>
+          </select>
+          <button onClick={submit} disabled={busy || !form.site_id || !form.parameter || form.threshold === ''}
+            style={{ padding: '8px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, background: '#10b981', color: '#fff', opacity: (busy || !form.site_id || !form.parameter || form.threshold === '') ? 0.5 : 1 }}>
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      )}
+
+      {watches.length === 0 ? (
+        <div style={{ padding: '16px 12px', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
+          No watches yet. Add one to be notified when a parameter at a site you care about crosses your threshold.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {watches.map(w => {
+            const sevCfg = SEV_CONFIG[w.severity] || SEV_CONFIG.info
+            return (
+              <div key={w.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                borderRadius: 10, border: `1px solid ${w.triggered ? sevCfg.border : 'var(--border)'}`,
+                background: w.triggered ? sevCfg.bg : 'transparent',
+              }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: sevCfg.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, position: 'relative' }}>
+                  <Activity style={{ width: 14, height: 14, color: sevCfg.color }}/>
+                  {w.triggered && <span style={{ position: 'absolute', top: -2, right: -2 }}><PulseRing color={sevCfg.color} size={6}/></span>}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span>{w.parameter_label || w.parameter}</span>
+                    <span style={{ color: sevCfg.color }}>{w.comparator} {w.threshold}</span>
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>at {w.site_name}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                    {w.has_data
+                      ? <>Latest: <strong style={{ color: w.triggered ? sevCfg.color : 'var(--text)' }}>{w.current_value}</strong> · {timeAgo(w.observed_at)}</>
+                      : <em>No observations recorded yet</em>}
+                    {w.last_checked_at && <> · checked {timeAgo(w.last_checked_at)}</>}
+                  </div>
+                </div>
+                <button onClick={() => onToggle(w)} title={w.active ? 'Pause' : 'Activate'}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 6, color: w.active ? '#10b981' : 'var(--text-muted)' }}>
+                  {w.active ? <Power style={{ width: 14, height: 14 }}/> : <PowerOff style={{ width: 14, height: 14 }}/>}
+                </button>
+                <button onClick={() => onDelete(w.id)} title="Delete"
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 6, color: '#ef4444' }}>
+                  <Trash2 style={{ width: 14, height: 14 }}/>
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Alerts() {
-  const [alerts, setAlerts] = useState(PRESET_ALERTS)
-  const [filter, setFilter] = useState('all')
-  const [typeFilter] = useState('all')
+  const [alerts, setAlerts]       = useState([])
+  const [watches, setWatches]     = useState([])
+  const [sites, setSites]         = useState([])
+  const [options, setOptions]     = useState({ parameters: [], comparators: ['>','<','>=','<='], severities: ['low','medium','high'] })
+  const [filter, setFilter]       = useState('all')
   const [expandedId, setExpandedId] = useState(null)
   const [notifEnabled, setNotifEnabled] = useState(true)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading]     = useState(false)
+  const [checking, setChecking]   = useState(false)
+  const [toast, setToast]         = useState(null)
+
+  const loadAlerts = async () => {
+    try {
+      const r = await api.get('/admin/alerts')
+      setAlerts(Array.isArray(r.data?.alerts) ? r.data.alerts : [])
+    } catch { setAlerts([]) }
+  }
+  const loadWatches = async () => {
+    try {
+      const r = await api.get('/alert-watches')
+      setWatches(Array.isArray(r.data?.watches) ? r.data.watches : [])
+    } catch { setWatches([]) }
+  }
+  const loadSites = async () => {
+    try {
+      const r = await api.get('/sites')
+      setSites(Array.isArray(r.data) ? r.data : [])
+    } catch { setSites([]) }
+  }
+  const loadOptions = async () => {
+    try {
+      const r = await api.get('/alert-watches/options')
+      if (r.data) setOptions(r.data)
+    } catch {}
+  }
 
   useEffect(() => {
-    api.get('/admin/alerts').then(r => {
-      const fetched = r.data.alerts || []
-      if (fetched.length) setAlerts(fetched)
-    }).catch(() => {})
+    loadAlerts(); loadWatches(); loadSites(); loadOptions()
+    // Refresh alerts + watch readings every 30s
+    const t = setInterval(() => { loadAlerts(); loadWatches() }, 30000)
+    return () => clearInterval(t)
   }, [])
+
+  const refreshAll = async () => {
+    setLoading(true)
+    await Promise.all([loadAlerts(), loadWatches()])
+    setLoading(false)
+  }
+
+  const createWatch = async (payload) => {
+    try {
+      await api.post('/alert-watches', payload)
+      await loadWatches()
+      return true
+    } catch (err) {
+      setToast({ type: 'error', text: err.response?.data?.error || 'Failed to create watch' })
+      setTimeout(() => setToast(null), 3000)
+      return false
+    }
+  }
+  const deleteWatch = async (id) => {
+    if (!confirm('Delete this watch?')) return
+    await api.delete(`/alert-watches/${id}`).catch(() => {})
+    loadWatches()
+  }
+  const toggleWatch = async (w) => {
+    await api.put(`/alert-watches/${w.id}`, { active: !w.active }).catch(() => {})
+    loadWatches()
+  }
+  const checkNow = async () => {
+    setChecking(true)
+    try {
+      const r = await api.post('/alert-watches/check')
+      const fired = (r.data?.results || []).filter(x => x.alert_created).length
+      setToast({
+        type: fired > 0 ? 'fire' : 'ok',
+        text: fired > 0 ? `${fired} new alert${fired === 1 ? '' : 's'} created` : 'All watches checked — none triggered'
+      })
+      setTimeout(() => setToast(null), 3500)
+      await Promise.all([loadAlerts(), loadWatches()])
+    } catch (err) {
+      setToast({ type: 'error', text: err.response?.data?.error || 'Check failed' })
+      setTimeout(() => setToast(null), 3000)
+    }
+    setChecking(false)
+  }
 
   const toggleExpand = (id) => setExpandedId(prev => prev === id ? null : id)
 
-  const filtered = alerts.filter(a => {
-    const sevMatch = filter === 'all' || (filter === 'active' ? a.is_active : filter === 'resolved' ? !a.is_active : a.severity === filter)
-    const typeMatch = typeFilter === 'all' || a.type === typeFilter
-    return sevMatch && typeMatch
-  })
+  const filtered = useMemo(() => alerts.filter(a => {
+    const isActive = a.active === 1 || a.active === true
+    if (filter === 'all')      return true
+    if (filter === 'active')   return isActive
+    if (filter === 'resolved') return !isActive
+    return a.severity === filter
+  }), [alerts, filter])
 
   return (
     <div style={{ position: 'relative', minHeight: '100vh' }}>
@@ -356,7 +381,7 @@ export default function Alerts() {
               </div>
               <div>
                 <h1 style={{ fontSize: 20, fontWeight: 900, color: 'var(--text)', margin: 0 }}>Water Quality Alerts</h1>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Algoma District · North Shore · Lake Superior Region</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Real alerts derived from your monitoring sites — no demo data</div>
               </div>
             </div>
           </div>
@@ -366,38 +391,45 @@ export default function Alerts() {
               {notifEnabled ? <Bell style={{ width: 14, height: 14 }}/> : <BellOff style={{ width: 14, height: 14 }}/>}
               {notifEnabled ? 'Notifications On' : 'Muted'}
             </button>
-            <button onClick={() => { setLoading(true); setTimeout(() => setLoading(false), 1000) }}
+            <button onClick={refreshAll}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none', background: 'var(--border)', color: 'var(--text-muted)' }}>
               <RefreshCw style={{ width: 13, height: 13, animation: loading ? 'spin 1s linear infinite' : 'none' }}/>
             </button>
           </div>
         </div>
 
-        {/* Stats bar */}
-        <StatsBar alerts={alerts}/>
+        <StatsBar alerts={alerts} watchCount={watches.length}/>
+
+        <WatchesPanel
+          watches={watches}
+          sites={sites}
+          options={options}
+          onCreate={createWatch}
+          onDelete={deleteWatch}
+          onToggle={toggleWatch}
+          onCheck={checkNow}
+          checking={checking}
+        />
 
         {/* Filters */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-            {[
-              { v: 'all', label: 'All' },
-              { v: 'active', label: 'Active' },
-              { v: 'high', label: 'Critical' },
-              { v: 'medium', label: 'Warnings' },
-              { v: 'low', label: 'Advisories' },
-              { v: 'resolved', label: 'Resolved' },
-            ].map(f => (
-              <button key={f.v} onClick={() => setFilter(f.v)}
-                style={{
-                  padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                  background: filter === f.v ? 'rgba(99,102,241,0.15)' : 'var(--border)',
-                  color: filter === f.v ? '#818cf8' : 'var(--text-muted)',
-                  transition: 'all 0.15s',
-                }}>
-                {f.label}
-              </button>
-            ))}
-          </div>
+          {[
+            { v: 'all',      label: 'All' },
+            { v: 'active',   label: 'Active' },
+            { v: 'high',     label: 'Critical' },
+            { v: 'medium',   label: 'Warnings' },
+            { v: 'low',      label: 'Advisories' },
+            { v: 'resolved', label: 'Resolved' },
+          ].map(f => (
+            <button key={f.v} onClick={() => setFilter(f.v)}
+              style={{
+                padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                background: filter === f.v ? 'rgba(99,102,241,0.15)' : 'var(--border)',
+                color: filter === f.v ? '#818cf8' : 'var(--text-muted)',
+              }}>
+              {f.label}
+            </button>
+          ))}
         </div>
 
         {/* Alert list */}
@@ -405,7 +437,11 @@ export default function Alerts() {
           <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 14, padding: '48px 24px', textAlign: 'center' }}>
             <CheckCircle style={{ width: 44, height: 44, color: '#10b981', margin: '0 auto 12px' }}/>
             <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text)', marginBottom: 4 }}>All Clear</div>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No alerts matching this filter. Water quality in your monitored region is within safe parameters.</div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+              {alerts.length === 0
+                ? 'No alerts have been raised yet. Add a watch above to be notified when a parameter crosses your threshold.'
+                : 'No alerts match this filter.'}
+            </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -419,15 +455,26 @@ export default function Alerts() {
         <div style={{ marginTop: 24, background: 'linear-gradient(135deg, rgba(14,165,233,0.06), rgba(99,102,241,0.04))', border: '1px solid rgba(14,165,233,0.15)', borderRadius: 14, padding: '16px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <Activity style={{ width: 15, height: 15, color: '#0ea5e9' }}/>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>About These Alerts</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>How alerts work</span>
           </div>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
-            Alerts are issued by certified water quality monitors, NORDIK Institute researchers, and approved community partners.
-            Real-time data is pulled from {alerts.length} active monitoring sites across the Algoma District.
-            For emergencies, contact your local public health unit immediately.
+            Each watch you add reads the latest observation for that site and parameter. When the value crosses your threshold,
+            a real alert row is created and shown above. Sites and observations come from this platform's database, including
+            data imported from Water Rangers and Algoma District monitoring partners. Nothing here is mocked.
           </p>
         </div>
       </div>
+
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 50,
+          padding: '12px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600,
+          background: toast.type === 'error' ? '#ef4444' : toast.type === 'fire' ? '#f59e0b' : '#10b981',
+          color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+        }}>
+          {toast.text}
+        </div>
+      )}
 
       <style>{`
         @keyframes alertPing {
