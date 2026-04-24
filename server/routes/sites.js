@@ -2,6 +2,7 @@ const router = require('express').Router()
 const db = require('../db/connection')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 const upload = require('../middleware/upload')
+const { getWRLocation } = require('../utils/wr-client')
 
 // GET /api/sites
 router.get('/', requireAuth, async (req, res) => {
@@ -31,6 +32,58 @@ router.get('/latest-observation', requireAuth, async (_req, res) => {
     res.json({ observation: row })
   } catch (err) {
     console.error('GET /sites/latest-observation error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/sites/adopt-wr — find-or-create a local sites row that points to
+// a Water Rangers location. Used by the Alerts UI so users can put watches on
+// any of the ~9,400 WR sites (which are NOT all imported into our DB).
+//
+// The local row stores name + lat/lng + a pointer (external_source='waterrangers',
+// external_id=<wr_id>). The alert checker recognises the pointer and fetches
+// LIVE readings from WR instead of looking in our observations table.
+//
+// Returns { site } — the local row, ready to use as alert_watches.site_id.
+router.post('/adopt-wr', requireAuth, async (req, res) => {
+  try {
+    const { wr_id } = req.body
+    if (wr_id == null || wr_id === '') return res.status(400).json({ error: 'wr_id required' })
+    const wrIdStr = String(wr_id)
+
+    // Already adopted? Return the existing row.
+    const existing = await db.get(
+      `SELECT * FROM sites WHERE external_source='waterrangers' AND external_id=?`,
+      [wrIdStr])
+    if (existing) return res.json({ site: existing, created: false })
+
+    // Fetch metadata from WR. We need name + coordinates — both are required by
+    // our schema. If WR is down or returns garbage, surface a clear error.
+    const wr = await getWRLocation(wrIdStr).catch(err => {
+      throw new Error(`Could not load Water Rangers location ${wrIdStr}: ${err.message}`)
+    })
+    const lat = parseFloat(wr?.latitude)
+    const lng = parseFloat(wr?.longitude)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(422).json({ error: 'Water Rangers site is missing coordinates' })
+    }
+
+    const name = wr?.name || `Water Rangers site #${wrIdStr}`
+    const description = wr?.description || wr?.location_description || null
+    const bodyOfWater = wr?.body_of_water || wr?.water_body || null
+    const orgName = wr?.organization_name || wr?.organization?.name || 'Water Rangers'
+
+    const { lastInsertRowid } = await db.run(
+      `INSERT INTO sites (name, description, latitude, longitude, body_of_water,
+                          organization, dataset_name, access_risk, parameters_tested,
+                          community, external_source, external_id, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'Low', ?, ?, 'waterrangers', ?, ?)`,
+      [name, description, lat, lng, bodyOfWater, orgName, 'Water Rangers',
+       JSON.stringify([]), null, wrIdStr, req.user.id])
+    const created = await db.get('SELECT * FROM sites WHERE id=?', [lastInsertRowid])
+    res.json({ site: created, created: true })
+  } catch (err) {
+    console.error('POST /sites/adopt-wr error:', err)
     res.status(500).json({ error: err.message })
   }
 })

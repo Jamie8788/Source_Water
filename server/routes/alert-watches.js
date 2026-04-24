@@ -13,6 +13,8 @@
 const router = require('express').Router()
 const db = require('../db/connection')
 const { requireAuth } = require('../middleware/auth')
+const { getWRObservations } = require('../utils/wr-client')
+const { latestWRReading, historyWRReadings } = require('../utils/wr-param-map')
 
 // Columns on `observations` that map 1:1 to a numeric parameter. ANYTHING
 // outside this set is rejected by the API before it ever touches a query.
@@ -51,14 +53,29 @@ function humanLabel(p) {
 }
 
 // Read the latest observation for a site and pull the requested parameter.
+// If the site is an adopted Water Rangers location (external_source='waterrangers'),
+// fetch live from WR; otherwise read the local observations table.
 // Returns { value, observed_at } or null if no observation exists yet.
-async function latestReading(siteId, param) {
+async function latestReading(site, param) {
   if (!ALLOWED_PARAMS.includes(param)) return null
+  if (!site) return null
+
+  if (site.external_source === 'waterrangers' && site.external_id) {
+    try {
+      const data = await getWRObservations(site.external_id, 50)
+      const arr = Array.isArray(data) ? data : (Array.isArray(data?.observations) ? data.observations : [])
+      return latestWRReading(arr, param)
+    } catch (err) {
+      console.error('[alert-watches] WR fetch failed for site', site.id, err.message)
+      return null
+    }
+  }
+
   const row = await db.get(
     `SELECT ${param} AS value, observed_at FROM observations
      WHERE site_id=? AND ${param} IS NOT NULL
      ORDER BY observed_at DESC LIMIT 1`,
-    [siteId])
+    [site.id])
   if (!row || row.value == null) return null
   return { value: parseFloat(row.value), observed_at: row.observed_at }
 }
@@ -67,7 +84,8 @@ async function latestReading(siteId, param) {
 router.get('/', requireAuth, async (req, res) => {
   try {
     const watches = await db.all(
-      `SELECT w.*, s.name AS site_name, s.body_of_water, s.community
+      `SELECT w.*, s.name AS site_name, s.body_of_water, s.community,
+              s.external_source, s.external_id
        FROM alert_watches w
        LEFT JOIN sites s ON w.site_id = s.id
        WHERE w.user_id = ?
@@ -75,7 +93,8 @@ router.get('/', requireAuth, async (req, res) => {
       [req.user.id])
 
     const enriched = await Promise.all(watches.map(async w => {
-      const reading = await latestReading(w.site_id, w.parameter).catch(() => null)
+      const site = { id: w.site_id, external_source: w.external_source, external_id: w.external_id }
+      const reading = await latestReading(site, w.parameter).catch(() => null)
       const triggered = reading
         ? evalRule(reading.value, w.comparator, parseFloat(w.threshold))
         : false
@@ -86,6 +105,7 @@ router.get('/', requireAuth, async (req, res) => {
         observed_at: reading?.observed_at ?? null,
         triggered,
         has_data: !!reading,
+        is_external: w.external_source === 'waterrangers',
       }
     }))
     res.json({ watches: enriched })
@@ -171,14 +191,16 @@ router.delete('/:id', requireAuth, async (req, res) => {
 router.post('/check', requireAuth, async (req, res) => {
   try {
     const watches = await db.all(
-      `SELECT w.*, s.name AS site_name FROM alert_watches w
+      `SELECT w.*, s.name AS site_name, s.external_source, s.external_id
+       FROM alert_watches w
        LEFT JOIN sites s ON w.site_id=s.id
        WHERE w.user_id=? AND w.active=1`,
       [req.user.id])
 
     const results = []
     for (const w of watches) {
-      const reading = await latestReading(w.site_id, w.parameter).catch(() => null)
+      const site = { id: w.site_id, external_source: w.external_source, external_id: w.external_id }
+      const reading = await latestReading(site, w.parameter).catch(() => null)
       const value = reading?.value ?? null
       const triggered = reading
         ? evalRule(value, w.comparator, parseFloat(w.threshold))
@@ -238,24 +260,44 @@ router.get('/options', requireAuth, (_req, res) => {
 
 // GET /api/alert-watches/:id/history — last N observations for this watch's
 // site+parameter, so the UI can render a sparkline showing the reading vs.
-// the threshold over time. Real data only.
+// the threshold over time. Real data only — local DB or live WR pull,
+// depending on whether the site is an adopted external location.
 router.get('/:id/history', requireAuth, async (req, res) => {
   try {
-    const w = await db.get('SELECT * FROM alert_watches WHERE id=? AND user_id=?',
+    const w = await db.get(
+      `SELECT w.*, s.external_source, s.external_id
+       FROM alert_watches w LEFT JOIN sites s ON w.site_id=s.id
+       WHERE w.id=? AND w.user_id=?`,
       [req.params.id, req.user.id])
     if (!w) return res.status(404).json({ error: 'watch not found' })
     if (!ALLOWED_PARAMS.includes(w.parameter)) return res.json({ points: [] })
 
-    const rows = await db.all(
-      `SELECT ${w.parameter} AS value, observed_at FROM observations
-       WHERE site_id=? AND ${w.parameter} IS NOT NULL
-       ORDER BY observed_at DESC LIMIT 30`,
-      [w.site_id])
-    const points = rows.reverse().map(r => ({
-      value: parseFloat(r.value),
-      observed_at: r.observed_at,
-    }))
-    res.json({ points, threshold: parseFloat(w.threshold), comparator: w.comparator })
+    let points = []
+    if (w.external_source === 'waterrangers' && w.external_id) {
+      try {
+        const data = await getWRObservations(w.external_id, 100)
+        const arr = Array.isArray(data) ? data : (Array.isArray(data?.observations) ? data.observations : [])
+        points = historyWRReadings(arr, w.parameter, 30)
+      } catch (err) {
+        console.error('[alert-watches] WR history fetch failed:', err.message)
+      }
+    } else {
+      const rows = await db.all(
+        `SELECT ${w.parameter} AS value, observed_at FROM observations
+         WHERE site_id=? AND ${w.parameter} IS NOT NULL
+         ORDER BY observed_at DESC LIMIT 30`,
+        [w.site_id])
+      points = rows.reverse().map(r => ({
+        value: parseFloat(r.value),
+        observed_at: r.observed_at,
+      }))
+    }
+    res.json({
+      points,
+      threshold: parseFloat(w.threshold),
+      comparator: w.comparator,
+      source: w.external_source === 'waterrangers' ? 'waterrangers' : 'local',
+    })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

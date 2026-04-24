@@ -425,6 +425,13 @@ async function initSchema() {
       `ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
       `UPDATE sponsors SET is_active = CASE WHEN status = 'inactive' THEN 0 ELSE 1 END`,
       `CREATE TABLE IF NOT EXISTS banned_emails (email TEXT PRIMARY KEY, banned_at TIMESTAMPTZ DEFAULT NOW(), reason TEXT)`,
+      // external_source / external_id let a site row reference a partner system
+      // (e.g. Water Rangers location). NULL = local-only site (current behaviour).
+      // The alert checker reads these columns to decide whether to look up the
+      // latest reading in our DB or fetch live from the WR API.
+      `ALTER TABLE sites ADD COLUMN IF NOT EXISTS external_source TEXT`,
+      `ALTER TABLE sites ADD COLUMN IF NOT EXISTS external_id TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_sites_external ON sites(external_source, external_id)`,
     ]
     for (const m of migrations) {
       await db.exec(m).catch(() => {}) // ignore if already exists
@@ -928,6 +935,10 @@ async function initSchema() {
       `ALTER TABLE sponsors ADD COLUMN display_order INTEGER DEFAULT 0`,
       `ALTER TABLE sponsors ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))`,
       `UPDATE sponsors SET is_active = CASE WHEN status = 'inactive' THEN 0 ELSE 1 END`,
+      // Partner-system pointer (Water Rangers etc.) — see PG migration above.
+      `ALTER TABLE sites ADD COLUMN external_source TEXT`,
+      `ALTER TABLE sites ADD COLUMN external_id TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_sites_external ON sites(external_source, external_id)`,
     ]
     for (const m of sqliteMigrations) {
       try { db.sqlite.exec(m) } catch (_) {} // ignore "duplicate column" errors

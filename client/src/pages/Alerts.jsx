@@ -8,7 +8,7 @@ import {
   AlertTriangle, Info, CheckCircle, Bell, BellOff,
   MapPin, Clock, RefreshCw, ChevronDown,
   Activity, Plus, Trash2, Power, PowerOff,
-  Target, Database, Zap, BookOpen,
+  Target, Database, Zap, BookOpen, Search, Globe,
 } from 'lucide-react'
 
 /* ── Parameter guidance (Canadian drinking water + CCME aquatic life) ── */
@@ -424,14 +424,112 @@ function GuidanceCard({ param }) {
   )
 }
 
+/* ── Water Rangers site typeahead ──
+   Lazy-loads /api/wr/locations-all (server caches 1hr) the first time the
+   user opens the WR picker. Search is purely client-side filter to keep it
+   snappy on 9,400 rows. Picking a result calls /sites/adopt-wr which
+   returns a local sites row id we can attach a watch to. */
+function WRSiteSearch({ onPicked, onError }) {
+  const [allLocs, setAllLocs] = useState(null) // null = not loaded
+  const [loadingList, setLoadingList] = useState(false)
+  const [query, setQuery] = useState('')
+  const [adopting, setAdopting] = useState(null) // wr_id currently being adopted
+  const [picked, setPicked] = useState(null)     // { wr_id, name } once adopted
+
+  useEffect(() => {
+    if (allLocs !== null) return
+    setLoadingList(true)
+    api.get('/wr/locations-all')
+      .then(r => setAllLocs(Array.isArray(r.data?.locations) ? r.data.locations : []))
+      .catch(() => { setAllLocs([]); onError?.('Could not reach Water Rangers') })
+      .finally(() => setLoadingList(false))
+  }, [allLocs, onError])
+
+  const results = useMemo(() => {
+    if (!allLocs) return []
+    const q = query.trim().toLowerCase()
+    if (q.length < 2) return []
+    return allLocs.filter(l => {
+      const hay = `${l.name || ''} ${l.body_of_water || ''} ${l.location_description || ''} ${l.organization_name || ''}`.toLowerCase()
+      return hay.includes(q)
+    }).slice(0, 30)
+  }, [allLocs, query])
+
+  const adopt = async (loc) => {
+    setAdopting(loc.id)
+    try {
+      const r = await api.post('/sites/adopt-wr', { wr_id: loc.id })
+      const s = r.data?.site
+      if (s?.id) {
+        setPicked({ wr_id: loc.id, name: s.name, site_id: s.id })
+        onPicked(s)
+      }
+    } catch (err) {
+      onError?.(err.response?.data?.error || 'Adoption failed')
+    }
+    setAdopting(null)
+  }
+
+  return (
+    <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ position: 'relative' }}>
+        <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: 'var(--text-muted)', pointerEvents: 'none' }}/>
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder={loadingList ? 'Loading 9,400+ Water Rangers sites…' : 'Type a lake / river / community (min 2 chars)…'}
+          disabled={loadingList || picked != null}
+          style={{ width: '100%', padding: '9px 12px 9px 32px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}
+        />
+      </div>
+
+      {picked ? (
+        <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', fontSize: 12, color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span><CheckCircle style={{ width: 12, height: 12, color: '#10b981', marginRight: 6, verticalAlign: 'middle' }}/>
+            <strong>{picked.name}</strong> — ready to watch
+          </span>
+          <button onClick={() => { setPicked(null); setQuery('') }}
+            style={{ background: 'transparent', border: 'none', color: '#0ea5e9', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>Change</button>
+        </div>
+      ) : results.length > 0 ? (
+        <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--card-bg)' }}>
+          {results.map(loc => (
+            <button key={loc.id} onClick={() => adopt(loc)} disabled={adopting != null}
+              style={{ width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', borderBottom: '1px solid var(--border)', background: adopting === loc.id ? 'rgba(99,102,241,0.08)' : 'transparent', cursor: adopting != null ? 'wait' : 'pointer', color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ minWidth: 0, overflow: 'hidden' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{loc.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {loc.body_of_water || loc.location_description || 'Water Rangers site'}{loc.organization_name ? ` · ${loc.organization_name}` : ''}
+                </div>
+              </span>
+              <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 700, flexShrink: 0, marginLeft: 8 }}>
+                {adopting === loc.id ? 'Adding…' : 'Pick →'}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : query.trim().length >= 2 && !loadingList ? (
+        <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
+          No Water Rangers sites match "{query}".
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 /* ── My Watches Panel ── */
-function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, onCheck, checking }) {
+function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, onCheck, checking, onToast, onSitesChanged }) {
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState({ site_id: '', parameter: '', comparator: '>', threshold: '', severity: 'medium' })
   const [busy, setBusy] = useState(false)
   const [expandedId, setExpandedId] = useState(null)
+  const [source, setSource] = useState('local') // 'local' | 'wr'
 
-  const reset = () => { setForm({ site_id: '', parameter: '', comparator: '>', threshold: '', severity: 'medium' }); setAdding(false) }
+  const reset = () => {
+    setForm({ site_id: '', parameter: '', comparator: '>', threshold: '', severity: 'medium' })
+    setAdding(false)
+    setSource('local')
+  }
 
   const submit = async () => {
     if (!form.site_id || !form.parameter || form.threshold === '') return
@@ -439,6 +537,11 @@ function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, o
     const ok = await onCreate({ ...form, threshold: parseFloat(form.threshold), site_id: parseInt(form.site_id) })
     setBusy(false)
     if (ok) reset()
+  }
+
+  const onWRPicked = (site) => {
+    setForm(f => ({ ...f, site_id: site.id }))
+    onSitesChanged?.()
   }
 
   return (
@@ -466,11 +569,27 @@ function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, o
 
       {adding && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, padding: 12, marginBottom: 12, background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 10 }}>
-          <select value={form.site_id} onChange={e => setForm(f => ({ ...f, site_id: e.target.value }))}
-            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}>
-            <option value="">Site…</option>
-            {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          {/* Source toggle: pick from our local list or search 9,400+ Water Rangers sites */}
+          <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button type="button" onClick={() => { setSource('local'); setForm(f => ({ ...f, site_id: '' })) }}
+              style={{ padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, background: source === 'local' ? '#6366f1' : 'var(--border)', color: source === 'local' ? '#fff' : 'var(--text-muted)' }}>
+              <Database style={{ width: 12, height: 12 }}/> Our sites ({sites.length})
+            </button>
+            <button type="button" onClick={() => { setSource('wr'); setForm(f => ({ ...f, site_id: '' })) }}
+              style={{ padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, background: source === 'wr' ? '#0ea5e9' : 'var(--border)', color: source === 'wr' ? '#fff' : 'var(--text-muted)' }}>
+              <Globe style={{ width: 12, height: 12 }}/> Water Rangers (9,400+)
+            </button>
+          </div>
+
+          {source === 'local' ? (
+            <select value={form.site_id} onChange={e => setForm(f => ({ ...f, site_id: e.target.value }))}
+              style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}>
+              <option value="">Site…</option>
+              {sites.filter(s => s.external_source !== 'waterrangers').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          ) : (
+            <WRSiteSearch onPicked={onWRPicked} onError={msg => onToast?.({ type: 'error', text: msg })}/>
+          )}
           <select value={form.parameter} onChange={e => setForm(f => ({ ...f, parameter: e.target.value }))}
             style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}>
             <option value="">Parameter…</option>
@@ -523,6 +642,12 @@ function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, o
                       <span>{w.parameter_label || w.parameter}</span>
                       <span style={{ color: sevCfg.color }}>{w.comparator} {w.threshold}{guide?.unit ? ` ${guide.unit}` : ''}</span>
                       <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>at {w.site_name}</span>
+                      {w.is_external && (
+                        <span title="Live from Water Rangers API on every check"
+                          style={{ padding: '2px 7px', borderRadius: 20, fontSize: 9, fontWeight: 800, background: 'rgba(14,165,233,0.12)', color: '#0ea5e9', display: 'inline-flex', alignItems: 'center', gap: 3, letterSpacing: '0.04em' }}>
+                          <Globe style={{ width: 9, height: 9 }}/> WR LIVE
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
                       {w.has_data
@@ -711,6 +836,8 @@ export default function Alerts() {
           onToggle={toggleWatch}
           onCheck={checkNow}
           checking={checking}
+          onToast={t => { setToast(t); setTimeout(() => setToast(null), 3000) }}
+          onSitesChanged={loadSites}
         />
 
         {/* Filters */}
