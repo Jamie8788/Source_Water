@@ -55,20 +55,17 @@ function AdminGuard() {
   return <Outlet />
 }
 
-// Alerts tab: admins see the real feature; everyone else still gets Coming Soon.
-// Also trust the canonical admin identifiers as a fallback in case isAdmin is
-// stale in localStorage — users with username 'admin' or email
-// admin@sourcewater.app always get through.
-function AlertsRoute() {
+// Admins bypass any ComingSoon gate so they can preview the real feature; regular
+// users still see ComingSoon. Falls back to canonical admin username/email in case
+// isAdmin is stale in cached localStorage.
+function AdminGated({ admin, fallback }) {
   const { user, isAdmin } = useAuth()
   const isPlatformAdmin = user && (
     isAdmin ||
     user.username?.toLowerCase() === 'admin' ||
     user.email?.toLowerCase() === 'admin@sourcewater.app'
   )
-  return isPlatformAdmin
-    ? <Alerts />
-    : <ComingSoon title="Alerts" message="Threshold warnings and live alerts are being prepared. Check back soon." />
+  return isPlatformAdmin ? admin : fallback
 }
 
 function QuizCreatorGuard() {
@@ -92,16 +89,16 @@ function AppRoutes() {
           <Route path="/map"        element={<MapPage />} />
           <Route path="/geoanalytics" element={<GeoAnalytics />} />
           <Route path="/monitoring"   element={<WRMonitoringMap />} />
-          <Route path="/explorer"     element={<ComingSoon title="Dive into Data" message="Observation details, datasets, and exploration tools are being prepared. Check back soon." />} />
-          <Route path="/ai-lab"       element={<ComingSoon title="Wet Lab" message="Advanced AI reports, anomaly detection, and trend analysis are being prepared. Check back soon." />} />
+          <Route path="/explorer"     element={<AdminGated admin={<WRDataExplorer />} fallback={<ComingSoon title="Dive into Data" message="Observation details, datasets, and exploration tools are being prepared. Check back soon." />} />} />
+          <Route path="/ai-lab"       element={<AdminGated admin={<WRAILab />} fallback={<ComingSoon title="Wet Lab" message="Advanced AI reports, anomaly detection, and trend analysis are being prepared. Check back soon." />} />} />
           <Route path="/methods"      element={<WRMethods />} />
           <Route path="/social"     element={<Social />} />
           <Route path="/quiz"       element={<QuizMe />} />
-          <Route path="/resources"  element={<ComingSoon title="Resources" message="Guides, articles, and learning materials are being curated for you." really />} />
+          <Route path="/resources"  element={<AdminGated admin={<Resources />} fallback={<ComingSoon title="Resources" message="Guides, articles, and learning materials are being curated for you." />} />} />
           <Route path="/projects"   element={<Projects />} />
           <Route path="/analysis"   element={<Analysis />} />
           <Route path="/reports"    element={<Reports />} />
-          <Route path="/alerts"     element={<AlertsRoute />} />
+          <Route path="/alerts"     element={<AdminGated admin={<Alerts />} fallback={<ComingSoon title="Alerts" message="Threshold warnings and live alerts are being prepared. Check back soon." />} />} />
           <Route path="/weather"    element={<Weather />} />
           <Route path="/games"      element={<Games />} />
           <Route path="/research"      element={<ResearchHub />} />
