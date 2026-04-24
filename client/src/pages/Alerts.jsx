@@ -147,8 +147,8 @@ function WatchesMap({ watches, sites }) {
       <div style={{ height: 280, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)' }}>
         <MapContainer center={[46.5, -84]} zoom={6} style={{ height: '100%', width: '100%' }} scrollWheelZoom={false}>
           <TileLayer
-            attribution='&copy; OpenStreetMap'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='&copy; OpenStreetMap contributors &copy; CARTO'
+            url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
           />
           <FitBounds points={points}/>
           {points.map(p => {
