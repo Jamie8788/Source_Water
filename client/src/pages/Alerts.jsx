@@ -2,13 +2,14 @@ import PageAmbience from '../components/layout/PageAmbience'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
-import { LineChart, Line, ReferenceLine, YAxis, Tooltip as RTooltip, ResponsiveContainer } from 'recharts'
+import { LineChart, Line, ReferenceLine, ReferenceArea, YAxis, XAxis, Tooltip as RTooltip, ResponsiveContainer } from 'recharts'
 import api from '../utils/api'
 import {
   AlertTriangle, Info, CheckCircle, Bell, BellOff,
   MapPin, Clock, RefreshCw, ChevronDown,
   Activity, Plus, Trash2, Power, PowerOff,
   Target, Database, Zap, BookOpen, Search, Globe,
+  TrendingUp, TrendingDown, Minus, Sparkles,
 } from 'lucide-react'
 
 /* ── Parameter guidance (Canadian drinking water + CCME aquatic life) ── */
@@ -198,35 +199,310 @@ function LegendDot({ color, label }) {
   )
 }
 
-/* ── Sparkline: last 30 observations vs threshold ── */
-function WatchSparkline({ watchId, comparator, threshold, severityColor }) {
-  const [data, setData] = useState([])
-  const [loaded, setLoaded] = useState(false)
-  useEffect(() => {
-    let cancelled = false
-    api.get(`/alert-watches/${watchId}/history`)
-      .then(r => { if (!cancelled) { setData(r.data?.points || []); setLoaded(true) } })
-      .catch(() => { if (!cancelled) setLoaded(true) })
-    return () => { cancelled = true }
-  }, [watchId])
+/* ── Stats utilities (pure math, no AI, no mocks) ──
+   All numbers computed client-side from real observation rows returned by
+   /alert-watches/:id/history. For WR-LIVE watches that endpoint pulls fresh
+   observations from the Water Rangers API on every request. */
 
-  if (!loaded) return <div style={{ height: 40, fontSize: 10, color: 'var(--text-muted)', padding: '8px 0' }}>Loading history…</div>
-  if (data.length < 2) return <div style={{ height: 40, fontSize: 10, color: 'var(--text-muted)', padding: '8px 0' }}>Not enough observations yet to chart.</div>
+function parseSafeRange(safeStr) {
+  if (!safeStr) return null
+  const s = String(safeStr).trim().toLowerCase()
+  if (s.includes('site-dependent') || s === 'n/a' || s.includes('treated')) return null
+  let m = s.match(/^([\d.]+)\s*[–\-]\s*([\d.]+)/)
+  if (m) return { min: parseFloat(m[1]), max: parseFloat(m[2]) }
+  m = s.match(/^[≥]\s*([\d.]+)/) || s.match(/^>=?\s*([\d.]+)/)
+  if (m) return { min: parseFloat(m[1]), max: null }
+  m = s.match(/^[≤]\s*([\d.]+)/) || s.match(/^<=?\s*([\d.]+)/)
+  if (m) return { min: null, max: parseFloat(m[1]) }
+  return null
+}
+
+function inSafe(v, sr) {
+  if (!sr) return null
+  if (sr.min != null && v < sr.min) return false
+  if (sr.max != null && v > sr.max) return false
+  return true
+}
+
+function isBreach(v, threshold, comparator) {
+  const t = parseFloat(threshold)
+  if (!isFinite(t) || !isFinite(v)) return false
+  if (comparator === '>')  return v > t
+  if (comparator === '<')  return v < t
+  if (comparator === '>=') return v >= t
+  if (comparator === '<=') return v <= t
+  return false
+}
+
+function computeStats(points, threshold, comparator, safeRange) {
+  if (!points || points.length === 0) return null
+  const clean = points
+    .map((p, i) => ({ ...p, _i: i, _v: typeof p.value === 'number' ? p.value : parseFloat(p.value), _ts: new Date(p.observed_at).getTime() }))
+    .filter(p => isFinite(p._v) && isFinite(p._ts))
+  if (clean.length === 0) return null
+
+  const values = clean.map(p => p._v)
+  const n = values.length
+  const mean = values.reduce((s, v) => s + v, 0) / n
+  let mn = values[0], mx = values[0]
+  for (const v of values) { if (v < mn) mn = v; if (v > mx) mx = v }
+  const variance = n > 1 ? values.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1) : 0
+  const stddev = Math.sqrt(variance)
+
+  let pctInSafe = null
+  if (safeRange) {
+    const inCount = values.filter(v => inSafe(v, safeRange)).length
+    pctInSafe = (inCount / n) * 100
+  }
+
+  let lastBreachDate = null
+  let breachCount = 0
+  for (const p of clean) {
+    if (isBreach(p._v, threshold, comparator)) {
+      breachCount++
+      if (!lastBreachDate || p._ts > new Date(lastBreachDate).getTime()) lastBreachDate = p.observed_at
+    }
+  }
+
+  let slopePerWeek = null
+  let timeSpanDays = null
+  if (clean.length >= 3) {
+    const meanX = clean.reduce((s, p) => s + p._ts, 0) / clean.length
+    const meanY = mean
+    let num = 0, den = 0
+    for (const p of clean) {
+      num += (p._ts - meanX) * (p._v - meanY)
+      den += (p._ts - meanX) ** 2
+    }
+    if (den > 0) slopePerWeek = (num / den) * 7 * 24 * 3600 * 1000
+    const tsMin = Math.min(...clean.map(p => p._ts))
+    const tsMax = Math.max(...clean.map(p => p._ts))
+    timeSpanDays = (tsMax - tsMin) / (24 * 3600 * 1000)
+  }
+
+  const anomalyIdx = new Set()
+  if (stddev > 0) {
+    clean.forEach(p => {
+      if (Math.abs(p._v - mean) > 2 * stddev) anomalyIdx.add(p._i)
+    })
+  }
+
+  return { n, mean, min: mn, max: mx, stddev, pctInSafe, lastBreachDate, breachCount, slopePerWeek, timeSpanDays, anomalyIdx }
+}
+
+/* ── Stats strip: 6 small cards explaining the chart in plain words ── */
+function StatsStrip({ stats, guide, watch }) {
+  const unit = guide?.unit || ''
+  const fmt = (v, d = 2) => (v == null || !isFinite(v) ? '—' : v.toFixed(d))
+  const slopeIcon = stats.slopePerWeek == null ? Minus
+    : stats.slopePerWeek >  Math.max(stats.stddev * 0.05, 0.005) ? TrendingUp
+    : stats.slopePerWeek < -Math.max(stats.stddev * 0.05, 0.005) ? TrendingDown
+    : Minus
+  const slopeColor = slopeIcon === TrendingUp ? '#f59e0b'
+    : slopeIcon === TrendingDown ? '#0ea5e9'
+    : '#64748b'
+  const slopeText = stats.slopePerWeek == null ? 'Stable'
+    : slopeIcon === Minus ? 'Stable'
+    : `${stats.slopePerWeek > 0 ? '+' : ''}${fmt(stats.slopePerWeek, 3)}${unit ? ' ' + unit : ''}/wk`
+
+  const safePctColor = stats.pctInSafe == null ? 'var(--text)'
+    : stats.pctInSafe >= 90 ? '#10b981'
+    : stats.pctInSafe >= 70 ? '#f59e0b'
+    : '#ef4444'
+
+  const cards = [
+    { label: 'Average', value: `${fmt(stats.mean)}${unit ? ' ' + unit : ''}`, hint: `Mean of all ${stats.n} readings` },
+    { label: 'Range', value: `${fmt(stats.min)} – ${fmt(stats.max)}`, sub: unit, hint: 'Lowest to highest reading on record' },
+    { label: 'Variability', value: `± ${fmt(stats.stddev)}${unit ? ' ' + unit : ''}`, hint: '1 standard deviation. Smaller = readings cluster tightly around the average.' },
+    stats.pctInSafe != null && {
+      label: 'In safe range', value: `${fmt(stats.pctInSafe, 0)}%`, color: safePctColor,
+      hint: `% of readings inside the Health Canada / CCME guideline range (${guide.safe}${unit ? ' ' + unit : ''})`,
+    },
+    {
+      label: 'Trend (per week)', value: slopeText, color: slopeColor, IconC: slopeIcon,
+      hint: 'Linear trend across the time window. ↑ rising, ↓ falling, — stable.',
+    },
+    {
+      label: 'Last breach',
+      value: stats.lastBreachDate ? timeAgo(stats.lastBreachDate) : 'Never',
+      color: stats.lastBreachDate ? '#f59e0b' : '#10b981',
+      hint: `Last reading that crossed your threshold (${watch.comparator} ${watch.threshold}). Total breaches: ${stats.breachCount}.`,
+    },
+  ].filter(Boolean)
 
   return (
-    <div style={{ height: 52, marginTop: 6 }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 4, right: 2, bottom: 0, left: 2 }}>
-          <YAxis hide domain={['auto', 'auto']}/>
-          <RTooltip
-            contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border)', fontSize: 11, borderRadius: 8 }}
-            labelFormatter={(_, p) => p?.[0]?.payload?.observed_at ? new Date(p[0].payload.observed_at).toLocaleDateString() : ''}
-            formatter={(v) => [v, 'Value']}
-          />
-          <ReferenceLine y={threshold} stroke={severityColor} strokeDasharray="3 3" strokeWidth={1.5}/>
-          <Line type="monotone" dataKey="value" stroke={severityColor} strokeWidth={2} dot={false}/>
-        </LineChart>
-      </ResponsiveContainer>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(115px, 1fr))', gap: 6, marginBottom: 10 }}>
+      {cards.map(c => {
+        const Icon = c.IconC
+        return (
+          <div key={c.label} title={c.hint}
+            style={{ padding: '7px 10px', borderRadius: 9, background: 'rgba(0,0,0,0.025)', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{c.label}</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: c.color || 'var(--text)', lineHeight: 1.15, display: 'flex', alignItems: 'center', gap: 4 }}>
+              {Icon && <Icon style={{ width: 13, height: 13 }}/>}
+              <span>{c.value}</span>
+            </div>
+            {c.sub && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{c.sub}</div>}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/* ── Plain-language interpretation: tells the story the stats already prove ── */
+function Interpretation({ stats, guide, watch }) {
+  const unit = guide?.unit ? ' ' + guide.unit : ''
+  const paramName = watch.parameter_label || watch.parameter
+  const sentences = []
+
+  if (stats.slopePerWeek != null && stats.timeSpanDays >= 7) {
+    const significant = Math.abs(stats.slopePerWeek) > Math.max(stats.stddev * 0.05, 0.005)
+    if (!significant) {
+      sentences.push(`${paramName} has been stable over the last ${Math.round(stats.timeSpanDays)} days.`)
+    } else if (stats.slopePerWeek > 0) {
+      sentences.push(`${paramName} is rising — about ${stats.slopePerWeek.toFixed(3)}${unit} per week across ${Math.round(stats.timeSpanDays)} days of readings.`)
+    } else {
+      sentences.push(`${paramName} is falling — about ${Math.abs(stats.slopePerWeek).toFixed(3)}${unit} per week across ${Math.round(stats.timeSpanDays)} days of readings.`)
+    }
+  }
+
+  if (stats.pctInSafe != null) {
+    if (stats.pctInSafe >= 95)      sentences.push(`${stats.pctInSafe.toFixed(0)}% of readings sit inside the safe guideline range — healthy.`)
+    else if (stats.pctInSafe >= 70) sentences.push(`${stats.pctInSafe.toFixed(0)}% inside the safe range, ${(100 - stats.pctInSafe).toFixed(0)}% outside — worth watching.`)
+    else                            sentences.push(`Only ${stats.pctInSafe.toFixed(0)}% of readings are inside the safe range — frequent excursions.`)
+  }
+
+  const anomalyN = stats.anomalyIdx?.size || 0
+  if (anomalyN > 0) {
+    sentences.push(`${anomalyN} reading${anomalyN === 1 ? '' : 's'} stand${anomalyN === 1 ? 's' : ''} out as unusually ${anomalyN === 1 ? 'high or low' : 'high/low'} (more than 2σ from the average) — marked red on the chart.`)
+  }
+
+  if (stats.breachCount > 0) {
+    sentences.push(`Your threshold (${watch.comparator} ${watch.threshold}) was crossed ${stats.breachCount} time${stats.breachCount === 1 ? '' : 's'}, most recently ${timeAgo(stats.lastBreachDate)}.`)
+  } else {
+    sentences.push(`No reading has crossed your threshold (${watch.comparator} ${watch.threshold}).`)
+  }
+
+  return (
+    <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(99,102,241,0.04)', border: '1px dashed rgba(99,102,241,0.25)', borderRadius: 9 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+        <Sparkles style={{ width: 11, height: 11, color: '#6366f1' }}/>
+        <span style={{ fontSize: 10, fontWeight: 800, color: '#6366f1', letterSpacing: '0.05em', textTransform: 'uppercase' }}>What this means</span>
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.55 }}>{sentences.join(' ')}</div>
+      {guide?.hint && (
+        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          <strong style={{ color: 'var(--text)' }}>Guideline:</strong> {guide.hint}
+          {guide.typicalAlgoma && guide.typicalAlgoma !== '—' && <> · <strong style={{ color: 'var(--text)' }}>Typical Algoma:</strong> {guide.typicalAlgoma}</>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Watch analysis: stats strip + chart with anomaly dots + interpretation ──
+   Uses the same /alert-watches/:id/history endpoint already in production.
+   For WR-adopted sites the server fetches observations from data.waterrangers.com
+   on every call — so these numbers reflect live citizen monitoring data. */
+function WatchAnalysis({ watch, severityColor }) {
+  const [data, setData] = useState([])
+  const [source, setSource] = useState(null)
+  const [loaded, setLoaded] = useState(false)
+  const [err, setErr] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoaded(false)
+    api.get(`/alert-watches/${watch.id}/history`)
+      .then(r => { if (cancelled) return; setData(r.data?.points || []); setSource(r.data?.source || null); setLoaded(true) })
+      .catch(e => { if (!cancelled) { setErr(e.response?.data?.error || 'Could not load history'); setLoaded(true) } })
+    return () => { cancelled = true }
+  }, [watch.id])
+
+  const guide = PARAM_GUIDE[watch.parameter]
+  const safeRange = useMemo(() => parseSafeRange(guide?.safe), [guide])
+  const stats = useMemo(() => computeStats(data, watch.threshold, watch.comparator, safeRange), [data, watch.threshold, watch.comparator, safeRange])
+
+  if (!loaded) return <div style={{ padding: '12px 0', fontSize: 11, color: 'var(--text-muted)' }}>Loading observations…</div>
+  if (err)     return <div style={{ padding: '12px 0', fontSize: 11, color: '#ef4444' }}>{err}</div>
+  if (data.length < 2) return <div style={{ padding: '12px 0', fontSize: 11, color: 'var(--text-muted)' }}>Only {data.length} observation{data.length === 1 ? '' : 's'} on record — need at least 2 to analyze.</div>
+
+  const chartData = data.map((p, i) => ({
+    ...p,
+    isAnomaly: stats?.anomalyIdx?.has(i) ?? false,
+  }))
+  const threshold = parseFloat(watch.threshold)
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          {data.length} reading{data.length === 1 ? '' : 's'}{stats?.timeSpanDays ? ` · ${Math.round(stats.timeSpanDays)} days` : ''}
+        </div>
+        {source === 'waterrangers' && (
+          <span title="Pulled live from data.waterrangers.com on this request"
+            style={{ padding: '2px 7px', borderRadius: 20, fontSize: 9, fontWeight: 800, background: 'rgba(14,165,233,0.12)', color: '#0ea5e9', display: 'inline-flex', alignItems: 'center', gap: 3, letterSpacing: '0.04em' }}>
+            <Globe style={{ width: 9, height: 9 }}/> WR LIVE
+          </span>
+        )}
+      </div>
+
+      {stats && <StatsStrip stats={stats} guide={guide} watch={watch}/>}
+
+      <div style={{ height: 140, marginTop: 4 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ top: 6, right: 8, bottom: 0, left: 8 }}>
+            <XAxis dataKey="observed_at" hide/>
+            <YAxis hide domain={['auto', 'auto']}/>
+            <RTooltip
+              contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border)', fontSize: 11, borderRadius: 8 }}
+              labelFormatter={(_, p) => p?.[0]?.payload?.observed_at ? new Date(p[0].payload.observed_at).toLocaleString() : ''}
+              formatter={(v, _n, p) => [`${v}${guide?.unit ? ' ' + guide.unit : ''}${p?.payload?.isAnomaly ? '  ⚠ anomaly' : ''}`, watch.parameter_label || watch.parameter]}
+            />
+            {safeRange?.min != null && safeRange?.max != null && (
+              <ReferenceArea y1={safeRange.min} y2={safeRange.max} fill="#10b981" fillOpacity={0.07} stroke="none"/>
+            )}
+            {safeRange?.min != null && safeRange?.max == null && (
+              <ReferenceLine y={safeRange.min} stroke="#10b981" strokeDasharray="2 4" strokeWidth={1} label={{ value: 'min safe', position: 'insideBottomLeft', fontSize: 9, fill: '#10b981' }}/>
+            )}
+            {safeRange?.max != null && safeRange?.min == null && (
+              <ReferenceLine y={safeRange.max} stroke="#10b981" strokeDasharray="2 4" strokeWidth={1} label={{ value: 'max safe', position: 'insideTopLeft', fontSize: 9, fill: '#10b981' }}/>
+            )}
+            {isFinite(threshold) && (
+              <ReferenceLine y={threshold} stroke={severityColor} strokeDasharray="3 3" strokeWidth={1.5} label={{ value: `your threshold (${watch.comparator} ${watch.threshold})`, position: 'insideTopRight', fontSize: 9, fill: severityColor }}/>
+            )}
+            <Line type="monotone" dataKey="value" stroke={severityColor} strokeWidth={2}
+              dot={(props) => {
+                const { cx, cy, payload, index } = props
+                if (payload?.isAnomaly) return <circle key={`anom-${index}`} cx={cx} cy={cy} r={4.5} fill="#ef4444" stroke="#fff" strokeWidth={1.5}/>
+                return <circle key={`pt-${index}`} cx={cx} cy={cy} r={0} fill="transparent"/>
+              }}
+              activeDot={{ r: 4, fill: severityColor }}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 6, fontSize: 10, color: 'var(--text-muted)' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 16, height: 2, background: severityColor, borderRadius: 2 }}/> reading
+        </span>
+        {safeRange && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 12, height: 8, background: 'rgba(16,185,129,0.18)', border: '1px solid rgba(16,185,129,0.4)', borderRadius: 2 }}/> safe range
+          </span>
+        )}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 16, height: 2, background: severityColor, borderRadius: 2, borderTop: `2px dashed ${severityColor}`, opacity: 0.7 }}/> your threshold
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 7, height: 7, background: '#ef4444', borderRadius: '50%', border: '1.5px solid #fff' }}/> anomaly (&gt;2σ)
+        </span>
+      </div>
+
+      {stats && <Interpretation stats={stats} guide={guide} watch={watch}/>}
     </div>
   )
 }
@@ -672,15 +948,7 @@ function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, o
 
                 {isOpen && (
                   <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
-                      Recent observations vs threshold
-                    </div>
-                    <WatchSparkline watchId={w.id} comparator={w.comparator} threshold={parseFloat(w.threshold)} severityColor={sevCfg.color}/>
-                    {guide && (
-                      <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                        <strong style={{ color: 'var(--text)' }}>Safe range:</strong> {guide.safe} {guide.unit} · {guide.hint}
-                      </div>
-                    )}
+                    <WatchAnalysis watch={w} severityColor={sevCfg.color}/>
                   </div>
                 )}
               </div>
