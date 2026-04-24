@@ -3,13 +3,20 @@ const db = require('../db/connection')
 const { requireAuth } = require('../middleware/auth')
 const upload = require('../middleware/upload')
 
-async function enrichPost(post) {
+async function enrichPost(post, currentUserId = null) {
   if (!post) return null
   const user = await db.get('SELECT id,username,display_name,avatar_emoji,avatar_bg_color,avatar_url,role FROM users WHERE id=? AND is_active=1', [post.user_id])
   const reactions = await db.all('SELECT reaction_type, COUNT(*) as count FROM post_reactions WHERE post_id=? GROUP BY reaction_type', [post.id])
   const commentRow = await db.get('SELECT COUNT(*) as c FROM comments WHERE post_id=?', [post.id])
   const reactionMap = {}
   reactions.forEach(r => { reactionMap[r.reaction_type] = parseInt(r.count) })
+  let myReaction = null
+  if (currentUserId) {
+    const mine = await db.get(
+      'SELECT reaction_type FROM post_reactions WHERE post_id=? AND user_id=?',
+      [post.id, currentUserId])
+    myReaction = mine?.reaction_type || null
+  }
   return {
     ...post,
     media: post.media ? JSON.parse(post.media) : [],
@@ -17,6 +24,7 @@ async function enrichPost(post) {
     poll_options: post.poll_options ? JSON.parse(post.poll_options) : null,
     user,
     reactions: reactionMap,
+    my_reaction: myReaction,
     comment_count: parseInt(commentRow?.c ?? 0),
   }
 }
@@ -31,7 +39,7 @@ router.get('/bookmarks', requireAuth, async (req, res) => {
        WHERE b.user_id=? AND u.is_active=1
        ORDER BY b.created_at DESC`,
       [req.user.id])
-    const posts = (await Promise.all(rows.map(enrichPost))).filter(Boolean)
+    const posts = (await Promise.all(rows.map(p => enrichPost(p, req.user.id)))).filter(Boolean)
     res.json({ posts })
   } catch (err) {
     console.error('GET /posts/bookmarks error:', err)
@@ -62,7 +70,7 @@ router.get('/', requireAuth, async (req, res) => {
     query += ' ORDER BY p.pinned DESC, p.created_at DESC LIMIT ? OFFSET ?'
     params.push(parseInt(limit), parseInt(offset))
     const rows = await db.all(query, params)
-    const posts = (await Promise.all(rows.map(enrichPost))).filter(Boolean)
+    const posts = (await Promise.all(rows.map(p => enrichPost(p, req.user.id)))).filter(Boolean)
     const totalRow = user_id
       ? await db.get('SELECT COUNT(*) as c FROM posts p JOIN users u ON p.user_id=u.id WHERE u.is_active=1 AND u.onboarding_completed=1 AND p.user_id=?', [user_id])
       : await db.get('SELECT COUNT(*) as c FROM posts p JOIN users u ON p.user_id=u.id WHERE u.is_active=1 AND u.onboarding_completed=1', [])
@@ -109,7 +117,7 @@ router.post('/', requireAuth, upload.array('media', 10), async (req, res) => {
     await db.run('UPDATE users SET xp=xp+5 WHERE id=?', [req.user.id])
 
     const post = await db.get('SELECT * FROM posts WHERE id=?', [lastInsertRowid])
-    res.json(await enrichPost(post))
+    res.json(await enrichPost(post, req.user.id))
   } catch (err) {
     console.error('Post creation error:', err)
     res.status(500).json({ error: err.message })
@@ -156,39 +164,47 @@ router.get('/:id/reactors', requireAuth, async (req, res) => {
   }
 })
 
-// POST /api/posts/:id/react
+// POST /api/posts/:id/react — one reaction per user per post (FB-style)
+//   • no existing reaction → insert + award +1 XP
+//   • same reaction_type already there → no-op
+//   • different reaction_type already there → switch type, no XP change
 router.post('/:id/react', requireAuth, async (req, res) => {
   const { reaction_type } = req.body
   const valid = ['drop', 'bubble', 'wave', 'curious', 'great_work', 'fire', 'love', 'clap']
   if (!valid.includes(reaction_type)) return res.status(400).json({ error: 'Invalid reaction' })
   try {
     const existing = await db.get(
-      'SELECT 1 as x FROM post_reactions WHERE post_id=? AND user_id=? AND reaction_type=?',
-      [req.params.id, req.user.id, reaction_type])
+      'SELECT reaction_type FROM post_reactions WHERE post_id=? AND user_id=?',
+      [req.params.id, req.user.id])
     if (!existing) {
       await db.run('INSERT OR IGNORE INTO post_reactions (post_id,user_id,reaction_type) VALUES (?,?,?)',
         [req.params.id, req.user.id, reaction_type])
       await db.run('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)',
         [req.user.id, 1, 'reaction', new Date().toISOString().slice(0, 7)])
       await db.run('UPDATE users SET xp=xp+1 WHERE id=?', [req.user.id])
+    } else if (existing.reaction_type !== reaction_type) {
+      await db.run(
+        'UPDATE post_reactions SET reaction_type=? WHERE post_id=? AND user_id=?',
+        [reaction_type, req.params.id, req.user.id])
     }
     const reactions = await db.all('SELECT reaction_type, COUNT(*) as count FROM post_reactions WHERE post_id=? GROUP BY reaction_type', [req.params.id])
     const reactionMap = {}
     reactions.forEach(r => { reactionMap[r.reaction_type] = parseInt(r.count) })
-    res.json(reactionMap)
-  } catch { res.json({}) }
+    res.json({ reactions: reactionMap, my_reaction: reaction_type, awarded: !existing })
+  } catch (err) {
+    console.error('react error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
 })
 
-// DELETE /api/posts/:id/react
+// DELETE /api/posts/:id/react — remove the user's (single) reaction on this post
 router.delete('/:id/react', requireAuth, async (req, res) => {
-  const { reaction_type } = req.body
   const existing = await db.get(
-    'SELECT 1 as x FROM post_reactions WHERE post_id=? AND user_id=? AND reaction_type=?',
-    [req.params.id, req.user.id, reaction_type])
+    'SELECT 1 as x FROM post_reactions WHERE post_id=? AND user_id=?',
+    [req.params.id, req.user.id])
   if (existing) {
-    await db.run('DELETE FROM post_reactions WHERE post_id=? AND user_id=? AND reaction_type=?',
-      [req.params.id, req.user.id, reaction_type])
-    // Reverse the point/XP award so react → unreact → react can't inflate totals
+    await db.run('DELETE FROM post_reactions WHERE post_id=? AND user_id=?',
+      [req.params.id, req.user.id])
     await db.run(
       `INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)`,
       [req.user.id, -1, 'reaction_undo', new Date().toISOString().slice(0, 7)])
@@ -197,7 +213,7 @@ router.delete('/:id/react', requireAuth, async (req, res) => {
   const reactions = await db.all('SELECT reaction_type, COUNT(*) as count FROM post_reactions WHERE post_id=? GROUP BY reaction_type', [req.params.id])
   const reactionMap = {}
   reactions.forEach(r => { reactionMap[r.reaction_type] = parseInt(r.count) })
-  res.json(reactionMap)
+  res.json({ reactions: reactionMap, my_reaction: null })
 })
 
 // GET /api/posts/:id/comments

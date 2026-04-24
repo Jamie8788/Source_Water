@@ -158,7 +158,7 @@ async function initSchema() {
         user_id INTEGER REFERENCES users(id),
         reaction_type TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW(),
-        UNIQUE(post_id, user_id, reaction_type)
+        UNIQUE(post_id, user_id)
       )
     `)
     await db.exec(`
@@ -523,6 +523,63 @@ async function initSchema() {
       console.log(`[schema] Seeded ${seedResources.length} starter resources`)
     }
 
+    // ── Migration: one reaction per (post, user) — FB-style ───────────────
+    // Legacy UNIQUE was (post_id, user_id, reaction_type), which let users
+    // stack every emoji on the same post and inflate XP. Dedupe + refund.
+    try {
+      const dupesExist = await db.get(
+        `SELECT 1 AS x FROM (
+           SELECT post_id, user_id, COUNT(*) AS c
+           FROM post_reactions
+           GROUP BY post_id, user_id
+           HAVING COUNT(*) > 1
+         ) t LIMIT 1`, [])
+      if (dupesExist) {
+        const refunds = await db.all(
+          `SELECT user_id, SUM(c - 1) AS extra FROM (
+             SELECT user_id, post_id, COUNT(*) AS c
+             FROM post_reactions
+             GROUP BY user_id, post_id
+             HAVING COUNT(*) > 1
+           ) t
+           GROUP BY user_id`, [])
+        await db.pool.query(
+          `DELETE FROM post_reactions
+           WHERE id NOT IN (
+             SELECT MAX(id) FROM post_reactions GROUP BY post_id, user_id
+           )`)
+        const month = new Date().toISOString().slice(0, 7)
+        for (const r of refunds) {
+          const extra = parseInt(r.extra || 0)
+          if (extra <= 0) continue
+          await db.pool.query(
+            `UPDATE users SET xp = GREATEST(xp - $1, 0) WHERE id = $2`,
+            [extra, r.user_id])
+          await db.pool.query(
+            `INSERT INTO leaderboard_points (user_id, points, action, month)
+             VALUES ($1, $2, 'reaction_dedupe', $3)`,
+            [r.user_id, -extra, month])
+        }
+        console.log(`[schema] deduped stacked reactions, refunded ${refunds.length} users`)
+      }
+      // Drop old per-type UNIQUE constraint (auto-named) if present, then
+      // ensure the new (post_id, user_id) UNIQUE is in place.
+      await db.pool.query(
+        `ALTER TABLE post_reactions
+           DROP CONSTRAINT IF EXISTS post_reactions_post_id_user_id_reaction_type_key`)
+      const hasNew = await db.get(
+        `SELECT 1 AS x FROM pg_constraint
+         WHERE conname = 'post_reactions_post_user_uniq'`, [])
+      if (!hasNew) {
+        await db.pool.query(
+          `ALTER TABLE post_reactions
+             ADD CONSTRAINT post_reactions_post_user_uniq UNIQUE (post_id, user_id)`)
+        console.log('[schema] added UNIQUE(post_id, user_id) to post_reactions')
+      }
+    } catch (e) {
+      console.error('[schema] reaction migration error:', e.message)
+    }
+
     console.log('[schema] PostgreSQL schema ready')
   } else {
     // ── SQLite schema (local dev only) ───────────────────────────────────────
@@ -646,7 +703,7 @@ async function initSchema() {
         user_id INTEGER REFERENCES users(id),
         reaction_type TEXT,
         created_at TEXT DEFAULT (datetime('now')),
-        UNIQUE(post_id, user_id, reaction_type)
+        UNIQUE(post_id, user_id)
       );
       CREATE TABLE IF NOT EXISTS post_bookmarks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

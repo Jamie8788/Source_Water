@@ -668,7 +668,7 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0, onHashtagCl
   const [comment, setComment]           = useState('')
   const [comments, setComments]         = useState([])
   const [showReact, setShowReact]       = useState(false)
-  const [myReaction, setMyReaction]     = useState(null)
+  const [myReaction, setMyReaction]     = useState(post.my_reaction || null)
   const [reactCounts, setReactCounts]   = useState(post.reactions||{})
   const [showMenu, setShowMenu]         = useState(false)
   const [heartAnim, setHeartAnim]       = useState(false)
@@ -696,17 +696,19 @@ function PostCard({ post, currentUser, onDelete, onPin, animDelay=0, onHashtagCl
 
   const handleReact = async (type) => {
     setShowReact(false)
-    const userId = currentUser?.supabase_id || currentUser?.id
-    const added = await toggleReaction(post.id, userId, type).catch(()=>null)
-    if (added === null) return
-    if (!added) {
-      setReactCounts(p=>({...p,[type]:Math.max(0,(p[type]||0)-1)}))
-      setMyReaction(null)
-    } else {
-      if (myReaction) setReactCounts(p=>({...p,[myReaction]:Math.max(0,(p[myReaction]||0)-1)}))
-      setReactCounts(p=>({...p,[type]:(p[type]||0)+1}))
-      setMyReaction(type)
-      setPointAnim(true); setTimeout(()=>setPointAnim(false),1200)
+    const isFirst = !myReaction
+    const isSame  = myReaction === type
+    // Tapping your current reaction clears it; tapping a different one switches;
+    // tapping when you have none picks it. Server enforces the same rules.
+    const res = isSame
+      ? await api.delete(`/posts/${post.id}/react`).catch(() => null)
+      : await api.post(`/posts/${post.id}/react`, { reaction_type: type }).catch(() => null)
+    if (!res) return
+    const data = res.data || {}
+    if (data.reactions) setReactCounts(data.reactions)
+    setMyReaction(data.my_reaction ?? null)
+    if (isFirst && data.awarded) {
+      setPointAnim(true); setTimeout(() => setPointAnim(false), 1200)
     }
   }
 
