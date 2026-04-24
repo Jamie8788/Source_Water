@@ -109,11 +109,16 @@ router.post('/:id/react', requireAuth, async (req, res) => {
   const valid = ['drop', 'bubble', 'wave', 'curious', 'great_work', 'fire', 'love', 'clap']
   if (!valid.includes(reaction_type)) return res.status(400).json({ error: 'Invalid reaction' })
   try {
-    await db.run('INSERT OR IGNORE INTO post_reactions (post_id,user_id,reaction_type) VALUES (?,?,?)',
+    const existing = await db.get(
+      'SELECT 1 as x FROM post_reactions WHERE post_id=? AND user_id=? AND reaction_type=?',
       [req.params.id, req.user.id, reaction_type])
-    await db.run('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)',
-      [req.user.id, 1, 'reaction', new Date().toISOString().slice(0, 7)])
-    await db.run('UPDATE users SET xp=xp+1 WHERE id=?', [req.user.id])
+    if (!existing) {
+      await db.run('INSERT OR IGNORE INTO post_reactions (post_id,user_id,reaction_type) VALUES (?,?,?)',
+        [req.params.id, req.user.id, reaction_type])
+      await db.run('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)',
+        [req.user.id, 1, 'reaction', new Date().toISOString().slice(0, 7)])
+      await db.run('UPDATE users SET xp=xp+1 WHERE id=?', [req.user.id])
+    }
     const reactions = await db.all('SELECT reaction_type, COUNT(*) as count FROM post_reactions WHERE post_id=? GROUP BY reaction_type', [req.params.id])
     const reactionMap = {}
     reactions.forEach(r => { reactionMap[r.reaction_type] = parseInt(r.count) })
@@ -124,8 +129,18 @@ router.post('/:id/react', requireAuth, async (req, res) => {
 // DELETE /api/posts/:id/react
 router.delete('/:id/react', requireAuth, async (req, res) => {
   const { reaction_type } = req.body
-  await db.run('DELETE FROM post_reactions WHERE post_id=? AND user_id=? AND reaction_type=?',
+  const existing = await db.get(
+    'SELECT 1 as x FROM post_reactions WHERE post_id=? AND user_id=? AND reaction_type=?',
     [req.params.id, req.user.id, reaction_type])
+  if (existing) {
+    await db.run('DELETE FROM post_reactions WHERE post_id=? AND user_id=? AND reaction_type=?',
+      [req.params.id, req.user.id, reaction_type])
+    // Reverse the point/XP award so react → unreact → react can't inflate totals
+    await db.run(
+      `INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)`,
+      [req.user.id, -1, 'reaction_undo', new Date().toISOString().slice(0, 7)])
+    await db.run('UPDATE users SET xp=CASE WHEN xp>0 THEN xp-1 ELSE 0 END WHERE id=?', [req.user.id])
+  }
   const reactions = await db.all('SELECT reaction_type, COUNT(*) as count FROM post_reactions WHERE post_id=? GROUP BY reaction_type', [req.params.id])
   const reactionMap = {}
   reactions.forEach(r => { reactionMap[r.reaction_type] = parseInt(r.count) })
