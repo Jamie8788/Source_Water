@@ -106,7 +106,7 @@ router.put('/:id/pin', requireAuth, async (req, res) => {
 // POST /api/posts/:id/react
 router.post('/:id/react', requireAuth, async (req, res) => {
   const { reaction_type } = req.body
-  const valid = ['drop', 'bubble', 'wave', 'curious', 'great_work']
+  const valid = ['drop', 'bubble', 'wave', 'curious', 'great_work', 'fire', 'love', 'clap']
   if (!valid.includes(reaction_type)) return res.status(400).json({ error: 'Invalid reaction' })
   try {
     await db.run('INSERT OR IGNORE INTO post_reactions (post_id,user_id,reaction_type) VALUES (?,?,?)',
