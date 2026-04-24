@@ -17,6 +17,9 @@ import {
 import { getAllLocations, getLocations, getLocationObservations } from '../api/waterRangers'
 import { matchParam } from '../utils/waterParams'
 import ParameterDeepDive from '../components/ParameterDeepDive'
+import { useAuth } from '../context/AuthContext'
+import api from '../utils/api'
+import { MapToolsLayer, MapToolsToolbar, WaypointModal } from '../components/MapTools'
 
 // Color by water body type
 const BODY_COLORS = {
@@ -84,11 +87,79 @@ function FitBounds({ locations }) {
 }
 
 export default function WRMonitoringMap() {
+  const { user } = useAuth()
+  const isAuthed = !!user
+
   const [allLocations, setAllLocations] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [selected, setSelected] = useState(null)
   const [showFilters, setShowFilters] = useState(false)
+
+  // ── Map tools (additive overlay — never touches WR data) ──
+  const [toolMode, setToolMode] = useState('off')           // 'off' | 'measure' | 'waypoint'
+  const [measurePoints, setMeasurePoints] = useState([])
+  const [measureClosed, setMeasureClosed] = useState(false)
+  const [waypoints, setWaypoints] = useState([])
+  const [waypointsVisible, setWaypointsVisible] = useState(true)
+  const [wpModal, setWpModal] = useState({ open: false, mode: 'create', latlng: null, initial: null })
+  const [wpBusy, setWpBusy] = useState(false)
+  const [wpError, setWpError] = useState(null)
+
+  // Load this user's personal waypoints (scoped server-side by user_id)
+  useEffect(() => {
+    if (!isAuthed) { setWaypoints([]); return }
+    let cancelled = false
+    api.get('/waypoints')
+      .then(r => { if (!cancelled) setWaypoints(r.data?.waypoints || []) })
+      .catch(() => { /* silent — toolbar still works for measure */ })
+    return () => { cancelled = true }
+  }, [isAuthed])
+
+  const clearMeasure = () => { setMeasurePoints([]); setMeasureClosed(false) }
+
+  const openCreateWaypoint = (latlng) => {
+    if (!isAuthed) return
+    setWpError(null)
+    setWpModal({ open: true, mode: 'create', latlng, initial: null })
+  }
+  const openEditWaypoint = (w) => {
+    setWpError(null)
+    setWpModal({ open: true, mode: 'edit', latlng: { lat: w.latitude, lng: w.longitude }, initial: w })
+  }
+  const closeWaypointModal = () => { if (!wpBusy) setWpModal({ open: false, mode: 'create', latlng: null, initial: null }) }
+
+  const saveWaypoint = async (form) => {
+    setWpBusy(true); setWpError(null)
+    try {
+      if (wpModal.mode === 'edit' && wpModal.initial) {
+        const r = await api.put(`/waypoints/${wpModal.initial.id}`, form)
+        const updated = r.data?.waypoint
+        setWaypoints(list => list.map(w => w.id === updated.id ? updated : w))
+      } else {
+        const payload = { ...form, latitude: wpModal.latlng.lat, longitude: wpModal.latlng.lng }
+        const r = await api.post('/waypoints', payload)
+        const created = r.data?.waypoint
+        setWaypoints(list => [created, ...list])
+        setToolMode('off')
+      }
+      setWpModal({ open: false, mode: 'create', latlng: null, initial: null })
+    } catch (e) {
+      setWpError(e?.response?.data?.error || e?.message || 'Could not save waypoint')
+    } finally {
+      setWpBusy(false)
+    }
+  }
+
+  const deleteWaypoint = async (id) => {
+    if (!confirm('Delete this waypoint? This cannot be undone.')) return
+    try {
+      await api.delete(`/waypoints/${id}`)
+      setWaypoints(list => list.filter(w => w.id !== id))
+    } catch (e) {
+      alert(e?.response?.data?.error || e?.message || 'Could not delete waypoint')
+    }
+  }
 
   // Site observations + deep-dive panel state — fetched on demand when a site is selected
   const [siteObs, setSiteObs] = useState([])
@@ -354,6 +425,16 @@ export default function WRMonitoringMap() {
             url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
           />
           <FitBounds locations={mappable} />
+          <MapToolsLayer
+            mode={toolMode}
+            measurePoints={measurePoints} setMeasurePoints={setMeasurePoints}
+            measureClosed={measureClosed} setMeasureClosed={setMeasureClosed}
+            onWaypointMapClick={openCreateWaypoint}
+            waypoints={waypoints}
+            waypointsVisible={waypointsVisible}
+            onWaypointEdit={openEditWaypoint}
+            onWaypointDelete={deleteWaypoint}
+          />
           {mappable.map(loc => {
             const color = BODY_COLORS[loc.water_body_type] || BODY_COLORS.other
             return (
@@ -383,7 +464,25 @@ export default function WRMonitoringMap() {
             )
           })}
         </MapContainer>
+        <MapToolsToolbar
+          mode={toolMode} setMode={setToolMode}
+          measurePoints={measurePoints} measureClosed={measureClosed} clearMeasure={clearMeasure}
+          waypoints={waypoints}
+          waypointsVisible={waypointsVisible} setWaypointsVisible={setWaypointsVisible}
+          isAuthed={isAuthed}
+        />
       </div>
+
+      <WaypointModal
+        open={wpModal.open}
+        mode={wpModal.mode}
+        latlng={wpModal.latlng}
+        initial={wpModal.initial}
+        onClose={closeWaypointModal}
+        onSave={saveWaypoint}
+        busy={wpBusy}
+        error={wpError}
+      />
 
       {/* Legend */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10, padding: '6px 10px', background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8 }}>

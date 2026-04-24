@@ -432,6 +432,22 @@ async function initSchema() {
       `ALTER TABLE sites ADD COLUMN IF NOT EXISTS external_source TEXT`,
       `ALTER TABLE sites ADD COLUMN IF NOT EXISTS external_id TEXT`,
       `CREATE INDEX IF NOT EXISTS idx_sites_external ON sites(external_source, external_id)`,
+      // Per-user field waypoints dropped on the Monitoring Map. Strictly scoped
+      // to the owning user — every query in routes/waypoints.js filters by
+      // user_id, so one volunteer's pins never leak into another's view.
+      `CREATE TABLE IF NOT EXISTS waypoints (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        latitude REAL NOT NULL,
+        longitude REAL NOT NULL,
+        name TEXT NOT NULL,
+        note TEXT,
+        category TEXT DEFAULT 'general',
+        color TEXT DEFAULT '#f59e0b',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_waypoints_user ON waypoints(user_id)`,
     ]
     for (const m of migrations) {
       await db.exec(m).catch(() => {}) // ignore if already exists
@@ -939,6 +955,20 @@ async function initSchema() {
       `ALTER TABLE sites ADD COLUMN external_source TEXT`,
       `ALTER TABLE sites ADD COLUMN external_id TEXT`,
       `CREATE INDEX IF NOT EXISTS idx_sites_external ON sites(external_source, external_id)`,
+      // Per-user field waypoints — see PG migration above.
+      `CREATE TABLE IF NOT EXISTS waypoints (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        latitude REAL NOT NULL,
+        longitude REAL NOT NULL,
+        name TEXT NOT NULL,
+        note TEXT,
+        category TEXT DEFAULT 'general',
+        color TEXT DEFAULT '#f59e0b',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_waypoints_user ON waypoints(user_id)`,
     ]
     for (const m of sqliteMigrations) {
       try { db.sqlite.exec(m) } catch (_) {} // ignore "duplicate column" errors
