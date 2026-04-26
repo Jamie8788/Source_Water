@@ -55,17 +55,15 @@ function AdminGuard() {
   return <Outlet />
 }
 
-// Admins bypass any ComingSoon gate so they can preview the real feature; regular
-// users still see ComingSoon. Falls back to canonical admin username/email in case
-// isAdmin is stale in cached localStorage.
+// Admins bypass any ComingSoon gate so they can preview the real feature;
+// regular users still see ComingSoon. Trust ONLY the is_admin DB flag —
+// the previous username/email shortcuts were a backdoor: any account named
+// 'admin' or with email 'admin@sourcewater.app' got the bypass even when
+// is_admin was toggled off in the dashboard. If isAdmin is stale due to
+// cached localStorage, the user just needs to log out and back in.
 function AdminGated({ admin, fallback }) {
-  const { user, isAdmin } = useAuth()
-  const isPlatformAdmin = user && (
-    isAdmin ||
-    user.username?.toLowerCase() === 'admin' ||
-    user.email?.toLowerCase() === 'admin@sourcewater.app'
-  )
-  return isPlatformAdmin ? admin : fallback
+  const { isAdmin } = useAuth()
+  return isAdmin ? admin : fallback
 }
 
 function QuizCreatorGuard() {
