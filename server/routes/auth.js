@@ -179,14 +179,14 @@ router.post('/bootstrap-admin', async (req, res) => {
   }
   if (!localUser) return res.status(401).json({ error: 'Could not verify identity' })
 
-  // Allow if: no other real admin exists, OR this user is the earliest user (id = MIN), OR username contains 'admin'
-  const otherAdmin = await db.get(`SELECT id FROM users WHERE is_admin=1 AND id != ?`, [localUser.id])
-  const firstUser  = await db.get(`SELECT id FROM users ORDER BY id ASC LIMIT 1`)
-  const isFirstUser = firstUser?.id === localUser.id
-  const isAdminUsername = (localUser.username || '').toLowerCase().includes('admin')
-
-  if (otherAdmin && !isFirstUser && !isAdminUsername) {
-    return res.status(403).json({ error: 'An admin already exists. Ask them to promote you via Admin Panel → Users, or run: UPDATE users SET is_admin=1 WHERE username=\'' + localUser.username + '\' in Supabase SQL editor.' })
+  // Strict: only allow self-promotion when ZERO admins exist anywhere.
+  // The previous rules (first-user-by-id, username-contains-"admin") were
+  // backdoors — anyone could register a username like "admin2" and self-
+  // promote even with other admins active. If you legitimately lock yourself
+  // out, recover via Supabase SQL editor or set ADMIN_EMAILS env var.
+  const anyAdmin = await db.get(`SELECT id FROM users WHERE is_admin=1 LIMIT 1`)
+  if (anyAdmin) {
+    return res.status(403).json({ error: 'An admin already exists. Ask them to promote you via Admin Panel → Users.' })
   }
 
   await db.run('UPDATE users SET is_admin=1, is_active=1, role=? WHERE id=?', ['SOURCE Water team member', localUser.id])

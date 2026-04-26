@@ -492,29 +492,17 @@ async function initSchema() {
         )
     `).catch(() => {})
 
-    // Ensure admin@sourcewater.app always has admin privileges and is active
-    await db.pool.query(
-      `UPDATE users SET is_admin=1, is_active=1 WHERE email='admin@sourcewater.app'`
-    )
-
-    // Also auto-promote any email listed in ADMIN_EMAILS env var (comma-separated)
+    // Optional: auto-promote emails listed in ADMIN_EMAILS env var. Opt-in
+    // only — no hardcoded emails. If you want a specific account to always
+    // be admin (e.g. for disaster recovery), set ADMIN_EMAILS in Render env.
+    // Removing an admin via the dashboard now actually sticks across deploys
+    // because there are no implicit re-grant rules.
     if (process.env.ADMIN_EMAILS) {
       const emails = process.env.ADMIN_EMAILS.split(',').map(e => e.trim()).filter(Boolean)
       for (const email of emails) {
         await db.pool.query(`UPDATE users SET is_admin=1, is_active=1 WHERE email=$1`, [email])
-        console.log(`[schema] Granted admin to ${email}`)
+        console.log(`[schema] Granted admin to ${email} (via ADMIN_EMAILS)`)
       }
-    }
-
-    // Always promote username='admin' (case-insensitive) — the app owner's account
-    await db.pool.query(`UPDATE users SET is_admin=1, is_active=1 WHERE LOWER(username)='admin'`)
-
-    // If still no admin, promote earliest registered user
-    const adminExists = await db.get(`SELECT 1 FROM users WHERE is_admin=1 LIMIT 1`)
-    if (!adminExists) {
-      await db.pool.query(`UPDATE users SET is_admin=1, is_active=1 WHERE id=(SELECT MIN(id) FROM users)`)
-      const firstAdmin = await db.get(`SELECT email, username FROM users WHERE is_admin=1 LIMIT 1`)
-      console.log(`[schema] No admin found — auto-promoted first user: ${firstAdmin?.email || firstAdmin?.username}`)
     }
 
     // ── Seed starter resources (only if table is empty) ──────────────────────

@@ -389,11 +389,6 @@ export default function Landing() {
                 style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)', boxShadow: '0 4px 20px rgba(99,102,241,0.35)' }}>
                 {loading ? 'Signing in...' : 'Sign In'}
               </button>
-              <button type="button" onClick={() => { set('identifier','admin'); set('password','nordik2026') }}
-                className="w-full py-2.5 rounded-xl font-semibold text-sm transition-all hover:opacity-80"
-                style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', color: '#818cf8' }}>
-                Demo: admin / nordik2026
-              </button>
             </form>
           ) : (
             <form onSubmit={handleRegister} className="space-y-3">

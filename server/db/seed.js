@@ -1,39 +1,23 @@
-const bcrypt = require('bcryptjs')
 const db = require('./connection')
 
+/**
+ * Seed: minimal idempotent setup. Does NOT auto-create or auto-promote
+ * any admin account. Bootstrap an admin via:
+ *   - Supabase Dashboard → Authentication (create user, sign in via app)
+ *   - Then either: existing admin promotes via Admin Panel → Users,
+ *     OR hit POST /api/auth/bootstrap-admin while no admin exists yet.
+ *
+ * Previous versions seeded a default 'admin' / 'nordik2026' account and
+ * re-granted is_admin/is_active to specific emails on every boot. Both
+ * were removed for security: the seeded password leaked, and the auto-
+ * re-grant meant suspending or demoting an admin via the dashboard
+ * silently reverted on the next deploy.
+ */
 async function seed() {
-  // Always ensure admin exists and is active
-  const adminExists = await db.get('SELECT id FROM users WHERE username = ?', ['admin'])
-  if (!adminExists) {
-    const hash = bcrypt.hashSync('nordik2026', 10)
-    await db.run(
-      `INSERT INTO users (username,email,password_hash,display_name,role,avatar_emoji,avatar_bg_color,is_admin,is_active,onboarding_completed)
-       VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
-      ['admin','info@nordikinstitute.com',hash,'SOURCE Water Admin','SOURCE Water team member','🌊','#0ea5e9',1,1,1])
-    console.log('✅ Admin user created: admin / nordik2026')
-  } else {
-    // Always ensure admin stays active and has admin privileges
-    await db.run(
-      `UPDATE users SET is_active=1, is_admin=1, onboarding_completed=1 WHERE username='admin'`)
-    console.log('✅ Admin user verified/restored')
-  }
-
-  // Also reactivate the Supabase-linked admin account (admin@sourcewater.app)
-  await db.run(
-    `UPDATE users SET is_active=1, is_admin=1, onboarding_completed=1 WHERE email='admin@sourcewater.app'`)
-
-  // Remove admin emails from banned list in case of accidental self-deletion
-  await db.run(
-    `DELETE FROM banned_emails WHERE email IN ('info@nordikinstitute.com','admin@sourcewater.app','admin')`
-  ).catch(() => {})
-
-  // Reactivate ALL users
-  await db.run(`UPDATE users SET is_active=1 WHERE is_active=0`).catch(() => {})
-
-  const existing = await db.get('SELECT COUNT(*) as c FROM users', [])
-  if (parseInt(existing?.c ?? 0) > 1) return console.log('✅ Database already initialized')
-
-  console.log('[seed] ✅ Production database ready - admin only, awaiting real data import')
+  // No-op by default. Keep the function so callers don't break.
+  // If you ever need to bootstrap a brand-new install, do it manually
+  // via the Admin Panel or the bootstrap-admin endpoint.
+  console.log('[seed] no-op (admin bootstrap is now manual via Admin Panel)')
 }
 
 module.exports = { seed }
