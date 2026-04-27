@@ -4,12 +4,14 @@ import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaf
 import 'leaflet/dist/leaflet.css'
 import { LineChart, Line, ReferenceLine, ReferenceArea, YAxis, XAxis, Tooltip as RTooltip, ResponsiveContainer } from 'recharts'
 import api from '../utils/api'
+import { speakAsNibi } from '../utils/voice'
 import {
   AlertTriangle, Info, CheckCircle, Bell, BellOff,
   MapPin, Clock, RefreshCw, ChevronDown,
   Activity, Plus, Trash2, Power, PowerOff,
   Target, Database, Zap, BookOpen, Search, Globe,
   TrendingUp, TrendingDown, Minus, Sparkles,
+  Volume2, VolumeX, Wifi, Radio, Calendar,
 } from 'lucide-react'
 
 /* ── Parameter guidance (Canadian drinking water + CCME aquatic life) ── */
@@ -508,18 +510,187 @@ function WatchAnalysis({ watch, severityColor }) {
 }
 
 /* ── Alert Card ── */
+/* ── Live Sync Status Bar ──
+   Shows the user that the alerts page is actively pulling from Water Rangers
+   and the local DB. Animated pulse + countdown + auto-refresh toggle.
+   No new backend calls — pure UI on top of the existing 30s poll. */
+function LiveSyncBar({ lastSync, autoCheck, setAutoCheck, autoCheckInterval, setAutoCheckInterval, onRefresh, refreshing, onCheckNow, checking, soundOn, setSoundOn, totalAlerts, activeWatches }) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
+  const elapsed = Math.max(0, Math.round((now - lastSync) / 1000))
+  const nextSyncIn = Math.max(0, 30 - (elapsed % 30))
+  const elapsedLabel = elapsed < 60 ? `${elapsed}s ago` : elapsed < 3600 ? `${Math.round(elapsed/60)}m ago` : `${Math.round(elapsed/3600)}h ago`
+
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg, rgba(16,185,129,0.08), rgba(99,102,241,0.04) 60%, var(--card-bg))',
+      border: '1.5px solid rgba(16,185,129,0.25)',
+      borderRadius: 14, padding: '12px 16px', marginBottom: 12,
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+      boxShadow: '0 0 24px rgba(16,185,129,0.06)',
+    }}>
+      {/* Left: live status */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ position: 'relative', display: 'inline-flex' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 0 4px rgba(16,185,129,0.18)' }}/>
+            <span style={{ position: 'absolute', inset: -4, borderRadius: '50%', background: '#10b981', opacity: 0.45, animation: 'liveSyncPing 1.6s ease-out infinite' }}/>
+          </span>
+          <span style={{ fontSize: 11, fontWeight: 800, color: '#10b981', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Live</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text-muted)', fontSize: 11 }}>
+          <Wifi size={11}/> Last synced <strong style={{ color: 'var(--text)' }}>{elapsedLabel}</strong>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text-muted)', fontSize: 11 }}>
+          <RefreshCw size={11}/> Next refresh in <strong style={{ color: 'var(--text)' }}>{nextSyncIn}s</strong>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text-muted)', fontSize: 11 }}>
+          <Database size={11}/> {totalAlerts} alert{totalAlerts === 1 ? '' : 's'} · {activeWatches} watch{activeWatches === 1 ? '' : 'es'}
+        </div>
+      </div>
+
+      {/* Right: controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {/* Auto-check select */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 8, background: autoCheck ? 'rgba(99,102,241,0.12)' : 'transparent', border: '1px solid rgba(255,255,255,0.1)' }}>
+          <Radio size={11} color={autoCheck ? '#a78bfa' : 'var(--text-muted)'}/>
+          <label style={{ fontSize: 10, fontWeight: 700, color: autoCheck ? '#a78bfa' : 'var(--text-muted)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={autoCheck} onChange={e => setAutoCheck(e.target.checked)} style={{ marginRight: 4, verticalAlign: '-1px' }}/>
+            Auto-check watches
+          </label>
+          {autoCheck && (
+            <select value={autoCheckInterval} onChange={e => setAutoCheckInterval(parseInt(e.target.value))}
+              style={{ marginLeft: 4, padding: '2px 4px', borderRadius: 5, fontSize: 10, background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: '#a78bfa' }}>
+              <option value={5}>every 5 min</option>
+              <option value={10}>every 10 min</option>
+              <option value={30}>every 30 min</option>
+              <option value={60}>hourly</option>
+            </select>
+          )}
+        </div>
+        {/* Sound toggle */}
+        <button onClick={() => setSoundOn(s => !s)}
+          title={soundOn ? 'Sound on for new alerts' : 'Sound muted'}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 8,
+            background: soundOn ? 'rgba(245,158,11,0.12)' : 'transparent',
+            border: '1px solid rgba(255,255,255,0.1)',
+            color: soundOn ? '#f59e0b' : 'var(--text-muted)',
+            fontSize: 10, fontWeight: 700, cursor: 'pointer',
+          }}>
+          {soundOn ? <Volume2 size={11}/> : <VolumeX size={11}/>}
+          {soundOn ? 'Sound' : 'Muted'}
+        </button>
+        {/* Manual check */}
+        <button onClick={onCheckNow} disabled={checking}
+          title="Re-evaluate every active watch against the latest live data"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8,
+            background: 'rgba(99,102,241,0.16)', border: '1px solid rgba(99,102,241,0.35)',
+            color: '#a78bfa', fontSize: 11, fontWeight: 800, cursor: checking ? 'wait' : 'pointer',
+            opacity: checking ? 0.6 : 1,
+          }}>
+          <Zap size={11} style={{ animation: checking ? 'spin 1s linear infinite' : 'none' }}/>
+          {checking ? 'Checking…' : 'Check now'}
+        </button>
+        {/* Manual refresh */}
+        <button onClick={onRefresh} disabled={refreshing}
+          title="Reload alerts and watches from the server"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 8,
+            background: 'transparent', border: '1px solid rgba(255,255,255,0.12)',
+            color: 'var(--text-muted)', fontSize: 11, fontWeight: 700, cursor: refreshing ? 'wait' : 'pointer',
+          }}>
+          <RefreshCw size={11} style={{ animation: refreshing ? 'spin 1s linear infinite' : 'none' }}/>
+        </button>
+      </div>
+
+      <style>{`
+        @keyframes liveSyncPing { 70%, 100% { transform: scale(2); opacity: 0; } }
+      `}</style>
+    </div>
+  )
+}
+
+// Tiny WAV chime generated in JS so we don't ship an audio asset. ~120ms.
+// Two-tone (E5 then A5) — gentle, not alarming.
+function playAlertChime() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext
+    if (!Ctx) return
+    const ctx = new Ctx()
+    const tones = [{ f: 659.25, t: 0 }, { f: 880.00, t: 0.13 }] // E5, A5
+    for (const tone of tones) {
+      const o = ctx.createOscillator(); const g = ctx.createGain()
+      o.type = 'sine'; o.frequency.value = tone.f
+      g.gain.setValueAtTime(0, ctx.currentTime + tone.t)
+      g.gain.linearRampToValueAtTime(0.18, ctx.currentTime + tone.t + 0.02)
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + tone.t + 0.32)
+      o.connect(g); g.connect(ctx.destination)
+      o.start(ctx.currentTime + tone.t); o.stop(ctx.currentTime + tone.t + 0.35)
+    }
+    setTimeout(() => ctx.close(), 1000)
+  } catch {}
+}
+
 function AlertCard({ alert, onExpand, expanded }) {
   const cfg = SEV_CONFIG[alert.severity] || SEV_CONFIG.info
   const Icon = cfg.icon
   const isActive = alert.active === 1 || alert.active === true
   const guide = PARAM_GUIDE[alert.parameter]
+  const isCritical = alert.severity === 'high' && isActive
+
+  // "Active for X days" — distance between when the alert was first raised and now.
+  const ageMs = alert.created_at ? (Date.now() - new Date(alert.created_at).getTime()) : null
+  const ageLabel = (() => {
+    if (!ageMs || ageMs < 0) return null
+    const day = 86400000
+    if (ageMs < day) return `Active for ${Math.round(ageMs / 3600000)}h`
+    if (ageMs < 30 * day) return `Active for ${Math.round(ageMs / day)}d`
+    return `Active for ${Math.round(ageMs / (30 * day))} months`
+  })()
+
+  // Read aloud — community accessibility. Same Nibi voice as the AI Lab.
+  const [speaking, setSpeaking] = useState(false)
+  const speechText = useMemo(() => {
+    const parts = []
+    parts.push(`${cfg.label} alert.`)
+    if (alert.parameter && alert.site_name) parts.push(`${alert.parameter} at ${alert.site_name}`)
+    if (alert.current_value != null) parts.push(`is ${alert.current_value}`)
+    if (alert.threshold_value != null) parts.push(`compared to your threshold of ${alert.threshold_value}.`)
+    if (guide?.safe) parts.push(`Safe range is ${guide.safe} ${guide.unit || ''}.`)
+    if (guide?.hint) parts.push(guide.hint)
+    if (ageLabel) parts.push(ageLabel + '.')
+    return parts.join(' ')
+  }, [alert, cfg, guide, ageLabel])
+
+  useEffect(() => () => { try { window.speechSynthesis?.cancel() } catch {} }, [])
+  const onReadAloud = (e) => {
+    e.stopPropagation()
+    if (speaking) { try { window.speechSynthesis?.cancel() } catch {}; setSpeaking(false); return }
+    try { window.speechSynthesis?.cancel() } catch {}
+    speakAsNibi(speechText)
+    setSpeaking(true)
+    const check = setInterval(() => {
+      if (!window.speechSynthesis?.speaking) { setSpeaking(false); clearInterval(check) }
+    }, 400)
+  }
 
   return (
     <div style={{
-      background: 'var(--card-bg)', borderRadius: 14,
+      background: isCritical
+        ? `linear-gradient(135deg, ${cfg.color}10, transparent 70%), var(--card-bg)`
+        : 'var(--card-bg)',
+      borderRadius: 14,
       border: `1px solid ${expanded ? cfg.color + '60' : cfg.border}`,
       overflow: 'hidden', transition: 'all 0.2s',
-      boxShadow: expanded ? `0 0 24px ${cfg.color}18` : 'none',
+      boxShadow: expanded
+        ? `0 0 24px ${cfg.color}18`
+        : isCritical ? `0 0 18px ${cfg.color}10` : 'none',
+      position: 'relative',
     }}>
       <div style={{ height: 3, background: `linear-gradient(90deg, ${cfg.color}, ${cfg.color}60)` }}/>
 
@@ -539,10 +710,21 @@ function AlertCard({ alert, onExpand, expanded }) {
               <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', lineHeight: 1.3 }}>
                 {alert.message || `${alert.parameter || 'Parameter'} alert`}
               </div>
-              <button onClick={() => onExpand(alert.id)}
-                style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, borderRadius: 6 }}>
-                <ChevronDown style={{ width: 15, height: 15, transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}/>
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                <button onClick={onReadAloud}
+                  title={speaking ? 'Stop reading' : 'Read this alert aloud'}
+                  style={{
+                    background: speaking ? cfg.color : 'transparent', border: 'none', cursor: 'pointer',
+                    color: speaking ? '#fff' : cfg.color, padding: 5, borderRadius: 6,
+                    display: 'flex', alignItems: 'center',
+                  }}>
+                  {speaking ? <VolumeX style={{ width: 13, height: 13 }}/> : <Volume2 style={{ width: 13, height: 13 }}/>}
+                </button>
+                <button onClick={() => onExpand(alert.id)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, borderRadius: 6 }}>
+                  <ChevronDown style={{ width: 15, height: 15, transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}/>
+                </button>
+              </div>
             </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 7 }}>
@@ -558,6 +740,12 @@ function AlertCard({ alert, onExpand, expanded }) {
               <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, color: 'var(--text-muted)', background: 'var(--border)', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Clock style={{ width: 10, height: 10 }}/> {timeAgo(alert.created_at)}
               </span>
+              {ageLabel && isActive && (
+                <span title="How long this alert has been firing without being resolved"
+                  style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}`, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Calendar style={{ width: 10, height: 10 }}/> {ageLabel}
+                </span>
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
@@ -972,10 +1160,30 @@ export default function Alerts() {
   const [checking, setChecking]   = useState(false)
   const [toast, setToast]         = useState(null)
 
+  // ── Premium live-sync controls ──
+  const [lastSync, setLastSync] = useState(Date.now())
+  const [autoCheck, setAutoCheck] = useState(() => { try { return localStorage.getItem('sw_alerts_autocheck') === '1' } catch { return false } })
+  const [autoCheckInterval, setAutoCheckInterval] = useState(() => { try { return parseInt(localStorage.getItem('sw_alerts_autocheck_min') || '10') } catch { return 10 } })
+  const [soundOn, setSoundOn] = useState(() => { try { return localStorage.getItem('sw_alerts_sound') !== '0' } catch { return true } })
+  const knownAlertIds = useRef(new Set())  // for sound-on-new-alert detection
+  const firstLoad = useRef(true)
+  useEffect(() => { try { localStorage.setItem('sw_alerts_autocheck', autoCheck ? '1' : '0') } catch {} }, [autoCheck])
+  useEffect(() => { try { localStorage.setItem('sw_alerts_autocheck_min', String(autoCheckInterval)) } catch {} }, [autoCheckInterval])
+  useEffect(() => { try { localStorage.setItem('sw_alerts_sound', soundOn ? '1' : '0') } catch {} }, [soundOn])
+
   const loadAlerts = async () => {
     try {
       const r = await api.get('/admin/alerts')
-      setAlerts(Array.isArray(r.data?.alerts) ? r.data.alerts : [])
+      const list = Array.isArray(r.data?.alerts) ? r.data.alerts : []
+      // Detect newly-arrived alert IDs (skip on first load to avoid chiming on page open)
+      if (!firstLoad.current && soundOn) {
+        const fresh = list.filter(a => !knownAlertIds.current.has(a.id) && (a.active === 1 || a.active === true))
+        if (fresh.length > 0) playAlertChime()
+      }
+      knownAlertIds.current = new Set(list.map(a => a.id))
+      firstLoad.current = false
+      setAlerts(list)
+      setLastSync(Date.now())
     } catch { setAlerts([]) }
   }
   const loadWatches = async () => {
@@ -1002,6 +1210,21 @@ export default function Alerts() {
     const t = setInterval(() => { loadAlerts(); loadWatches() }, 30000)
     return () => clearInterval(t)
   }, [])
+
+  // Auto-check: when enabled, re-evaluates every active watch against the
+  // latest live observation (Water Rangers for adopted sites, local DB
+  // otherwise) on the chosen interval. Pauses when the tab is hidden so
+  // the dashboard doesn't keep firing checks in the background.
+  useEffect(() => {
+    if (!autoCheck) return
+    const ms = Math.max(1, autoCheckInterval) * 60_000
+    const tick = () => {
+      if (document.visibilityState !== 'visible') return
+      checkNow()
+    }
+    const t = setInterval(tick, ms)
+    return () => clearInterval(t)
+  }, [autoCheck, autoCheckInterval])
 
   const refreshAll = async () => {
     setLoading(true)
@@ -1082,12 +1305,19 @@ export default function Alerts() {
               {notifEnabled ? <Bell style={{ width: 14, height: 14 }}/> : <BellOff style={{ width: 14, height: 14 }}/>}
               {notifEnabled ? 'Notifications On' : 'Muted'}
             </button>
-            <button onClick={refreshAll}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none', background: 'var(--border)', color: 'var(--text-muted)' }}>
-              <RefreshCw style={{ width: 13, height: 13, animation: loading ? 'spin 1s linear infinite' : 'none' }}/>
-            </button>
           </div>
         </div>
+
+        <LiveSyncBar
+          lastSync={lastSync}
+          autoCheck={autoCheck} setAutoCheck={setAutoCheck}
+          autoCheckInterval={autoCheckInterval} setAutoCheckInterval={setAutoCheckInterval}
+          onRefresh={refreshAll} refreshing={loading}
+          onCheckNow={checkNow} checking={checking}
+          soundOn={soundOn} setSoundOn={setSoundOn}
+          totalAlerts={alerts.length}
+          activeWatches={watches.filter(w => w.active === 1 || w.active === true).length}
+        />
 
         <StatsBar alerts={alerts} watchCount={watches.length}/>
 
