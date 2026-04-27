@@ -30,6 +30,77 @@ export default function TopBar({ sidebarWidth, onA11yClick, onOpenDM }) {
   })
   const menuRef = useRef(null)
 
+  // ── Global site search ──
+  // The TopBar input doubles as a search across the 9,400+ Water Rangers
+  // network plus any sites already adopted into our DB. WR locations are
+  // lazy-loaded once on first focus (server caches the bulk fetch for 1h),
+  // then filtered client-side for instant typeahead.
+  const [allWR, setAllWR] = useState(null)        // null = not loaded yet
+  const [localSites, setLocalSites] = useState([])
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const searchBoxRef = useRef(null)
+
+  const ensureSiteIndex = () => {
+    if (allWR !== null) return
+    setSearchLoading(true)
+    Promise.all([
+      api.get('/wr/locations-all').then(r => Array.isArray(r.data?.locations) ? r.data.locations : []).catch(() => []),
+      api.get('/sites').then(r => Array.isArray(r.data) ? r.data : []).catch(() => []),
+    ]).then(([wr, local]) => {
+      setAllWR(wr)
+      setLocalSites(local)
+    }).finally(() => setSearchLoading(false))
+  }
+
+  const searchResults = (() => {
+    const q = searchVal.trim().toLowerCase()
+    if (q.length < 2) return []
+    const wr = (allWR || []).filter(l => {
+      const hay = `${l.name || ''} ${l.body_of_water || ''} ${l.location_description || ''} ${l.organization_name || ''} ${l.country || ''}`.toLowerCase()
+      return hay.includes(q)
+    }).slice(0, 12).map(l => ({
+      kind: 'wr',
+      id: l.id,
+      name: l.name,
+      sub: [l.body_of_water || l.location_description, l.organization_name, l.country].filter(Boolean).join(' · ') || 'Water Rangers site',
+    }))
+    const localMatches = localSites.filter(s => {
+      const hay = `${s.name || ''} ${s.location || ''} ${s.body_of_water || ''}`.toLowerCase()
+      return hay.includes(q)
+    }).slice(0, 6).map(s => ({
+      kind: 'local',
+      id: s.id,
+      name: s.name,
+      sub: s.location || (s.external_source === 'waterrangers' ? 'Adopted from Water Rangers' : 'Local site'),
+    }))
+    return [...localMatches, ...wr]
+  })()
+
+  const goSearch = (q) => {
+    if (!q) return
+    setSearchOpen(false)
+    navigate(`/monitoring?q=${encodeURIComponent(q)}`)
+  }
+  const onPickResult = (r) => {
+    setSearchOpen(false)
+    setSearchVal(r.name)
+    navigate(`/monitoring?q=${encodeURIComponent(r.name)}`)
+  }
+  const onSearchKey = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); goSearch(searchVal) }
+    if (e.key === 'Escape') setSearchOpen(false)
+  }
+
+  // Click outside the search dropdown to close it
+  useEffect(() => {
+    const onDocDown = (e) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target)) setSearchOpen(false)
+    }
+    document.addEventListener('mousedown', onDocDown)
+    return () => document.removeEventListener('mousedown', onDocDown)
+  }, [])
+
   // Apply animation pref on mount + whenever it changes
   useEffect(() => { applyAnimPref(animOff) }, [animOff])
 
@@ -65,16 +136,83 @@ export default function TopBar({ sidebarWidth, onA11yClick, onOpenDM }) {
           style={{ height: 46, width: 'auto', objectFit: 'contain', display: 'block' }}/>
       </div>
 
-      {/* Search bar — narrower to make room for the logo */}
-      <div className="flex-1 max-w-xs relative">
+      {/* Search bar — typeahead across the 9,400+ Water Rangers network + adopted sites.
+          Lazy-loads on first focus; Enter or click jumps to /monitoring with the query applied. */}
+      <div className="flex-1 max-w-md relative" ref={searchBoxRef}>
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--text-light)' }}/>
         <input
           value={searchVal}
-          onChange={e => setSearchVal(e.target.value)}
-          placeholder="Search..."
+          onChange={e => { setSearchVal(e.target.value); setSearchOpen(true) }}
+          onFocus={() => { ensureSiteIndex(); setSearchOpen(true) }}
+          onKeyDown={onSearchKey}
+          placeholder={allWR === null ? 'Search any site (9,400+ Water Rangers + adopted)…' : 'Search a lake, river, community, organization…'}
           style={{ paddingLeft: 36, background: 'var(--page-bg)', border: '1px solid var(--border)', color: 'var(--text)' }}
           className="text-sm py-2 rounded-xl w-full"
         />
+        {searchOpen && (searchVal.trim().length >= 2 || searchLoading || allWR === null) && (
+          <div
+            className="absolute left-0 right-0 mt-1 rounded-xl shadow-xl border z-50 overflow-hidden"
+            style={{ background: 'var(--card-bg)', borderColor: 'var(--border)', maxHeight: 380 }}
+          >
+            {searchLoading && allWR === null && (
+              <div style={{ padding: '12px 14px', fontSize: 12, color: 'var(--text-muted)' }}>
+                Loading 9,400+ Water Rangers sites…
+              </div>
+            )}
+            {!searchLoading && searchVal.trim().length < 2 && (
+              <div style={{ padding: '12px 14px', fontSize: 12, color: 'var(--text-muted)' }}>
+                Type at least 2 characters to search any site across the Water Rangers network.
+              </div>
+            )}
+            {searchVal.trim().length >= 2 && (
+              <div style={{ maxHeight: 340, overflowY: 'auto' }}>
+                {searchResults.length === 0 ? (
+                  <div style={{ padding: '12px 14px', fontSize: 12, color: 'var(--text-muted)' }}>
+                    No sites match "{searchVal}".
+                  </div>
+                ) : searchResults.map(r => (
+                  <button
+                    key={`${r.kind}-${r.id}`}
+                    onMouseDown={(e) => { e.preventDefault(); onPickResult(r) }}
+                    style={{
+                      display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '8px 12px', textAlign: 'left', border: 'none', borderBottom: '1px solid var(--border)',
+                      background: 'transparent', cursor: 'pointer', color: 'var(--text)',
+                    }}
+                  >
+                    <span style={{ minWidth: 0, overflow: 'hidden' }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {r.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {r.sub}
+                      </div>
+                    </span>
+                    <span style={{
+                      fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 20, marginLeft: 8, flexShrink: 0,
+                      background: r.kind === 'wr' ? 'rgba(14,165,233,0.12)' : 'rgba(99,102,241,0.12)',
+                      color: r.kind === 'wr' ? '#0ea5e9' : '#6366f1',
+                      letterSpacing: '0.04em',
+                    }}>
+                      {r.kind === 'wr' ? 'WR' : 'ADOPTED'}
+                    </span>
+                  </button>
+                ))}
+                <button
+                  onMouseDown={(e) => { e.preventDefault(); goSearch(searchVal) }}
+                  style={{
+                    display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '9px 12px', textAlign: 'left', border: 'none',
+                    background: 'rgba(99,102,241,0.06)', cursor: 'pointer', color: '#6366f1', fontSize: 11, fontWeight: 700,
+                  }}
+                >
+                  <span>Open Site Map filtered by "{searchVal}"</span>
+                  <span style={{ fontSize: 10, opacity: 0.8 }}>↵</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-1 ml-auto">

@@ -8,6 +8,7 @@
  * - CSV export
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import {
@@ -167,12 +168,23 @@ export default function WRMonitoringMap() {
   const [siteObsError, setSiteObsError] = useState(null)
   const [deepDiveParam, setDeepDiveParam] = useState(null)
 
-  // Filters
+  // Filters — initial searchText comes from ?q= so the global TopBar search
+  // can deep-link straight into the map with the user's query already applied.
+  const [searchParams, setSearchParams] = useSearchParams()
   const [countryFilter, setCountryFilter] = useState('')
   const [bodyFilter, setBodyFilter] = useState('')
   const [paramFilter, setParamFilter] = useState('')
-  const [searchText, setSearchText] = useState('')
+  const [searchText, setSearchText] = useState(() => searchParams.get('q') || '')
   const [activeOnly, setActiveOnly] = useState(false)
+
+  // Keep state and URL in sync — clearing the search drops ?q= from the URL too.
+  useEffect(() => {
+    const current = searchParams.get('q') || ''
+    if (current === searchText) return
+    const next = new URLSearchParams(searchParams)
+    if (searchText) next.set('q', searchText); else next.delete('q')
+    setSearchParams(next, { replace: true })
+  }, [searchText])
 
   const [loadMsg, setLoadMsg] = useState('')
 

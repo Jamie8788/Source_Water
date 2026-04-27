@@ -870,7 +870,7 @@ function AlertCard({ alert, onExpand, expanded, siteRow }) {
                 </a>
               )}
               {alert.site_id && (
-                <a href={`/map`}
+                <a href={`/monitoring`}
                   onClick={(e) => e.stopPropagation()}
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -878,7 +878,7 @@ function AlertCard({ alert, onExpand, expanded, siteRow }) {
                     background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.30)',
                     color: '#a78bfa', textDecoration: 'none', cursor: 'pointer',
                   }}>
-                  <MapPin style={{ width: 12, height: 12 }}/> Open in Monitoring Map
+                  <MapPin style={{ width: 12, height: 12 }}/> Open in Site Map
                 </a>
               )}
               <a href={`/ai-lab`}
@@ -1092,7 +1092,7 @@ function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, o
   const [form, setForm] = useState({ site_id: '', parameter: '', comparator: '>', threshold: '', severity: 'medium' })
   const [busy, setBusy] = useState(false)
   const [expandedId, setExpandedId] = useState(null)
-  const [source, setSource] = useState('local') // 'local' | 'wr'
+  const [source, setSource] = useState('wr') // 'wr' | 'local' — default to 9,400+ Water Rangers search
 
   const reset = () => {
     setForm({ site_id: '', parameter: '', comparator: '>', threshold: '', severity: 'medium' })
@@ -1138,16 +1138,19 @@ function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, o
 
       {adding && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, padding: 12, marginBottom: 12, background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 10 }}>
-          {/* Source toggle: pick from our local list or search 9,400+ Water Rangers sites */}
-          <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <button type="button" onClick={() => { setSource('local'); setForm(f => ({ ...f, site_id: '' })) }}
-              style={{ padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, background: source === 'local' ? '#6366f1' : 'var(--border)', color: source === 'local' ? '#fff' : 'var(--text-muted)' }}>
-              <Database style={{ width: 12, height: 12 }}/> Our sites ({sites.length})
-            </button>
+          {/* Source toggle: search 9,400+ Water Rangers sites (default) or pick from already-adopted local list */}
+          <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <button type="button" onClick={() => { setSource('wr'); setForm(f => ({ ...f, site_id: '' })) }}
               style={{ padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, background: source === 'wr' ? '#0ea5e9' : 'var(--border)', color: source === 'wr' ? '#fff' : 'var(--text-muted)' }}>
               <Globe style={{ width: 12, height: 12 }}/> Water Rangers (9,400+)
             </button>
+            <button type="button" onClick={() => { setSource('local'); setForm(f => ({ ...f, site_id: '' })) }}
+              style={{ padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, background: source === 'local' ? '#6366f1' : 'var(--border)', color: source === 'local' ? '#fff' : 'var(--text-muted)' }}>
+              <Database style={{ width: 12, height: 12 }}/> Already adopted ({sites.filter(s => s.external_source !== 'waterrangers').length + sites.filter(s => s.external_source === 'waterrangers').length})
+            </button>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              Search any lake / river / community across Canada — pick a site, then set the parameter and threshold below.
+            </span>
           </div>
 
           {source === 'local' ? (
