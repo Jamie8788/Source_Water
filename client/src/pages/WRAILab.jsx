@@ -16,6 +16,7 @@ import {
   Brain, TrendingUp, AlertTriangle, Send, RefreshCw, Download,
   Loader, BarChart2, MapPin, Search, ExternalLink,
   Sparkles, CheckCircle2, AlertCircle, XCircle, Info, ArrowUpRight, ArrowDownRight, Minus,
+  Volume2, VolumeX, Calendar, ShieldAlert, HeartPulse,
 } from 'lucide-react'
 import { getAllLocations, getLocationObservations } from '../api/waterRangers'
 import api from '../utils/api'
@@ -302,6 +303,7 @@ function RichParameterChart({ trend, siteName, timeRangeMs, gradientId }) {
       n: vals.length, mean, std, min, max, latest, earliest, pctSafe, anomalyCount,
       slopeWeek: slopePerWeek(series),
       timeSpanDays: (series[series.length - 1].t - series[0].t) / 86400000,
+      latestT: series[series.length - 1].t,
     }
   }, [series, who])
 
@@ -336,6 +338,11 @@ function RichParameterChart({ trend, siteName, timeRangeMs, gradientId }) {
           <div style={{ color: 'var(--text-muted)', fontSize: 10 }}>
             {stats.n} readings · {trend.unit?.replace(/_/g, '/') || who?.unit || ''} · {Math.round(stats.timeSpanDays)} days
           </div>
+          {stats.latestT && (
+            <div style={{ marginTop: 3, fontSize: 10, color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Calendar size={10}/> Last reading {timeAgo(stats.latestT)}
+            </div>
+          )}
         </div>
         {latestStatus.icon && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 8px', borderRadius: 999,
@@ -403,11 +410,26 @@ function RichParameterChart({ trend, siteName, timeRangeMs, gradientId }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, color: '#a78bfa', fontSize: 9, fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
           <Info size={10}/> What this means
         </div>
-        <div style={{ color: 'var(--text)', fontSize: 11, lineHeight: 1.55 }}>
+        <div style={{ color: 'var(--text)', fontSize: 12, lineHeight: 1.6 }}>
           {plainEnglish(stats, who, trend.param)}
-          {who?.explain && <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: 10 }}>About {who.label}: {who.explain}.</div>}
+          {who?.explain && <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: 11 }}>About {who.label}: {who.explain}.</div>}
         </div>
       </div>
+
+      {/* What should I do? — only shown when latest reading is borderline or outside safe range */}
+      {(() => {
+        const action = paramAction(latestStatus, who, trend.param)
+        if (!action) return null
+        const tone = latestStatus.color
+        return (
+          <div style={{ marginTop: 8, padding: 10, borderRadius: 8, background: `${tone}10`, border: `1px solid ${tone}44` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, color: tone, fontSize: 9, fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+              <ShieldAlert size={10}/> What should I do?
+            </div>
+            <div style={{ color: 'var(--text)', fontSize: 12, lineHeight: 1.6 }}>{action}</div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -431,7 +453,169 @@ const TIME_RANGES = [
   { key: 'all', label: 'All', ms: null },
 ]
 
-function ChartsTab({ trends, siteName }) {
+// "3 days ago" / "2 months ago" / "5 years ago" — gentle, readable, no science.
+function timeAgo(ms) {
+  if (!ms || !isFinite(ms)) return null
+  const diff = Date.now() - ms
+  if (diff < 0) return 'in the future'
+  const day = 86400000
+  if (diff < day) return 'today'
+  if (diff < 2 * day) return 'yesterday'
+  if (diff < 30 * day) return `${Math.round(diff / day)} days ago`
+  if (diff < 365 * day) return `${Math.round(diff / (30 * day))} months ago`
+  const years = (diff / (365 * day)).toFixed(1)
+  return `${years} year${years === '1.0' ? '' : 's'} ago`
+}
+
+// Browser text-to-speech — accessibility for elderly / low-literacy users.
+// Cancels any previous utterance so two clicks don't overlap.
+function speak(text) {
+  try {
+    if (!('speechSynthesis' in window)) return false
+    window.speechSynthesis.cancel()
+    const u = new SpeechSynthesisUtterance(text)
+    u.rate = 0.95; u.pitch = 1.0; u.volume = 1.0
+    window.speechSynthesis.speak(u)
+    return true
+  } catch { return false }
+}
+function stopSpeaking() {
+  try { window.speechSynthesis?.cancel() } catch {}
+}
+
+// Plain-English action guidance for elderly / non-technical users. Always
+// honest about uncertainty — never tells someone the water is fine when
+// readings are flagged.
+function whatToDo(verdict) {
+  if (verdict === 'safe') return {
+    title: 'What this means for you',
+    color: '#10b981',
+    icon: CheckCircle2,
+    body: 'Recent readings at this site look healthy. Keep checking back — water quality can change with weather, season, and upstream activity.',
+  }
+  if (verdict === 'watch') return {
+    title: 'Worth keeping an eye on',
+    color: '#f59e0b',
+    icon: AlertCircle,
+    body: 'Some readings are close to the safe limit but not over it. Avoid drinking unfiltered water from this source. If you swim or fish here, check again before your next visit.',
+  }
+  return {
+    title: 'Take this seriously',
+    color: '#ef4444',
+    icon: ShieldAlert,
+    body: 'One or more recent readings are outside safe drinking-water limits. Do not drink water from this source. Contact your local water authority or the Water Rangers community to flag this site for follow-up sampling.',
+  }
+}
+
+// Per-parameter "what should I do?" — only shown when the latest reading is
+// borderline or outside safe range. Keeps the green-state UI clean.
+function paramAction(latestStatus, who, paramName) {
+  if (!who || latestStatus.tone === 'safe' || latestStatus.tone === 'neutral') return null
+  const name = paramName.replace(/_/g, ' ')
+  if (latestStatus.tone === 'warn') {
+    return `The latest ${name} reading is close to the safe limit but not over it. This is worth tracking — if the next few readings keep drifting in the same direction, consider reporting it to local water monitors.`
+  }
+  return `The latest ${name} reading is outside the safe range. ${who.explain ? `${who.label} matters because: ${who.explain.toLowerCase()}.` : ''} Do not drink unfiltered water from this site, and consider flagging it to a local environmental authority.`
+}
+
+// Site-wide one-sentence verdict for the headline. Speaks to a community
+// member with no science background. Names the parameters that need attention.
+function siteHeadline(siteName, health, latestObsTs) {
+  if (!health || health.score == null) {
+    return { verdict: 'unknown', text: `Not enough drinking-water standards apply to the parameters tracked at ${siteName} yet to give an overall verdict. The charts below still show the data we have.` }
+  }
+  const when = latestObsTs ? ` (last reading ${timeAgo(latestObsTs)})` : ''
+  const concerning = health.items.filter(i => i.status.tone === 'danger').map(i => i.param.replace(/_/g, ' '))
+  const watch = health.items.filter(i => i.status.tone === 'warn').map(i => i.param.replace(/_/g, ' '))
+  if (health.score >= 85) return {
+    verdict: 'safe',
+    text: `Recent readings at ${siteName} look healthy${when}. ${health.breakdown.safe} parameter${health.breakdown.safe === 1 ? '' : 's'} sit comfortably inside safe drinking-water limits.`,
+  }
+  if (health.score >= 60) return {
+    verdict: 'watch',
+    text: `${siteName} is mostly fine${when}, but a few readings are worth watching: ${watch.join(', ') || 'borderline values detected'}. None are over the safe limit yet, but the next sampling round should be checked carefully.`,
+  }
+  return {
+    verdict: 'danger',
+    text: `${siteName} needs attention${when}. ${concerning.length ? `${concerning.join(', ')} are outside safe drinking-water limits` : 'multiple readings are outside safe limits'}. Do not drink water from this site without treatment, and consider flagging it to local monitors.`,
+  }
+}
+
+function HeadlineSummary({ siteName, health, latestObsTs, totalReadings, observationsCount }) {
+  const [speaking, setSpeaking] = useState(false)
+  const headline = useMemo(() => siteHeadline(siteName, health, latestObsTs), [siteName, health, latestObsTs])
+  const verdictColor = headline.verdict === 'safe' ? '#10b981'
+    : headline.verdict === 'watch' ? '#f59e0b'
+    : headline.verdict === 'danger' ? '#ef4444'
+    : '#94a3b8'
+  const VerdictIcon = headline.verdict === 'safe' ? CheckCircle2
+    : headline.verdict === 'watch' ? AlertCircle
+    : headline.verdict === 'danger' ? ShieldAlert
+    : Info
+  const speech = `${headline.text}. This is based on ${totalReadings || 0} water quality readings from ${observationsCount || 0} observations at ${siteName}.`
+
+  // Stop any speech if we unmount
+  useEffect(() => () => stopSpeaking(), [])
+
+  const onReadAloud = () => {
+    if (speaking) { stopSpeaking(); setSpeaking(false); return }
+    const ok = speak(speech)
+    if (!ok) return
+    setSpeaking(true)
+    // Best-effort detection of speech ending
+    const check = setInterval(() => {
+      if (!window.speechSynthesis?.speaking) { setSpeaking(false); clearInterval(check) }
+    }, 400)
+  }
+
+  return (
+    <div style={{
+      position: 'relative', overflow: 'hidden',
+      background: `linear-gradient(135deg, ${verdictColor}1a, ${verdictColor}08 60%, var(--card-bg))`,
+      border: `1.5px solid ${verdictColor}55`, borderRadius: 16, padding: 18, marginBottom: 12,
+      display: 'grid', gridTemplateColumns: '72px 1fr auto', gap: 14, alignItems: 'center',
+      boxShadow: `0 0 32px ${verdictColor}22`,
+    }}>
+      {/* Big verdict icon */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        width: 72, height: 72, borderRadius: 16,
+        background: `${verdictColor}22`, border: `1.5px solid ${verdictColor}66`,
+      }}>
+        <VerdictIcon size={42} color={verdictColor} strokeWidth={2}/>
+      </div>
+
+      {/* Headline + sub */}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 10, fontWeight: 800, color: verdictColor, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <HeartPulse size={12}/> Plain-language summary for {siteName}
+        </div>
+        <div style={{ color: 'var(--text)', fontSize: 15, lineHeight: 1.5, fontWeight: 600 }}>{headline.text}</div>
+        {latestObsTs && (
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Calendar size={11}/> Latest sample: {timeAgo(latestObsTs)} ({new Date(latestObsTs).toLocaleDateString()})
+          </div>
+        )}
+      </div>
+
+      {/* Read aloud */}
+      <button onClick={onReadAloud}
+        title={speaking ? 'Stop reading' : 'Read this aloud'}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '10px 14px', borderRadius: 10,
+          background: speaking ? `${verdictColor}` : `${verdictColor}22`,
+          border: `1.5px solid ${verdictColor}`, color: speaking ? '#fff' : verdictColor,
+          fontSize: 12, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap',
+        }}>
+        {speaking ? <VolumeX size={14}/> : <Volume2 size={14}/>}
+        {speaking ? 'Stop' : 'Read aloud'}
+      </button>
+    </div>
+  )
+}
+
+function ChartsTab({ trends, siteName, observationsCount, totalReadings }) {
   const [range, setRange] = useState('all')
   const charted = trends.filter(t => t.count >= 3 && t.unit !== 'nil')
   if (charted.length === 0) {
@@ -439,8 +623,22 @@ function ChartsTab({ trends, siteName }) {
   }
   const activeMs = TIME_RANGES.find(r => r.key === range)?.ms || null
 
+  // Latest observation timestamp across all parameters — used by headline.
+  const latestObsTs = useMemo(() => {
+    let max = 0
+    for (const t of charted) for (const p of (t.points || [])) {
+      const ts = new Date(p.date).getTime()
+      if (isFinite(ts) && ts > max) max = ts
+    }
+    return max || null
+  }, [charted])
+  const health = useMemo(() => computeHealthScore(charted), [charted])
+
   return (
     <>
+      <HeadlineSummary
+        siteName={siteName} health={health} latestObsTs={latestObsTs}
+        observationsCount={observationsCount} totalReadings={totalReadings}/>
       <SiteHealthCard trends={charted} siteName={siteName}/>
 
       {/* Toolbar: time range + legend hint */}
@@ -805,7 +1003,8 @@ export default function WRAILab() {
 
                 {/* CHARTS — community-readable: safe-range bands, anomaly dots, plain English */}
                 {tab === 'charts' && (
-                  <ChartsTab trends={trends} siteName={selectedSite.name}/>
+                  <ChartsTab trends={trends} siteName={selectedSite.name}
+                    observationsCount={observations.length} totalReadings={analysis.totalReadings}/>
                 )}
 
                 {/* RESEARCH AI */}
