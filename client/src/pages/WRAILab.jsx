@@ -53,10 +53,20 @@ function analyze(observations) {
     qaBreakdown[obs.checked] = (qaBreakdown[obs.checked] || 0) + 1
     const readings = obs.readings || []
     totalDatapointsRaw += readings.length
+
+    // Take ONE numeric reading per parameter per observation. Some sampling
+    // visits log a parameter twice (e.g. test-strip + digital meter as a QA
+    // cross-check). Counting both inflates the mean and makes our stats
+    // disagree with ParameterDeepDive (which already uses one-per-obs) and
+    // with Water Rangers' own "times sampled" count. First match wins —
+    // matches DeepDive's behaviour so both views show the same numbers.
+    const seenForObs = new Set()
     for (const r of readings) {
       const val = parseFloat(r.value)
       if (isNaN(val) || !r.unit || r.unit === 'nil') continue
       const param = r.parameter
+      if (seenForObs.has(param)) continue
+      seenForObs.add(param)
       if (!byParam[param]) byParam[param] = []
       byParam[param].push({ date: obs.observed_at, value: val, unit: r.unit, equipment: r.equipment })
 
@@ -978,7 +988,7 @@ export default function WRAILab() {
                       <strong style={{ color: 'var(--text)' }}>{analysis.totalDatapointsRaw}</strong> total datapoints
                     </span>
                     <span>·</span>
-                    <span title={`Numeric readings with valid units — these are the only ones the charts and statistics can use. The gap vs total datapoints is qualitative/text observations.`}>
+                    <span title={`One numeric reading per parameter per sampling visit. Where a visit logged the same parameter twice (e.g. test-strip + digital meter for QA), only the first is counted so duplicate cross-checks don't skew the mean. This is the count the charts and statistics use.`}>
                       <strong style={{ color: 'var(--text)' }}>{analysis.totalReadings}</strong> chartable readings
                     </span>
                     <span>·</span>
