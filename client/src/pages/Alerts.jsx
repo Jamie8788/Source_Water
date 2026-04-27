@@ -4,14 +4,14 @@ import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaf
 import 'leaflet/dist/leaflet.css'
 import { LineChart, Line, ReferenceLine, ReferenceArea, YAxis, XAxis, Tooltip as RTooltip, ResponsiveContainer } from 'recharts'
 import api from '../utils/api'
-import { speakAsNibi } from '../utils/voice'
+import { playNibiTTS } from '../utils/voice'
 import {
   AlertTriangle, Info, CheckCircle, Bell, BellOff,
   MapPin, Clock, RefreshCw, ChevronDown,
   Activity, Plus, Trash2, Power, PowerOff,
   Target, Database, Zap, BookOpen, Search, Globe,
   TrendingUp, TrendingDown, Minus, Sparkles,
-  Volume2, VolumeX, Wifi, Radio, Calendar,
+  Volume2, VolumeX, Wifi, Radio, Calendar, ExternalLink, ShieldAlert,
 } from 'lucide-react'
 
 /* ── Parameter guidance (Canadian drinking water + CCME aquatic life) ── */
@@ -636,12 +636,16 @@ function playAlertChime() {
   } catch {}
 }
 
-function AlertCard({ alert, onExpand, expanded }) {
+function AlertCard({ alert, onExpand, expanded, siteRow }) {
   const cfg = SEV_CONFIG[alert.severity] || SEV_CONFIG.info
   const Icon = cfg.icon
   const isActive = alert.active === 1 || alert.active === true
   const guide = PARAM_GUIDE[alert.parameter]
   const isCritical = alert.severity === 'high' && isActive
+  const isWR = siteRow?.external_source === 'waterrangers'
+  const wrUrl = isWR && siteRow?.external_id
+    ? `https://data.waterrangers.com/locations/${siteRow.external_id}`
+    : null
 
   // "Active for X days" — distance between when the alert was first raised and now.
   const ageMs = alert.created_at ? (Date.now() - new Date(alert.created_at).getTime()) : null
@@ -653,30 +657,50 @@ function AlertCard({ alert, onExpand, expanded }) {
     return `Active for ${Math.round(ageMs / (30 * day))} months`
   })()
 
-  // Read aloud — community accessibility. Same Nibi voice as the AI Lab.
+  // Plain-English summary of why this alert fired — pure rule-based, no LLM.
+  // Uses the parameter guide + the comparison between current value and threshold.
+  const plainSummary = useMemo(() => {
+    const bits = []
+    const v = alert.current_value, t = alert.threshold_value
+    const param = (alert.parameter || 'parameter').replace(/_/g, ' ')
+    if (v != null && t != null) {
+      const diff = (v - t).toFixed(2)
+      if (alert.severity === 'high') {
+        bits.push(`The latest ${param} reading at ${alert.site_name || 'this site'} is ${v}, which is ${Math.abs(diff)} ${diff > 0 ? 'above' : 'below'} your threshold of ${t}.`)
+      } else {
+        bits.push(`The latest ${param} reading is ${v}, just past your watch threshold of ${t}.`)
+      }
+    } else if (v != null) {
+      bits.push(`The latest ${param} reading at ${alert.site_name || 'this site'} is ${v}.`)
+    }
+    if (guide?.safe && guide.safe !== 'n/a' && guide.safe !== 'site-dependent') {
+      bits.push(`The reference safe range is ${guide.safe}${guide.unit ? ' ' + guide.unit : ''}.`)
+    }
+    if (guide?.hint) bits.push(guide.hint)
+    if (guide?.typicalAlgoma && guide.typicalAlgoma !== '—') {
+      bits.push(`For context, typical Algoma readings are ${guide.typicalAlgoma}.`)
+    }
+    return bits.join(' ')
+  }, [alert, guide])
+
+  // Read aloud — uses the same /api/ai/tts (Microsoft AnaNeural — free,
+  // sounds like a real young woman) as Ask Water. No more sore-throat voice.
   const [speaking, setSpeaking] = useState(false)
+  const ttsCtrlRef = useRef(null)
   const speechText = useMemo(() => {
-    const parts = []
-    parts.push(`${cfg.label} alert.`)
-    if (alert.parameter && alert.site_name) parts.push(`${alert.parameter} at ${alert.site_name}`)
-    if (alert.current_value != null) parts.push(`is ${alert.current_value}`)
-    if (alert.threshold_value != null) parts.push(`compared to your threshold of ${alert.threshold_value}.`)
-    if (guide?.safe) parts.push(`Safe range is ${guide.safe} ${guide.unit || ''}.`)
-    if (guide?.hint) parts.push(guide.hint)
+    const parts = [`${cfg.label} alert.`, plainSummary]
     if (ageLabel) parts.push(ageLabel + '.')
     return parts.join(' ')
-  }, [alert, cfg, guide, ageLabel])
+  }, [cfg, plainSummary, ageLabel])
 
-  useEffect(() => () => { try { window.speechSynthesis?.cancel() } catch {} }, [])
+  useEffect(() => () => { ttsCtrlRef.current?.stop?.() }, [])
   const onReadAloud = (e) => {
     e.stopPropagation()
-    if (speaking) { try { window.speechSynthesis?.cancel() } catch {}; setSpeaking(false); return }
-    try { window.speechSynthesis?.cancel() } catch {}
-    speakAsNibi(speechText)
+    if (speaking) { ttsCtrlRef.current?.stop?.(); setSpeaking(false); return }
     setSpeaking(true)
-    const check = setInterval(() => {
-      if (!window.speechSynthesis?.speaking) { setSpeaking(false); clearInterval(check) }
-    }, 400)
+    const ctrl = playNibiTTS(speechText)
+    ttsCtrlRef.current = ctrl
+    ctrl.onEnd(() => setSpeaking(false))
   }
 
   return (
@@ -746,6 +770,12 @@ function AlertCard({ alert, onExpand, expanded }) {
                   <Calendar style={{ width: 10, height: 10 }}/> {ageLabel}
                 </span>
               )}
+              {isWR && (
+                <span title="Live data — this alert is fed by data.waterrangers.com on every check"
+                  style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 800, color: '#0ea5e9', background: 'rgba(14,165,233,0.12)', border: '1px solid rgba(14,165,233,0.35)', display: 'flex', alignItems: 'center', gap: 4, letterSpacing: '0.04em' }}>
+                  <Globe style={{ width: 10, height: 10 }}/> WR LIVE
+                </span>
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
@@ -772,21 +802,96 @@ function AlertCard({ alert, onExpand, expanded }) {
           </div>
         )}
 
-        {expanded && guide && (
-          <div style={{ marginTop: 14, padding: '10px 12px', background: 'rgba(14,165,233,0.05)', border: '1px solid rgba(14,165,233,0.18)', borderRadius: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <BookOpen style={{ width: 12, height: 12, color: '#0ea5e9' }}/>
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Context</span>
+        {expanded && (
+          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {/* What this means — rule-based plain English (no LLM call) */}
+            <div style={{
+              padding: '12px 14px', borderRadius: 10,
+              background: `linear-gradient(135deg, ${cfg.color}10, transparent 70%), rgba(255,255,255,0.02)`,
+              border: `1px solid ${cfg.color}30`,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, color: cfg.color, fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                <Info style={{ width: 11, height: 11 }}/> What this means
+              </div>
+              <div style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.6 }}>{plainSummary}</div>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5, marginBottom: 4 }}>
-              <strong>Safe range:</strong> {guide.safe} {guide.unit} · <strong>Ideal:</strong> {guide.ideal} {guide.unit}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>{guide.hint}</div>
-            {guide.typicalAlgoma !== '—' && (
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5, marginTop: 3 }}>
-                <strong>Typical Algoma:</strong> {guide.typicalAlgoma}
+
+            {/* What should I do? — only when active and we have a guide hint */}
+            {isActive && guide && (
+              <div style={{
+                padding: '12px 14px', borderRadius: 10,
+                background: `${cfg.color}0d`,
+                border: `1px solid ${cfg.color}40`,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, color: cfg.color, fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  <ShieldAlert style={{ width: 11, height: 11 }}/> What should I do?
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.6 }}>
+                  {alert.severity === 'high'
+                    ? `Do not drink water from this site without treatment. Flag this reading to a local water authority (Algoma Public Health, Conservation Authority, or your local Water Rangers chapter).`
+                    : alert.severity === 'medium'
+                      ? `Track this. If the next sampling round confirms the same direction, escalate to your local water authority. Avoid drinking unfiltered water from this site in the meantime.`
+                      : `Awareness only — keep an eye on subsequent readings. No immediate action required.`}
+                </div>
               </div>
             )}
+
+            {/* Reference card — pulled directly from Health Canada / CCME tables in PARAM_GUIDE */}
+            {guide && (
+              <div style={{ padding: '10px 12px', background: 'rgba(14,165,233,0.05)', border: '1px solid rgba(14,165,233,0.18)', borderRadius: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <BookOpen style={{ width: 12, height: 12, color: '#0ea5e9' }}/>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Reference</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, fontSize: 11.5, color: 'var(--text)' }}>
+                  <div><div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Safe range</div><div style={{ fontWeight: 700 }}>{guide.safe} {guide.unit}</div></div>
+                  <div><div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Ideal</div><div style={{ fontWeight: 700 }}>{guide.ideal} {guide.unit}</div></div>
+                  {guide.typicalAlgoma !== '—' && (
+                    <div><div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Typical Algoma</div><div style={{ fontWeight: 700 }}>{guide.typicalAlgoma}</div></div>
+                  )}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.55 }}>{guide.hint}</div>
+              </div>
+            )}
+
+            {/* Action buttons — open WR site directly OR view on map */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {wrUrl && (
+                <a href={wrUrl} target="_blank" rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  title="Open this exact site on data.waterrangers.com"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '7px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                    background: 'rgba(14,165,233,0.12)', border: '1px solid rgba(14,165,233,0.35)',
+                    color: '#0ea5e9', textDecoration: 'none', cursor: 'pointer',
+                  }}>
+                  <Globe style={{ width: 12, height: 12 }}/> View on Water Rangers <ExternalLink style={{ width: 10, height: 10, opacity: 0.7 }}/>
+                </a>
+              )}
+              {alert.site_id && (
+                <a href={`/map`}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '7px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                    background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.30)',
+                    color: '#a78bfa', textDecoration: 'none', cursor: 'pointer',
+                  }}>
+                  <MapPin style={{ width: 12, height: 12 }}/> Open in Monitoring Map
+                </a>
+              )}
+              <a href={`/ai-lab`}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '7px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                  background: 'rgba(167,139,250,0.10)', border: '1px solid rgba(167,139,250,0.30)',
+                  color: '#a78bfa', textDecoration: 'none', cursor: 'pointer',
+                }}>
+                <Sparkles style={{ width: 12, height: 12 }}/> Analyze in AI Lab
+              </a>
+            </div>
           </div>
         )}
       </div>
@@ -1373,7 +1478,8 @@ export default function Alerts() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {filtered.map(a => (
-              <AlertCard key={a.id} alert={a} expanded={expandedId === a.id} onExpand={toggleExpand}/>
+              <AlertCard key={a.id} alert={a} expanded={expandedId === a.id} onExpand={toggleExpand}
+                siteRow={sites.find(s => s.id === a.site_id)}/>
             ))}
           </div>
         )}

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import { getAllLocations, getLocationObservations } from '../api/waterRangers'
 import api from '../utils/api'
-import { speakAsNibi } from '../utils/voice'
+import { playNibiTTS } from '../utils/voice'
 import { matchParam } from '../utils/waterParams'
 import ParameterDeepDive from '../components/ParameterDeepDive'
 
@@ -540,21 +540,19 @@ function timeAgo(ms) {
   return `${years} year${years === '1.0' ? '' : 's'} ago`
 }
 
-// Read aloud using the same kid-female "Nibi" voice the Ask Water page uses,
-// so the voice feels consistent across the whole platform. speakAsNibi waits
-// for voiceschanged on browsers that load voices async, which avoids the
-// "OS-default sore-throat male voice" bug on Windows.
+// Shared TTS — backend Microsoft Ana neural voice (free, no API key)
+// with browser fallback. Same /api/ai/tts endpoint Ask Water uses, so
+// this read-aloud sounds identical to Ask Water (real young-female voice
+// rather than the OS-default male sore-throat voice on Windows).
+let _ttsCtrl = null
 function speak(text) {
   try {
-    if (!('speechSynthesis' in window)) return false
-    window.speechSynthesis.cancel()
-    speakAsNibi(text)
-    return true
-  } catch { return false }
+    _ttsCtrl?.stop?.()
+    _ttsCtrl = playNibiTTS(text)
+    return _ttsCtrl
+  } catch { return null }
 }
-function stopSpeaking() {
-  try { window.speechSynthesis?.cancel() } catch {}
-}
+function stopSpeaking() { _ttsCtrl?.stop?.() }
 
 // Plain-English action guidance for elderly / non-technical users. Always
 // honest about uncertainty — never tells someone the water is fine when
@@ -632,13 +630,10 @@ function HeadlineSummary({ siteName, health, latestObsTs, totalReadings, observa
 
   const onReadAloud = () => {
     if (speaking) { stopSpeaking(); setSpeaking(false); return }
-    const ok = speak(speech)
-    if (!ok) return
+    const ctrl = speak(speech)
+    if (!ctrl) return
     setSpeaking(true)
-    // Best-effort detection of speech ending
-    const check = setInterval(() => {
-      if (!window.speechSynthesis?.speaking) { setSpeaking(false); clearInterval(check) }
-    }, 400)
+    ctrl.onEnd?.(() => setSpeaking(false))
   }
 
   return (

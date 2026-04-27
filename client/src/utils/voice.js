@@ -48,6 +48,60 @@ export function pickNibiVoice() {
 // Consistent pitch/rate/volume for Nibi — the young female mascot voice.
 export const NIBI_PROSODY = { pitch: 1.8, rate: 1.05, volume: 0.95 }
 
+// Premium TTS: hits the backend /api/ai/tts which uses Microsoft Edge
+// en-US-AnaNeural (free, no API key, sounds like a real young woman, NOT
+// the Windows-default sore-throat male voice). Falls back to the browser
+// SpeechSynthesis with the kid prosody if the backend can't deliver audio.
+//
+// Returns a small controller object so callers can stop playback mid-stream
+// and listen for completion. Used by Ask Water, AI Lab read-aloud, and the
+// Alerts page so every "🔊 Read aloud" button on the platform sounds the same.
+export function playNibiTTS(text) {
+  const ctrl = { _audio: null, _abort: new AbortController(), _done: false, _onEndCbs: [] }
+  ctrl.stop = () => {
+    ctrl._abort.abort()
+    if (ctrl._audio) { try { ctrl._audio.pause(); ctrl._audio.src = '' } catch {} }
+    try { window.speechSynthesis?.cancel() } catch {}
+    if (!ctrl._done) { ctrl._done = true; ctrl._onEndCbs.forEach(cb => cb()) }
+  }
+  ctrl.onEnd = (cb) => { if (ctrl._done) cb(); else ctrl._onEndCbs.push(cb) }
+
+  const finish = () => { if (!ctrl._done) { ctrl._done = true; ctrl._onEndCbs.forEach(cb => cb()) } }
+
+  // Strip markdown / emojis / urls so the TTS doesn't read them out loud
+  const clean = String(text || '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[\u{1F300}-\u{1FAFF}]/gu, '')
+    .replace(/[\u{2600}-\u{27BF}]/gu, '')
+    .replace(/[*_`#[\]]/g, '')
+    .replace(/https?:\/\/\S+/g, '')
+    .trim()
+  if (!clean) { finish(); return ctrl }
+
+  ;(async () => {
+    try {
+      // Lazy-import to avoid circular dep with utils/api which imports voice on some pages
+      const { default: api } = await import('./api')
+      const resp = await api.post('/ai/tts', { text: clean.slice(0, 500) }, { responseType: 'blob', signal: ctrl._abort.signal })
+      if (ctrl._abort.signal.aborted) return
+      const url = URL.createObjectURL(resp.data)
+      const audio = new Audio(url)
+      ctrl._audio = audio
+      audio.onended = () => { URL.revokeObjectURL(url); finish() }
+      audio.onerror = () => { URL.revokeObjectURL(url); finish() }
+      ctrl._abort.signal.addEventListener('abort', () => { audio.pause(); audio.src = ''; URL.revokeObjectURL(url); finish() })
+      await audio.play().catch(() => finish())
+    } catch (e) {
+      if (ctrl._abort.signal.aborted) { finish(); return }
+      // Backend TTS failed — fall back to browser SpeechSynthesis with the
+      // kid prosody so we still get a passable voice instead of nothing.
+      try { await speakAsNibi(clean.slice(0, 350)) } catch {}
+      finish()
+    }
+  })()
+  return ctrl
+}
+
 // Speak a string with the Nibi voice. Resolves when done or on error.
 // If the browser hasn't loaded voices yet, waits once for voiceschanged.
 export function speakAsNibi(text) {
