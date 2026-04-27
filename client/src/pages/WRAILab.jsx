@@ -20,6 +20,9 @@ import {
 } from 'lucide-react'
 import { getAllLocations, getLocationObservations } from '../api/waterRangers'
 import api from '../utils/api'
+import { speakAsNibi } from '../utils/voice'
+import { matchParam } from '../utils/waterParams'
+import ParameterDeepDive from '../components/ParameterDeepDive'
 
 // WHO thresholds
 const WHO = {
@@ -40,10 +43,17 @@ function analyze(observations) {
   const anomalies = []
   const byParam = {}
   const qaBreakdown = {}
+  // WR's "datapoints" count includes EVERY reading on every observation —
+  // numeric, text, qualitative, anything. Their 773 vs our 604 is exactly that
+  // gap: we drop non-numeric / no-unit / 'nil'-unit readings because you can't
+  // chart "brown colour" or "no odour". Track both so the UI can be honest.
+  let totalDatapointsRaw = 0
 
   for (const obs of observations) {
     qaBreakdown[obs.checked] = (qaBreakdown[obs.checked] || 0) + 1
-    for (const r of (obs.readings || [])) {
+    const readings = obs.readings || []
+    totalDatapointsRaw += readings.length
+    for (const r of readings) {
       const val = parseFloat(r.value)
       if (isNaN(val) || !r.unit || r.unit === 'nil') continue
       const param = r.parameter
@@ -74,7 +84,11 @@ function analyze(observations) {
     }
   }).sort((a, b) => b.count - a.count)
 
-  return { anomalies, trends, qaBreakdown, totalReadings: Object.values(byParam).reduce((s, p) => s + p.length, 0) }
+  return {
+    anomalies, trends, qaBreakdown,
+    totalReadings: Object.values(byParam).reduce((s, p) => s + p.length, 0),
+    totalDatapointsRaw, // matches Water Rangers' "datapoints" count (numeric + text + qualitative)
+  }
 }
 
 // ── Rich Chart helpers (community-readable) ─────────────────────────────────
@@ -271,7 +285,45 @@ function Chip({ color, icon: Icon, label }) {
   )
 }
 
-function RichParameterChart({ trend, siteName, timeRangeMs, gradientId }) {
+// Custom Recharts tooltip — date is the headline, value + status secondary,
+// safe-range shown for context. Fixes the previous tooltip where the date
+// was a tiny label that often hid behind the value text.
+function ChartHoverCard({ active, payload, who, paramName, unit }) {
+  if (!active || !payload || !payload.length) return null
+  const p = payload[0]?.payload
+  if (!p) return null
+  const v = p.v
+  const t = p.t
+  const safe = who ? (v >= who.min && v <= who.max) : null
+  const tone = safe === null ? '#a78bfa' : safe ? '#10b981' : '#ef4444'
+  const tag = safe === null ? 'no standard' : safe ? '✓ within safe range' : '⚠ outside safe range'
+  const dateStr = new Date(t).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })
+  return (
+    <div style={{
+      background: 'rgba(15,23,42,0.97)', border: `1.5px solid ${tone}aa`,
+      borderRadius: 10, padding: '10px 12px', minWidth: 200,
+      boxShadow: `0 8px 24px rgba(0,0,0,0.5), 0 0 0 1px ${tone}33`,
+      backdropFilter: 'blur(8px)',
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 800, color: '#fff', marginBottom: 2, letterSpacing: '0.02em' }}>{dateStr}</div>
+      <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+        {paramName.replace(/_/g, ' ')}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 5 }}>
+        <span style={{ fontSize: 18, fontWeight: 900, color: tone }}>{v}</span>
+        {unit && unit !== 'nil' && <span style={{ fontSize: 10, color: '#94a3b8' }}>{unit.replace(/_/g, '/')}</span>}
+      </div>
+      <div style={{ fontSize: 10, fontWeight: 700, color: tone }}>{tag}</div>
+      {who && (
+        <div style={{ marginTop: 4, fontSize: 9, color: '#94a3b8' }}>
+          Safe range: {who.min}–{who.max}{who.unit ? ' ' + who.unit : ''}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RichParameterChart({ trend, siteName, timeRangeMs, gradientId, onOpenDetail }) {
   const series = useMemo(() => {
     const cleaned = cleanSeries(trend.points)
     if (!timeRangeMs || !cleaned.length) return cleaned
@@ -326,8 +378,25 @@ function RichParameterChart({ trend, siteName, timeRangeMs, gradientId }) {
   const trendColor = !stats.slopeWeek || Math.abs(stats.slopeWeek) < 1e-4 ? '#94a3b8'
     : stats.slopeWeek > 0 ? '#ef4444' : '#3b82f6'
 
+  const isClickable = !!onOpenDetail
+  const handleOpen = () => { if (onOpenDetail) onOpenDetail(trend.param) }
+  const handleKey = (e) => { if (onOpenDetail && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpenDetail(trend.param) } }
+
   return (
-    <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+    <div
+      onClick={isClickable ? handleOpen : undefined}
+      onKeyDown={isClickable ? handleKey : undefined}
+      role={isClickable ? 'button' : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      aria-label={isClickable ? `Open detailed analysis for ${trend.param.replace(/_/g, ' ')}` : undefined}
+      style={{
+        background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14,
+        cursor: isClickable ? 'pointer' : 'default',
+        transition: 'border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease',
+      }}
+      onMouseEnter={isClickable ? (e) => { e.currentTarget.style.borderColor = 'rgba(167,139,250,0.5)'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(99,102,241,0.18)' } : undefined}
+      onMouseLeave={isClickable ? (e) => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '' } : undefined}
+    >
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, gap: 8 }}>
         <div style={{ minWidth: 0 }}>
@@ -382,13 +451,7 @@ function RichParameterChart({ trend, siteName, timeRangeMs, gradientId }) {
           )}
           <Tooltip
             cursor={{ stroke: '#a78bfa', strokeWidth: 1, strokeDasharray: '3 3' }}
-            contentStyle={{ background: 'rgba(15,23,42,0.96)', border: '1px solid rgba(167,139,250,.4)', borderRadius: 8, fontSize: 11, padding: 8, backdropFilter: 'blur(6px)' }}
-            labelFormatter={t => new Date(t).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
-            formatter={(v) => {
-              const safe = who ? (v >= who.min && v <= who.max) : null
-              const tag = safe === null ? '' : (safe ? '  ✓ safe' : '  ⚠ outside safe')
-              return [`${v}${tag}`, trend.param.replace(/_/g, ' ')]
-            }}/>
+            content={(p) => <ChartHoverCard active={p.active} payload={p.payload} who={who} paramName={trend.param} unit={trend.unit}/>}/>
           <Area type="monotone" dataKey="v" stroke="none" fill={`url(#fill-${gradientId})`} isAnimationActive={true} animationDuration={650}/>
           <Line type="monotone" dataKey="v" stroke="#a78bfa" strokeWidth={2.25}
             dot={dotRenderer} activeDot={{ r: 5, fill: '#fff', stroke: '#a78bfa', strokeWidth: 2, filter: `url(#glow-${gradientId})` }}
@@ -467,15 +530,15 @@ function timeAgo(ms) {
   return `${years} year${years === '1.0' ? '' : 's'} ago`
 }
 
-// Browser text-to-speech — accessibility for elderly / low-literacy users.
-// Cancels any previous utterance so two clicks don't overlap.
+// Read aloud using the same kid-female "Nibi" voice the Ask Water page uses,
+// so the voice feels consistent across the whole platform. speakAsNibi waits
+// for voiceschanged on browsers that load voices async, which avoids the
+// "OS-default sore-throat male voice" bug on Windows.
 function speak(text) {
   try {
     if (!('speechSynthesis' in window)) return false
     window.speechSynthesis.cancel()
-    const u = new SpeechSynthesisUtterance(text)
-    u.rate = 0.95; u.pitch = 1.0; u.volume = 1.0
-    window.speechSynthesis.speak(u)
+    speakAsNibi(text)
     return true
   } catch { return false }
 }
@@ -615,7 +678,7 @@ function HeadlineSummary({ siteName, health, latestObsTs, totalReadings, observa
   )
 }
 
-function ChartsTab({ trends, siteName, observationsCount, totalReadings }) {
+function ChartsTab({ trends, siteName, observationsCount, totalReadings, onOpenDetail }) {
   const [range, setRange] = useState('all')
   const charted = trends.filter(t => t.count >= 3 && t.unit !== 'nil')
   if (charted.length === 0) {
@@ -669,7 +732,8 @@ function ChartsTab({ trends, siteName, observationsCount, totalReadings }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 12 }}>
         {charted.map((t, i) => (
           <RichParameterChart key={`${t.param}-${i}-${range}`} trend={t} siteName={siteName}
-            timeRangeMs={activeMs} gradientId={`p${i}-${range}`}/>
+            timeRangeMs={activeMs} gradientId={`p${i}-${range}`}
+            onOpenDetail={onOpenDetail}/>
         ))}
       </div>
     </>
@@ -819,6 +883,16 @@ export default function WRAILab() {
   const analysis = useMemo(() => analyze(observations), [observations])
   const { anomalies, trends } = analysis
 
+  // Click any chart card → open the full ParameterDeepDive panel for that param.
+  // We pass the canonical key (matchParam) so the deep-dive's CCME bands and
+  // explanation lookups work; if there's no canonical match, fall back to a
+  // sanitised raw key so the panel can still pull values via parameter-name match.
+  const [deepDiveParam, setDeepDiveParam] = useState(null)
+  const openDetail = (rawParam) => {
+    const key = matchParam(rawParam) || (rawParam || '').toLowerCase().replace(/\s+/g, '_')
+    setDeepDiveParam(key)
+  }
+
   const filteredLocs = useMemo(() => {
     if (!locSearch) return locations.slice(0, 50)
     const s = locSearch.toLowerCase()
@@ -897,8 +971,20 @@ export default function WRAILab() {
                 {obsLoading ? (
                   <div style={{ fontSize: 10, color: '#a78bfa', marginTop: 2 }}><RefreshCw size={10} className="animate-spin" /> Loading all observations...</div>
                 ) : (
-                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {observations.length} observations · {analysis.totalReadings} readings · {anomalies.length} anomalies · {trends.length} parameters
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                    <span><strong style={{ color: 'var(--text)' }}>{observations.length}</strong> observations (sampling visits)</span>
+                    <span>·</span>
+                    <span title={`Water Rangers reports this as "datapoints" — every reading on every observation, including non-numeric notes like "brown colour" or "no odour".`}>
+                      <strong style={{ color: 'var(--text)' }}>{analysis.totalDatapointsRaw}</strong> total datapoints
+                    </span>
+                    <span>·</span>
+                    <span title={`Numeric readings with valid units — these are the only ones the charts and statistics can use. The gap vs total datapoints is qualitative/text observations.`}>
+                      <strong style={{ color: 'var(--text)' }}>{analysis.totalReadings}</strong> chartable readings
+                    </span>
+                    <span>·</span>
+                    <span><strong style={{ color: 'var(--text)' }}>{anomalies.length}</strong> anomalies</span>
+                    <span>·</span>
+                    <span><strong style={{ color: 'var(--text)' }}>{trends.length}</strong> parameters</span>
                   </div>
                 )}
               </div>
@@ -971,7 +1057,15 @@ export default function WRAILab() {
                 {tab === 'trends' && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 8 }}>
                     {trends.filter(t => t.count >= 2).map((t, i) => (
-                      <div key={i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>
+                      <div key={i}
+                        onClick={() => openDetail(t.param)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(t.param) } }}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Open detailed analysis for ${t.param.replace(/_/g, ' ')}`}
+                        style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 10, cursor: 'pointer', transition: 'border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease' }}
+                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(167,139,250,0.5)'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(99,102,241,0.18)' }}
+                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                           <span style={{ color: 'var(--text)', fontSize: 12, fontWeight: 700 }}>{t.param.replace(/_/g, ' ')}</span>
                           <span style={{ padding: '2px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: t.trend === 'increasing' ? 'rgba(239,68,68,.08)' : t.trend === 'decreasing' ? 'rgba(59,130,246,.08)' : 'rgba(16,185,129,.08)', color: t.trend === 'increasing' ? '#ef4444' : t.trend === 'decreasing' ? '#3b82f6' : '#10b981' }}>
@@ -1004,12 +1098,26 @@ export default function WRAILab() {
                 {/* CHARTS — community-readable: safe-range bands, anomaly dots, plain English */}
                 {tab === 'charts' && (
                   <ChartsTab trends={trends} siteName={selectedSite.name}
-                    observationsCount={observations.length} totalReadings={analysis.totalReadings}/>
+                    observationsCount={observations.length} totalReadings={analysis.totalReadings}
+                    onOpenDetail={openDetail}/>
                 )}
 
                 {/* RESEARCH AI */}
                 {tab === 'ai' && <ResearchAI site={selectedSite} observations={observations} analysis={analysis} />}
               </>
+            )}
+
+            {/* Click-to-drill-down: full ParameterDeepDive panel for the selected parameter.
+                Reuses the same component used by the Monitoring Map, fed by THIS site's
+                already-loaded observations — no extra API calls, no duplicate data. */}
+            {deepDiveParam && (
+              <ParameterDeepDive
+                paramKey={deepDiveParam}
+                observations={observations}
+                siteName={selectedSite.name}
+                siteId={selectedSite.id}
+                onClose={() => setDeepDiveParam(null)}
+              />
             )}
           </div>
         )}
