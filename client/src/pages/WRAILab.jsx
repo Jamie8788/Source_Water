@@ -8,12 +8,14 @@
  */
 import { useState, useEffect, useRef, useMemo } from 'react'
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip,
+  LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip,
   CartesianGrid, ResponsiveContainer, ScatterChart, Scatter,
+  ReferenceArea, ReferenceLine, ComposedChart,
 } from 'recharts'
 import {
   Brain, TrendingUp, AlertTriangle, Send, RefreshCw, Download,
   Loader, BarChart2, MapPin, Search, ExternalLink,
+  Sparkles, CheckCircle2, AlertCircle, XCircle, Info, ArrowUpRight, ArrowDownRight, Minus,
 } from 'lucide-react'
 import { getAllLocations, getLocationObservations } from '../api/waterRangers'
 import api from '../utils/api'
@@ -72,6 +74,408 @@ function analyze(observations) {
   }).sort((a, b) => b.count - a.count)
 
   return { anomalies, trends, qaBreakdown, totalReadings: Object.values(byParam).reduce((s, p) => s + p.length, 0) }
+}
+
+// ── Rich Chart helpers (community-readable) ─────────────────────────────────
+//
+// Goal: turn raw scatter dots into a chart a non-scientist can act on.
+//   - Safe-range band (from WHO thresholds) shaded behind the line
+//   - Mean line for context
+//   - Dots highlighted red when reading is outside safe range
+//   - Plain-English status of the latest reading
+//   - Trend slope per week + % of time the site has been safe
+//
+// All math is client-side and pure — no LLM calls, so this scales free for
+// thousands of users with zero token cost.
+
+function lookupWHO(param) {
+  if (!param) return null
+  const p = param.toLowerCase()
+  for (const [k, v] of Object.entries(WHO)) if (p.includes(k)) return v
+  return null
+}
+
+// Parse + sort + filter invalid dates (the old chart showed dates from 1969
+// because Date.parse() returned NaN for bad strings and the chart sorted them
+// at -Infinity). Returns [{ t: ms, v: number, raw: original }] sorted ascending.
+function cleanSeries(points) {
+  if (!points) return []
+  return points
+    .map(p => ({ t: new Date(p.date).getTime(), v: parseFloat(p.value), raw: p }))
+    .filter(p => isFinite(p.t) && p.t > 0 && isFinite(p.v))
+    .sort((a, b) => a.t - b.t)
+}
+
+// Linear regression slope — value per millisecond, converted to per-week.
+function slopePerWeek(series) {
+  const n = series.length
+  if (n < 3) return 0
+  const meanT = series.reduce((s, p) => s + p.t, 0) / n
+  const meanV = series.reduce((s, p) => s + p.v, 0) / n
+  let num = 0, den = 0
+  for (const p of series) { num += (p.t - meanT) * (p.v - meanV); den += (p.t - meanT) ** 2 }
+  if (den === 0) return 0
+  return (num / den) * (7 * 24 * 60 * 60 * 1000)
+}
+
+function statusOfValue(value, who) {
+  if (!who || value == null || !isFinite(value)) return { tone: 'neutral', label: 'No standard' }
+  if (value < who.min || value > who.max) {
+    const farOut = value < who.min * 0.5 || value > who.max * 1.5
+    return farOut
+      ? { tone: 'danger',  label: 'Outside safe range', icon: XCircle, color: '#ef4444' }
+      : { tone: 'warn',    label: 'Borderline',         icon: AlertCircle, color: '#f59e0b' }
+  }
+  return { tone: 'safe', label: 'Within safe range', icon: CheckCircle2, color: '#10b981' }
+}
+
+function plainEnglish(stats, who, paramName) {
+  const bits = []
+  if (stats.latest != null) {
+    if (who) {
+      if (stats.latest < who.min) bits.push(`The most recent reading (${stats.latest}${who.unit ? ' ' + who.unit : ''}) is below the safe minimum of ${who.min}.`)
+      else if (stats.latest > who.max) bits.push(`The most recent reading (${stats.latest}${who.unit ? ' ' + who.unit : ''}) is above the safe maximum of ${who.max}.`)
+      else bits.push(`The most recent reading (${stats.latest}${who.unit ? ' ' + who.unit : ''}) sits inside the safe range (${who.min}–${who.max}).`)
+    } else {
+      bits.push(`The most recent reading is ${stats.latest}.`)
+    }
+  }
+  if (who && stats.pctSafe != null) {
+    bits.push(`${Math.round(stats.pctSafe)}% of all ${stats.n} readings have been within safe limits.`)
+  }
+  if (stats.slopeWeek != null && Math.abs(stats.slopeWeek) > 1e-4) {
+    const dir = stats.slopeWeek > 0 ? 'rising' : 'falling'
+    bits.push(`Trend is ${dir} by about ${Math.abs(stats.slopeWeek).toFixed(3)}${who?.unit ? ' ' + who.unit : ''} per week.`)
+  } else if (stats.n >= 3) {
+    bits.push(`The trend is essentially flat — readings are not drifting up or down.`)
+  }
+  if (stats.anomalyCount > 0) {
+    bits.push(`${stats.anomalyCount} reading${stats.anomalyCount === 1 ? '' : 's'} stand out as unusually high or low compared to the average for this site.`)
+  }
+  return bits.join(' ')
+}
+
+// Custom dot that paints red when reading is anomalous (>2σ from mean) OR
+// outside the WHO safe range — both flags get the same visual treatment so
+// people see "this point is worth a second look".
+function makeDotRenderer({ mean, std, who, glowId }) {
+  return function AnomalyDot(props) {
+    const { cx, cy, payload } = props
+    if (cx == null || cy == null) return null
+    const v = payload?.v
+    const z = std > 0 ? Math.abs((v - mean) / std) : 0
+    const outsideSafe = who ? (v < who.min || v > who.max) : false
+    const anomalous = z > 2 || outsideSafe
+    if (anomalous) {
+      return (
+        <g>
+          <circle cx={cx} cy={cy} r={6} fill="#ef4444" fillOpacity={0.25} filter={glowId ? `url(#glow-${glowId})` : undefined}/>
+          <circle cx={cx} cy={cy} r={4.5} fill="#ef4444" stroke="#7f1d1d" strokeWidth={1.25}/>
+        </g>
+      )
+    }
+    return <circle cx={cx} cy={cy} r={2.5} fill="#a78bfa" stroke="#312e81" strokeWidth={0.5}/>
+  }
+}
+
+// Overall site health: average of per-parameter latest-reading scores.
+// safe=100, borderline=60, far-out=15, no-standard=excluded. Real numbers,
+// no LLM, no random — same WHO bands and same series cleaning as the per-
+// parameter charts so the score and the charts agree.
+function computeHealthScore(trends) {
+  const items = []
+  for (const t of trends) {
+    const series = cleanSeries(t.points)
+    if (series.length < 1) continue
+    const who = lookupWHO(t.param)
+    if (!who) continue
+    const latest = series[series.length - 1].v
+    const status = statusOfValue(latest, who)
+    let score
+    if (status.tone === 'safe') score = 100
+    else if (status.tone === 'warn') score = 60
+    else if (status.tone === 'danger') score = 15
+    else continue
+    items.push({ param: t.param, score, status, latest, unit: who.unit, who })
+  }
+  if (!items.length) return { score: null, items: [], breakdown: { safe: 0, warn: 0, danger: 0 } }
+  const score = Math.round(items.reduce((s, x) => s + x.score, 0) / items.length)
+  const breakdown = items.reduce((a, x) => { a[x.status.tone] = (a[x.status.tone] || 0) + 1; return a }, { safe: 0, warn: 0, danger: 0 })
+  return { score, items, breakdown }
+}
+
+function SiteHealthCard({ trends, siteName }) {
+  const health = useMemo(() => computeHealthScore(trends), [trends])
+  if (health.score == null) {
+    return (
+      <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14, marginBottom: 12, color: 'var(--text-muted)', fontSize: 11 }}>
+        <Info size={12} style={{ marginRight: 6, verticalAlign: '-2px' }}/>
+        No parameters at <strong>{siteName}</strong> have a WHO standard defined yet, so a health score can't be computed.
+      </div>
+    )
+  }
+  const tone = health.score >= 85 ? '#10b981' : health.score >= 60 ? '#f59e0b' : '#ef4444'
+  const verdict = health.score >= 85 ? 'Healthy' : health.score >= 60 ? 'Watch' : 'Concerning'
+  return (
+    <div style={{
+      background: `linear-gradient(135deg, ${tone}11, transparent 60%), var(--card-bg)`,
+      border: `1px solid ${tone}33`, borderRadius: 14, padding: 16, marginBottom: 12,
+      display: 'grid', gridTemplateColumns: '160px 1fr', gap: 16, alignItems: 'center',
+    }}>
+      {/* Big score */}
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: 9, fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Site Health</div>
+        <div style={{ fontSize: 56, fontWeight: 900, color: tone, lineHeight: 1, marginTop: 2,
+          textShadow: `0 0 24px ${tone}55` }}>
+          {health.score}
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: tone, marginTop: 2 }}>{verdict} · /100</div>
+      </div>
+      {/* Breakdown */}
+      <div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+          <Chip color="#10b981" icon={CheckCircle2} label={`${health.breakdown.safe} safe`}/>
+          <Chip color="#f59e0b" icon={AlertCircle} label={`${health.breakdown.warn} borderline`}/>
+          <Chip color="#ef4444" icon={XCircle} label={`${health.breakdown.danger} concerning`}/>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {health.items.slice(0, 12).map(it => (
+            <div key={it.param} title={`Latest: ${it.latest}${it.unit ? ' ' + it.unit : ''} (safe: ${it.who.min}–${it.who.max})`}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                padding: '3px 8px', borderRadius: 999,
+                background: `${it.status.color}14`, border: `1px solid ${it.status.color}44`,
+                color: it.status.color, fontSize: 10, fontWeight: 700, textTransform: 'capitalize',
+              }}>
+              {it.param.replace(/_/g, ' ')}
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          Computed live from {health.items.length} parameter{health.items.length === 1 ? '' : 's'} with WHO drinking-water standards. Score weighs each parameter's latest reading equally — 100 means every recent reading sat inside its safe range.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Chip({ color, icon: Icon, label }) {
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 999,
+      background: `${color}14`, border: `1px solid ${color}44`, color, fontSize: 11, fontWeight: 700,
+    }}>
+      <Icon size={12}/>{label}
+    </div>
+  )
+}
+
+function RichParameterChart({ trend, siteName, timeRangeMs, gradientId }) {
+  const series = useMemo(() => {
+    const cleaned = cleanSeries(trend.points)
+    if (!timeRangeMs || !cleaned.length) return cleaned
+    // Anchor the window to the most recent reading, not Date.now() — historical
+    // data can be years old; "last 90 days" means the 90 days before the
+    // freshest reading we actually have for this site.
+    const latestT = cleaned[cleaned.length - 1].t
+    return cleaned.filter(p => p.t >= latestT - timeRangeMs)
+  }, [trend.points, timeRangeMs])
+  const who = useMemo(() => lookupWHO(trend.param), [trend.param])
+
+  const stats = useMemo(() => {
+    if (!series.length) return { n: 0 }
+    const vals = series.map(p => p.v)
+    const mean = vals.reduce((s, v) => s + v, 0) / vals.length
+    const std = Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / Math.max(1, vals.length - 1))
+    const min = Math.min(...vals)
+    const max = Math.max(...vals)
+    const latest = vals[vals.length - 1]
+    const earliest = vals[0]
+    const pctSafe = who
+      ? (vals.filter(v => v >= who.min && v <= who.max).length / vals.length) * 100
+      : null
+    const anomalyCount = vals.filter((v, i) => {
+      const z = std > 0 ? Math.abs((v - mean) / std) : 0
+      return z > 2 || (who && (v < who.min || v > who.max))
+    }).length
+    return {
+      n: vals.length, mean, std, min, max, latest, earliest, pctSafe, anomalyCount,
+      slopeWeek: slopePerWeek(series),
+      timeSpanDays: (series[series.length - 1].t - series[0].t) / 86400000,
+    }
+  }, [series, who])
+
+  const latestStatus = statusOfValue(stats.latest, who)
+  const dotRenderer = useMemo(() => makeDotRenderer({ mean: stats.mean || 0, std: stats.std || 0, who, glowId: gradientId }), [stats.mean, stats.std, who, gradientId])
+
+  if (series.length < 2) return null
+
+  // Y-axis padding so the safe band always shows even if all readings sit at the edge
+  const allVals = [...series.map(p => p.v), ...(who ? [who.min, who.max] : [])]
+  const yMin = Math.min(...allVals)
+  const yMax = Math.max(...allVals)
+  const yPad = (yMax - yMin) * 0.12 || 1
+  const yDomain = [yMin - yPad, yMax + yPad]
+
+  const chartData = series.map(p => ({ t: p.t, v: p.v }))
+
+  const trendIcon = !stats.slopeWeek ? Minus : (stats.slopeWeek > 0 ? ArrowUpRight : ArrowDownRight)
+  const TrendIcon = trendIcon
+  const trendColor = !stats.slopeWeek || Math.abs(stats.slopeWeek) < 1e-4 ? '#94a3b8'
+    : stats.slopeWeek > 0 ? '#ef4444' : '#3b82f6'
+
+  return (
+    <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color: 'var(--text)', fontSize: 13, fontWeight: 800, textTransform: 'capitalize' }}>
+            {trend.param.replace(/_/g, ' ')}
+            {who && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-muted)', fontWeight: 500 }}>({who.label})</span>}
+          </div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 10 }}>
+            {stats.n} readings · {trend.unit?.replace(/_/g, '/') || who?.unit || ''} · {Math.round(stats.timeSpanDays)} days
+          </div>
+        </div>
+        {latestStatus.icon && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 8px', borderRadius: 999,
+            background: `${latestStatus.color}1a`, border: `1px solid ${latestStatus.color}55`, color: latestStatus.color, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>
+            <latestStatus.icon size={11}/> {latestStatus.label}
+          </div>
+        )}
+      </div>
+
+      {/* Chart */}
+      <ResponsiveContainer width="100%" height={220}>
+        <ComposedChart data={chartData} margin={{ top: 6, right: 8, left: 0, bottom: 4 }}>
+          <defs>
+            <linearGradient id={`fill-${gradientId}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stopColor="#6366f1" stopOpacity={0.45}/>
+              <stop offset="60%"  stopColor="#6366f1" stopOpacity={0.10}/>
+              <stop offset="100%" stopColor="#6366f1" stopOpacity={0.00}/>
+            </linearGradient>
+            <filter id={`glow-${gradientId}`} x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="2.5" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.05)" />
+          <XAxis dataKey="t" type="number" scale="time" domain={['dataMin', 'dataMax']}
+            tickFormatter={t => new Date(t).toLocaleDateString(undefined, { month: 'short', year: '2-digit' })}
+            tick={{ fontSize: 9, fill: '#94a3b8' }} stroke="rgba(255,255,255,.1)" />
+          <YAxis domain={yDomain} tick={{ fontSize: 9, fill: '#94a3b8' }} stroke="rgba(255,255,255,.1)" width={36} />
+          {who && (
+            <ReferenceArea y1={who.min} y2={who.max} fill="#10b981" fillOpacity={0.10}
+              stroke="#10b981" strokeOpacity={0.30} strokeDasharray="2 3"
+              label={{ value: 'safe range', position: 'insideTopLeft', fill: '#10b981', fontSize: 9, fontWeight: 700 }} />
+          )}
+          {stats.mean != null && isFinite(stats.mean) && (
+            <ReferenceLine y={stats.mean} stroke="#a78bfa" strokeDasharray="4 3" strokeOpacity={0.55}
+              label={{ value: `mean ${stats.mean.toFixed(2)}`, position: 'right', fill: '#a78bfa', fontSize: 9 }} />
+          )}
+          <Tooltip
+            cursor={{ stroke: '#a78bfa', strokeWidth: 1, strokeDasharray: '3 3' }}
+            contentStyle={{ background: 'rgba(15,23,42,0.96)', border: '1px solid rgba(167,139,250,.4)', borderRadius: 8, fontSize: 11, padding: 8, backdropFilter: 'blur(6px)' }}
+            labelFormatter={t => new Date(t).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+            formatter={(v) => {
+              const safe = who ? (v >= who.min && v <= who.max) : null
+              const tag = safe === null ? '' : (safe ? '  ✓ safe' : '  ⚠ outside safe')
+              return [`${v}${tag}`, trend.param.replace(/_/g, ' ')]
+            }}/>
+          <Area type="monotone" dataKey="v" stroke="none" fill={`url(#fill-${gradientId})`} isAnimationActive={true} animationDuration={650}/>
+          <Line type="monotone" dataKey="v" stroke="#a78bfa" strokeWidth={2.25}
+            dot={dotRenderer} activeDot={{ r: 5, fill: '#fff', stroke: '#a78bfa', strokeWidth: 2, filter: `url(#glow-${gradientId})` }}
+            isAnimationActive={true} animationDuration={650}/>
+        </ComposedChart>
+      </ResponsiveContainer>
+
+      {/* Stat strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginTop: 10 }}>
+        <Stat label="Latest" value={stats.latest != null ? stats.latest.toFixed(2) : '—'} color={latestStatus.color}/>
+        <Stat label="Safe range" value={who ? `${who.min}–${who.max}` : 'no standard'} color="#10b981"/>
+        <Stat label="% time safe" value={stats.pctSafe != null ? `${Math.round(stats.pctSafe)}%` : '—'}
+          color={stats.pctSafe == null ? '#94a3b8' : stats.pctSafe >= 90 ? '#10b981' : stats.pctSafe >= 60 ? '#f59e0b' : '#ef4444'}/>
+        <Stat label="Trend / wk" value={stats.slopeWeek ? (stats.slopeWeek > 0 ? '+' : '') + stats.slopeWeek.toFixed(3) : '~ flat'} color={trendColor} icon={TrendIcon}/>
+      </div>
+
+      {/* Plain English */}
+      <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: 'rgba(99,102,241,.06)', border: '1px solid rgba(99,102,241,.15)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, color: '#a78bfa', fontSize: 9, fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+          <Info size={10}/> What this means
+        </div>
+        <div style={{ color: 'var(--text)', fontSize: 11, lineHeight: 1.55 }}>
+          {plainEnglish(stats, who, trend.param)}
+          {who?.explain && <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: 10 }}>About {who.label}: {who.explain}.</div>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Stat({ label, value, color, icon: Icon }) {
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 8px' }}>
+      <div style={{ fontSize: 8, color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 3, color, fontSize: 12, fontWeight: 800, marginTop: 1 }}>
+        {Icon && <Icon size={11}/>}
+        {value}
+      </div>
+    </div>
+  )
+}
+
+const TIME_RANGES = [
+  { key: '1m',  label: '1M',  ms: 30  * 86400000 },
+  { key: '3m',  label: '3M',  ms: 90  * 86400000 },
+  { key: '1y',  label: '1Y',  ms: 365 * 86400000 },
+  { key: 'all', label: 'All', ms: null },
+]
+
+function ChartsTab({ trends, siteName }) {
+  const [range, setRange] = useState('all')
+  const charted = trends.filter(t => t.count >= 3 && t.unit !== 'nil')
+  if (charted.length === 0) {
+    return <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)', fontSize: 12 }}>Not enough readings yet to draw charts (need at least 3 per parameter).</div>
+  }
+  const activeMs = TIME_RANGES.find(r => r.key === range)?.ms || null
+
+  return (
+    <>
+      <SiteHealthCard trends={charted} siteName={siteName}/>
+
+      {/* Toolbar: time range + legend hint */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap',
+        marginBottom: 12, padding: '8px 12px', borderRadius: 10,
+        background: 'linear-gradient(135deg, rgba(99,102,241,0.08), rgba(167,139,250,0.04))',
+        border: '1px solid rgba(167,139,250,0.18)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: 11 }}>
+          <Sparkles size={12} color="#a78bfa"/>
+          <span>Safe-range bands · mean line · anomaly dots in red. Hover any point for details.</span>
+        </div>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {TIME_RANGES.map(r => (
+            <button key={r.key} onClick={() => setRange(r.key)} style={{
+              padding: '4px 10px', borderRadius: 7, fontSize: 10, fontWeight: 800,
+              cursor: 'pointer',
+              border: '1px solid', borderColor: range === r.key ? '#a78bfa' : 'rgba(255,255,255,0.12)',
+              background: range === r.key ? 'rgba(167,139,250,0.18)' : 'transparent',
+              color: range === r.key ? '#c4b5fd' : 'var(--text-muted)',
+              letterSpacing: '0.04em',
+            }}>{r.label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 12 }}>
+        {charted.map((t, i) => (
+          <RichParameterChart key={`${t.param}-${i}-${range}`} trend={t} siteName={siteName}
+            timeRangeMs={activeMs} gradientId={`p${i}-${range}`}/>
+        ))}
+      </div>
+    </>
+  )
 }
 
 // ── Research AI Chat ─────────────────────────────────────────────────────────
@@ -399,27 +803,9 @@ export default function WRAILab() {
                   </div>
                 )}
 
-                {/* CHARTS */}
+                {/* CHARTS — community-readable: safe-range bands, anomaly dots, plain English */}
                 {tab === 'charts' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    {trends.filter(t => t.count >= 3 && t.unit !== 'nil').slice(0, 8).map((t, i) => (
-                      <div key={i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>
-                        <h4 style={{ color: 'var(--text)', fontSize: 11, fontWeight: 700, margin: '0 0 6px' }}>
-                          {t.param.replace(/_/g, ' ')} ({t.unit.replace(/_/g, '/')}) — {t.count} readings at {selectedSite.name}
-                        </h4>
-                        <ResponsiveContainer width="100%" height={140}>
-                          <ScatterChart>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.05)" />
-                            <XAxis dataKey="x" type="number" tickFormatter={v => new Date(v).toLocaleDateString()} tick={{ fontSize: 8, fill: '#888' }} />
-                            <YAxis dataKey="y" type="number" tick={{ fontSize: 8, fill: '#888' }} />
-                            <Tooltip formatter={(v, n) => n === 'x' ? new Date(v).toLocaleDateString() : v}
-                              contentStyle={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,.1)', borderRadius: 6, fontSize: 10 }} />
-                            <Scatter data={t.points.map(p => ({ x: new Date(p.date).getTime(), y: p.value }))} fill="#6366f1" r={3} />
-                          </ScatterChart>
-                        </ResponsiveContainer>
-                      </div>
-                    ))}
-                  </div>
+                  <ChartsTab trends={trends} siteName={selectedSite.name}/>
                 )}
 
                 {/* RESEARCH AI */}
