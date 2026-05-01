@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { X, Download, Sparkles, AlertTriangle, TrendingUp } from 'lucide-react'
 import { PARAM_META, classifyValue, latestValueFor, TONE_COLOR, matchParam } from '../utils/waterParams'
+import { getWRParameter, formatQaRange, WR_NA, WR_DOCS_URL } from '../utils/wrParameters'
 import api from '../utils/api'
 
 // Slide-in deep-dive panel for a single water parameter at a single site.
@@ -146,26 +147,58 @@ export default function ParameterDeepDive({ paramKey, observations, onClose, sit
     }))
     const paramLabel = meta?.label || (paramKey || '').replace(/_/g, ' ')
     const unitLabel = meta?.unit || ''
-    const ranges = meta?.ranges
-      ? meta.ranges.map(r => `${r.label} ${r.min}-${r.max >= 9999 ? '∞' : r.max}${unitLabel} (${r.tone})`).join('; ')
+
+    // Pull the Water Rangers reference for this parameter so the AI can cite
+    // it instead of guessing. If WR publishes nothing, we tell the AI that
+    // explicitly and forbid it from inventing a "safe range".
+    const wr = getWRParameter(paramKey || paramLabel)
+    const wrSafe = wr ? formatQaRange(wr.qaSafe, wr.unit) : null
+    const wrExtreme = wr ? formatQaRange(wr.qaExtreme, wr.unit) : null
+    const wrEquipmentLine = wr?.equipment?.length
+      ? wr.equipment.slice(0, 4).map(e => `${e.name} (${e.range}${e.unit ? ' ' + e.unit : ''})`).join('; ')
       : null
 
-    const sys = `You are a freshwater scientist explaining surface-water observations to community volunteers in plain English. NEVER mention drinking water, potability, or human consumption — this platform covers aquatic life only. Reference CCME freshwater aquatic-life thresholds where relevant. Be concrete: name what the numbers mean for fish, insects, or plants at this site.`
+    const wrBlock = wr
+      ? [
+          `Water Rangers parameter label: ${wr.label} (unit: ${wr.unit || 'unitless'}).`,
+          wrSafe    ? `WR Automatic-QA "Needs review" band: ${wrSafe}.`        : `WR does NOT publish a numeric "Needs review" band for this parameter.`,
+          wrExtreme ? `WR Automatic-QA "Issue detected" outside: ${wrExtreme}.` : `WR does NOT publish a numeric "Issue detected" band for this parameter.`,
+          wr.whatIsIt    ? `WR popup — What is it: ${wr.whatIsIt}`               : null,
+          wr.whyImportant? `WR popup — Why important: ${wr.whyImportant}`       : null,
+          Array.isArray(wr.bands) && wr.bands.length
+            ? `WR popup — interpretation bands: ${wr.bands.map(b => `${b.range}: ${b.label}`).join('; ')}.`
+            : null,
+          wrEquipmentLine ? `WR-listed equipment: ${wrEquipmentLine}.` : null,
+          `WR source page: ${WR_DOCS_URL}`,
+        ].filter(Boolean).join('\n')
+      : `Water Rangers does not publish a parameter entry that matches "${paramLabel}". Treat this analysis as trend-only and explicitly tell the volunteer that no Water Rangers reference range exists for this parameter.`
+
+    const sys = [
+      `You are a freshwater scientist explaining a Water Rangers community-science reading in plain English.`,
+      `Citation rule (HARD): the ONLY external reference you may cite for "safe ranges" or "what counts as elevated" is Water Rangers (data.waterrangers.com/supported-parameters). The full WR reference for this parameter is supplied below.`,
+      `If Water Rangers does not publish a numeric range for this parameter, you MUST say so plainly (e.g. "Water Rangers does not publish a needs-review range for this parameter") and then describe the trend at this site only.`,
+      `NEVER invent a threshold. NEVER cite CCME, Health Canada, EPA, WHO or other bodies — even if you know their numbers. Stay strictly inside what Water Rangers publishes.`,
+      `NEVER mention drinking water, potability, or human consumption.`,
+      `Be concrete: name what the numbers mean for fish, insects, or plants only when WR's "Why important" / "What does it mean" content lets you.`,
+    ].join(' ')
+
     const statsLine = stats
       ? `n=${stats.n}, mean=${stats.mean.toFixed(2)}${unitLabel}, median=${stats.median.toFixed(2)}${unitLabel}, min=${stats.min}${unitLabel}, max=${stats.max}${unitLabel}, σ=${stats.sigma.toFixed(2)}, cadence=${stats.cadence ? stats.cadence.toFixed(1) + ' days between samples' : 'unknown'}`
       : ''
     const userMsg = `Parameter: ${paramLabel} (${unitLabel || 'no unit'})
 Site: ${siteName || 'this monitoring site'}${siteId ? ` (id ${siteId})` : ''}
 Site stats: ${statsLine}
-${ranges ? `CCME aquatic-life bands: ${ranges}` : 'No CCME band reference is configured for this parameter — focus on relative trend.'}
+
+WATER RANGERS REFERENCE (the only external source you are allowed to cite):
+${wrBlock}
+
 Recent readings (oldest→newest, last 12): ${JSON.stringify(recent)}
 Anomalies flagged: ${anomalies.length} reading(s)${anomalies.length ? ' — ' + anomalies.slice(0, 5).map(a => `${a.value}${unitLabel} on ${a.at ? new Date(a.at).toISOString().slice(0,10) : '?'}`).join(', ') : ''}
 
 Write 3 short paragraphs (each 2-3 sentences):
-1. What this parameter is and why it matters for aquatic life here.
-2. What this site's actual numbers say — call out the trend, the typical range, and any anomalies. Use the real numbers above.
-3. What a community volunteer should look for next or what could be driving the pattern (seasonal, watershed, sampling).
-Keep it tight, concrete, and grounded in the numbers above. Do not invent readings.`
+1. What this parameter is — using Water Rangers' definition if provided, otherwise just describe the variable in neutral terms without inventing a "safe range".
+2. What this site's actual numbers say — call out the trend, the typical range AT THIS SITE, and any anomalies. Compare to the WR-published band ONLY if one exists; if WR doesn't publish a band, say so explicitly.
+3. What a community volunteer should look for next or what could be driving the pattern (seasonal, watershed, sampling cadence). Stay grounded in the numbers above. Do not invent readings.`
 
     api.post('/ai/public-chat', {
       messages: [
@@ -477,7 +510,11 @@ Keep it tight, concrete, and grounded in the numbers above. Do not invent readin
           )}
 
           <div style={{ marginTop: 24, padding: '12px 14px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 12, color: '#64748b', lineHeight: 1.55 }}>
-            ℹ️ The safety zones shown above come from CCME — Canadian Council of Ministers of the Environment — and describe stress on <strong>fish, insects, and water plants</strong>. They are <strong>not drinking-water guidelines</strong>. SOURCE Water is a surface-water / aquatic-life platform.
+            ℹ️ Numeric "needs review" / "issue detected" bands shown anywhere in this app come directly from{' '}
+            <a href={WR_DOCS_URL} target="_blank" rel="noreferrer" style={{ color: '#0ea5e9', textDecoration: 'underline' }}>
+              Water Rangers' supported-parameters page
+            </a>
+            . If Water Rangers does not publish a band for a parameter, the app says so — it never invents thresholds. Drinking-water guidelines are out of scope: this is a surface-water / aquatic-life platform.
           </div>
         </div>
       </div>
