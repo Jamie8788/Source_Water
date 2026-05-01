@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { getAllLocations, getLocations, getLocationObservations } from '../api/waterRangers'
 import { matchParam } from '../utils/waterParams'
+import { getWRParameter, formatQaRange, WR_NA } from '../utils/wrParameters'
 import ParameterDeepDive from '../components/ParameterDeepDive'
 import { useAuth } from '../context/AuthContext'
 import api from '../utils/api'
@@ -46,34 +47,34 @@ const KNOWN_BODY_TYPES = new Set([
   'canal','reservoir','spring','channelized_stream','ditch',
 ])
 
-// Plain English for common parameters
-const PARAM_EXPLAIN = {
-  ph: '🧪 pH — How acidic or basic the water is (safe: 6.5–8.5)',
-  oxygen: '💨 Dissolved Oxygen — How much oxygen fish and wildlife can breathe (need >6 mg/L)',
-  dissolved_oxygen: '💨 Dissolved Oxygen — Oxygen available for aquatic life',
-  conductivity: '⚡ Conductivity — Mineral/salt content in water',
-  turbidity: '👁️ Turbidity — How clear or cloudy the water is',
-  water_temperature: '🌡️ Water Temperature — Affects all aquatic life',
-  air_temperature: '🌡️ Air Temperature — Weather conditions during sampling',
-  chlorine: '🧴 Chlorine — Disinfectant level (in treated water)',
-  hardness: '💎 Hardness — Mineral content (calcium & magnesium)',
-  alkalinity: '🛡️ Alkalinity — Water\'s ability to resist pH changes',
-  phosphates: '🌿 Phosphates — Nutrient that can cause algae blooms',
-  phosphorus: '🌿 Phosphorus — Nutrient pollution indicator',
-  nitrate: '🌱 Nitrate — Fertilizer/sewage indicator',
-  secchi_depth: '📏 Secchi Depth — How deep you can see (water clarity)',
-  chlorophyll_a: '🟢 Chlorophyll — Algae levels in the water',
-  water_level: '📊 Water Level — Current water height',
-  water_depth: '📏 Water Depth — How deep the water is',
-  clarity: '👁️ Clarity — Visual assessment of water clearness',
-  colour: '🎨 Water Colour — Visual assessment',
-  algae: '🟢 Algae — Presence of algae growth',
-  flow: '🌊 Flow Rate — How fast the water is moving',
+// Decorative emoji prefixes per parameter category. The descriptive text
+// after the emoji is pulled from Water Rangers — never invented.
+const PARAM_EMOJI = {
+  ph: '🧪', oxygen: '💨', dissolved_oxygen: '💨', conductivity: '⚡',
+  turbidity: '👁️', water_temperature: '🌡️', air_temperature: '🌡️',
+  chlorine: '🧴', hardness: '💎', alkalinity: '🛡️',
+  phosphate: '🌿', phosphates: '🌿', total_phosphorus: '🌿',
+  nitrate: '🌱', nitrite: '🌱',
+  secchi_depth: '📏', chlorophyll_a: '🟢', water_depth: '📏',
+  flow: '🌊', salinity: '🧂', tds: '🧂',
+  e_coli: '🦠', enterococci: '🦠', total_coliform: '🦠',
 }
 
+// Build a WR-cited explanation string. If WR publishes a "What is it?"
+// popup we use it. Otherwise we fall back to the WR-listed label and
+// say nothing else (no invented description, no fake range).
 function getParamExplain(param) {
-  const key = param?.toLowerCase().replace(/\s+/g, '_')
-  return PARAM_EXPLAIN[key] || `📋 ${param?.replace(/_/g, ' ')}`
+  if (!param) return '📋 Unknown parameter'
+  const wr = getWRParameter(param)
+  const key = String(param).toLowerCase().replace(/\s+/g, '_')
+  const emoji = PARAM_EMOJI[key] || PARAM_EMOJI[wr?.key] || '📋'
+  if (!wr) {
+    return `${emoji} ${String(param).replace(/_/g, ' ')} — ${WR_NA}`
+  }
+  if (wr.whatIsIt) return `${emoji} ${wr.label} — ${wr.whatIsIt}`
+  const safe = formatQaRange(wr.qaSafe, wr.unit)
+  if (safe) return `${emoji} ${wr.label} — Water Rangers QA "needs review" band: ${safe}.`
+  return `${emoji} ${wr.label} — ${WR_NA}`
 }
 
 function FitBounds({ locations }) {

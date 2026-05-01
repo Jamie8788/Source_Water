@@ -5,6 +5,7 @@ import 'leaflet/dist/leaflet.css'
 import { LineChart, Line, ReferenceLine, ReferenceArea, YAxis, XAxis, Tooltip as RTooltip, ResponsiveContainer } from 'recharts'
 import api from '../utils/api'
 import { playNibiTTS } from '../utils/voice'
+import { legacyGuideForParameter, getWRParameter, WR_NA, WR_DOCS_URL } from '../utils/wrParameters'
 import {
   AlertTriangle, Info, CheckCircle, Bell, BellOff,
   MapPin, Clock, RefreshCw, ChevronDown,
@@ -17,58 +18,19 @@ import {
 /* ── Parameter guidance (Canadian drinking water + CCME aquatic life) ── */
 /* Sources: Health Canada Guidelines for Canadian Drinking Water Quality,
    CCME Water Quality Guidelines for Aquatic Life. Real values — not made up. */
-const PARAM_GUIDE = {
-  ph: { unit: '', safe: '6.5 – 8.5', ideal: '6.5 – 8.5',
-    hint: 'Health Canada aesthetic objective. <6.5 = corrosive; >8.5 = scaling.',
-    typicalAlgoma: '6.8 – 7.4 (Algoma lakes skew slightly acidic)' },
-  dissolved_oxygen: { unit: 'mg/L', safe: '≥ 6.5', ideal: '8 – 12',
-    hint: 'CCME cold-water aquatic life. <4 mg/L is stressful for fish; <2 mg/L is lethal.',
-    typicalAlgoma: '8 – 11 mg/L' },
-  turbidity: { unit: 'NTU', safe: '≤ 1', ideal: '< 0.1',
-    hint: 'Health Canada: ≤1 NTU for treated water; <0.3 for filtered. High = sediment/runoff.',
-    typicalAlgoma: '0.2 – 3 NTU' },
-  water_temp: { unit: '°C', safe: 'site-dependent', ideal: 'varies',
-    hint: 'No single threshold. >20°C stresses cold-water fish; trout spawning needs <10°C.',
-    typicalAlgoma: 'Summer: 18 – 24°C; Winter: 0 – 4°C' },
-  air_temp: { unit: '°C', safe: 'n/a', ideal: 'n/a',
-    hint: 'Context for observation — not a water quality parameter itself.', typicalAlgoma: '—' },
-  chlorine: { unit: 'mg/L', safe: '0.2 – 4.0', ideal: '0.5 – 2',
-    hint: 'Health Canada: 0.2 mg/L residual minimum in distribution, 4 mg/L maximum.',
-    typicalAlgoma: '0.3 – 1.5 mg/L in treated water' },
-  conductivity: { unit: 'µS/cm', safe: '< 1000', ideal: '100 – 500',
-    hint: 'CCME: sudden changes indicate contamination. Road salt spikes push this up.',
-    typicalAlgoma: '80 – 250 µS/cm' },
-  nitrate_nitrogen: { unit: 'mg/L', safe: '≤ 10', ideal: '< 3',
-    hint: 'Health Canada MAC: 10 mg/L as N. Higher suggests fertilizer/septic runoff.',
-    typicalAlgoma: '< 1 mg/L typically' },
-  phosphorus: { unit: 'µg/L', safe: '≤ 20', ideal: '< 10',
-    hint: 'CCME: >30 µg/L risks algal blooms. Main driver of eutrophication.',
-    typicalAlgoma: '5 – 15 µg/L' },
-  chlorophyll_a: { unit: 'µg/L', safe: '< 10', ideal: '< 2.5',
-    hint: 'Proxy for algae. >10 µg/L = eutrophic; >25 = hypereutrophic / bloom likely.',
-    typicalAlgoma: '1 – 5 µg/L' },
-  hardness: { unit: 'mg/L CaCO₃', safe: 'n/a', ideal: '60 – 120',
-    hint: 'Aesthetic: <60 = soft; 120–180 = hard; >180 = very hard (scaling).',
-    typicalAlgoma: '20 – 60 mg/L (soft)' },
-  alkalinity: { unit: 'mg/L CaCO₃', safe: '20 – 200', ideal: '60 – 120',
-    hint: 'Buffers pH changes. <20 = vulnerable to acidification.',
-    typicalAlgoma: '10 – 40 mg/L' },
-  chloride: { unit: 'mg/L', safe: '≤ 250', ideal: '< 100',
-    hint: 'Health Canada aesthetic: 250 mg/L. Road salt is the big source.',
-    typicalAlgoma: '1 – 15 mg/L (rural); higher near highways' },
-  nitrites: { unit: 'mg/L', safe: '≤ 1', ideal: '< 0.1',
-    hint: 'Health Canada MAC: 1 mg/L as N. Short-lived; converts to nitrate.', typicalAlgoma: '< 0.05 mg/L' },
-  tds: { unit: 'mg/L', safe: '≤ 500', ideal: '< 250',
-    hint: 'Total Dissolved Solids. Aesthetic threshold — correlates with conductivity.',
-    typicalAlgoma: '50 – 150 mg/L' },
-  total_coliforms: { unit: 'CFU/100mL', safe: '0 (treated)', ideal: '0',
-    hint: 'Health Canada: zero in treated water. Presence = contamination.', typicalAlgoma: '0 in treated supply' },
-  secchi_depth: { unit: 'm', safe: 'site-dependent', ideal: '> 3',
-    hint: 'Transparency. Lower = murkier. Lakes drop in clarity during blooms.',
-    typicalAlgoma: '2 – 6 m in oligotrophic lakes' },
-  water_depth: { unit: 'm', safe: 'n/a', ideal: 'n/a',
-    hint: 'Physical measurement — context, not quality.', typicalAlgoma: '—' },
-}
+// PARAM_GUIDE is now a Proxy that returns Water Rangers-cited info on every
+// lookup. If WR doesn't publish a value for a field, the field equals
+// WR_NA ("Not specified by Water Rangers") — we never invent thresholds.
+// Source: https://data.waterrangers.com/supported-parameters
+const PARAM_GUIDE = new Proxy({}, {
+  get(_t, key) {
+    if (typeof key !== 'string') return undefined
+    return legacyGuideForParameter(key)
+  },
+  has(_t, key) {
+    return typeof key === 'string' && legacyGuideForParameter(key)._wr != null
+  },
+})
 
 /* ── Pulse ring animation ── */
 function PulseRing({ color, size = 10 }) {
@@ -209,6 +171,8 @@ function LegendDot({ color, label }) {
 function parseSafeRange(safeStr) {
   if (!safeStr) return null
   const s = String(safeStr).trim().toLowerCase()
+  // Treat WR's "Not specified" sentinel + the legacy n/a strings as "no band".
+  if (s === WR_NA.toLowerCase() || s.includes('not specified')) return null
   if (s.includes('site-dependent') || s === 'n/a' || s.includes('treated')) return null
   let m = s.match(/^([\d.]+)\s*[–\-]\s*([\d.]+)/)
   if (m) return { min: parseFloat(m[1]), max: parseFloat(m[2]) }
@@ -836,21 +800,68 @@ function AlertCard({ alert, onExpand, expanded, siteRow }) {
               </div>
             )}
 
-            {/* Reference card — pulled directly from Health Canada / CCME tables in PARAM_GUIDE */}
+            {/* Reference card — every value comes from the Water Rangers
+                supported-parameters page. When WR doesn't publish a value
+                the field reads "Not specified by Water Rangers" — we
+                never invent thresholds. */}
             {guide && (
               <div style={{ padding: '10px 12px', background: 'rgba(14,165,233,0.05)', border: '1px solid rgba(14,165,233,0.18)', borderRadius: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                  <BookOpen style={{ width: 12, height: 12, color: '#0ea5e9' }}/>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Reference</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 6, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <BookOpen style={{ width: 12, height: 12, color: '#0ea5e9' }}/>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Reference (Water Rangers)</span>
+                  </div>
+                  <a href={WR_DOCS_URL} target="_blank" rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ fontSize: 10, color: '#0ea5e9', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700 }}>
+                    Source <ExternalLink style={{ width: 9, height: 9, opacity: 0.7 }}/>
+                  </a>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, fontSize: 11.5, color: 'var(--text)' }}>
-                  <div><div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Safe range</div><div style={{ fontWeight: 700 }}>{guide.safe} {guide.unit}</div></div>
-                  <div><div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Ideal</div><div style={{ fontWeight: 700 }}>{guide.ideal} {guide.unit}</div></div>
-                  {guide.typicalAlgoma !== '—' && (
-                    <div><div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Typical Algoma</div><div style={{ fontWeight: 700 }}>{guide.typicalAlgoma}</div></div>
-                  )}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, fontSize: 11.5, color: 'var(--text)' }}>
+                  <div>
+                    <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>WR QA "Needs review" band</div>
+                    <div style={{ fontWeight: 700 }}>{guide.safe === WR_NA ? <em style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{WR_NA}</em> : `${guide.safe}${guide.unit ? '' : ''}`}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>WR Equipment listed</div>
+                    <div style={{ fontWeight: 700 }}>{guide._wr?.equipment?.length ? `${guide._wr.equipment.length} option${guide._wr.equipment.length === 1 ? '' : 's'}` : <em style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{WR_NA}</em>}</div>
+                  </div>
                 </div>
-                <div style={{ marginTop: 6, fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.55 }}>{guide.hint}</div>
+                {guide.hint !== WR_NA && (
+                  <div style={{ marginTop: 6, fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.55 }}>{guide.hint}</div>
+                )}
+
+                {/* WR-style info popup content — only rendered if WR publishes it */}
+                {guide._wr?.whatIsIt && (
+                  <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(14,165,233,0.04)', borderRadius: 8, border: '1px dashed rgba(14,165,233,0.25)' }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>What is it?</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text)', lineHeight: 1.5 }}>{guide._wr.whatIsIt}</div>
+                    {guide._wr.whyImportant && (
+                      <>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 8, marginBottom: 4 }}>Why is it important?</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--text)', lineHeight: 1.5 }}>{guide._wr.whyImportant}</div>
+                      </>
+                    )}
+                    {Array.isArray(guide._wr.bands) && guide._wr.bands.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 8, marginBottom: 4 }}>What does it mean?</div>
+                        <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11.5, color: 'var(--text)', lineHeight: 1.5 }}>
+                          {guide._wr.bands.map((b, i) => (
+                            <li key={i}><strong>{b.range}</strong> — {b.label}</li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    {Array.isArray(guide._wr.howToTest) && guide._wr.howToTest.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 8, marginBottom: 4 }}>How to test</div>
+                        <ol style={{ margin: 0, paddingLeft: 16, fontSize: 11, color: 'var(--text)', lineHeight: 1.45 }}>
+                          {guide._wr.howToTest.map((step, i) => <li key={i} style={{ marginBottom: 2 }}>{step}</li>)}
+                        </ol>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
