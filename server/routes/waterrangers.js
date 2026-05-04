@@ -94,39 +94,56 @@ async function buildOwnershipIndex() {
   }
   console.log(`[WR] enrichment: ${datasets.length} datasets loaded`)
 
-  // 3) For each dataset, fetch /datasets/:id/locations.json so we know
-  //    which location_ids it owns. Run in parallel batches to keep total
-  //    refresh time bounded.
+  // 3) For each dataset, fetch /datasets/:id/locations.json — SERIAL with
+  //    a small delay so we don't trip Water Rangers' 429 rate limiter.
+  //    Empirically: 8-parallel hits 429 immediately; serial with ~250 ms
+  //    spacing finishes in ~50–80 s with zero rate-limit errors. This
+  //    runs in the background after the response is sent, so the user
+  //    never waits.
   const locationOwnership = new Map()
-  const BATCH = 8
-  for (let i = 0; i < datasets.length; i += BATCH) {
-    const slice = datasets.slice(i, i + BATCH)
-    await Promise.all(slice.map(async (ds) => {
-      try {
-        const data = await wrFetch(`/datasets/${ds.id}/locations.json`, { per_page: 1000 })
-        const items = Array.isArray(data) ? data : []
-        const orgName = orgById.get(ds.organization_id) || ds.organization_name || ds.organization?.name || ''
-        const datasetName = ds.name || ds.title || `Dataset ${ds.id}`
-        for (const loc of items) {
-          if (!loc?.id) continue
-          const existing = locationOwnership.get(loc.id)
-          if (existing) {
-            // A site may belong to multiple datasets — accumulate names so
-            // the user sees every team that monitors it.
-            if (!existing.organization_name && orgName) existing.organization_name = orgName
-            if (datasetName && existing.dataset_name && !existing.dataset_name.split(', ').includes(datasetName)) {
-              existing.dataset_name = `${existing.dataset_name}, ${datasetName}`
-            } else if (datasetName && !existing.dataset_name) {
-              existing.dataset_name = datasetName
-            }
-          } else {
-            locationOwnership.set(loc.id, { organization_name: orgName, dataset_name: datasetName })
+  const REQUEST_SPACING_MS = 250
+  for (let i = 0; i < datasets.length; i++) {
+    const ds = datasets[i]
+    try {
+      const data = await wrFetch(`/datasets/${ds.id}/locations.json`, { per_page: 1000 })
+      const items = Array.isArray(data) ? data : []
+      const orgName = orgById.get(ds.organization_id) || ds.organization_name || ds.organization?.name || ''
+      const datasetName = ds.name || ds.title || `Dataset ${ds.id}`
+      for (const loc of items) {
+        if (!loc?.id) continue
+        const existing = locationOwnership.get(loc.id)
+        if (existing) {
+          if (!existing.organization_name && orgName) existing.organization_name = orgName
+          if (datasetName && existing.dataset_name && !existing.dataset_name.split(', ').includes(datasetName)) {
+            existing.dataset_name = `${existing.dataset_name}, ${datasetName}`
+          } else if (datasetName && !existing.dataset_name) {
+            existing.dataset_name = datasetName
           }
+        } else {
+          locationOwnership.set(loc.id, { organization_name: orgName, dataset_name: datasetName })
         }
-      } catch (e) {
-        console.log(`[WR] dataset ${ds.id} locations failed: ${e.message}`)
       }
-    }))
+    } catch (e) {
+      // 429 → wait longer and retry once. Anything else → skip this dataset.
+      if (String(e.message).includes('429')) {
+        await new Promise(r => setTimeout(r, 3000))
+        try {
+          const retryData = await wrFetch(`/datasets/${ds.id}/locations.json`, { per_page: 1000 })
+          const items = Array.isArray(retryData) ? retryData : []
+          const orgName = orgById.get(ds.organization_id) || ''
+          const datasetName = ds.name || ds.title || `Dataset ${ds.id}`
+          for (const loc of items) {
+            if (!loc?.id) continue
+            if (!locationOwnership.has(loc.id)) {
+              locationOwnership.set(loc.id, { organization_name: orgName, dataset_name: datasetName })
+            }
+          }
+        } catch { /* give up on this dataset */ }
+      }
+    }
+    if ((i + 1) % 50 === 0) console.log(`[WR] enrichment: ${i + 1}/${datasets.length} datasets walked, ${locationOwnership.size} sites mapped so far`)
+    // Respect the rate limit between calls.
+    if (i < datasets.length - 1) await new Promise(r => setTimeout(r, REQUEST_SPACING_MS))
   }
   console.log(`[WR] enrichment: ownership stitched onto ${locationOwnership.size} unique locations`)
   return locationOwnership
@@ -151,12 +168,52 @@ async function enrichLocationsWithOwnership(locations) {
   }
 }
 
+// Background enrichment — never awaited by the request handler. Runs
+// AFTER the response is sent and patches the cache in place when it
+// finishes. Single-flight: if a previous run is still going, skip.
+let enrichmentInProgress = false
+let enrichmentCompletedAt = 0
+function maybeStartBackgroundEnrichment() {
+  if (enrichmentInProgress) return
+  if (!allLocationsCache.data) return
+  // Don't re-enrich if we just finished within the same cache window.
+  if (allLocationsCache.ts && enrichmentCompletedAt >= allLocationsCache.ts) return
+  enrichmentInProgress = true
+  const startedTs = allLocationsCache.ts
+  console.log('[WR] starting BACKGROUND ownership enrichment (non-blocking)…')
+  ;(async () => {
+    try {
+      const enriched = await enrichLocationsWithOwnership(allLocationsCache.data)
+      // Only patch the cache if it's still the SAME generation we started
+      // with — otherwise a fresher load happened mid-flight and we should
+      // not clobber it.
+      if (allLocationsCache.ts === startedTs) {
+        allLocationsCache = { data: enriched, ts: startedTs }
+        enrichmentCompletedAt = startedTs
+        const enrichedCount = enriched.filter(l => l.organization_name || l.dataset_name).length
+        console.log(`[WR] background enrichment done — ${enrichedCount}/${enriched.length} sites now have ownership info`)
+      } else {
+        console.log('[WR] background enrichment finished but cache was refreshed mid-flight; skipping patch')
+      }
+    } catch (e) {
+      console.error(`[WR] background enrichment crashed: ${e.message}`)
+    } finally {
+      enrichmentInProgress = false
+    }
+  })()
+}
+
 router.get('/locations-all', async (req, res) => {
   try {
     // Return cache if fresh
     if (allLocationsCache.data && Date.now() - allLocationsCache.ts < ALL_LOC_TTL) {
       console.log(`[WR] Returning cached ${allLocationsCache.data.length} locations`)
-      return res.json({ locations: allLocationsCache.data, cached: true, count: allLocationsCache.data.length })
+      res.json({ locations: allLocationsCache.data, cached: true, count: allLocationsCache.data.length })
+      // If this cache generation hasn't been enriched yet (e.g. server
+      // just started, raw load just finished), kick off enrichment in
+      // the background. Idempotent — single-flight guard inside.
+      maybeStartBackgroundEnrichment()
+      return
     }
 
     // If another request is already loading, wait for it
@@ -188,10 +245,7 @@ router.get('/locations-all', async (req, res) => {
           }
         }
       }
-      // Stitch in dataset_name + organization_name from /datasets +
-      // /organizations. If this fails, returns raw `all` unchanged.
-      const enriched = await enrichLocationsWithOwnership(all)
-      return enriched
+      return all
     })()
 
     const all = await loadingInProgress
@@ -199,6 +253,10 @@ router.get('/locations-all', async (req, res) => {
     allLocationsCache = { data: all, ts: Date.now() }
     console.log(`[WR] Loaded ${all.length} total locations, cached for 1hr`)
     res.json({ locations: all, cached: false, count: all.length })
+    // Start ownership enrichment in the background — user already has
+    // their response. When it finishes (~1–2 min later) the cache gets
+    // patched in place so the NEXT request returns enriched data.
+    maybeStartBackgroundEnrichment()
   } catch (e) {
     console.error('[WR] bulk locations error:', e.message)
     // Return partial cache if available
