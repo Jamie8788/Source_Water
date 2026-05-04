@@ -53,6 +53,104 @@ let allLocationsCache = { data: null, ts: 0 }
 const ALL_LOC_TTL = 60 * 60 * 1000 // 1 hour cache
 let loadingInProgress = null // prevent duplicate loads
 
+// ── Ownership enrichment ─────────────────────────────────────────────────
+// Water Rangers' /locations.json bulk feed does NOT include organization or
+// dataset names per row (those only appear on the per-site detail page).
+// So we walk /datasets + /organizations once per cache refresh and stitch
+// dataset_name + organization_name onto every location.
+//
+// Failures here are non-fatal: if the join fails we still return raw
+// locations and the UI's conditional rendering hides the org/dataset
+// dropdowns gracefully (no broken state).
+async function buildOwnershipIndex() {
+  // 1) Pull all organizations → id → name lookup.
+  const orgs = []
+  for (let page = 1; page <= 50; page++) {
+    try {
+      const data = await wrFetch('/organizations.json', { page, per_page: 100 })
+      const items = Array.isArray(data) ? data : []
+      if (items.length === 0) break
+      orgs.push(...items)
+    } catch (e) {
+      console.log(`[WR] organizations page ${page} failed: ${e.message}`)
+      break
+    }
+  }
+  const orgById = new Map(orgs.map(o => [o.id, o.name || o.title || `Organization ${o.id}`]))
+  console.log(`[WR] enrichment: ${orgs.length} organizations loaded`)
+
+  // 2) Pull all datasets — each carries organization_id.
+  const datasets = []
+  for (let page = 1; page <= 50; page++) {
+    try {
+      const data = await wrFetch('/datasets.json', { page, per_page: 100 })
+      const items = Array.isArray(data) ? data : []
+      if (items.length === 0) break
+      datasets.push(...items)
+    } catch (e) {
+      console.log(`[WR] datasets page ${page} failed: ${e.message}`)
+      break
+    }
+  }
+  console.log(`[WR] enrichment: ${datasets.length} datasets loaded`)
+
+  // 3) For each dataset, fetch /datasets/:id/locations.json so we know
+  //    which location_ids it owns. Run in parallel batches to keep total
+  //    refresh time bounded.
+  const locationOwnership = new Map()
+  const BATCH = 8
+  for (let i = 0; i < datasets.length; i += BATCH) {
+    const slice = datasets.slice(i, i + BATCH)
+    await Promise.all(slice.map(async (ds) => {
+      try {
+        const data = await wrFetch(`/datasets/${ds.id}/locations.json`, { per_page: 1000 })
+        const items = Array.isArray(data) ? data : []
+        const orgName = orgById.get(ds.organization_id) || ds.organization_name || ds.organization?.name || ''
+        const datasetName = ds.name || ds.title || `Dataset ${ds.id}`
+        for (const loc of items) {
+          if (!loc?.id) continue
+          const existing = locationOwnership.get(loc.id)
+          if (existing) {
+            // A site may belong to multiple datasets — accumulate names so
+            // the user sees every team that monitors it.
+            if (!existing.organization_name && orgName) existing.organization_name = orgName
+            if (datasetName && existing.dataset_name && !existing.dataset_name.split(', ').includes(datasetName)) {
+              existing.dataset_name = `${existing.dataset_name}, ${datasetName}`
+            } else if (datasetName && !existing.dataset_name) {
+              existing.dataset_name = datasetName
+            }
+          } else {
+            locationOwnership.set(loc.id, { organization_name: orgName, dataset_name: datasetName })
+          }
+        }
+      } catch (e) {
+        console.log(`[WR] dataset ${ds.id} locations failed: ${e.message}`)
+      }
+    }))
+  }
+  console.log(`[WR] enrichment: ownership stitched onto ${locationOwnership.size} unique locations`)
+  return locationOwnership
+}
+
+async function enrichLocationsWithOwnership(locations) {
+  try {
+    const idx = await buildOwnershipIndex()
+    if (idx.size === 0) return locations
+    return locations.map(l => {
+      const own = idx.get(l.id)
+      if (!own) return l
+      return {
+        ...l,
+        organization_name: l.organization_name || own.organization_name || '',
+        dataset_name:      l.dataset_name      || own.dataset_name      || '',
+      }
+    })
+  } catch (e) {
+    console.error(`[WR] enrichment failed (returning raw locations): ${e.message}`)
+    return locations
+  }
+}
+
 router.get('/locations-all', async (req, res) => {
   try {
     // Return cache if fresh
@@ -72,14 +170,14 @@ router.get('/locations-all', async (req, res) => {
     loadingInProgress = (async () => {
       const all = []
       // Sequential — slower but guarantees every page loads
-      for (let page = 1; page <= 100; page++) {
+      pageLoop: for (let page = 1; page <= 100; page++) {
         for (let attempt = 1; attempt <= 3; attempt++) {
           try {
             const data = await wrFetch('/locations.json', { page, per_page: 100 })
             const items = Array.isArray(data) ? data : []
             if (items.length === 0) {
               console.log(`[WR] Page ${page}: empty — done! Total: ${all.length}`)
-              return all // truly empty = no more data
+              break pageLoop
             }
             all.push(...items)
             if (page % 10 === 0) console.log(`[WR] Page ${page}: total ${all.length}`)
@@ -90,7 +188,10 @@ router.get('/locations-all', async (req, res) => {
           }
         }
       }
-      return all
+      // Stitch in dataset_name + organization_name from /datasets +
+      // /organizations. If this fails, returns raw `all` unchanged.
+      const enriched = await enrichLocationsWithOwnership(all)
+      return enriched
     })()
 
     const all = await loadingInProgress

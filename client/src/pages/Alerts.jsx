@@ -69,78 +69,172 @@ function FitBounds({ points }) {
   return null
 }
 
-function WatchesMap({ watches, sites }) {
-  const points = useMemo(() => {
-    const bySite = new Map(sites.map(s => [s.id, s]))
-    return watches.map(w => {
-      const s = bySite.get(w.site_id)
-      if (!s || !s.latitude || !s.longitude) return null
-      return {
-        ...w,
-        lat: parseFloat(s.latitude),
-        lng: parseFloat(s.longitude),
-        site_name: s.name,
-        body_of_water: s.body_of_water,
+// Severity → marker color. Same palette as the cards.
+const SEV_MAP_COLOR = { high: '#ef4444', medium: '#f59e0b', low: '#10b981' }
+
+// AlertsMap: plots one marker per site that has alerts in the
+// CURRENTLY-FILTERED list. The filter row above (Critical / Warnings /
+// Active / etc.) drives both the list AND the map — change a filter and
+// markers disappear with the cards. If the filtered list is empty but
+// there are watches, falls back to plotting watches in green/grey so the
+// map isn't blank when there's nothing triggered.
+function AlertsMap({ filteredAlerts, watches, sites, totalAlerts, filterLabel }) {
+  const bySite = useMemo(() => new Map(sites.map(s => [s.id, s])), [sites])
+
+  // Group filtered alerts by site_id so a site with multiple alerts gets
+  // one marker. Marker color = highest severity at that site.
+  const alertPoints = useMemo(() => {
+    const bySiteId = new Map()
+    const sevRank = { high: 3, medium: 2, low: 1 }
+    for (const a of filteredAlerts) {
+      const sid = a.site_id
+      const site = bySite.get(sid)
+      if (!site || !site.latitude || !site.longitude) continue
+      const existing = bySiteId.get(sid)
+      if (!existing) {
+        bySiteId.set(sid, {
+          site_id: sid,
+          lat: parseFloat(site.latitude),
+          lng: parseFloat(site.longitude),
+          site_name: site.name || a.site_name,
+          body_of_water: site.body_of_water,
+          alerts: [a],
+          topSeverity: a.severity,
+        })
+      } else {
+        existing.alerts.push(a)
+        if ((sevRank[a.severity] || 0) > (sevRank[existing.topSeverity] || 0)) {
+          existing.topSeverity = a.severity
+        }
       }
-    }).filter(Boolean)
-  }, [watches, sites])
+    }
+    return Array.from(bySiteId.values())
+  }, [filteredAlerts, bySite])
 
-  if (watches.length === 0) return null
+  // Watch-only fallback points (when filter shows zero alerts but there
+  // are watches set up). Lets the user still see "where my watches live".
+  const watchPoints = useMemo(() => {
+    const alertedSites = new Set(alertPoints.map(p => p.site_id))
+    return watches
+      .filter(w => !alertedSites.has(w.site_id))
+      .map(w => {
+        const site = bySite.get(w.site_id)
+        if (!site || !site.latitude || !site.longitude) return null
+        return {
+          watch_id: w.id,
+          site_id: w.site_id,
+          lat: parseFloat(site.latitude),
+          lng: parseFloat(site.longitude),
+          site_name: site.name,
+          body_of_water: site.body_of_water,
+          parameter: w.parameter_label || w.parameter,
+          comparator: w.comparator,
+          threshold: w.threshold,
+          active: w.active === 1 || w.active === true,
+        }
+      })
+      .filter(Boolean)
+  }, [watches, alertPoints, bySite])
 
-  if (points.length === 0) {
+  // Hide the whole map when there's nothing to show at all.
+  const totalPoints = alertPoints.length + watchPoints.length
+  if (watches.length === 0 && totalAlerts === 0) return null
+  if (totalPoints === 0) {
     return (
       <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 14, padding: '24px', marginBottom: 20, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
-        Your watched sites don't have coordinates on file — map view unavailable.
+        No watches or alerts have coordinates on file{filterLabel ? ` for "${filterLabel}"` : ''} — map view unavailable.
       </div>
     )
   }
+
+  // FitBounds key forces a re-fit when the filtered set changes.
+  const fitPoints = [...alertPoints, ...watchPoints]
 
   return (
     <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 14, padding: 14, marginBottom: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <MapPin style={{ width: 14, height: 14, color: '#6366f1' }}/>
-          <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--text)' }}>Watched Sites Map</div>
+          <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--text)' }}>
+            Alerts &amp; Watches Map
+            <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
+              {alertPoints.length} site{alertPoints.length === 1 ? '' : 's'} alerting
+              {filterLabel ? ` · filter: ${filterLabel}` : ''}
+              {watchPoints.length ? ` · ${watchPoints.length} other watched site${watchPoints.length === 1 ? '' : 's'}` : ''}
+            </span>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 10, fontSize: 11, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
-          <LegendDot color="#ef4444" label="Triggered"/>
-          <LegendDot color="#10b981" label="OK"/>
+          <LegendDot color={SEV_MAP_COLOR.high}   label="Critical"/>
+          <LegendDot color={SEV_MAP_COLOR.medium} label="Warning"/>
+          <LegendDot color={SEV_MAP_COLOR.low}    label="Advisory"/>
+          <LegendDot color="#10b981" label="Watch OK"/>
           <LegendDot color="#64748b" label="No data"/>
         </div>
       </div>
-      <div style={{ height: 280, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)' }}>
+      <div key={`alerts-map-${alertPoints.length}-${watchPoints.length}`}
+        style={{ height: 280, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)' }}>
         <MapContainer center={[46.5, -84]} zoom={6} style={{ height: '100%', width: '100%' }} scrollWheelZoom={false}>
           <TileLayer
             attribution='&copy; OpenStreetMap contributors &copy; CARTO'
             url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
           />
-          <FitBounds points={points}/>
-          {points.map(p => {
-            const color = !p.has_data ? '#64748b' : p.triggered ? '#ef4444' : '#10b981'
+          <FitBounds points={fitPoints}/>
+          {/* Alerted sites — colored by highest severity at that site */}
+          {alertPoints.map(p => {
+            const color = SEV_MAP_COLOR[p.topSeverity] || '#ef4444'
             return (
               <CircleMarker
-                key={p.id}
+                key={`alert-${p.site_id}`}
                 center={[p.lat, p.lng]}
-                radius={p.triggered ? 11 : 8}
-                pathOptions={{
-                  color,
-                  fillColor: color,
-                  fillOpacity: p.triggered ? 0.85 : 0.6,
-                  weight: p.triggered ? 3 : 2,
-                }}>
+                radius={p.alerts.length > 1 ? 13 : 11}
+                pathOptions={{ color, fillColor: color, fillOpacity: 0.85, weight: 3 }}>
+                <Popup>
+                  <div style={{ fontSize: 12, minWidth: 200 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>{p.site_name}</div>
+                    {p.body_of_water && <div style={{ color: '#64748b', marginBottom: 6 }}>{p.body_of_water}</div>}
+                    <div style={{ padding: '6px 8px', borderRadius: 6, background: '#fee2e2', border: '1px solid #fecaca' }}>
+                      <div style={{ fontWeight: 700, color: '#991b1b', marginBottom: 4 }}>
+                        {p.alerts.length} alert{p.alerts.length === 1 ? '' : 's'} matching filter
+                      </div>
+                      {p.alerts.slice(0, 4).map((a, i) => (
+                        <div key={i} style={{ fontSize: 11, marginTop: i === 0 ? 0 : 3, color: '#1f2937' }}>
+                          <strong>{a.parameter_label || a.parameter}</strong> {a.comparator} {a.threshold_value}
+                          {a.current_value != null && <> · latest: <strong style={{ color: '#dc2626' }}>{a.current_value}</strong></>}
+                          {a.severity && (
+                            <span style={{ marginLeft: 4, fontSize: 9, padding: '0 5px', borderRadius: 8, background: SEV_MAP_COLOR[a.severity] + '22', color: SEV_MAP_COLOR[a.severity] }}>
+                              {a.severity === 'high' ? 'Critical' : a.severity === 'medium' ? 'Warning' : 'Advisory'}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                      {p.alerts.length > 4 && <div style={{ fontSize: 10, color: '#64748b', marginTop: 3 }}>+{p.alerts.length - 4} more</div>}
+                    </div>
+                  </div>
+                </Popup>
+              </CircleMarker>
+            )
+          })}
+          {/* Watch-only sites with no current alerts in the filtered set */}
+          {watchPoints.map(p => {
+            const color = p.active ? '#10b981' : '#64748b'
+            return (
+              <CircleMarker
+                key={`watch-${p.watch_id}`}
+                center={[p.lat, p.lng]}
+                radius={6}
+                pathOptions={{ color, fillColor: color, fillOpacity: 0.5, weight: 2, dashArray: p.active ? null : '3 3' }}>
                 <Popup>
                   <div style={{ fontSize: 12, minWidth: 180 }}>
                     <div style={{ fontWeight: 700, marginBottom: 4 }}>{p.site_name}</div>
-                    <div style={{ color: '#64748b', marginBottom: 6 }}>{p.body_of_water || 'Water body'}</div>
-                    <div style={{ padding: '6px 8px', borderRadius: 6, background: p.triggered ? '#fee2e2' : '#dcfce7', border: `1px solid ${p.triggered ? '#fecaca' : '#bbf7d0'}` }}>
+                    {p.body_of_water && <div style={{ color: '#64748b', marginBottom: 6 }}>{p.body_of_water}</div>}
+                    <div style={{ padding: '6px 8px', borderRadius: 6, background: '#dcfce7', border: '1px solid #bbf7d0' }}>
                       <div style={{ fontWeight: 700 }}>
-                        {p.parameter_label || p.parameter} {p.comparator} {p.threshold}
+                        {p.parameter} {p.comparator} {p.threshold}
                       </div>
-                      <div style={{ marginTop: 3 }}>
-                        Latest: <strong>{p.current_value ?? '—'}</strong>
-                        {p.triggered && <span style={{ color: '#dc2626', marginLeft: 6 }}>⚠ triggered</span>}
+                      <div style={{ marginTop: 3, fontSize: 11, color: '#16a34a' }}>
+                        {p.active ? 'Watch active — no alert in current filter' : 'Watch paused'}
                       </div>
-                      {p.observed_at && <div style={{ color: '#64748b', marginTop: 3 }}>{timeAgo(p.observed_at)}</div>}
                     </div>
                   </div>
                 </Popup>
@@ -1547,7 +1641,21 @@ export default function Alerts() {
 
         <HowItWorks/>
 
-        <WatchesMap watches={watches} sites={sites}/>
+        <AlertsMap
+          filteredAlerts={filtered}
+          watches={watches}
+          sites={sites}
+          totalAlerts={alerts.length}
+          filterLabel={(() => {
+            const bits = []
+            if (filter !== 'all') bits.push(filter === 'high' ? 'Critical' : filter === 'medium' ? 'Warning' : filter === 'low' ? 'Advisory' : filter[0].toUpperCase() + filter.slice(1))
+            if (paramFilter)      bits.push(paramFilter.replace(/_/g, ' '))
+            if (siteFilter)       { const opt = siteOptions.find(o => o[0] === siteFilter); bits.push(opt ? opt[1] : siteFilter) }
+            if (timeRange !== 'all') bits.push(`last ${timeRange}`)
+            if (search.trim())    bits.push(`"${search.trim()}"`)
+            return bits.join(' · ')
+          })()}
+        />
 
         <WatchesPanel
           watches={watches}
