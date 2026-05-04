@@ -239,6 +239,32 @@ export default function WRMonitoringMap() {
     return () => clearInterval(iv)
   }, [loadAll])
 
+  // ── Ownership-info auto-refresh ──
+  // Server-side enrichment (organization_name + dataset_name per location)
+  // runs in the background after the bulk locations endpoint returns. The
+  // first response right after a cold deploy carries no ownership info,
+  // so the Organization / Dataset dropdowns would be empty for ~1–2 min.
+  // Re-poll every 30s until at least one location has the field, then
+  // stop. Caps at 10 polls (5 min total) so a permanently-failing
+  // enrichment doesn't burn requests forever.
+  useEffect(() => {
+    if (!allLocations.length) return // wait for first load
+    const hasOwnership = allLocations.some(l =>
+      (Array.isArray(l.organization_names) && l.organization_names.length) ||
+      (Array.isArray(l.dataset_names)      && l.dataset_names.length)      ||
+      l.organization_name || l.dataset_name
+    )
+    if (hasOwnership) return // already populated, no need to poll
+    let attempts = 0
+    const iv = setInterval(() => {
+      attempts++
+      if (attempts > 10) { clearInterval(iv); return }
+      console.log(`[WR] polling for enriched ownership data (attempt ${attempts}/10)…`)
+      loadAll()
+    }, 30000)
+    return () => clearInterval(iv)
+  }, [allLocations, loadAll])
+
   // A site can belong to several datasets and organizations on Water
   // Rangers, so the canonical fields are arrays. We fall back to the
   // legacy single-name field if the array isn't present (old cache
@@ -449,41 +475,49 @@ export default function WRMonitoringMap() {
               {allParams.map(p => <option key={p} value={p}>{p.replace(/_/g, ' ')}</option>)}
             </select>
           </div>
-          {/* Organization — only render if WR returns the field on at least
-              one location. Selecting an org also resets the dataset filter
-              so we don't show a dataset that no longer matches. */}
-          {organizations.length > 0 && (
-            <div>
-              <label style={{ fontSize: 9, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Organization</label>
-              <select
-                value={orgFilter}
-                onChange={e => { setOrgFilter(e.target.value); setDatasetFilter('') }}
-                title="Filter sites by the Water Rangers organization that owns them"
-                style={{ width: '100%', padding: '5px 7px', borderRadius: 6, fontSize: 11, background: 'rgba(0,0,0,.12)', border: '1px solid var(--border)', color: 'var(--text)' }}>
-                <option value="">All organizations ({organizations.length})</option>
-                {organizations.map(([name, count]) => (
-                  <option key={name} value={name}>{name} ({count})</option>
-                ))}
-              </select>
-            </div>
-          )}
-          {/* Dataset — only render if WR returns dataset_name on at least
-              one matching location. Scoped to the selected org. */}
-          {datasets.length > 0 && (
-            <div>
-              <label style={{ fontSize: 9, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Dataset</label>
-              <select
-                value={datasetFilter}
-                onChange={e => setDatasetFilter(e.target.value)}
-                title={orgFilter ? `Datasets within "${orgFilter}"` : 'Water Rangers dataset (project) the site belongs to'}
-                style={{ width: '100%', padding: '5px 7px', borderRadius: 6, fontSize: 11, background: 'rgba(0,0,0,.12)', border: '1px solid var(--border)', color: 'var(--text)' }}>
-                <option value="">All datasets ({datasets.length})</option>
-                {datasets.map(([name, count]) => (
-                  <option key={name} value={name}>{name} ({count})</option>
-                ))}
-              </select>
-            </div>
-          )}
+          {/* Organization — ALWAYS rendered so the filter is discoverable.
+              When the WR cache hasn't been enriched yet (right after a
+              cold deploy) the dropdown shows a "loading…" placeholder
+              instead of disappearing. Background enrichment runs server-
+              side; we re-poll /api/wr/locations-all every 30s until the
+              ownership info shows up. */}
+          <div>
+            <label style={{ fontSize: 9, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Organization</label>
+            <select
+              value={orgFilter}
+              onChange={e => { setOrgFilter(e.target.value); setDatasetFilter('') }}
+              disabled={organizations.length === 0}
+              title={organizations.length === 0
+                ? 'Water Rangers ownership info is still loading — check back in a moment'
+                : 'Filter sites by the Water Rangers organization that owns them'}
+              style={{ width: '100%', padding: '5px 7px', borderRadius: 6, fontSize: 11, background: 'rgba(0,0,0,.12)', border: '1px solid var(--border)', color: organizations.length === 0 ? 'var(--text-muted)' : 'var(--text)', opacity: organizations.length === 0 ? 0.6 : 1 }}>
+              <option value="">
+                {organizations.length === 0 ? 'Loading from Water Rangers…' : `All organizations (${organizations.length})`}
+              </option>
+              {organizations.map(([name, count]) => (
+                <option key={name} value={name}>{name} ({count})</option>
+              ))}
+            </select>
+          </div>
+          {/* Dataset — same always-render rule as Organization. */}
+          <div>
+            <label style={{ fontSize: 9, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Dataset</label>
+            <select
+              value={datasetFilter}
+              onChange={e => setDatasetFilter(e.target.value)}
+              disabled={datasets.length === 0}
+              title={datasets.length === 0
+                ? 'Water Rangers ownership info is still loading — check back in a moment'
+                : (orgFilter ? `Datasets within "${orgFilter}"` : 'Water Rangers dataset (project) the site belongs to')}
+              style={{ width: '100%', padding: '5px 7px', borderRadius: 6, fontSize: 11, background: 'rgba(0,0,0,.12)', border: '1px solid var(--border)', color: datasets.length === 0 ? 'var(--text-muted)' : 'var(--text)', opacity: datasets.length === 0 ? 0.6 : 1 }}>
+              <option value="">
+                {datasets.length === 0 ? 'Loading from Water Rangers…' : `All datasets (${datasets.length})`}
+              </option>
+              {datasets.map(([name, count]) => (
+                <option key={name} value={name}>{name} ({count})</option>
+              ))}
+            </select>
+          </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text-muted)', cursor: 'pointer' }}>
               <input type="checkbox" checked={activeOnly} onChange={e => setActiveOnly(e.target.checked)} /> Active only
