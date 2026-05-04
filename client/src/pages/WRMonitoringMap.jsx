@@ -239,31 +239,14 @@ export default function WRMonitoringMap() {
     return () => clearInterval(iv)
   }, [loadAll])
 
-  // ── Ownership-info auto-refresh ──
-  // Server-side enrichment (organization_name + dataset_name per location)
-  // runs in the background after the bulk locations endpoint returns. The
-  // first response right after a cold deploy carries no ownership info,
-  // so the Organization / Dataset dropdowns would be empty for ~1–2 min.
-  // Re-poll every 30s until at least one location has the field, then
-  // stop. Caps at 10 polls (5 min total) so a permanently-failing
-  // enrichment doesn't burn requests forever.
-  useEffect(() => {
-    if (!allLocations.length) return // wait for first load
-    const hasOwnership = allLocations.some(l =>
-      (Array.isArray(l.organization_names) && l.organization_names.length) ||
-      (Array.isArray(l.dataset_names)      && l.dataset_names.length)      ||
-      l.organization_name || l.dataset_name
-    )
-    if (hasOwnership) return // already populated, no need to poll
-    let attempts = 0
-    const iv = setInterval(() => {
-      attempts++
-      if (attempts > 10) { clearInterval(iv); return }
-      console.log(`[WR] polling for enriched ownership data (attempt ${attempts}/10)…`)
-      loadAll()
-    }, 30000)
-    return () => clearInterval(iv)
-  }, [allLocations, loadAll])
+  // NOTE: previously this component auto-polled /api/wr/locations-all every
+  // 30s while ownership info was missing, hoping background enrichment
+  // would finish. That made things worse — Water Rangers' API rate-limits
+  // hard, and each poll triggered another cache-miss or "Waiting for
+  // existing load…" cascade. Removed entirely. Background enrichment on
+  // the server still runs once after each cache refresh; users get the
+  // ownership info on their next natural page load (or by clicking the
+  // "Reload" button at the top of the map).
 
   // A site can belong to several datasets and organizations on Water
   // Rangers, so the canonical fields are arrays. We fall back to the

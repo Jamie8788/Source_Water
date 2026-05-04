@@ -12,8 +12,20 @@ const API_KEY = process.env.WATERRANGERS_API_KEY || process.env.VITE_WATERRANGER
 const cache = new Map()
 const TTL = 5 * 60 * 1000
 
+// Global circuit breaker — when WR returns 429 with a "next_request_allowed_at"
+// timestamp, every wrFetch caller honors it and short-circuits until that
+// time passes. Without this, retries within seconds cascade into more 429s
+// and burn the rest of our quota.
+let wrRateLimitedUntil = 0
+
 async function wrFetch(endpoint, query = {}) {
   if (!API_KEY) throw new Error('WATERRANGERS_API_KEY not set')
+
+  // Respect a previously-seen "wait until" deadline.
+  if (wrRateLimitedUntil > Date.now()) {
+    const waitMs = wrRateLimitedUntil - Date.now()
+    throw new Error(`Water Rangers 429: rate-limited for another ${Math.ceil(waitMs / 1000)}s`)
+  }
 
   const url = new URL(`${WR_BASE}${endpoint}`)
   url.searchParams.set('api_key', API_KEY)
@@ -28,6 +40,20 @@ async function wrFetch(endpoint, query = {}) {
   const res = await fetch(url.toString())
   if (!res.ok) {
     const text = await res.text().catch(() => '')
+    // Parse next_request_allowed_at and trip the circuit breaker so all
+    // other in-flight callers stop hammering the API immediately.
+    if (res.status === 429) {
+      try {
+        const j = JSON.parse(text)
+        if (j?.next_request_allowed_at) {
+          const t = new Date(j.next_request_allowed_at).getTime()
+          if (Number.isFinite(t) && t > Date.now()) {
+            wrRateLimitedUntil = t
+            console.log(`[WR] rate-limit circuit OPEN until ${j.next_request_allowed_at} (${Math.ceil((t - Date.now())/1000)}s)`)
+          }
+        }
+      } catch { /* fall through with raw text */ }
+    }
     throw new Error(`Water Rangers ${res.status}: ${text || res.statusText}`)
   }
 
@@ -125,6 +151,10 @@ async function buildOwnershipIndex() {
   const locationOwnership = new Map()
   const REQUEST_SPACING_MS = 250
   for (let i = 0; i < datasets.length; i++) {
+    if (wrRateLimitedUntil > Date.now()) {
+      console.log(`[WR] enrichment paused at ${i}/${datasets.length} — circuit open until ${new Date(wrRateLimitedUntil).toISOString()}`)
+      break
+    }
     const ds = datasets[i]
     try {
       const data = await wrFetch(`/datasets/${ds.id}/locations.json`, { per_page: 1000 })
@@ -239,6 +269,13 @@ router.get('/locations-all', async (req, res) => {
       const all = []
       // Sequential — slower but guarantees every page loads
       pageLoop: for (let page = 1; page <= 100; page++) {
+        // If the circuit breaker tripped, stop the bulk fetch immediately.
+        // We'll return what we have rather than spin through retries that
+        // are all going to fail.
+        if (wrRateLimitedUntil > Date.now()) {
+          console.log(`[WR] bulk fetch aborted at page ${page}: rate-limited until ${new Date(wrRateLimitedUntil).toISOString()} (have ${all.length} so far)`)
+          break pageLoop
+        }
         for (let attempt = 1; attempt <= 3; attempt++) {
           try {
             const data = await wrFetch('/locations.json', { page, per_page: 100 })
@@ -251,10 +288,17 @@ router.get('/locations-all', async (req, res) => {
             if (page % 10 === 0) console.log(`[WR] Page ${page}: total ${all.length}`)
             break // success, move to next page
           } catch (e) {
+            // 429 trips the circuit breaker — no point retrying within
+            // seconds when WR told us to wait minutes.
+            if (String(e.message).includes('429') || wrRateLimitedUntil > Date.now()) {
+              console.log(`[WR] Page ${page} hit 429 — stopping retries, will resume on next cache miss`)
+              break
+            }
             console.log(`[WR] Page ${page} attempt ${attempt} failed: ${e.message}`)
-            if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt)) // wait 1s, 2s before retry
+            if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt))
           }
         }
+        if (wrRateLimitedUntil > Date.now()) break pageLoop
       }
       return all
     })()
