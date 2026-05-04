@@ -120,6 +120,22 @@ function AlertsMap({ filteredAlerts, watches, sites, totalAlerts, filterLabel })
       .map(w => {
         const site = bySite.get(w.site_id)
         if (!site || !site.latitude || !site.longitude) return null
+        // A watch can be currently triggered (latest reading violates the
+        // threshold) without yet having an alert row in the DB — alerts
+        // only fire on "Check now" or the auto-check loop. Without this
+        // we'd show pH < 8 with latest=7.2 as green "Watch OK". So we
+        // recompute the breach state client-side from the latest known
+        // value the watch row carries (current_value + comparator +
+        // threshold).
+        const v = w.current_value
+        const t = parseFloat(w.threshold)
+        const breached =
+          w.has_data && Number.isFinite(t) && Number.isFinite(Number(v))
+            ? (w.comparator === '>'  ? Number(v) >  t
+             : w.comparator === '<'  ? Number(v) <  t
+             : w.comparator === '>=' ? Number(v) >= t
+             : w.comparator === '<=' ? Number(v) <= t : false)
+            : false
         return {
           watch_id: w.id,
           site_id: w.site_id,
@@ -130,7 +146,12 @@ function AlertsMap({ filteredAlerts, watches, sites, totalAlerts, filterLabel })
           parameter: w.parameter_label || w.parameter,
           comparator: w.comparator,
           threshold: w.threshold,
+          current_value: v,
+          observed_at: w.observed_at,
+          severity: w.severity,
           active: w.active === 1 || w.active === true,
+          has_data: !!w.has_data,
+          triggered: breached,
         }
       })
       .filter(Boolean)
@@ -215,25 +236,56 @@ function AlertsMap({ filteredAlerts, watches, sites, totalAlerts, filterLabel })
               </CircleMarker>
             )
           })}
-          {/* Watch-only sites with no current alerts in the filtered set */}
+          {/* Watch-only sites with no current alerts in the filtered set.
+              If the watch is in breach (latest reading violates the
+              threshold) we color by severity even if no alert row
+              exists yet — otherwise a paused watch is grey, an active
+              watch with no breach is green, no-data is grey-dashed. */}
           {watchPoints.map(p => {
-            const color = p.active ? '#10b981' : '#64748b'
+            let color, fillOpacity, weight, radius, dashArray
+            if (!p.has_data) {
+              color = '#64748b'; fillOpacity = 0.5; weight = 2; radius = 6; dashArray = '3 3'
+            } else if (p.triggered && p.active) {
+              color = SEV_MAP_COLOR[p.severity] || '#ef4444'
+              fillOpacity = 0.85; weight = 3; radius = 11; dashArray = null
+            } else if (p.active) {
+              color = '#10b981'; fillOpacity = 0.5; weight = 2; radius = 6; dashArray = null
+            } else {
+              color = '#64748b'; fillOpacity = 0.4; weight = 2; radius = 6; dashArray = '3 3'
+            }
+            const triggered = p.triggered && p.active
             return (
               <CircleMarker
                 key={`watch-${p.watch_id}`}
                 center={[p.lat, p.lng]}
-                radius={6}
-                pathOptions={{ color, fillColor: color, fillOpacity: 0.5, weight: 2, dashArray: p.active ? null : '3 3' }}>
+                radius={radius}
+                pathOptions={{ color, fillColor: color, fillOpacity, weight, dashArray }}>
                 <Popup>
-                  <div style={{ fontSize: 12, minWidth: 180 }}>
+                  <div style={{ fontSize: 12, minWidth: 200 }}>
                     <div style={{ fontWeight: 700, marginBottom: 4 }}>{p.site_name}</div>
                     {p.body_of_water && <div style={{ color: '#64748b', marginBottom: 6 }}>{p.body_of_water}</div>}
-                    <div style={{ padding: '6px 8px', borderRadius: 6, background: '#dcfce7', border: '1px solid #bbf7d0' }}>
-                      <div style={{ fontWeight: 700 }}>
+                    <div style={{
+                      padding: '6px 8px', borderRadius: 6,
+                      background: triggered ? '#fee2e2' : '#dcfce7',
+                      border: `1px solid ${triggered ? '#fecaca' : '#bbf7d0'}`,
+                    }}>
+                      <div style={{ fontWeight: 700, color: triggered ? '#991b1b' : '#1f2937' }}>
                         {p.parameter} {p.comparator} {p.threshold}
                       </div>
-                      <div style={{ marginTop: 3, fontSize: 11, color: '#16a34a' }}>
-                        {p.active ? 'Watch active — no alert in current filter' : 'Watch paused'}
+                      {p.has_data && p.current_value != null && (
+                        <div style={{ marginTop: 3, fontSize: 11, color: triggered ? '#dc2626' : '#16a34a' }}>
+                          Latest: <strong>{p.current_value}</strong>
+                          {triggered && <> · <strong>in breach</strong></>}
+                        </div>
+                      )}
+                      <div style={{ marginTop: 3, fontSize: 11, color: triggered ? '#dc2626' : '#16a34a' }}>
+                        {!p.active
+                          ? 'Watch paused'
+                          : !p.has_data
+                            ? 'Watch active — no observations yet'
+                            : triggered
+                              ? 'Watch in breach — press "Check now" to fire alert'
+                              : 'Watch active — within threshold'}
                       </div>
                     </div>
                   </div>
