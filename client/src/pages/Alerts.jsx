@@ -13,11 +13,10 @@ import {
   Target, Database, Zap, BookOpen, Search, Globe,
   TrendingUp, TrendingDown, Minus, Sparkles,
   Volume2, VolumeX, Wifi, Radio, Calendar, ExternalLink, ShieldAlert,
+  Download,
 } from 'lucide-react'
 
-/* ── Parameter guidance (Canadian drinking water + CCME aquatic life) ── */
-/* Sources: Health Canada Guidelines for Canadian Drinking Water Quality,
-   CCME Water Quality Guidelines for Aquatic Life. Real values — not made up. */
+/* ── Parameter guidance ── */
 // PARAM_GUIDE is now a Proxy that returns Water Rangers-cited info on every
 // lookup. If WR doesn't publish a value for a field, the field equals
 // WR_NA ("Not specified by Water Rangers") — we never invent thresholds.
@@ -911,11 +910,16 @@ function AlertCard({ alert, onExpand, expanded, siteRow }) {
 }
 
 /* ── Stats Bar ── */
-function StatsBar({ alerts, watchCount }) {
+function StatsBar({ alerts, watches }) {
   const active = alerts.filter(a => a.active === 1 || a.active === true)
   const high   = active.filter(a => a.severity === 'high').length
   const medium = active.filter(a => a.severity === 'medium').length
   const low    = active.filter(a => a.severity === 'low').length
+  const watchesActive = watches.filter(w => w.active === 1 || w.active === true).length
+  const watchesPaused = watches.length - watchesActive
+  // Watches breakdown displayed as "active / total" so a researcher
+  // can see at a glance whether some watches are paused.
+  const watchSubtitle = watchesPaused > 0 ? `${watchesActive} active / ${watches.length} total` : 'My Watches'
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12, marginBottom: 20 }}>
@@ -924,7 +928,7 @@ function StatsBar({ alerts, watchCount }) {
         { label: 'Critical',      value: high,           color: '#ef4444', icon: AlertTriangle },
         { label: 'Warnings',      value: medium,         color: '#f59e0b', icon: AlertTriangle },
         { label: 'Advisories',    value: low,            color: '#10b981', icon: Info },
-        { label: 'My Watches',    value: watchCount,     color: '#6366f1', icon: Activity },
+        { label: watchSubtitle,   value: watches.length, color: '#6366f1', icon: Activity },
       ].map(s => (
         <div key={s.label} style={{
           background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12,
@@ -1273,6 +1277,13 @@ export default function Alerts() {
   const [sites, setSites]         = useState([])
   const [options, setOptions]     = useState({ parameters: [], comparators: ['>','<','>=','<='], severities: ['low','medium','high'] })
   const [filter, setFilter]       = useState('all')
+  // Researcher filters — text search, parameter, site, sort, time range.
+  // All client-side because the alerts list is small and filtering is instant.
+  const [search, setSearch]       = useState('')
+  const [paramFilter, setParamFilter] = useState('')
+  const [siteFilter, setSiteFilter] = useState('')
+  const [sortBy, setSortBy]       = useState('recent') // recent | oldest | severity | parameter | site
+  const [timeRange, setTimeRange] = useState('all')    // all | 24h | 7d | 30d | 90d
   const [expandedId, setExpandedId] = useState(null)
   const [notifEnabled, setNotifEnabled] = useState(true)
   const [loading, setLoading]     = useState(false)
@@ -1391,13 +1402,107 @@ export default function Alerts() {
 
   const toggleExpand = (id) => setExpandedId(prev => prev === id ? null : id)
 
-  const filtered = useMemo(() => alerts.filter(a => {
-    const isActive = a.active === 1 || a.active === true
-    if (filter === 'all')      return true
-    if (filter === 'active')   return isActive
-    if (filter === 'resolved') return !isActive
-    return a.severity === filter
-  }), [alerts, filter])
+  // Counts per severity / state — used to show "(n)" next to each filter
+  // pill so a researcher knows how many alerts match before clicking.
+  const counts = useMemo(() => {
+    const c = { all: alerts.length, active: 0, resolved: 0, high: 0, medium: 0, low: 0 }
+    for (const a of alerts) {
+      const isActive = a.active === 1 || a.active === true
+      if (isActive) c.active++; else c.resolved++
+      if (a.severity && c[a.severity] != null) c[a.severity]++
+    }
+    return c
+  }, [alerts])
+
+  // Distinct parameter & site options for the dropdown filters — derived
+  // from the actual alert list so we never offer an option that has no
+  // matching alert.
+  const paramOptions = useMemo(() => {
+    const m = new Map()
+    for (const a of alerts) {
+      const k = a.parameter || ''
+      if (!k) continue
+      m.set(k, (a.parameter_label || k).toString())
+    }
+    return Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1]))
+  }, [alerts])
+  const siteOptions = useMemo(() => {
+    const m = new Map()
+    for (const a of alerts) {
+      const k = a.site_id || a.site_name || ''
+      if (!k) continue
+      m.set(String(k), (a.site_name || `Site ${k}`).toString())
+    }
+    return Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1]))
+  }, [alerts])
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const now = Date.now()
+    const rangeMs = timeRange === '24h' ? 86400000
+                  : timeRange === '7d'  ? 7 * 86400000
+                  : timeRange === '30d' ? 30 * 86400000
+                  : timeRange === '90d' ? 90 * 86400000
+                  : null
+
+    let list = alerts.filter(a => {
+      const isActive = a.active === 1 || a.active === true
+      // Severity / state pill
+      if (filter === 'active'   && !isActive) return false
+      if (filter === 'resolved' &&  isActive) return false
+      if (['high','medium','low'].includes(filter) && a.severity !== filter) return false
+      // Parameter dropdown
+      if (paramFilter && a.parameter !== paramFilter) return false
+      // Site dropdown
+      if (siteFilter && String(a.site_id || a.site_name || '') !== siteFilter) return false
+      // Time range
+      if (rangeMs && a.created_at) {
+        const t = new Date(a.created_at).getTime()
+        if (!isFinite(t) || (now - t) > rangeMs) return false
+      }
+      // Free-text search across site name + parameter + message
+      if (q) {
+        const hay = `${a.site_name || ''} ${a.parameter || ''} ${a.parameter_label || ''} ${a.message || ''}`.toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      return true
+    })
+
+    // Sort
+    const sevRank = { high: 3, medium: 2, low: 1 }
+    list = list.slice().sort((a, b) => {
+      if (sortBy === 'oldest')    return new Date(a.created_at || 0) - new Date(b.created_at || 0)
+      if (sortBy === 'severity')  return (sevRank[b.severity] || 0) - (sevRank[a.severity] || 0)
+      if (sortBy === 'parameter') return String(a.parameter || '').localeCompare(String(b.parameter || ''))
+      if (sortBy === 'site')      return String(a.site_name || '').localeCompare(String(b.site_name || ''))
+      // 'recent' default
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    })
+    return list
+  }, [alerts, filter, search, paramFilter, siteFilter, sortBy, timeRange])
+
+  // CSV export of the currently-filtered list — researcher convenience.
+  const exportCSV = () => {
+    const rows = [['id','severity','active','site_id','site_name','parameter','comparator','threshold','current_value','created_at','message']]
+    for (const a of filtered) {
+      rows.push([
+        a.id, a.severity, (a.active === 1 || a.active === true) ? 'active' : 'resolved',
+        a.site_id || '', a.site_name || '', a.parameter || '', a.comparator || '',
+        a.threshold_value ?? '', a.current_value ?? '', a.created_at || '', (a.message || '').replace(/\n/g, ' '),
+      ])
+    }
+    const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `alerts-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+  const resetFilters = () => {
+    setFilter('all'); setSearch(''); setParamFilter(''); setSiteFilter(''); setSortBy('recent'); setTimeRange('all')
+  }
 
   return (
     <div style={{ position: 'relative', minHeight: '100vh' }}>
@@ -1438,7 +1543,7 @@ export default function Alerts() {
           activeWatches={watches.filter(w => w.active === 1 || w.active === true).length}
         />
 
-        <StatsBar alerts={alerts} watchCount={watches.length}/>
+        <StatsBar alerts={alerts} watches={watches}/>
 
         <HowItWorks/>
 
@@ -1457,25 +1562,115 @@ export default function Alerts() {
           onSitesChanged={loadSites}
         />
 
-        {/* Filters */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-          {[
-            { v: 'all',      label: 'All' },
-            { v: 'active',   label: 'Active' },
-            { v: 'high',     label: 'Critical' },
-            { v: 'medium',   label: 'Warnings' },
-            { v: 'low',      label: 'Advisories' },
-            { v: 'resolved', label: 'Resolved' },
-          ].map(f => (
-            <button key={f.v} onClick={() => setFilter(f.v)}
+        {/* Researcher toolbar — severity pills + search + parameter/site/time/sort + CSV export.
+            Counts in parentheses come from the unfiltered alerts list so a
+            researcher can see how many would match before clicking. */}
+        <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 12, marginBottom: 16 }}>
+          {/* Row 1: severity pills with live counts */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+            {[
+              { v: 'all',      label: 'All',        n: counts.all,      pillColor: '#6366f1' },
+              { v: 'active',   label: 'Active',     n: counts.active,   pillColor: '#10b981' },
+              { v: 'high',     label: 'Critical',   n: counts.high,     pillColor: '#ef4444' },
+              { v: 'medium',   label: 'Warnings',   n: counts.medium,   pillColor: '#f59e0b' },
+              { v: 'low',      label: 'Advisories', n: counts.low,      pillColor: '#10b981' },
+              { v: 'resolved', label: 'Resolved',   n: counts.resolved, pillColor: '#64748b' },
+            ].map(f => {
+              const sel = filter === f.v
+              return (
+                <button key={f.v} onClick={() => setFilter(f.v)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                    fontSize: 12, fontWeight: 700,
+                    background: sel ? `${f.pillColor}1f` : 'var(--border)',
+                    color: sel ? f.pillColor : 'var(--text-muted)',
+                  }}>
+                  {f.label}
+                  <span style={{
+                    fontSize: 10, fontWeight: 800,
+                    padding: '1px 7px', borderRadius: 20,
+                    background: sel ? f.pillColor : 'rgba(255,255,255,0.06)',
+                    color: sel ? '#fff' : 'var(--text-muted)',
+                  }}>{f.n}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Row 2: search + dropdowns + CSV */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 200 }}>
+              <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: 12, pointerEvents: 'none' }}>🔍</span>
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search site, parameter, or message…"
+                style={{
+                  width: '100%', padding: '7px 10px 7px 28px', borderRadius: 8,
+                  border: '1px solid var(--border)', background: 'var(--page-bg)', color: 'var(--text)',
+                  fontSize: 12,
+                }}
+              />
+            </div>
+            <select value={paramFilter} onChange={e => setParamFilter(e.target.value)}
+              title="Filter by parameter"
+              style={{ padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 12 }}>
+              <option value="">All parameters</option>
+              {paramOptions.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </select>
+            <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)}
+              title="Filter by site"
+              style={{ padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 12, maxWidth: 200 }}>
+              <option value="">All sites</option>
+              {siteOptions.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </select>
+            <select value={timeRange} onChange={e => setTimeRange(e.target.value)}
+              title="Filter by alert age"
+              style={{ padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 12 }}>
+              <option value="all">All time</option>
+              <option value="24h">Last 24h</option>
+              <option value="7d">Last 7 days</option>
+              <option value="30d">Last 30 days</option>
+              <option value="90d">Last 90 days</option>
+            </select>
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+              title="Sort order"
+              style={{ padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 12 }}>
+              <option value="recent">Sort: most recent</option>
+              <option value="oldest">Sort: oldest first</option>
+              <option value="severity">Sort: severity</option>
+              <option value="parameter">Sort: parameter</option>
+              <option value="site">Sort: site</option>
+            </select>
+            <button onClick={exportCSV} disabled={filtered.length === 0}
+              title={filtered.length ? `Download ${filtered.length} matching alert${filtered.length === 1 ? '' : 's'} as CSV` : 'No matching alerts to export'}
               style={{
-                padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                background: filter === f.v ? 'rgba(99,102,241,0.15)' : 'var(--border)',
-                color: filter === f.v ? '#818cf8' : 'var(--text-muted)',
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                padding: '7px 12px', borderRadius: 8, border: 'none', cursor: filtered.length ? 'pointer' : 'not-allowed',
+                fontSize: 12, fontWeight: 700,
+                background: 'rgba(14,165,233,0.12)', color: '#0ea5e9',
+                opacity: filtered.length ? 1 : 0.5,
               }}>
-              {f.label}
+              <Download style={{ width: 12, height: 12 }}/> CSV ({filtered.length})
             </button>
-          ))}
+            {(search || paramFilter || siteFilter || timeRange !== 'all' || sortBy !== 'recent' || filter !== 'all') && (
+              <button onClick={resetFilters}
+                title="Clear all filters"
+                style={{
+                  padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer',
+                  fontSize: 11, fontWeight: 700, background: 'transparent', color: 'var(--text-muted)',
+                }}>
+                Clear
+              </button>
+            )}
+          </div>
+
+          {/* Result count line */}
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+            Showing <strong style={{ color: 'var(--text)' }}>{filtered.length}</strong> of {alerts.length} alert{alerts.length === 1 ? '' : 's'}
+            {sortBy !== 'recent' && ` · sorted by ${sortBy === 'oldest' ? 'oldest first' : sortBy}`}
+          </div>
         </div>
 
         {/* Alert list */}
@@ -1508,8 +1703,10 @@ export default function Alerts() {
             Observations come from Water Rangers (citizen monitoring) and Algoma District partners that have been imported
             into this platform. When you press "Check now," each active watch reads the most recent row in the observations
             table for its site and parameter. Alerts are pure threshold math — no AI, no predictions — so every alert can
-            be traced back to one exact measurement. Safe ranges shown in guidance cards are from Health Canada Guidelines
-            for Canadian Drinking Water Quality and CCME Water Quality Guidelines for Aquatic Life.
+            be traced back to one exact measurement. "Needs review" / "issue detected" bands and equipment lists shown in
+            the reference cards come directly from{' '}
+            <a href={WR_DOCS_URL} target="_blank" rel="noreferrer" style={{ color: '#0ea5e9' }}>Water Rangers' supported-parameters page</a>
+            ; if Water Rangers does not publish a value, the card says so — we never invent thresholds.
           </p>
         </div>
       </div>
