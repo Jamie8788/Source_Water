@@ -62,6 +62,28 @@ let loadingInProgress = null // prevent duplicate loads
 // Failures here are non-fatal: if the join fails we still return raw
 // locations and the UI's conditional rendering hides the org/dataset
 // dropdowns gracefully (no broken state).
+// Store ownership as ARRAYS per location (a site can belong to several
+// datasets / organizations on Water Rangers — e.g. it lives both in
+// "Sault Ste. Marie Water Rangers Team" AND the master
+// "Water Rangers Water Quality Testers" collection). Comma-joining the
+// names produced one dropdown entry per combination, so picking
+// "Sault Ste. Marie Water Rangers Team" alone matched zero sites. With
+// arrays, the frontend can flatten the dropdown options and use
+// Array.includes() for the filter — every dataset is selectable
+// individually and matching sites surface.
+function addOwnership(map, items, orgName, datasetName) {
+  for (const loc of items) {
+    if (!loc?.id) continue
+    let entry = map.get(loc.id)
+    if (!entry) {
+      entry = { organization_names: [], dataset_names: [] }
+      map.set(loc.id, entry)
+    }
+    if (orgName && !entry.organization_names.includes(orgName)) entry.organization_names.push(orgName)
+    if (datasetName && !entry.dataset_names.includes(datasetName)) entry.dataset_names.push(datasetName)
+  }
+}
+
 async function buildOwnershipIndex() {
   // 1) Pull all organizations → id → name lookup.
   const orgs = []
@@ -109,20 +131,7 @@ async function buildOwnershipIndex() {
       const items = Array.isArray(data) ? data : []
       const orgName = orgById.get(ds.organization_id) || ds.organization_name || ds.organization?.name || ''
       const datasetName = ds.name || ds.title || `Dataset ${ds.id}`
-      for (const loc of items) {
-        if (!loc?.id) continue
-        const existing = locationOwnership.get(loc.id)
-        if (existing) {
-          if (!existing.organization_name && orgName) existing.organization_name = orgName
-          if (datasetName && existing.dataset_name && !existing.dataset_name.split(', ').includes(datasetName)) {
-            existing.dataset_name = `${existing.dataset_name}, ${datasetName}`
-          } else if (datasetName && !existing.dataset_name) {
-            existing.dataset_name = datasetName
-          }
-        } else {
-          locationOwnership.set(loc.id, { organization_name: orgName, dataset_name: datasetName })
-        }
-      }
+      addOwnership(locationOwnership, items, orgName, datasetName)
     } catch (e) {
       // 429 → wait longer and retry once. Anything else → skip this dataset.
       if (String(e.message).includes('429')) {
@@ -132,12 +141,7 @@ async function buildOwnershipIndex() {
           const items = Array.isArray(retryData) ? retryData : []
           const orgName = orgById.get(ds.organization_id) || ''
           const datasetName = ds.name || ds.title || `Dataset ${ds.id}`
-          for (const loc of items) {
-            if (!loc?.id) continue
-            if (!locationOwnership.has(loc.id)) {
-              locationOwnership.set(loc.id, { organization_name: orgName, dataset_name: datasetName })
-            }
-          }
+          addOwnership(locationOwnership, items, orgName, datasetName)
         } catch { /* give up on this dataset */ }
       }
     }
@@ -156,10 +160,17 @@ async function enrichLocationsWithOwnership(locations) {
     return locations.map(l => {
       const own = idx.get(l.id)
       if (!own) return l
+      const orgs = own.organization_names || []
+      const datasets = own.dataset_names || []
       return {
         ...l,
-        organization_name: l.organization_name || own.organization_name || '',
-        dataset_name:      l.dataset_name      || own.dataset_name      || '',
+        // Arrays for filtering (frontend uses .includes() against these).
+        organization_names: orgs.length ? orgs : (l.organization_name ? [l.organization_name] : []),
+        dataset_names:      datasets.length ? datasets : (l.dataset_name ? [l.dataset_name] : []),
+        // Comma-joined for legacy display fallbacks. Frontend prefers
+        // the array fields when present.
+        organization_name: l.organization_name || orgs.join(', '),
+        dataset_name:      l.dataset_name      || datasets.join(', '),
       }
     })
   } catch (e) {

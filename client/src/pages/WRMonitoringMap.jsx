@@ -239,12 +239,23 @@ export default function WRMonitoringMap() {
     return () => clearInterval(iv)
   }, [loadAll])
 
-  // Read organization / dataset name off a WR location object regardless
-  // of the exact field shape WR returns. Older payloads put it on
-  // `organization_name`; newer ones nest it under `organization.name`.
-  // Falls back gracefully — missing field => empty string, never throws.
-  const locOrg = (l) => l?.organization_name || l?.organization?.name || ''
-  const locDataset = (l) => l?.dataset_name || l?.dataset?.name || l?.data_owner || ''
+  // A site can belong to several datasets and organizations on Water
+  // Rangers, so the canonical fields are arrays. We fall back to the
+  // legacy single-name field if the array isn't present (old cache
+  // entries / pre-enrichment payloads). Returns string[] in all cases.
+  const locOrgs = (l) => {
+    if (Array.isArray(l?.organization_names) && l.organization_names.length) return l.organization_names
+    const single = l?.organization_name || l?.organization?.name
+    return single ? [single] : []
+  }
+  const locDatasets = (l) => {
+    if (Array.isArray(l?.dataset_names) && l.dataset_names.length) return l.dataset_names
+    const single = l?.dataset_name || l?.dataset?.name || l?.data_owner
+    return single ? [single] : []
+  }
+  // Comma-joined helpers for display only.
+  const locOrg = (l) => locOrgs(l).join(', ')
+  const locDataset = (l) => locDatasets(l).join(', ')
 
   // Unique values for filters
   const countries = useMemo(() => [...new Set(allLocations.map(l => l.country).filter(Boolean))].sort(), [allLocations])
@@ -254,14 +265,18 @@ export default function WRMonitoringMap() {
     allLocations.forEach(l => (l.tested_parameters || []).forEach(p => s.add(p)))
     return [...s].sort()
   }, [allLocations])
-  // Organizations & datasets — extracted from whatever WR returns. If WR
-  // doesn't return that field for ANY location, the dropdown is hidden.
+  // Organizations & datasets — flattened from the per-location arrays
+  // so each unique name becomes its own dropdown entry, with the count
+  // of locations that include it. (Sites that belong to multiple
+  // datasets contribute to each dataset's count individually.)
   const organizations = useMemo(() => {
     const m = new Map()
     for (const l of allLocations) {
-      const o = locOrg(l).trim()
-      if (!o) continue
-      m.set(o, (m.get(o) || 0) + 1)
+      for (const o of locOrgs(l)) {
+        const name = (o || '').trim()
+        if (!name) continue
+        m.set(name, (m.get(name) || 0) + 1)
+      }
     }
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1])
   }, [allLocations])
@@ -270,10 +285,12 @@ export default function WRMonitoringMap() {
     for (const l of allLocations) {
       // Scope dataset list to the currently-selected org so the dropdown
       // is short and relevant. Empty org filter => all datasets.
-      if (orgFilter && locOrg(l) !== orgFilter) continue
-      const d = locDataset(l).trim()
-      if (!d) continue
-      m.set(d, (m.get(d) || 0) + 1)
+      if (orgFilter && !locOrgs(l).includes(orgFilter)) continue
+      for (const d of locDatasets(l)) {
+        const name = (d || '').trim()
+        if (!name) continue
+        m.set(name, (m.get(name) || 0) + 1)
+      }
     }
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1])
   }, [allLocations, orgFilter])
@@ -288,8 +305,10 @@ export default function WRMonitoringMap() {
         } else if (l.water_body_type !== bodyFilter) return false
       }
       if (paramFilter && !(l.tested_parameters || []).includes(paramFilter)) return false
-      if (orgFilter && locOrg(l) !== orgFilter) return false
-      if (datasetFilter && locDataset(l) !== datasetFilter) return false
+      // Org / dataset filters check the ARRAY — site belongs to filter if
+      // its dataset_names / organization_names list contains the value.
+      if (orgFilter     && !locOrgs(l).includes(orgFilter))         return false
+      if (datasetFilter && !locDatasets(l).includes(datasetFilter)) return false
       if (activeOnly) {
         if (!l.last_observation_at) return false
         const last = new Date(l.last_observation_at)
@@ -298,7 +317,7 @@ export default function WRMonitoringMap() {
       }
       if (searchText) {
         const s = searchText.toLowerCase()
-        const hay = `${l.name || ''} ${l.body_of_water || ''} ${l.country || ''} ${locOrg(l)} ${locDataset(l)}`.toLowerCase()
+        const hay = `${l.name || ''} ${l.body_of_water || ''} ${l.country || ''} ${locOrgs(l).join(' ')} ${locDatasets(l).join(' ')}`.toLowerCase()
         if (!hay.includes(s)) return false
       }
       return true
@@ -532,10 +551,14 @@ export default function WRMonitoringMap() {
                     <strong style={{ fontSize: 13 }}>{loc.name}</strong><br />
                     <span style={{ color: '#666' }}>{BODY_LABELS[loc.water_body_type] || loc.water_body_type} · {loc.country}</span><br />
                     {loc.body_of_water && <span style={{ color: '#888' }}>{loc.body_of_water}</span>}
-                    {(locOrg(loc) || locDataset(loc)) && (
+                    {(locOrgs(loc).length > 0 || locDatasets(loc).length > 0) && (
                       <div style={{ marginTop: 4, fontSize: 11, color: '#0ea5e9' }}>
-                        {locDataset(loc) && <div><strong>Dataset:</strong> {locDataset(loc)}</div>}
-                        {locOrg(loc) && <div><strong>Organization:</strong> {locOrg(loc)}</div>}
+                        {locDatasets(loc).length > 0 && (
+                          <div><strong>Dataset{locDatasets(loc).length > 1 ? 's' : ''}:</strong> {locDatasets(loc).join(', ')}</div>
+                        )}
+                        {locOrgs(loc).length > 0 && (
+                          <div><strong>Organization{locOrgs(loc).length > 1 ? 's' : ''}:</strong> {locOrgs(loc).join(', ')}</div>
+                        )}
                       </div>
                     )}
                     {loc.reference_photo_url && (
@@ -637,25 +660,29 @@ export default function WRMonitoringMap() {
                 <div style={{ fontSize: 9, color: 'var(--text-muted)' }}>Last Checked</div>
                 <div style={{ color: 'var(--text)', fontWeight: 700 }}>{selected.last_observation_at ? new Date(selected.last_observation_at).toLocaleDateString() : 'Never'}</div>
               </div>
-              {(locOrg(selected) || locDataset(selected)) && (
+              {(locOrgs(selected).length > 0 || locDatasets(selected).length > 0) && (
                 <div style={{ gridColumn: '1 / -1', background: 'rgba(14,165,233,.06)', borderRadius: 8, padding: 8 }}>
                   <div style={{ fontSize: 9, color: 'var(--text-muted)' }}>Owner (Water Rangers)</div>
-                  {locDataset(selected) && (
-                    <div style={{ color: 'var(--text)', fontWeight: 700 }}>
-                      <button onClick={() => { setDatasetFilter(locDataset(selected)) }}
-                        title="Filter the map to all sites in this dataset"
-                        style={{ background: 'transparent', border: 'none', color: '#0ea5e9', padding: 0, cursor: 'pointer', textAlign: 'left', fontWeight: 700, fontSize: 12 }}>
-                        📊 {locDataset(selected)}
-                      </button>
+                  {locDatasets(selected).length > 0 && (
+                    <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      {locDatasets(selected).map(d => (
+                        <button key={d} onClick={() => { setDatasetFilter(d) }}
+                          title={`Filter the map to all sites in "${d}"`}
+                          style={{ background: 'rgba(14,165,233,.12)', border: '1px solid rgba(14,165,233,.25)', color: '#0ea5e9', padding: '3px 8px', borderRadius: 6, cursor: 'pointer', fontWeight: 700, fontSize: 11 }}>
+                          📊 {d}
+                        </button>
+                      ))}
                     </div>
                   )}
-                  {locOrg(selected) && (
-                    <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 2 }}>
-                      <button onClick={() => { setOrgFilter(locOrg(selected)); setDatasetFilter('') }}
-                        title="Filter the map to all sites from this organization"
-                        style={{ background: 'transparent', border: 'none', color: '#0ea5e9', padding: 0, cursor: 'pointer', textAlign: 'left', fontSize: 11 }}>
-                        🏛️ {locOrg(selected)}
-                      </button>
+                  {locOrgs(selected).length > 0 && (
+                    <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      {locOrgs(selected).map(o => (
+                        <button key={o} onClick={() => { setOrgFilter(o); setDatasetFilter('') }}
+                          title={`Filter the map to all sites from "${o}"`}
+                          style={{ background: 'transparent', border: '1px solid rgba(14,165,233,.18)', color: '#0ea5e9', padding: '2px 7px', borderRadius: 6, cursor: 'pointer', fontSize: 10 }}>
+                          🏛️ {o}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
