@@ -503,6 +503,127 @@ router.patch('/attempts/:attemptId/grade', requireAuth, requireQuizCreator, asyn
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
+// ── Single attempt detail (admin / quiz creator only) ────────────────────────
+// Returns the full attempt row + parsed answers + the user's profile + the
+// quiz's questions side-by-side, so the Quiz Manager UI can show a
+// Brightspace-style "review attempt" drawer with every Q&A in one shot.
+router.get('/attempts/:attemptId', requireAuth, requireQuizCreator, async (req, res) => {
+  try {
+    const attempt = await db.get(
+      `SELECT qa.*, u.username, u.display_name, u.email, u.avatar_emoji, u.avatar_bg_color
+       FROM quiz_attempts qa JOIN users u ON qa.user_id=u.id
+       WHERE qa.id=?`,
+      [req.params.attemptId]
+    )
+    if (!attempt) return res.status(404).json({ error: 'Attempt not found' })
+
+    const quiz = await db.get('SELECT * FROM quizzes WHERE id=?', [attempt.quiz_id])
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
+    if (!req.user.is_admin && quiz.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+
+    const questions = await db.all(
+      'SELECT * FROM quiz_questions WHERE quiz_id=? ORDER BY sort_order',
+      [attempt.quiz_id]
+    )
+
+    let answers_parsed = {}
+    try { answers_parsed = JSON.parse(attempt.answers || '{}') } catch {}
+
+    // Resolve who graded it (if anyone) so the UI can show "Graded by Jane".
+    let graded_by_user = null
+    if (attempt.graded_by) {
+      graded_by_user = await db.get(
+        'SELECT id, username, display_name FROM users WHERE id=?',
+        [attempt.graded_by]
+      )
+    }
+
+    res.json({ attempt: { ...attempt, answers_parsed }, quiz, questions, graded_by_user })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ── Override the final score on an attempt (Brightspace-style) ───────────────
+// Accepts: { score: 0..100, feedback?: string, reason?: string }
+// Sets override_score, feedback, reason, graded_by, graded_at. Does NOT
+// touch the underlying answers JSON or per-question grading — this is a
+// final-grade override on top of whatever auto/manual grading was done.
+// Pass score === null to CLEAR the override and revert to the auto score.
+router.patch('/attempts/:attemptId/override', requireAuth, requireQuizCreator, async (req, res) => {
+  try {
+    const { score, feedback, reason } = req.body || {}
+    const attempt = await db.get('SELECT * FROM quiz_attempts WHERE id=?', [req.params.attemptId])
+    if (!attempt) return res.status(404).json({ error: 'Attempt not found' })
+    const quiz = await db.get('SELECT * FROM quizzes WHERE id=?', [attempt.quiz_id])
+    if (!req.user.is_admin && quiz.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+
+    // Clear-override case — caller passes score: null
+    if (score === null) {
+      await db.run(
+        `UPDATE quiz_attempts
+         SET override_score=NULL, override_reason=NULL,
+             graded_by=?, graded_at=NOW()
+         WHERE id=?`,
+        [req.user.id, req.params.attemptId]
+      )
+      return res.json({ success: true, override_cleared: true })
+    }
+
+    // Set / update override
+    const num = Number(score)
+    if (!Number.isFinite(num) || num < 0 || num > 100) {
+      return res.status(400).json({ error: 'score must be a number between 0 and 100, or null to clear the override' })
+    }
+    const newPassed = num >= (+quiz.pass_score || 70) ? 1 : 0
+    await db.run(
+      `UPDATE quiz_attempts
+       SET override_score=?, override_reason=?, feedback=?, passed=?,
+           graded_by=?, graded_at=NOW(), grading_status='graded'
+       WHERE id=?`,
+      [Math.round(num), reason || null, feedback ?? null, newPassed, req.user.id, req.params.attemptId]
+    )
+    res.json({ success: true, override_score: Math.round(num), passed: !!newPassed })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ── Reset an attempt so the user can retake the quiz ─────────────────────────
+// Marks the attempt as deleted (soft delete via grading_status='reset') so
+// the row is preserved for audit but excluded from "best attempt" / pass
+// counts. The user can then start a fresh attempt next time they open the
+// quiz. We deliberately keep the original row instead of deleting it so
+// past data is never lost — admins can still see what the user originally
+// answered before the retake was granted.
+router.post('/attempts/:attemptId/reset', requireAuth, requireQuizCreator, async (req, res) => {
+  try {
+    const attempt = await db.get('SELECT * FROM quiz_attempts WHERE id=?', [req.params.attemptId])
+    if (!attempt) return res.status(404).json({ error: 'Attempt not found' })
+    const quiz = await db.get('SELECT * FROM quizzes WHERE id=?', [attempt.quiz_id])
+    if (!req.user.is_admin && quiz.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+    await db.run(
+      `UPDATE quiz_attempts SET grading_status='reset', graded_by=?, graded_at=NOW() WHERE id=?`,
+      [req.user.id, req.params.attemptId]
+    )
+    res.json({ success: true })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ── Delete a single attempt (admin only) ─────────────────────────────────────
+// HARD delete — only available to platform admins, NOT regular quiz creators.
+// Use with caution. The reset endpoint above is the soft-delete alternative.
+router.delete('/attempts/:attemptId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const attempt = await db.get('SELECT * FROM quiz_attempts WHERE id=?', [req.params.attemptId])
+    if (!attempt) return res.status(404).json({ error: 'Attempt not found' })
+    await db.run('DELETE FROM quiz_attempts WHERE id=?', [req.params.attemptId])
+    res.json({ success: true })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
 // ── Research-level analytics ──────────────────────────────────────────────────
 router.get('/:id/analytics', requireAuth, requireQuizCreator, async (req, res) => {
   try {

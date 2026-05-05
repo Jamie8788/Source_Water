@@ -409,6 +409,15 @@ async function initSchema() {
       `ALTER TABLE direct_messages ADD COLUMN IF NOT EXISTS voice_note TEXT`,
       `ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS embed_url TEXT`,
       `ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS grading_status TEXT DEFAULT 'auto'`,
+      // Brightspace-style admin grading additions. All NULL by default —
+      // pre-existing attempts keep their auto-calculated score and pass
+      // status untouched. The override_score, when non-null, takes
+      // precedence over `score` for display + transcript export.
+      `ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS override_score INTEGER`,
+      `ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS override_reason TEXT`,
+      `ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS feedback TEXT`,
+      `ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS graded_by INTEGER`,
+      `ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS graded_at TIMESTAMPTZ`,
       // CMS tables: patch columns that may be missing from old Supabase-created tables
       `ALTER TABLE cms_overrides ADD COLUMN IF NOT EXISTS html_content TEXT`,
       `ALTER TABLE cms_overrides ADD COLUMN IF NOT EXISTS text_content TEXT`,

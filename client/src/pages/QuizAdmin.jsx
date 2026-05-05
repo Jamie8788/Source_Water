@@ -1013,11 +1013,408 @@ function NeedsGradingPanel({ quizId, passScore }) {
 }
 
 // ── Research analytics dashboard ─────────────────────────────────────────────
+// ── Attempts panel — Brightspace-style table with per-attempt review drawer ──
+// Lists every attempt against a quiz with: search by user, sortable score /
+// date, score-override badge, "Reset" so the student can retake, and (admin
+// only) "Delete". Clicking a row opens a drawer with every Q&A side-by-side
+// with the student's response, an override-score input, a feedback textarea,
+// and a clear-override button. Nothing here mutates the legacy `score`
+// column; overrides go into `override_score` so the underlying auto-graded
+// number is preserved for audit / re-derivation.
+function AttemptsPanel({ attempts, quiz, isAdmin, onChanged }) {
+  const [search, setSearch]       = useState('')
+  const [sortBy, setSortBy]       = useState('date_desc') // date_desc | date_asc | score_desc | score_asc | user
+  const [statusFilter, setStatus] = useState('all')        // all | passed | failed | pending | reset | overridden
+  const [openId, setOpenId]       = useState(null)
+
+  const filtered = useMemo(() => {
+    const s = search.trim().toLowerCase()
+    let out = attempts.filter(a => {
+      if (s) {
+        const hay = `${a.username || ''} ${a.display_name || ''} ${a.email || ''}`.toLowerCase()
+        if (!hay.includes(s)) return false
+      }
+      if (statusFilter === 'passed')     return !!a.passed
+      if (statusFilter === 'failed')     return !a.passed && a.grading_status !== 'pending' && a.grading_status !== 'reset'
+      if (statusFilter === 'pending')    return a.grading_status === 'pending'
+      if (statusFilter === 'reset')      return a.grading_status === 'reset'
+      if (statusFilter === 'overridden') return a.override_score != null
+      return true
+    })
+    out = [...out].sort((x, y) => {
+      const sx = x.override_score ?? x.score ?? -1
+      const sy = y.override_score ?? y.score ?? -1
+      const dx = x.completed_at ? new Date(x.completed_at).getTime() : 0
+      const dy = y.completed_at ? new Date(y.completed_at).getTime() : 0
+      switch (sortBy) {
+        case 'date_asc':   return dx - dy
+        case 'score_desc': return sy - sx
+        case 'score_asc':  return sx - sy
+        case 'user':       return (x.display_name || x.username || '').localeCompare(y.display_name || y.username || '')
+        case 'date_desc':
+        default:           return dy - dx
+      }
+    })
+    return out
+  }, [attempts, search, sortBy, statusFilter])
+
+  const exportCSV = () => {
+    const rows = [
+      ['User', 'Username', 'Email', 'Auto Score (%)', 'Override Score (%)', 'Final Score (%)', 'Passed', 'Status', 'Time (s)', 'Started', 'Completed', 'Graded By (id)', 'Graded At', 'Override Reason', 'Feedback'],
+      ...filtered.map(a => [
+        a.display_name || '',
+        a.username || '',
+        a.email || '',
+        a.score ?? '',
+        a.override_score ?? '',
+        a.override_score ?? a.score ?? '',
+        a.passed ? 'Yes' : 'No',
+        a.grading_status || 'auto',
+        a.time_taken ?? '',
+        a.started_at || '',
+        a.completed_at || '',
+        a.graded_by ?? '',
+        a.graded_at || '',
+        a.override_reason || '',
+        a.feedback || '',
+      ])
+    ]
+    const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `${(quiz.title || 'quiz').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-attempts-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+  }
+
+  const finalScore = (a) => a.override_score != null ? a.override_score : a.score
+
+  return (
+    <div style={{ padding: '1.5rem 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Toolbar */}
+      <div className="card" style={{ padding: 12, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search user…"
+          style={{ flex: '1 1 200px', minWidth: 160, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}/>
+        <select value={statusFilter} onChange={e => setStatus(e.target.value)}
+          style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}>
+          <option value="all">All ({attempts.length})</option>
+          <option value="passed">Passed</option>
+          <option value="failed">Failed</option>
+          <option value="pending">Needs grading</option>
+          <option value="overridden">Overridden</option>
+          <option value="reset">Reset (retake granted)</option>
+        </select>
+        <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+          style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}>
+          <option value="date_desc">Newest first</option>
+          <option value="date_asc">Oldest first</option>
+          <option value="score_desc">Highest score</option>
+          <option value="score_asc">Lowest score</option>
+          <option value="user">User name</option>
+        </select>
+        <button onClick={exportCSV}
+          style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(0,111,191,0.08)', color: '#006fbf', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+          ⬇ Export CSV ({filtered.length})
+        </button>
+      </div>
+
+      {/* Table */}
+      <div className="card" style={{ overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: 'var(--page-bg)', borderBottom: '1px solid var(--border)' }}>
+                {['User','Final score','Auto score','Status','Grading','Time','Date',''].map(h => (
+                  <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 && (
+                <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No attempts match your filter.</td></tr>
+              )}
+              {filtered.map(a => {
+                const fs = finalScore(a)
+                const overridden = a.override_score != null
+                const reset = a.grading_status === 'reset'
+                return (
+                  <tr key={a.id}
+                    onClick={() => setOpenId(a.id)}
+                    style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer', opacity: reset ? 0.55 : 1 }}>
+                    <td style={{ padding: '10px 16px' }}>
+                      <div style={{ fontWeight: 600, color: 'var(--text)' }}>{a.display_name || a.username}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>@{a.username}{a.email ? ` · ${a.email}` : ''}</div>
+                    </td>
+                    <td style={{ padding: '10px 16px' }}>
+                      <span style={{ fontWeight: 900, fontSize: 14, color: fs >= 70 ? '#1a7a3c' : fs >= 50 ? '#c45f00' : '#cc3333' }}>{fs ?? '—'}%</span>
+                      {overridden && <span style={{ marginLeft: 6, fontSize: 9, padding: '1px 6px', borderRadius: 8, background: 'rgba(99,102,241,0.12)', color: '#6366f1', fontWeight: 800 }}>OVERRIDE</span>}
+                    </td>
+                    <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-muted)' }}>
+                      {a.score != null ? `${a.score}%` : '—'}
+                    </td>
+                    <td style={{ padding: '10px 16px' }}>
+                      {reset
+                        ? <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, fontWeight: 700, background: 'rgba(100,116,139,0.12)', color: '#64748b' }}>↻ Reset</span>
+                        : <d2l-status-indicator
+                            state={a.grading_status === 'pending' ? 'default' : a.passed ? 'success' : 'error'}
+                            text={a.grading_status === 'pending' ? 'Pending' : a.passed ? 'Passed' : 'Failed'}/>}
+                    </td>
+                    <td style={{ padding: '10px 16px' }}>
+                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, fontWeight: 600,
+                        background: a.grading_status === 'pending' ? 'rgba(245,158,11,0.12)' : a.grading_status === 'graded' ? 'rgba(26,122,60,0.1)' : 'var(--border)',
+                        color: a.grading_status === 'pending' ? '#d97706' : a.grading_status === 'graded' ? '#1a7a3c' : 'var(--text-muted)',
+                      }}>
+                        {a.grading_status === 'pending' ? '⏳ Needs grading' : a.grading_status === 'graded' ? '✓ Graded' : a.grading_status === 'reset' ? '↻ Reset' : '✓ Auto-graded'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-muted)' }}>
+                      {a.time_taken ? `${Math.floor(a.time_taken / 60)}m ${a.time_taken % 60}s` : '—'}
+                    </td>
+                    <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-muted)' }}>
+                      {a.completed_at ? new Date(a.completed_at).toLocaleString() : '—'}
+                    </td>
+                    <td style={{ padding: '10px 16px' }}>
+                      <button onClick={(e) => { e.stopPropagation(); setOpenId(a.id) }}
+                        style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: '#006fbf', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                        Manage →
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {openId != null && (
+        <AttemptDrawer
+          attemptId={openId}
+          onClose={() => setOpenId(null)}
+          onChanged={() => { onChanged?.(); setOpenId(null) }}
+          isAdmin={isAdmin}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Per-attempt drawer — full Q&A review + grade override / feedback / reset ──
+function AttemptDrawer({ attemptId, onClose, onChanged, isAdmin }) {
+  const [data, setData]         = useState(null)
+  const [loading, setLoading]   = useState(true)
+  const [busy, setBusy]         = useState(false)
+  const [overrideVal, setOverrideVal] = useState('')
+  const [reason, setReason]     = useState('')
+  const [feedback, setFeedback] = useState('')
+  const [error, setError]       = useState(null)
+
+  useEffect(() => {
+    setLoading(true); setError(null)
+    api.get(`/quizzes/attempts/${attemptId}`)
+      .then(r => {
+        setData(r.data)
+        const a = r.data?.attempt
+        setOverrideVal(a?.override_score != null ? String(a.override_score) : '')
+        setReason(a?.override_reason || '')
+        setFeedback(a?.feedback || '')
+      })
+      .catch(e => setError(e?.response?.data?.error || e.message))
+      .finally(() => setLoading(false))
+  }, [attemptId])
+
+  const saveOverride = async () => {
+    const num = overrideVal === '' ? null : Number(overrideVal)
+    if (num !== null && (!Number.isFinite(num) || num < 0 || num > 100)) {
+      alert('Score must be between 0 and 100, or empty to clear the override.')
+      return
+    }
+    setBusy(true)
+    try {
+      await api.patch(`/quizzes/attempts/${attemptId}/override`, {
+        score: num, reason: reason || null, feedback: feedback || null,
+      })
+      onChanged?.()
+    } catch (e) {
+      alert(e?.response?.data?.error || 'Failed to save override')
+    } finally { setBusy(false) }
+  }
+
+  const clearOverride = async () => {
+    if (!confirm('Clear the score override and revert to the auto-calculated score?')) return
+    setBusy(true)
+    try {
+      await api.patch(`/quizzes/attempts/${attemptId}/override`, { score: null })
+      onChanged?.()
+    } catch (e) {
+      alert(e?.response?.data?.error || 'Failed to clear override')
+    } finally { setBusy(false) }
+  }
+
+  const resetAttempt = async () => {
+    if (!confirm('Reset this attempt? The user will be able to take the quiz again. The original attempt is kept on file for audit.')) return
+    setBusy(true)
+    try {
+      await api.post(`/quizzes/attempts/${attemptId}/reset`)
+      onChanged?.()
+    } catch (e) {
+      alert(e?.response?.data?.error || 'Failed to reset')
+    } finally { setBusy(false) }
+  }
+
+  const deleteAttempt = async () => {
+    if (!confirm('PERMANENTLY DELETE this attempt? This cannot be undone. Use "Reset" instead if you just want to allow a retake.')) return
+    setBusy(true)
+    try {
+      await api.delete(`/quizzes/attempts/${attemptId}`)
+      onChanged?.()
+    } catch (e) {
+      alert(e?.response?.data?.error || 'Failed to delete')
+    } finally { setBusy(false) }
+  }
+
+  const a = data?.attempt
+  const questions = data?.questions || []
+  const responses = a?.answers_parsed?.results || []
+  const responseByQ = new Map(responses.map(r => [r.question_id, r]))
+  const fs = a?.override_score != null ? a.override_score : a?.score
+
+  return (
+    <div onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.55)', display: 'flex', justifyContent: 'flex-end' }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ width: 'min(720px, 100%)', height: '100%', overflow: 'auto', background: 'var(--card-bg)', borderLeft: '1px solid var(--border)', boxShadow: '-8px 0 24px rgba(0,0,0,0.18)' }}>
+        <div style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--card-bg)', borderBottom: '1px solid var(--border)', padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--text)' }}>Attempt review</div>
+            {a && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{a.display_name || a.username} · {a.email || '—'} · {a.completed_at ? new Date(a.completed_at).toLocaleString() : 'in progress'}</div>}
+          </div>
+          <button onClick={onClose}
+            style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '5px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+            Close
+          </button>
+        </div>
+
+        {loading && <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}>Loading attempt…</div>}
+        {error && <div style={{ padding: 18, color: '#cc3333', fontSize: 13 }}>{error}</div>}
+
+        {!loading && !error && a && (
+          <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 18 }}>
+            {/* Score panel */}
+            <div className="card" style={{ padding: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Final score</div>
+                  <div style={{ fontSize: 32, fontWeight: 900, color: fs >= 70 ? '#1a7a3c' : fs >= 50 ? '#c45f00' : '#cc3333' }}>{fs ?? '—'}%</div>
+                  {a.override_score != null && (
+                    <div style={{ fontSize: 10, color: '#6366f1', fontWeight: 700, marginTop: 2 }}>OVERRIDE — auto was {a.score ?? '—'}%</div>
+                  )}
+                </div>
+                <div style={{ flex: 1 }}/>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  Status: <strong style={{ color: a.passed ? '#1a7a3c' : '#cc3333' }}>{a.passed ? 'Passed' : 'Failed'}</strong><br/>
+                  Time taken: {a.time_taken ? `${Math.floor(a.time_taken / 60)}m ${a.time_taken % 60}s` : '—'}<br/>
+                  {data.graded_by_user && <>Graded by: <strong>{data.graded_by_user.display_name || data.graded_by_user.username}</strong> on {a.graded_at ? new Date(a.graded_at).toLocaleString() : '—'}</>}
+                </div>
+              </div>
+            </div>
+
+            {/* Override controls */}
+            <div className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--text)' }}>Override grade</div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div>
+                  <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>New score (0–100, blank to clear)</label>
+                  <input type="number" min="0" max="100" value={overrideVal}
+                    onChange={e => setOverrideVal(e.target.value)}
+                    style={{ width: 110, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 14, fontWeight: 800 }}/>
+                </div>
+                <div style={{ flex: 1, minWidth: 180 }}>
+                  <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Reason (optional, for audit)</label>
+                  <input value={reason} onChange={e => setReason(e.target.value)}
+                    placeholder="e.g. partial credit on Q3"
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13 }}/>
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Feedback to student (optional)</label>
+                <textarea value={feedback} onChange={e => setFeedback(e.target.value)}
+                  placeholder="Visible to the student on their results page."
+                  rows={3}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', fontSize: 13, fontFamily: 'inherit' }}/>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={saveOverride} disabled={busy}
+                  style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: '#1a7a3c', color: '#fff', fontWeight: 800, fontSize: 12, cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.5 : 1 }}>
+                  Save override
+                </button>
+                {a.override_score != null && (
+                  <button onClick={clearOverride} disabled={busy}
+                    style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', fontWeight: 700, fontSize: 12, cursor: busy ? 'wait' : 'pointer' }}>
+                    Clear override (revert to auto)
+                  </button>
+                )}
+                <div style={{ flex: 1 }}/>
+                <button onClick={resetAttempt} disabled={busy}
+                  style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #c45f00', background: 'rgba(196,95,0,0.08)', color: '#c45f00', fontWeight: 700, fontSize: 12, cursor: busy ? 'wait' : 'pointer' }}>
+                  ↻ Reset (allow retake)
+                </button>
+                {isAdmin && (
+                  <button onClick={deleteAttempt} disabled={busy}
+                    style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #cc3333', background: 'rgba(204,51,51,0.06)', color: '#cc3333', fontWeight: 700, fontSize: 12, cursor: busy ? 'wait' : 'pointer' }}>
+                    Delete permanently
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Per-question review */}
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>Questions &amp; answers</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {questions.map((q, i) => {
+                  const r = responseByQ.get(q.id) || {}
+                  const ok = r.is_correct
+                  return (
+                    <div key={q.id} className="card" style={{ padding: 14, borderLeft: `4px solid ${ok ? '#1a7a3c' : ok === false ? '#cc3333' : '#94a3b8'}` }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: 'var(--page-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>{i + 1}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{q.question_text}</div>
+                          <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text)' }}>
+                            <strong style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Their answer:</strong>{' '}
+                            {r.user_answer != null && r.user_answer !== '' ? String(r.user_answer) : <em style={{ color: 'var(--text-muted)' }}>(no answer)</em>}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                            {r.points_earned ?? 0} / {r.max_points ?? 1} pts · {ok ? '✓ correct' : ok === false ? '✗ incorrect' : 'not graded'}
+                            {r.needs_grading && <span style={{ color: '#d97706', fontWeight: 700, marginLeft: 6 }}>· needs grading</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function Analytics({ quiz, onBack }) {
+  const { user } = useAuth()
   const [data, setData] = useState(null)
   const [loading, setL] = useState(true)
 
+  const refresh = () => {
+    api.get(`/quizzes/${quiz.id}/analytics`).then(r => setData(r.data)).catch(() => {})
+  }
+
   useEffect(() => {
+    setL(true)
     api.get(`/quizzes/${quiz.id}/analytics`)
       .then(r => setData(r.data))
       .finally(() => setL(false))
@@ -1193,54 +1590,12 @@ function Analytics({ quiz, onBack }) {
 
         {/* ── Attempts tab ── */}
         <d2l-tab-panel text="Attempts">
-          <div style={{ padding: '1.5rem 0' }}>
-            <div className="card" style={{ overflow: 'hidden' }}>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ background: 'var(--page-bg)', borderBottom: '1px solid var(--border)' }}>
-                      {['User','Score','Status','Grading','Time','Date'].map(h => (
-                        <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {attempts.map(a => (
-                      <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '10px 16px' }}>
-                          <div style={{ fontWeight: 600, color: 'var(--text)' }}>{a.display_name || a.username}</div>
-                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>@{a.username}</div>
-                        </td>
-                        <td style={{ padding: '10px 16px' }}>
-                          <span style={{ fontWeight: 900, fontSize: 14, color: a.score >= 70 ? '#1a7a3c' : a.score >= 50 ? '#c45f00' : '#cc3333' }}>{a.score ?? '—'}%</span>
-                        </td>
-                        <td style={{ padding: '10px 16px' }}>
-                          <d2l-status-indicator
-                            state={a.grading_status === 'pending' ? 'default' : a.passed ? 'success' : 'error'}
-                            text={a.grading_status === 'pending' ? 'Pending' : a.passed ? 'Passed' : 'Failed'}
-                          />
-                        </td>
-                        <td style={{ padding: '10px 16px' }}>
-                          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, fontWeight: 600,
-                            background: a.grading_status === 'pending' ? 'rgba(245,158,11,0.12)' : a.grading_status === 'graded' ? 'rgba(26,122,60,0.1)' : 'var(--border)',
-                            color: a.grading_status === 'pending' ? '#d97706' : a.grading_status === 'graded' ? '#1a7a3c' : 'var(--text-muted)',
-                          }}>
-                            {a.grading_status === 'pending' ? '⏳ Needs grading' : a.grading_status === 'graded' ? '✓ Graded' : '✓ Auto-graded'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-muted)' }}>
-                          {a.time_taken ? `${Math.floor(a.time_taken / 60)}m ${a.time_taken % 60}s` : '—'}
-                        </td>
-                        <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-muted)' }}>
-                          {a.completed_at ? new Date(a.completed_at).toLocaleDateString() : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          <AttemptsPanel
+            attempts={attempts}
+            quiz={quiz}
+            isAdmin={user?.is_admin}
+            onChanged={refresh}
+          />
         </d2l-tab-panel>
 
         {/* ── Needs Grading tab ── */}
