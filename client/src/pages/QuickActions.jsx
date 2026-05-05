@@ -15,13 +15,13 @@ import NibiMascotImage from '../components/NibiMascotImage'
 // rendered with foreignObject so they sit ON the SVG and inherit the
 // same transform / pan-zoom as everything else on the chart.
 const MAP_ACTIONS = [
-  { label: 'Dashboard', description: 'Master Ledger',     path: '/dashboard',  icon: LayoutDashboard, x: 360, y: 360 },
-  { label: 'Live Map',   description: 'Global Marine Chart', path: '/monitoring', icon: Map,            x: 295, y: 545 },
-  { label: 'Ask Water',  description: 'AI Navigator Hub',  path: '/ask-water',  icon: Sparkles,        x: 760, y: 295 },
-  { label: 'Community',  description: 'Guild Forum Posts', path: '/social',     icon: Users,           x: 555, y: 600 },
-  { label: 'Reports',    description: 'Statistical Summary', path: '/reports',  icon: BarChart3,       x: 870, y: 525 },
-  { label: 'Research',   description: 'Projects & Data Hub', path: '/research', icon: Microscope,      x: 985, y: 410 },
-  { label: 'Resources',  description: 'Educational Archive', path: '/resources', icon: BookOpen,       x: 695, y: 660 },
+  { label: 'Dashboard', description: 'Master Ledger',       path: '/dashboard',  icon: LayoutDashboard, x: 360, y: 360, seal: { base: '#a81f1b', mid: '#7b1311', edge: '#3a0b0a' } },
+  { label: 'Live Map',  description: 'Global Marine Chart', path: '/monitoring', icon: Map,            x: 295, y: 545, seal: { base: '#a81f1b', mid: '#7b1311', edge: '#3a0b0a' } },
+  { label: 'Ask Water', description: 'AI Navigator Hub',    path: '/ask-water',  icon: Sparkles,       x: 760, y: 295, seal: { base: '#1f4f7a', mid: '#193c5c', edge: '#0c2236' } },
+  { label: 'Community', description: 'Guild Forum Posts',   path: '/social',     icon: Users,          x: 555, y: 600, seal: { base: '#a81f1b', mid: '#7b1311', edge: '#3a0b0a' } },
+  { label: 'Reports',   description: 'Statistical Summary', path: '/reports',    icon: BarChart3,      x: 870, y: 525, seal: { base: '#1f4f7a', mid: '#193c5c', edge: '#0c2236' } },
+  { label: 'Research',  description: 'Projects & Data Hub', path: '/research',   icon: Microscope,     x: 985, y: 410, seal: { base: '#a81f1b', mid: '#7b1311', edge: '#3a0b0a' } },
+  { label: 'Resources', description: 'Educational Archive', path: '/resources',  icon: BookOpen,       x: 695, y: 660, seal: { base: '#a81f1b', mid: '#7b1311', edge: '#3a0b0a' } },
 ]
 
 // ── Wax-seal marker plus floating brass plaque label ─────────────────────────
@@ -29,6 +29,7 @@ function WaxSeal({ action, index, ready, hovered, setHovered }) {
   const navigate = useNavigate()
   const Icon = action.icon
   const isHover = hovered === action.label
+  const sealId = `waxSeal${index}`
 
   return (
     <g
@@ -46,28 +47,17 @@ function WaxSeal({ action, index, ready, hovered, setHovered }) {
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(action.path) } }}
     >
       {/* Wax drip shadow on parchment */}
-      <ellipse cx="2" cy="6" rx="34" ry="8" fill="rgba(40,18,8,0.42)" filter="blur(2px)" />
+      <ellipse cx="2" cy="7" rx="32" ry="9" fill="rgba(40,18,8,0.45)" filter="blur(2px)" />
 
-      {/* Wax base — irregular blob, two-tone red */}
-      <path
-        d="M-30 -2
-           C-32 -22  -16 -34   2 -33
-           C 22 -32   33 -18   31  -1
-           C 33  16   18  29   -1 30
-           C-22  31  -34  16  -30 -2 Z"
-        fill="url(#waxBase)"
-        stroke="#3a0c08"
-        strokeWidth="1.4"
-        className="wax-blob"
-      />
-      {/* Inner ring stamped into the wax */}
-      <circle r="20" fill="none" stroke="rgba(244,205,142,0.55)" strokeWidth="0.9" />
-      <circle r="22.5" fill="none" stroke="rgba(58,12,8,0.65)" strokeWidth="0.6" />
+      {/* Wax seal base */}
+      <circle r="28" fill={`url(#${sealId})`} stroke="#2b0a08" strokeWidth="1.2" className="wax-blob" />
+      <circle r="22" fill="none" stroke="rgba(244,205,142,0.55)" strokeWidth="0.9" />
+      <circle r="24.5" fill="none" stroke="rgba(58,12,8,0.7)" strokeWidth="0.6" />
 
       {/* Top-light highlight */}
       <path
-        d="M-22 -16 C-12 -26  10 -28  20 -18"
-        fill="none" stroke="rgba(255,210,170,0.55)" strokeWidth="2" strokeLinecap="round"
+        d="M-18 -16 C-8 -24  8 -24  18 -14"
+        fill="none" stroke="rgba(255,220,190,0.55)" strokeWidth="2" strokeLinecap="round"
       />
 
       {/* Icon — rendered via foreignObject so we can use lucide-react */}
@@ -78,13 +68,13 @@ function WaxSeal({ action, index, ready, hovered, setHovered }) {
       </foreignObject>
 
       {/* Brass plaque under the seal */}
-      <g transform="translate(0, 60)" className="wax-plaque">
-        <rect x="-72" y="-22" width="144" height="44" rx="3" fill="url(#plaqueGradient)" stroke="#5a3f22" strokeWidth="1.4" />
-        <rect x="-69" y="-19" width="138" height="38" rx="2" fill="none" stroke="rgba(90,63,34,0.45)" strokeWidth="0.7" />
-        <text x="0" y="-3" textAnchor="middle" fontFamily="Georgia, 'Times New Roman', serif" fontSize="12" fontWeight="700" letterSpacing="2" fill="#3f2a17">
+      <g transform="translate(0, 58)" className="wax-plaque">
+        <rect x="-76" y="-21" width="152" height="42" rx="4" fill="url(#plaqueGradient)" stroke="#6a4b2a" strokeWidth="1.2" />
+        <rect x="-73" y="-18" width="146" height="36" rx="3" fill="none" stroke="rgba(90,63,34,0.45)" strokeWidth="0.7" />
+        <text x="0" y="-2" textAnchor="middle" fontFamily="Georgia, 'Times New Roman', serif" fontSize="12" fontWeight="700" letterSpacing="1.8" fill="#2f2114">
           {action.label.toUpperCase()}
         </text>
-        <text x="0" y="13" textAnchor="middle" fontFamily="Georgia, 'Times New Roman', serif" fontSize="9.5" fontStyle="italic" fill="#6b4f31">
+        <text x="0" y="12" textAnchor="middle" fontFamily="Georgia, 'Times New Roman', serif" fontSize="9.5" className="atlas-italic" fill="#6b4f31">
           {action.description}
         </text>
       </g>
@@ -174,18 +164,20 @@ export default function QuickActions() {
                 <stop offset="100%" stopColor="#c2a370"/>
               </linearGradient>
 
-              {/* Wax seal red */}
-              <radialGradient id="waxBase" cx="35%" cy="30%" r="80%">
-                <stop offset="0%"   stopColor="#a8201d"/>
-                <stop offset="55%"  stopColor="#7a0e0c"/>
-                <stop offset="100%" stopColor="#3a0808"/>
-              </radialGradient>
+              {/* Wax seals per action */}
+              {MAP_ACTIONS.map((action, i) => (
+                <radialGradient key={action.label} id={`waxSeal${i}`} cx="35%" cy="30%" r="80%">
+                  <stop offset="0%"   stopColor={action.seal.base}/>
+                  <stop offset="55%"  stopColor={action.seal.mid}/>
+                  <stop offset="100%" stopColor={action.seal.edge}/>
+                </radialGradient>
+              ))}
 
-              {/* Brass plaque gradient */}
+              {/* Plaque gradient */}
               <linearGradient id="plaqueGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%"   stopColor="#f0d99c"/>
-                <stop offset="50%"  stopColor="#e3c177"/>
-                <stop offset="100%" stopColor="#a17d44"/>
+                <stop offset="0%"   stopColor="#f6edd3"/>
+                <stop offset="55%"  stopColor="#e8d6af"/>
+                <stop offset="100%" stopColor="#cbb189"/>
               </linearGradient>
 
               {/* Compass rose gradient */}
@@ -297,7 +289,7 @@ export default function QuickActions() {
             </g>
 
             {/* Lake labels — italic serif */}
-            <g fill="#1a2a3d" fontFamily="Georgia, 'Times New Roman', serif" fontStyle="italic" opacity="0.92" pointerEvents="none">
+            <g fill="#1a2a3d" fontFamily="Georgia, 'Times New Roman', serif" opacity="0.92" pointerEvents="none" className="atlas-italic">
               <text x="380" y="265" fontSize="22" fill="#e8d4a6">Lake Superior</text>
               <text x="430" y="445" fontSize="18" fill="#e8d4a6">Lake Michigan</text>
               <text x="640" y="365" fontSize="18" fill="#e8d4a6">Lake Huron</text>
@@ -433,6 +425,8 @@ export default function QuickActions() {
           animation: mapReveal 980ms cubic-bezier(0.22, 1, 0.36, 1) 190ms forwards;
         }
 
+        .atlas-italic { font-style: italic !important; }
+
         .route-group .route-base { opacity: 0.65; stroke-dashoffset: 0; }
         .route-group.is-ready .route-base { animation: routeFlow 22s linear infinite; }
 
@@ -459,6 +453,7 @@ export default function QuickActions() {
           transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 520ms cubic-bezier(0.22, 1, 0.36, 1);
           cursor: pointer;
         }
+        .wax-marker { filter: drop-shadow(0 10px 16px rgba(25,14,7,0.45)); }
         .wax-marker.is-ready {
           opacity: 1;
           transform: scale(1) translateY(0);
@@ -466,7 +461,7 @@ export default function QuickActions() {
         }
         .wax-marker .wax-blob { transition: filter 280ms ease, transform 280ms ease; }
         .wax-marker.is-active .wax-blob {
-          filter: drop-shadow(0 0 10px rgba(247,210,150,0.55)) drop-shadow(0 0 20px rgba(170,30,30,0.45));
+          filter: drop-shadow(0 0 12px rgba(247,210,150,0.65)) drop-shadow(0 0 24px rgba(170,30,30,0.45));
           transform: scale(1.05);
         }
         .wax-marker .wax-icon { transition: transform 280ms ease; }
