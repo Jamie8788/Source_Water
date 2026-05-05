@@ -92,8 +92,7 @@ export default function SponsorStrip() {
                       width: 'auto',
                       height: 'auto',
                       objectFit: 'contain',
-                      filter: 'grayscale(1) saturate(0.85) opacity(0.88)',
-                      transition: 'transform 0.2s ease, filter 0.2s ease, opacity 0.2s ease',
+                      transition: 'transform 0.2s ease',
                     }}
                   />
                 ) : (
