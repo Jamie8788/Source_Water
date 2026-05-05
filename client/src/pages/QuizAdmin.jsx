@@ -20,7 +20,7 @@ import '@brightspace-ui/core/components/inputs/input-number.js'
 import '@brightspace-ui/core/components/inputs/input-checkbox.js'
 import '@brightspace-ui/core/components/alert/alert.js'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../utils/api'
