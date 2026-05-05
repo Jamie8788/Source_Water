@@ -103,7 +103,8 @@ router.get('/me', async (req, res) => {
       const { data: { user: sbUser }, error } = await sb.auth.getUser(token)
       if (sbUser && !error) {
         let localUser = await db.get('SELECT * FROM users WHERE email = ?', [sbUser.email])
-        if (!localUser) {
+        const isNewUser = !localUser
+        if (isNewUser) {
           const metaUsername = sbUser.user_metadata?.username
           const base = sbUser.email.split('@')[0].replace(/[^a-z0-9_]/gi, '')
           const suffix = Math.random().toString(36).slice(2, 6)
@@ -114,9 +115,31 @@ router.get('/me', async (req, res) => {
             [username, sbUser.email, displayName]
           )
           localUser = await db.get('SELECT * FROM users WHERE email = ?', [sbUser.email])
+          // Log the registration to activity_log so the admin "Live
+          // Activity Stream" reflects new sign-ups via Supabase Auth.
+          // Was missing — this path is what every real user takes,
+          // and it never wrote a registered/login row, so the admin
+          // panel always looked stale.
+          if (localUser) {
+            await db.run('INSERT INTO activity_log (user_id,action,target_type,details) VALUES (?,?,?,?)',
+              [localUser.id, 'registered', 'user', `New user via Supabase Auth: ${username}`]).catch(() => {})
+            await db.run('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)',
+              [localUser.id, 5, 'joined', new Date().toISOString().slice(0, 7)]).catch(() => {})
+          }
         }
         if (localUser) {
           if (!localUser.is_active) return res.status(403).json({ error: 'Account suspended' })
+          // Log a "login" once per day per user — every /me call would
+          // otherwise spam the activity feed on every page load. We
+          // gate by last_login being older than 12 hours.
+          const lastLoginMs = localUser.last_login ? new Date(localUser.last_login).getTime() : 0
+          if (!isNewUser && (Date.now() - lastLoginMs > 12 * 3600_000)) {
+            await db.run('INSERT INTO activity_log (user_id,action,target_type,details) VALUES (?,?,?,?)',
+              [localUser.id, 'login', 'user', 'User logged in (Supabase)']).catch(() => {})
+          }
+          // Always update last_login so the throttle above works on
+          // subsequent calls. Same write the legacy /login route does.
+          await db.run('UPDATE users SET last_login = NOW() WHERE id = ?', [localUser.id]).catch(() => {})
           return res.json(safeUser(localUser))
         }
       }

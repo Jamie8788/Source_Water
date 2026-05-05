@@ -12,17 +12,25 @@ const API_KEY = process.env.WATERRANGERS_API_KEY || process.env.VITE_WATERRANGER
 const cache = new Map()
 const TTL = 5 * 60 * 1000
 
-// Global circuit breaker — when WR returns 429 with a "next_request_allowed_at"
-// timestamp, every wrFetch caller honors it and short-circuits until that
-// time passes. Without this, retries within seconds cascade into more 429s
-// and burn the rest of our quota.
+// Global circuit breaker — when WR returns 429 with a
+// "next_request_allowed_at" timestamp, BACKGROUND callers (bulk
+// locations loader, ownership enrichment) honor it so we don't burn
+// the rest of our quota with retries that are guaranteed to fail.
+//
+// IMPORTANT: user-initiated requests (a click on a single site for
+// observations, a search on a specific site) are NOT blocked by the
+// breaker. The user paid the click; they deserve a real attempt and
+// a real error message. Otherwise the whole app appears broken every
+// time a background job exhausts the rate limit.
 let wrRateLimitedUntil = 0
 
-async function wrFetch(endpoint, query = {}) {
+async function wrFetch(endpoint, query = {}, opts = {}) {
   if (!API_KEY) throw new Error('WATERRANGERS_API_KEY not set')
+  const { respectBreaker = false } = opts
 
-  // Respect a previously-seen "wait until" deadline.
-  if (wrRateLimitedUntil > Date.now()) {
+  // Background jobs short-circuit when the breaker is open. User
+  // requests fall through and try the API directly.
+  if (respectBreaker && wrRateLimitedUntil > Date.now()) {
     const waitMs = wrRateLimitedUntil - Date.now()
     throw new Error(`Water Rangers 429: rate-limited for another ${Math.ceil(waitMs / 1000)}s`)
   }
@@ -40,8 +48,10 @@ async function wrFetch(endpoint, query = {}) {
   const res = await fetch(url.toString())
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    // Parse next_request_allowed_at and trip the circuit breaker so all
-    // other in-flight callers stop hammering the API immediately.
+    // Parse next_request_allowed_at and trip the circuit breaker so
+    // future BACKGROUND callers stop hammering the API. User requests
+    // ignore the breaker, so they'll keep going (they may also see
+    // 429 — that's an honest signal to the user, not noise).
     if (res.status === 429) {
       try {
         const j = JSON.parse(text)
@@ -62,6 +72,9 @@ async function wrFetch(endpoint, query = {}) {
   return data
 }
 
+// Convenience helper for background callers that should pause on 429.
+const wrFetchBackground = (endpoint, query) => wrFetch(endpoint, query, { respectBreaker: true })
+
 // GET /api/wr/locations — single page (backwards compat)
 router.get('/locations', async (req, res) => {
   try {
@@ -79,181 +92,13 @@ let allLocationsCache = { data: null, ts: 0 }
 const ALL_LOC_TTL = 60 * 60 * 1000 // 1 hour cache
 let loadingInProgress = null // prevent duplicate loads
 
-// ── Ownership enrichment ─────────────────────────────────────────────────
-// Water Rangers' /locations.json bulk feed does NOT include organization or
-// dataset names per row (those only appear on the per-site detail page).
-// So we walk /datasets + /organizations once per cache refresh and stitch
-// dataset_name + organization_name onto every location.
-//
-// Failures here are non-fatal: if the join fails we still return raw
-// locations and the UI's conditional rendering hides the org/dataset
-// dropdowns gracefully (no broken state).
-// Store ownership as ARRAYS per location (a site can belong to several
-// datasets / organizations on Water Rangers — e.g. it lives both in
-// "Sault Ste. Marie Water Rangers Team" AND the master
-// "Water Rangers Water Quality Testers" collection). Comma-joining the
-// names produced one dropdown entry per combination, so picking
-// "Sault Ste. Marie Water Rangers Team" alone matched zero sites. With
-// arrays, the frontend can flatten the dropdown options and use
-// Array.includes() for the filter — every dataset is selectable
-// individually and matching sites surface.
-function addOwnership(map, items, orgName, datasetName) {
-  for (const loc of items) {
-    if (!loc?.id) continue
-    let entry = map.get(loc.id)
-    if (!entry) {
-      entry = { organization_names: [], dataset_names: [] }
-      map.set(loc.id, entry)
-    }
-    if (orgName && !entry.organization_names.includes(orgName)) entry.organization_names.push(orgName)
-    if (datasetName && !entry.dataset_names.includes(datasetName)) entry.dataset_names.push(datasetName)
-  }
-}
-
-async function buildOwnershipIndex() {
-  // 1) Pull all organizations → id → name lookup.
-  const orgs = []
-  for (let page = 1; page <= 50; page++) {
-    try {
-      const data = await wrFetch('/organizations.json', { page, per_page: 100 })
-      const items = Array.isArray(data) ? data : []
-      if (items.length === 0) break
-      orgs.push(...items)
-    } catch (e) {
-      console.log(`[WR] organizations page ${page} failed: ${e.message}`)
-      break
-    }
-  }
-  const orgById = new Map(orgs.map(o => [o.id, o.name || o.title || `Organization ${o.id}`]))
-  console.log(`[WR] enrichment: ${orgs.length} organizations loaded`)
-
-  // 2) Pull all datasets — each carries organization_id.
-  const datasets = []
-  for (let page = 1; page <= 50; page++) {
-    try {
-      const data = await wrFetch('/datasets.json', { page, per_page: 100 })
-      const items = Array.isArray(data) ? data : []
-      if (items.length === 0) break
-      datasets.push(...items)
-    } catch (e) {
-      console.log(`[WR] datasets page ${page} failed: ${e.message}`)
-      break
-    }
-  }
-  console.log(`[WR] enrichment: ${datasets.length} datasets loaded`)
-
-  // 3) For each dataset, fetch /datasets/:id/locations.json — SERIAL with
-  //    a small delay so we don't trip Water Rangers' 429 rate limiter.
-  //    Empirically: 8-parallel hits 429 immediately; serial with ~250 ms
-  //    spacing finishes in ~50–80 s with zero rate-limit errors. This
-  //    runs in the background after the response is sent, so the user
-  //    never waits.
-  const locationOwnership = new Map()
-  const REQUEST_SPACING_MS = 250
-  for (let i = 0; i < datasets.length; i++) {
-    if (wrRateLimitedUntil > Date.now()) {
-      console.log(`[WR] enrichment paused at ${i}/${datasets.length} — circuit open until ${new Date(wrRateLimitedUntil).toISOString()}`)
-      break
-    }
-    const ds = datasets[i]
-    try {
-      const data = await wrFetch(`/datasets/${ds.id}/locations.json`, { per_page: 1000 })
-      const items = Array.isArray(data) ? data : []
-      const orgName = orgById.get(ds.organization_id) || ds.organization_name || ds.organization?.name || ''
-      const datasetName = ds.name || ds.title || `Dataset ${ds.id}`
-      addOwnership(locationOwnership, items, orgName, datasetName)
-    } catch (e) {
-      // 429 → wait longer and retry once. Anything else → skip this dataset.
-      if (String(e.message).includes('429')) {
-        await new Promise(r => setTimeout(r, 3000))
-        try {
-          const retryData = await wrFetch(`/datasets/${ds.id}/locations.json`, { per_page: 1000 })
-          const items = Array.isArray(retryData) ? retryData : []
-          const orgName = orgById.get(ds.organization_id) || ''
-          const datasetName = ds.name || ds.title || `Dataset ${ds.id}`
-          addOwnership(locationOwnership, items, orgName, datasetName)
-        } catch { /* give up on this dataset */ }
-      }
-    }
-    if ((i + 1) % 50 === 0) console.log(`[WR] enrichment: ${i + 1}/${datasets.length} datasets walked, ${locationOwnership.size} sites mapped so far`)
-    // Respect the rate limit between calls.
-    if (i < datasets.length - 1) await new Promise(r => setTimeout(r, REQUEST_SPACING_MS))
-  }
-  console.log(`[WR] enrichment: ownership stitched onto ${locationOwnership.size} unique locations`)
-  return locationOwnership
-}
-
-async function enrichLocationsWithOwnership(locations) {
-  try {
-    const idx = await buildOwnershipIndex()
-    if (idx.size === 0) return locations
-    return locations.map(l => {
-      const own = idx.get(l.id)
-      if (!own) return l
-      const orgs = own.organization_names || []
-      const datasets = own.dataset_names || []
-      return {
-        ...l,
-        // Arrays for filtering (frontend uses .includes() against these).
-        organization_names: orgs.length ? orgs : (l.organization_name ? [l.organization_name] : []),
-        dataset_names:      datasets.length ? datasets : (l.dataset_name ? [l.dataset_name] : []),
-        // Comma-joined for legacy display fallbacks. Frontend prefers
-        // the array fields when present.
-        organization_name: l.organization_name || orgs.join(', '),
-        dataset_name:      l.dataset_name      || datasets.join(', '),
-      }
-    })
-  } catch (e) {
-    console.error(`[WR] enrichment failed (returning raw locations): ${e.message}`)
-    return locations
-  }
-}
-
-// Background enrichment — never awaited by the request handler. Runs
-// AFTER the response is sent and patches the cache in place when it
-// finishes. Single-flight: if a previous run is still going, skip.
-let enrichmentInProgress = false
-let enrichmentCompletedAt = 0
-function maybeStartBackgroundEnrichment() {
-  if (enrichmentInProgress) return
-  if (!allLocationsCache.data) return
-  // Don't re-enrich if we just finished within the same cache window.
-  if (allLocationsCache.ts && enrichmentCompletedAt >= allLocationsCache.ts) return
-  enrichmentInProgress = true
-  const startedTs = allLocationsCache.ts
-  console.log('[WR] starting BACKGROUND ownership enrichment (non-blocking)…')
-  ;(async () => {
-    try {
-      const enriched = await enrichLocationsWithOwnership(allLocationsCache.data)
-      // Only patch the cache if it's still the SAME generation we started
-      // with — otherwise a fresher load happened mid-flight and we should
-      // not clobber it.
-      if (allLocationsCache.ts === startedTs) {
-        allLocationsCache = { data: enriched, ts: startedTs }
-        enrichmentCompletedAt = startedTs
-        const enrichedCount = enriched.filter(l => l.organization_name || l.dataset_name).length
-        console.log(`[WR] background enrichment done — ${enrichedCount}/${enriched.length} sites now have ownership info`)
-      } else {
-        console.log('[WR] background enrichment finished but cache was refreshed mid-flight; skipping patch')
-      }
-    } catch (e) {
-      console.error(`[WR] background enrichment crashed: ${e.message}`)
-    } finally {
-      enrichmentInProgress = false
-    }
-  })()
-}
-
 router.get('/locations-all', async (req, res) => {
   try {
-    // Return cache if fresh
-    if (allLocationsCache.data && Date.now() - allLocationsCache.ts < ALL_LOC_TTL) {
+    // Return cache if fresh AND non-empty. An empty cache (e.g. from a
+    // load that ran during a hard rate-limit window) should not stick.
+    if (allLocationsCache.data && allLocationsCache.data.length > 0 && Date.now() - allLocationsCache.ts < ALL_LOC_TTL) {
       console.log(`[WR] Returning cached ${allLocationsCache.data.length} locations`)
       res.json({ locations: allLocationsCache.data, cached: true, count: allLocationsCache.data.length })
-      // If this cache generation hasn't been enriched yet (e.g. server
-      // just started, raw load just finished), kick off enrichment in
-      // the background. Idempotent — single-flight guard inside.
-      maybeStartBackgroundEnrichment()
       return
     }
 
@@ -269,49 +114,64 @@ router.get('/locations-all', async (req, res) => {
       const all = []
       // Sequential — slower but guarantees every page loads
       pageLoop: for (let page = 1; page <= 100; page++) {
-        // If the circuit breaker tripped, stop the bulk fetch immediately.
-        // We'll return what we have rather than spin through retries that
-        // are all going to fail.
+        // CRITICAL: the bulk locations fetch is what makes the entire
+        // map work. We do NOT bail on 429 here — we wait the rate-limit
+        // window out and continue. If the breaker is open, sleep until
+        // it closes, then resume. Better to take 2 min to load than to
+        // serve a 0-site map for an hour.
         if (wrRateLimitedUntil > Date.now()) {
-          console.log(`[WR] bulk fetch aborted at page ${page}: rate-limited until ${new Date(wrRateLimitedUntil).toISOString()} (have ${all.length} so far)`)
-          break pageLoop
+          const waitMs = Math.min(wrRateLimitedUntil - Date.now() + 500, 5 * 60_000)
+          console.log(`[WR] bulk fetch hit rate-limit at page ${page}, waiting ${Math.ceil(waitMs / 1000)}s for breaker to close (have ${all.length} so far)`)
+          await new Promise(r => setTimeout(r, waitMs))
         }
-        for (let attempt = 1; attempt <= 3; attempt++) {
+        let pageOK = false
+        for (let attempt = 1; attempt <= 4; attempt++) {
           try {
             const data = await wrFetch('/locations.json', { page, per_page: 100 })
             const items = Array.isArray(data) ? data : []
             if (items.length === 0) {
               console.log(`[WR] Page ${page}: empty — done! Total: ${all.length}`)
+              pageOK = true
               break pageLoop
             }
             all.push(...items)
             if (page % 10 === 0) console.log(`[WR] Page ${page}: total ${all.length}`)
-            break // success, move to next page
+            pageOK = true
+            break
           } catch (e) {
-            // 429 trips the circuit breaker — no point retrying within
-            // seconds when WR told us to wait minutes.
+            // 429 — wait for the deadline WR told us about, then retry.
             if (String(e.message).includes('429') || wrRateLimitedUntil > Date.now()) {
-              console.log(`[WR] Page ${page} hit 429 — stopping retries, will resume on next cache miss`)
-              break
+              const waitMs = Math.min((wrRateLimitedUntil - Date.now()) + 500, 5 * 60_000)
+              if (waitMs > 0) {
+                console.log(`[WR] Page ${page} attempt ${attempt} hit 429 — sleeping ${Math.ceil(waitMs / 1000)}s before retry`)
+                await new Promise(r => setTimeout(r, waitMs))
+              }
+              continue
             }
             console.log(`[WR] Page ${page} attempt ${attempt} failed: ${e.message}`)
-            if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt))
+            if (attempt < 4) await new Promise(r => setTimeout(r, 1000 * attempt))
           }
         }
-        if (wrRateLimitedUntil > Date.now()) break pageLoop
+        // If a single page exhausted retries without 429, skip it but keep going.
+        // We'd rather have 9,400 of 9,484 locations than zero.
+        if (!pageOK) console.log(`[WR] Page ${page} skipped after retries`)
       }
       return all
     })()
 
     const all = await loadingInProgress
     loadingInProgress = null
-    allLocationsCache = { data: all, ts: Date.now() }
-    console.log(`[WR] Loaded ${all.length} total locations, cached for 1hr`)
+    // CRITICAL: never cache an empty bulk response. If the WR API was
+    // rate-limited the whole time and we got back 0 locations, leaving
+    // the empty array in the cache poisons the next hour for every user.
+    // Better to let the next request retry a fresh fetch.
+    if (all.length > 0) {
+      allLocationsCache = { data: all, ts: Date.now() }
+      console.log(`[WR] Loaded ${all.length} total locations, cached for 1hr`)
+    } else {
+      console.log(`[WR] Loaded 0 locations — NOT caching empty result so next request can retry`)
+    }
     res.json({ locations: all, cached: false, count: all.length })
-    // Start ownership enrichment in the background — user already has
-    // their response. When it finishes (~1–2 min later) the cache gets
-    // patched in place so the NEXT request returns enriched data.
-    maybeStartBackgroundEnrichment()
   } catch (e) {
     console.error('[WR] bulk locations error:', e.message)
     // Return partial cache if available

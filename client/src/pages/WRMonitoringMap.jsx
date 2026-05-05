@@ -175,8 +175,6 @@ export default function WRMonitoringMap() {
   const [countryFilter, setCountryFilter] = useState('')
   const [bodyFilter, setBodyFilter] = useState('')
   const [paramFilter, setParamFilter] = useState('')
-  const [orgFilter, setOrgFilter] = useState('')        // Water Rangers organization (e.g. "NORDIK Institute")
-  const [datasetFilter, setDatasetFilter] = useState('') // Water Rangers dataset (e.g. "Sault Ste. Marie Water Rangers Team")
   const [searchText, setSearchText] = useState(() => searchParams.get('q') || '')
   const [activeOnly, setActiveOnly] = useState(false)
 
@@ -239,33 +237,6 @@ export default function WRMonitoringMap() {
     return () => clearInterval(iv)
   }, [loadAll])
 
-  // NOTE: previously this component auto-polled /api/wr/locations-all every
-  // 30s while ownership info was missing, hoping background enrichment
-  // would finish. That made things worse — Water Rangers' API rate-limits
-  // hard, and each poll triggered another cache-miss or "Waiting for
-  // existing load…" cascade. Removed entirely. Background enrichment on
-  // the server still runs once after each cache refresh; users get the
-  // ownership info on their next natural page load (or by clicking the
-  // "Reload" button at the top of the map).
-
-  // A site can belong to several datasets and organizations on Water
-  // Rangers, so the canonical fields are arrays. We fall back to the
-  // legacy single-name field if the array isn't present (old cache
-  // entries / pre-enrichment payloads). Returns string[] in all cases.
-  const locOrgs = (l) => {
-    if (Array.isArray(l?.organization_names) && l.organization_names.length) return l.organization_names
-    const single = l?.organization_name || l?.organization?.name
-    return single ? [single] : []
-  }
-  const locDatasets = (l) => {
-    if (Array.isArray(l?.dataset_names) && l.dataset_names.length) return l.dataset_names
-    const single = l?.dataset_name || l?.dataset?.name || l?.data_owner
-    return single ? [single] : []
-  }
-  // Comma-joined helpers for display only.
-  const locOrg = (l) => locOrgs(l).join(', ')
-  const locDataset = (l) => locDatasets(l).join(', ')
-
   // Unique values for filters
   const countries = useMemo(() => [...new Set(allLocations.map(l => l.country).filter(Boolean))].sort(), [allLocations])
   const bodyTypes = useMemo(() => [...new Set(allLocations.map(l => l.water_body_type).filter(Boolean))].sort(), [allLocations])
@@ -274,36 +245,6 @@ export default function WRMonitoringMap() {
     allLocations.forEach(l => (l.tested_parameters || []).forEach(p => s.add(p)))
     return [...s].sort()
   }, [allLocations])
-  // Organizations & datasets — flattened from the per-location arrays
-  // so each unique name becomes its own dropdown entry, with the count
-  // of locations that include it. (Sites that belong to multiple
-  // datasets contribute to each dataset's count individually.)
-  const organizations = useMemo(() => {
-    const m = new Map()
-    for (const l of allLocations) {
-      for (const o of locOrgs(l)) {
-        const name = (o || '').trim()
-        if (!name) continue
-        m.set(name, (m.get(name) || 0) + 1)
-      }
-    }
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1])
-  }, [allLocations])
-  const datasets = useMemo(() => {
-    const m = new Map()
-    for (const l of allLocations) {
-      // Scope dataset list to the currently-selected org so the dropdown
-      // is short and relevant. Empty org filter => all datasets.
-      if (orgFilter && !locOrgs(l).includes(orgFilter)) continue
-      for (const d of locDatasets(l)) {
-        const name = (d || '').trim()
-        if (!name) continue
-        m.set(name, (m.get(name) || 0) + 1)
-      }
-    }
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1])
-  }, [allLocations, orgFilter])
-
   // Apply filters
   const filtered = useMemo(() => {
     return allLocations.filter(l => {
@@ -314,10 +255,6 @@ export default function WRMonitoringMap() {
         } else if (l.water_body_type !== bodyFilter) return false
       }
       if (paramFilter && !(l.tested_parameters || []).includes(paramFilter)) return false
-      // Org / dataset filters check the ARRAY — site belongs to filter if
-      // its dataset_names / organization_names list contains the value.
-      if (orgFilter     && !locOrgs(l).includes(orgFilter))         return false
-      if (datasetFilter && !locDatasets(l).includes(datasetFilter)) return false
       if (activeOnly) {
         if (!l.last_observation_at) return false
         const last = new Date(l.last_observation_at)
@@ -326,12 +263,11 @@ export default function WRMonitoringMap() {
       }
       if (searchText) {
         const s = searchText.toLowerCase()
-        const hay = `${l.name || ''} ${l.body_of_water || ''} ${l.country || ''} ${locOrgs(l).join(' ')} ${locDatasets(l).join(' ')}`.toLowerCase()
-        if (!hay.includes(s)) return false
+        if (!(l.name || '').toLowerCase().includes(s) && !(l.body_of_water || '').toLowerCase().includes(s) && !(l.country || '').toLowerCase().includes(s)) return false
       }
       return true
     })
-  }, [allLocations, countryFilter, bodyFilter, paramFilter, orgFilter, datasetFilter, searchText, activeOnly])
+  }, [allLocations, countryFilter, bodyFilter, paramFilter, searchText, activeOnly])
 
   const mappable = filtered.filter(l => l.latitude && l.longitude)
   const withPhotos = allLocations.filter(l => l.reference_photo_url).length
@@ -345,11 +281,10 @@ export default function WRMonitoringMap() {
 
   // CSV export
   const exportCSV = () => {
-    const headers = ['Name', 'Latitude', 'Longitude', 'Country', 'Water Body', 'Type', 'Organization', 'Dataset', 'Parameters', 'Equipment', 'First Obs', 'Last Obs', 'Has Photo', 'Investigative', 'Permalink']
+    const headers = ['Name', 'Latitude', 'Longitude', 'Country', 'Water Body', 'Type', 'Parameters', 'Equipment', 'First Obs', 'Last Obs', 'Has Photo', 'Investigative', 'Permalink']
     const rows = filtered.map(l => [
       l.name, l.latitude, l.longitude, l.country, l.body_of_water,
-      l.water_body_type, locOrg(l), locDataset(l),
-      (l.tested_parameters || []).join('; '),
+      l.water_body_type, (l.tested_parameters || []).join('; '),
       (l.tested_equipment || []).join('; '),
       l.first_observation_at || '', l.last_observation_at || '',
       l.reference_photo_url ? 'Yes' : 'No', l.investigative || false, l.permalink || '',
@@ -458,54 +393,11 @@ export default function WRMonitoringMap() {
               {allParams.map(p => <option key={p} value={p}>{p.replace(/_/g, ' ')}</option>)}
             </select>
           </div>
-          {/* Organization — ALWAYS rendered so the filter is discoverable.
-              When the WR cache hasn't been enriched yet (right after a
-              cold deploy) the dropdown shows a "loading…" placeholder
-              instead of disappearing. Background enrichment runs server-
-              side; we re-poll /api/wr/locations-all every 30s until the
-              ownership info shows up. */}
-          <div>
-            <label style={{ fontSize: 9, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Organization</label>
-            <select
-              value={orgFilter}
-              onChange={e => { setOrgFilter(e.target.value); setDatasetFilter('') }}
-              disabled={organizations.length === 0}
-              title={organizations.length === 0
-                ? 'Water Rangers ownership info is still loading — check back in a moment'
-                : 'Filter sites by the Water Rangers organization that owns them'}
-              style={{ width: '100%', padding: '5px 7px', borderRadius: 6, fontSize: 11, background: 'rgba(0,0,0,.12)', border: '1px solid var(--border)', color: organizations.length === 0 ? 'var(--text-muted)' : 'var(--text)', opacity: organizations.length === 0 ? 0.6 : 1 }}>
-              <option value="">
-                {organizations.length === 0 ? 'Loading from Water Rangers…' : `All organizations (${organizations.length})`}
-              </option>
-              {organizations.map(([name, count]) => (
-                <option key={name} value={name}>{name} ({count})</option>
-              ))}
-            </select>
-          </div>
-          {/* Dataset — same always-render rule as Organization. */}
-          <div>
-            <label style={{ fontSize: 9, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Dataset</label>
-            <select
-              value={datasetFilter}
-              onChange={e => setDatasetFilter(e.target.value)}
-              disabled={datasets.length === 0}
-              title={datasets.length === 0
-                ? 'Water Rangers ownership info is still loading — check back in a moment'
-                : (orgFilter ? `Datasets within "${orgFilter}"` : 'Water Rangers dataset (project) the site belongs to')}
-              style={{ width: '100%', padding: '5px 7px', borderRadius: 6, fontSize: 11, background: 'rgba(0,0,0,.12)', border: '1px solid var(--border)', color: datasets.length === 0 ? 'var(--text-muted)' : 'var(--text)', opacity: datasets.length === 0 ? 0.6 : 1 }}>
-              <option value="">
-                {datasets.length === 0 ? 'Loading from Water Rangers…' : `All datasets (${datasets.length})`}
-              </option>
-              {datasets.map(([name, count]) => (
-                <option key={name} value={name}>{name} ({count})</option>
-              ))}
-            </select>
-          </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text-muted)', cursor: 'pointer' }}>
               <input type="checkbox" checked={activeOnly} onChange={e => setActiveOnly(e.target.checked)} /> Active only
             </label>
-            <button onClick={() => { setCountryFilter(''); setBodyFilter(''); setParamFilter(''); setOrgFilter(''); setDatasetFilter(''); setSearchText(''); setActiveOnly(false) }}
+            <button onClick={() => { setCountryFilter(''); setBodyFilter(''); setParamFilter(''); setSearchText(''); setActiveOnly(false) }}
               style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.15)', color: '#f87171', cursor: 'pointer' }}>
               Clear
             </button>
@@ -520,14 +412,12 @@ export default function WRMonitoringMap() {
       )}
 
       {/* Active filter summary */}
-      {(countryFilter || bodyFilter || paramFilter || orgFilter || datasetFilter || searchText || activeOnly) && (
+      {(countryFilter || bodyFilter || paramFilter || searchText || activeOnly) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8, padding: '6px 10px', background: 'rgba(99,102,241,.06)', border: '1px solid rgba(99,102,241,.15)', borderRadius: 8, alignItems: 'center' }}>
           <span style={{ fontSize: 10, color: '#a78bfa', fontWeight: 700 }}>🔍 Showing {mappable.length.toLocaleString()} of {allLocations.length.toLocaleString()}:</span>
           {countryFilter && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(245,158,11,.1)', color: '#f59e0b' }}>🌍 {countryFilter}</span>}
           {bodyFilter && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(20,184,166,.1)', color: '#14b8a6' }}>{BODY_LABELS[bodyFilter] || bodyFilter}</span>}
           {paramFilter && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(99,102,241,.1)', color: '#a78bfa' }}>🧪 {paramFilter.replace(/_/g, ' ')}</span>}
-          {orgFilter && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(14,165,233,.1)', color: '#0ea5e9' }}>🏛️ {orgFilter}</span>}
-          {datasetFilter && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(167,139,250,.1)', color: '#a78bfa' }}>📊 {datasetFilter}</span>}
           {searchText && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(255,255,255,.06)', color: 'var(--text-muted)' }}>"{searchText}"</span>}
           {activeOnly && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(16,185,129,.1)', color: '#10b981' }}>Active only</span>}
         </div>
@@ -535,7 +425,7 @@ export default function WRMonitoringMap() {
 
       {/* Map — key changes on filter to force clean re-render */}
       <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)', height: 500, marginBottom: 10, position: 'relative' }}
-        key={`map-${countryFilter}-${bodyFilter}-${paramFilter}-${orgFilter}-${datasetFilter}-${activeOnly}-${searchText}-${mappable.length}`}>
+        key={`map-${countryFilter}-${bodyFilter}-${paramFilter}-${activeOnly}-${searchText}-${mappable.length}`}>
         {loading && (
           <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 1000, background: 'rgba(0,0,0,.8)', color: 'white', padding: '8px 16px', borderRadius: 10, fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, maxWidth: 340, textAlign: 'center' }}>
             <RefreshCw size={12} className="animate-spin" /> {loadMsg || `Loading ${allLocations.length.toLocaleString()} sites...`}
@@ -568,16 +458,6 @@ export default function WRMonitoringMap() {
                     <strong style={{ fontSize: 13 }}>{loc.name}</strong><br />
                     <span style={{ color: '#666' }}>{BODY_LABELS[loc.water_body_type] || loc.water_body_type} · {loc.country}</span><br />
                     {loc.body_of_water && <span style={{ color: '#888' }}>{loc.body_of_water}</span>}
-                    {(locOrgs(loc).length > 0 || locDatasets(loc).length > 0) && (
-                      <div style={{ marginTop: 4, fontSize: 11, color: '#0ea5e9' }}>
-                        {locDatasets(loc).length > 0 && (
-                          <div><strong>Dataset{locDatasets(loc).length > 1 ? 's' : ''}:</strong> {locDatasets(loc).join(', ')}</div>
-                        )}
-                        {locOrgs(loc).length > 0 && (
-                          <div><strong>Organization{locOrgs(loc).length > 1 ? 's' : ''}:</strong> {locOrgs(loc).join(', ')}</div>
-                        )}
-                      </div>
-                    )}
                     {loc.reference_photo_url && (
                       <img src={loc.reference_photo_url} alt={loc.name} style={{ width: '100%', borderRadius: 6, marginTop: 6, maxHeight: 120, objectFit: 'cover' }}
                         onError={e => e.target.style.display = 'none'} />
@@ -677,33 +557,6 @@ export default function WRMonitoringMap() {
                 <div style={{ fontSize: 9, color: 'var(--text-muted)' }}>Last Checked</div>
                 <div style={{ color: 'var(--text)', fontWeight: 700 }}>{selected.last_observation_at ? new Date(selected.last_observation_at).toLocaleDateString() : 'Never'}</div>
               </div>
-              {(locOrgs(selected).length > 0 || locDatasets(selected).length > 0) && (
-                <div style={{ gridColumn: '1 / -1', background: 'rgba(14,165,233,.06)', borderRadius: 8, padding: 8 }}>
-                  <div style={{ fontSize: 9, color: 'var(--text-muted)' }}>Owner (Water Rangers)</div>
-                  {locDatasets(selected).length > 0 && (
-                    <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {locDatasets(selected).map(d => (
-                        <button key={d} onClick={() => { setDatasetFilter(d) }}
-                          title={`Filter the map to all sites in "${d}"`}
-                          style={{ background: 'rgba(14,165,233,.12)', border: '1px solid rgba(14,165,233,.25)', color: '#0ea5e9', padding: '3px 8px', borderRadius: 6, cursor: 'pointer', fontWeight: 700, fontSize: 11 }}>
-                          📊 {d}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {locOrgs(selected).length > 0 && (
-                    <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {locOrgs(selected).map(o => (
-                        <button key={o} onClick={() => { setOrgFilter(o); setDatasetFilter('') }}
-                          title={`Filter the map to all sites from "${o}"`}
-                          style={{ background: 'transparent', border: '1px solid rgba(14,165,233,.18)', color: '#0ea5e9', padding: '2px 7px', borderRadius: 6, cursor: 'pointer', fontSize: 10 }}>
-                          🏛️ {o}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
             {selected.investigative && (
