@@ -19,9 +19,15 @@ function rgbToHex(rgb) {
   return '#' + m.slice(0, 3).map(n => parseInt(n).toString(16).padStart(2, '0')).join('')
 }
 
+const LS_TOOLBAR_OPEN = 'sw_cms_toolbar_open'
+
 export function CMSProvider({ children }) {
   const { isAdmin } = useAuth()
   const location = useLocation()
+  // Master switch — controls whether the CMS toolbar / overlays render at all.
+  // Persisted so admins don't see CMS UI pop in on every page load. Default
+  // closed so admin pages render cleanly until the user explicitly opens CMS.
+  const [toolbarOpen, setToolbarOpen]   = useState(() => localStorage.getItem(LS_TOOLBAR_OPEN) === '1')
   const [cmsMode, setCmsMode]           = useState(false)
   const [content, setContent]           = useState({})
   const [overrides, setOverrides]       = useState({})
@@ -206,15 +212,24 @@ export function CMSProvider({ children }) {
   }, [overrides, tagAndApply, attachObservers, location.pathname])
 
   // ── CMS edit-mode hover + click ───────────────────────────────────────────
+  // When edit mode flips OFF we have to (1) clear the selected element so
+  // FloatingEditor (TipTap) unmounts cleanly BEFORE we mutate DOM styles,
+  // (2) defer the inline-style cleanup past React's commit phase so it can
+  // never collide with React's own removeChild on the same nodes — that
+  // collision was the source of the white-screen-on-Exit bug.
   useEffect(() => {
     if (!cmsMode) {
-      document.querySelectorAll('[data-cms-id]').forEach(el => {
-        el.style.outline = ''
-        el.style.outlineOffset = ''
-        el.style.cursor = ''
-      })
       setSelectedEl(null)
-      return
+      const raf = requestAnimationFrame(() => {
+        try {
+          document.querySelectorAll('[data-cms-id]').forEach(el => {
+            el.style.outline = ''
+            el.style.outlineOffset = ''
+            el.style.cursor = ''
+          })
+        } catch (e) { /* noop — DOM may have been replaced by route change */ }
+      })
+      return () => cancelAnimationFrame(raf)
     }
     const timer = setTimeout(() => tagAndApply(overrides), 200)
     return () => clearTimeout(timer)
@@ -377,14 +392,37 @@ export function CMSProvider({ children }) {
 
   const toggleCmsMode = useCallback(() => {
     if (!isAdmin) return
+    // Clear selected element FIRST so the FloatingEditor (TipTap) unmounts
+    // before edit-mode cleanup runs. Otherwise React + TipTap can race on
+    // the same DOM node and the page goes blank.
+    setSelectedEl(null)
     setCmsMode(m => !m)
   }, [isAdmin])
+
+  // Master toolbar visibility. When closed, no CMS UI is rendered at all
+  // (no sidebar, no FloatingEditor, no component overlays). Closing also
+  // exits edit mode + clears selection so nothing lingers on screen.
+  const setCmsToolbarOpen = useCallback((open) => {
+    if (!isAdmin) return
+    const next = !!open
+    localStorage.setItem(LS_TOOLBAR_OPEN, next ? '1' : '0')
+    setToolbarOpen(next)
+    if (!next) {
+      setSelectedEl(null)
+      setCmsMode(false)
+    }
+  }, [isAdmin])
+
+  const toggleCmsToolbarOpen = useCallback(() => {
+    setCmsToolbarOpen(!toolbarOpen)
+  }, [toolbarOpen, setCmsToolbarOpen])
 
   const loadPage = useCallback(() => {}, [])
 
   return (
     <CMSContext.Provider value={{
       cmsMode, toggleCmsMode, get, save, loadPage, saving, isAdmin,
+      toolbarOpen, setCmsToolbarOpen, toggleCmsToolbarOpen,
       selectedEl, setSelectedEl, overrides, saveOverride, deleteOverride,
       notification, saveNotification,
       hiddenComponents, hideComponent, showComponent, tagComponents,

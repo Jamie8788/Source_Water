@@ -13,7 +13,7 @@ import { useCMS } from '../../context/CMSContext'
 import {
   Edit3, Eye, CheckCircle, Save, Bell, GripVertical,
   ChevronRight, ChevronLeft, Type, Layers, EyeOff, RotateCcw, X,
-  Plus, AlignLeft, Image, MousePointer, Minus, ChevronsUpDown,
+  Plus, AlignLeft, Image, MousePointer, Minus, ChevronsUpDown, Settings,
 } from 'lucide-react'
 import FloatingEditor from './FloatingEditor'
 import NotificationEditor from './NotificationEditor'
@@ -22,7 +22,7 @@ const LS_POS  = 'sw_cms_toolbar_pos'
 const LS_EXPAND = 'sw_cms_toolbar_expand'
 
 export default function CMSToolbar() {
-  const { cmsMode, toggleCmsMode, saving, isAdmin, selectedEl, notification, hiddenComponents, showComponent, tagComponents, addPageBlock } = useCMS()
+  const { cmsMode, toggleCmsMode, saving, isAdmin, selectedEl, notification, hiddenComponents, showComponent, tagComponents, addPageBlock, toolbarOpen, setCmsToolbarOpen } = useCMS()
   const [expanded, setExpanded]     = useState(() => localStorage.getItem(LS_EXPAND) === '1')
   const [notifOpen, setNotifOpen]   = useState(false)
   const [compOpen, setCompOpen]     = useState(false)
@@ -100,6 +100,32 @@ export default function CMSToolbar() {
 
   if (!isAdmin) return null
 
+  // Master switch is OFF — render nothing but a tiny floating pill admins
+  // can click to open the CMS toolbar. This way pages stay clean by default
+  // and CMS UI only appears when explicitly summoned.
+  if (!toolbarOpen) {
+    return (
+      <button
+        data-cms-ui="true"
+        onClick={() => setCmsToolbarOpen(true)}
+        title="Open CMS toolbar"
+        style={{
+          position: 'fixed', left: 12, bottom: 12, zIndex: 9998,
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '7px 12px', borderRadius: 999,
+          background: 'rgba(15,10,40,0.92)', color: 'rgba(196,181,253,0.85)',
+          border: '1px solid rgba(99,102,241,0.4)',
+          boxShadow: '0 4px 18px rgba(0,0,0,0.5)',
+          backdropFilter: 'blur(12px)', cursor: 'pointer',
+          fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+          fontFamily: 'system-ui, sans-serif',
+        }}
+      >
+        <Settings size={12}/> CMS
+      </button>
+    )
+  }
+
   const w = expanded ? 220 : 50
 
   const iconBtn = (active, onClick, icon, label, badge) => (
@@ -167,13 +193,23 @@ export default function CMSToolbar() {
               CMS
             </span>
           )}
-          <button
-            onClick={toggleExpand}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', display: 'flex', padding: 0 }}
-            title={expanded ? 'Collapse' : 'Expand'}
-          >
-            {expanded ? <ChevronLeft size={13}/> : <ChevronRight size={13}/>}
-          </button>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <button
+              onClick={toggleExpand}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', display: 'flex', padding: 0 }}
+              title={expanded ? 'Collapse' : 'Expand'}
+            >
+              {expanded ? <ChevronLeft size={13}/> : <ChevronRight size={13}/>}
+            </button>
+            <button
+              onMouseDown={e => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); setCmsToolbarOpen(false) }}
+              style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', cursor: 'pointer', color: '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 2, borderRadius: 4 }}
+              title="Hide CMS toolbar"
+            >
+              <X size={11}/>
+            </button>
+          </div>
         </div>
 
         {/* Section: Edit */}
