@@ -52,7 +52,7 @@ router.get('/', requireAuth, async (req, res) => {
       `SELECT q.*, u.display_name as creator_name,
         (SELECT COUNT(*) FROM quiz_questions WHERE quiz_id=q.id) as question_count,
         (SELECT COUNT(*) FROM quiz_attempts WHERE quiz_id=q.id AND completed_at IS NOT NULL) as attempt_count,
-        (SELECT ROUND(AVG(score)) FROM quiz_attempts WHERE quiz_id=q.id AND completed_at IS NOT NULL) as avg_score
+        (SELECT ROUND(AVG(COALESCE(override_score, score))) FROM quiz_attempts WHERE quiz_id=q.id AND completed_at IS NOT NULL) as avg_score
        FROM quizzes q LEFT JOIN users u ON q.created_by=u.id
        ${isCreator ? '' : "WHERE q.status='published'"}
        ORDER BY q.created_at DESC`, []
@@ -62,18 +62,30 @@ router.get('/', requireAuth, async (req, res) => {
 })
 
 // ── My progress — MUST be before /:id ────────────────────────────────────────
+// Returns each completed attempt with the FINAL score the student should see.
+// `final_score` = override_score (if a teacher overrode) ELSE the auto score.
+// `score` is preserved as the original auto score so the UI can show both
+// (e.g. "100% (override) — was 80%"). Without this, students saw the stale
+// auto score and never noticed instructor regrades.
 router.get('/my-progress', requireAuth, async (req, res) => {
   try {
     const attempts = await db.all(
-      `SELECT qa.id, qa.quiz_id, qa.score, qa.passed, qa.time_taken, qa.completed_at,
+      `SELECT qa.id, qa.quiz_id, qa.score, qa.override_score, qa.override_reason,
+              qa.feedback, qa.passed, qa.grading_status, qa.time_taken, qa.completed_at,
               q.title as quiz_title, q.category, q.difficulty
        FROM quiz_attempts qa
        JOIN quizzes q ON qa.quiz_id=q.id
        WHERE qa.user_id=? AND qa.completed_at IS NOT NULL
+         AND (qa.grading_status IS NULL OR qa.grading_status <> 'reset')
        ORDER BY qa.completed_at DESC`,
       [req.user.id]
     )
-    res.json(attempts)
+    const enriched = attempts.map(a => ({
+      ...a,
+      final_score: a.override_score != null ? a.override_score : a.score,
+      is_overridden: a.override_score != null,
+    }))
+    res.json(enriched)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
@@ -638,6 +650,7 @@ router.get('/:id/analytics', requireAuth, requireQuizCreator, async (req, res) =
         `SELECT qa.*, u.username, u.display_name
          FROM quiz_attempts qa JOIN users u ON qa.user_id=u.id
          WHERE qa.quiz_id=? AND qa.completed_at IS NOT NULL
+           AND (qa.grading_status IS NULL OR qa.grading_status <> 'reset')
          ORDER BY qa.completed_at DESC`,
         [req.params.id]
       )
@@ -646,28 +659,36 @@ router.get('/:id/analytics', requireAuth, requireQuizCreator, async (req, res) =
     const n = attempts.length
     if (n === 0) return res.json({ quiz, questions, attempts: [], item_analysis: [], stats: null })
 
-    const score_distribution = new Array(10).fill(0)
-    attempts.forEach(a => { score_distribution[Math.min(9, Math.floor((a.score||0)/10))]++ })
+    // Final score = teacher override (if set) ELSE auto score. All distribution / avg / max
+    // / discrimination math runs on the FINAL score so a regrade flows through immediately.
+    const finalScore = a => a.override_score != null ? a.override_score : (a.score || 0)
 
-    const sorted = [...attempts].sort((a,b) => (b.score||0)-(a.score||0))
+    const score_distribution = new Array(10).fill(0)
+    attempts.forEach(a => { score_distribution[Math.min(9, Math.floor(finalScore(a)/10))]++ })
+
+    const sorted = [...attempts].sort((a,b) => finalScore(b) - finalScore(a))
     const k = Math.max(1, Math.floor(n * 0.27))
     const top = sorted.slice(0, k)
     const bot = sorted.slice(n - k)
 
     const item_analysis = questions.map(q => {
       const correct = parseOptions(q.correct_answers)
+      const options = parseOptions(q.options)
       const answerFreq = {}
       let totalCorrect = 0
+      let totalSkipped = 0
 
       attempts.forEach(a => {
         let parsed = {}
         try { parsed = JSON.parse(a.answers || '{}') } catch {}
         const ua = parsed.raw?.[q.id]
-        const key = ua !== undefined && ua !== null ? String(ua) : '__skipped'
+        const skipped = ua === undefined || ua === null || ua === ''
+        const key = skipped ? '__skipped' : String(ua)
         answerFreq[key] = (answerFreq[key] || 0) + 1
+        if (skipped) { totalSkipped++; return }
         let ok = false
         if (q.question_type === 'mcq' || q.question_type === 'true_false') {
-          ok = correct.includes(+ua) || correct.includes(ua)
+          ok = correct.includes(+ua) || correct.includes(ua) || correct.map(String).includes(String(ua))
         } else if (q.question_type === 'short_answer' || q.question_type === 'fill_blank') {
           const a2 = String(ua||'').toLowerCase().trim()
           ok = a2.length > 0 && correct.some(c => String(c).toLowerCase().includes(a2) || a2.includes(String(c).toLowerCase()))
@@ -682,45 +703,78 @@ router.get('/:id/analytics', requireAuth, requireQuizCreator, async (req, res) =
         let parsed = {}
         try { parsed = JSON.parse(a.answers || '{}') } catch {}
         const ua = parsed.raw?.[q.id]
-        return correct.includes(+ua) || correct.includes(ua)
+        if (ua === undefined || ua === null || ua === '') return false
+        return correct.includes(+ua) || correct.includes(ua) || correct.map(String).includes(String(ua))
       }
-      const pTop = top.filter(checkOk).length / top.length
-      const pBot = bot.filter(checkOk).length / bot.length
+      const pTop = top.length ? top.filter(checkOk).length / top.length : 0
+      const pBot = bot.length ? bot.filter(checkOk).length / bot.length : 0
       const pValue = totalCorrect / n
       const discIdx = pTop - pBot
+
+      // Map correct-answer indices back to readable text so the UI can say
+      // "Correct answer: 6.5–8.5" instead of just "[2]".
+      const correctTexts = (q.question_type === 'mcq' || q.question_type === 'true_false' || q.question_type === 'multiple_select')
+        ? correct.map(c => options[+c]).filter(v => v != null && v !== '')
+        : correct.map(String)
+
+      // Most-picked wrong answer (for misconception insight)
+      let topWrong = null
+      Object.entries(answerFreq).forEach(([k, cnt]) => {
+        if (k === '__skipped') return
+        const isCor = correct.includes(+k) || correct.includes(k) || correct.map(String).includes(String(k))
+        if (isCor) return
+        if (!topWrong || cnt > topWrong.count) {
+          const txt = (q.question_type === 'mcq' || q.question_type === 'true_false') ? options[+k] : k
+          topWrong = { key: k, count: cnt, text: txt }
+        }
+      })
 
       return {
         question_id: q.id,
         question_text: q.question_text,
         question_type: q.question_type,
-        options: parseOptions(q.options),
+        options,
         correct_answers: correct,
+        correct_answer_texts: correctTexts,
+        explanation: q.explanation || '',
         p_value: Math.round(pValue * 100) / 100,
         difficulty_label: pValue > 0.8 ? 'Easy' : pValue > 0.5 ? 'Medium' : pValue > 0.3 ? 'Hard' : 'Very Hard',
         discrimination_index: Math.round(discIdx * 100) / 100,
         discrimination_label: discIdx >= 0.4 ? 'Excellent' : discIdx >= 0.3 ? 'Good' : discIdx >= 0.2 ? 'Fair' : 'Poor',
         answer_frequency: answerFreq,
         total_correct: totalCorrect,
+        total_skipped: totalSkipped,
         total_attempts: n,
+        top_wrong_answer: topWrong,
         flag: pValue < 0.15 || pValue > 0.95 || discIdx < 0.15,
         flag_reason: pValue < 0.15 ? 'Too difficult (p < 0.15)' : pValue > 0.95 ? 'Too easy (p > 0.95)' : discIdx < 0.15 ? 'Poor discriminator (d < 0.15)' : null,
       }
     })
 
-    const scores = attempts.map(a => a.score||0)
+    const scores = attempts.map(finalScore)
     const avg    = scores.reduce((s,x) => s+x, 0) / n
     const std    = Math.sqrt(scores.reduce((s,x) => s + Math.pow(x-avg, 2), 0) / n)
+    // Re-derive passed against the quiz's pass_score so an override flips pass/fail
+    // even if the row's stored `passed` flag is stale.
+    const passCount = attempts.filter(a => finalScore(a) >= (+quiz.pass_score || 70)).length
+
+    // Surface override info so the Attempts table doesn't lose `score` vs override.
+    const safeAttempts = attempts.slice(0, 200).map(a => ({
+      ...a,
+      final_score: finalScore(a),
+      is_overridden: a.override_score != null,
+    }))
 
     res.json({
       quiz,
       questions,
-      attempts: attempts.slice(0, 200),
+      attempts: safeAttempts,
       item_analysis,
       stats: {
         total_attempts: n,
         unique_users: new Set(attempts.map(a => a.user_id)).size,
-        pass_count: attempts.filter(a => a.passed).length,
-        pass_rate: Math.round(attempts.filter(a => a.passed).length / n * 100),
+        pass_count: passCount,
+        pass_rate: Math.round(passCount / n * 100),
         avg_score: Math.round(avg),
         std_dev: Math.round(std),
         min_score: Math.min(...scores),

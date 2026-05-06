@@ -1526,13 +1526,42 @@ function Analytics({ quiz, onBack }) {
 
             {item_analysis.map((item, i) => (
               <div key={item.question_id} className="card" style={{ padding: 20 }}>
-                <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
                   <span style={{ flexShrink: 0, width: 28, height: 28, borderRadius: '50%', background: '#006fbf', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900 }}>{i + 1}</span>
-                  <div>
-                    <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', margin: '0 0 4px' }}>{item.question_text}</p>
-                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'var(--page-bg)', color: 'var(--text-muted)' }}>{Q_TYPES.find(t => t.v === item.question_type)?.l || item.question_type}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', margin: '0 0 6px' }}>{item.question_text}</p>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'var(--page-bg)', color: 'var(--text-muted)' }}>{Q_TYPES.find(t => t.v === item.question_type)?.l || item.question_type}</span>
+                      {item.correct_answer_texts?.length > 0 && (
+                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(26,122,60,0.10)', color: '#1a7a3c', fontWeight: 700 }}>
+                          ✓ {item.correct_answer_texts.join(' / ')}
+                        </span>
+                      )}
+                      {item.total_skipped > 0 && (
+                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(196,95,0,0.10)', color: '#c45f00', fontWeight: 700 }}>
+                          {item.total_skipped} skipped
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
+
+                {item.explanation && (
+                  <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 8, background: 'rgba(0,111,191,0.06)', border: '1px solid rgba(0,111,191,0.18)' }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: '#006fbf', letterSpacing: 0.5, marginBottom: 4 }}>EXPLANATION</div>
+                    <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>{item.explanation}</div>
+                  </div>
+                )}
+
+                {item.top_wrong_answer && item.top_wrong_answer.count > 0 && (
+                  <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 8, background: 'rgba(204,51,51,0.06)', border: '1px solid rgba(204,51,51,0.18)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <AlertCircle size={14} style={{ color: '#cc3333', flexShrink: 0, marginTop: 2 }} />
+                    <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5 }}>
+                      <strong>Most common wrong answer:</strong> {item.top_wrong_answer.text != null ? `"${item.top_wrong_answer.text}"` : `option ${item.top_wrong_answer.key}`}
+                      {' '}— picked by <strong>{item.top_wrong_answer.count}</strong> of {item.total_attempts} ({Math.round(item.top_wrong_answer.count / item.total_attempts * 100)}%).
+                    </div>
+                  </div>
+                )}
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
                   {[

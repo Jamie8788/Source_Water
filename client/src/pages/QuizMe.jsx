@@ -125,11 +125,15 @@ function QuizBrowser({ onSelect }) {
     }
   }, [loading])
 
+  // Prefer the final score (override > auto). Server returns `final_score`,
+  // but fall back to `score` for any older clients/responses.
+  const finalScoreOf = a => a.final_score != null ? a.final_score : (a.score || 0)
   const myStats = {}
   progress.forEach(a => {
     if (!myStats[a.quiz_id]) myStats[a.quiz_id] = { attempts:0, best:0, passed:0 }
     myStats[a.quiz_id].attempts++
-    if ((a.score||0) > myStats[a.quiz_id].best) myStats[a.quiz_id].best = a.score
+    const fs = finalScoreOf(a)
+    if (fs > myStats[a.quiz_id].best) myStats[a.quiz_id].best = fs
     if (a.passed) myStats[a.quiz_id].passed++
   })
 
@@ -142,7 +146,7 @@ function QuizBrowser({ onSelect }) {
     return true
   })
   const totalAttempts = progress.length
-  const avgScore      = totalAttempts ? Math.round(progress.reduce((s,a) => s+(a.score||0),0)/totalAttempts) : 0
+  const avgScore      = totalAttempts ? Math.round(progress.reduce((s,a) => s + finalScoreOf(a), 0)/totalAttempts) : 0
   const passed        = progress.filter(a => a.passed).length
 
   if (loading) return (
@@ -780,9 +784,13 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
 
   const optionStyle = (q, i, isRevd) => {
     const isSelected   = answers[q.id] === i || answers[q.id] === String(i)
-    const isCorrectAns = studyMode && q.correct_answers && (q.correct_answers.includes(i) || q.correct_answers.includes(String(i)))
-    const isWrong      = isRevd && isSelected && !isCorrectAns
-    if (isCorrectAns && isRevd) return { border:'1.5px solid #1a7a3c', background:'rgba(26,122,60,0.08)', color:'#1a7a3c' }
+    // Correct/wrong styling is reveal-only and only meaningful in study mode.
+    // In a real attempt, the user shouldn't learn whether they were right
+    // before submitting — selected = blue, unselected = neutral. Final
+    // correctness is shown on the results screen.
+    const isCorrectAns = studyMode && isRevd && q.correct_answers && (q.correct_answers.includes(i) || q.correct_answers.includes(String(i)))
+    const isWrong      = studyMode && isRevd && isSelected && !isCorrectAns
+    if (isCorrectAns)           return { border:'1.5px solid #1a7a3c', background:'rgba(26,122,60,0.08)', color:'#1a7a3c' }
     if (isWrong)                return { border:'1.5px solid #cc3333', background:'rgba(204,51,51,0.08)', color:'#cc3333' }
     if (isSelected)             return { border:'1.5px solid #60a5fa', background:'rgba(96,165,250,0.12)', color:'#e2e8f0' }
     return { border:'1.5px solid rgba(255,255,255,0.12)', background:'rgba(255,255,255,0.04)', color:'#cbd5e1' }
@@ -884,7 +892,12 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
                 {q.options.map((opt, i) => {
                   const isSelected   = answers[q.id]===i||answers[q.id]===String(i)
                   const isRevd       = revealed.has(q.id)
-                  const isCorrectAns = studyMode && q.correct_answers && (q.correct_answers.includes(i)||q.correct_answers.includes(String(i)))
+                  // Reveal correct/wrong feedback ONLY in study mode. During a
+                  // live attempt, picking an option locks the question (isRevd)
+                  // but must not leak the answer.
+                  const showFeedback = studyMode && isRevd
+                  const isCorrectAns = showFeedback && q.correct_answers && (q.correct_answers.includes(i)||q.correct_answers.includes(String(i)))
+                  const isWrongPick  = showFeedback && isSelected && !isCorrectAns
                   const st           = optionStyle(q, i, isRevd)
                   return (
                     <button key={i} onClick={() => handleMCQAnswer(q, i)} disabled={isRevd} style={{
@@ -894,12 +907,12 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
                       <span style={{
                         width:26,height:26,borderRadius:99,display:'flex',alignItems:'center',justifyContent:'center',
                         fontSize:11,fontWeight:700,flexShrink:0,
-                        background:isSelected?'#3b82f6':isCorrectAns&&isRevd?'#1a7a3c':isRevd&&answers[q.id]===i?'#cc3333':'rgba(255,255,255,0.15)',
+                        background:isCorrectAns?'#1a7a3c':isWrongPick?'#cc3333':isSelected?'#3b82f6':'rgba(255,255,255,0.15)',
                         color:'white',
                       }}>{String.fromCharCode(65+i)}</span>
                       <span style={{flex:1,fontSize:15,fontWeight:500,color:'#e2e8f0'}}>{opt}</span>
-                      {isCorrectAns&&isRevd && <CheckCircle style={{width:16,height:16,flexShrink:0,color:'#1a7a3c'}}/>}
-                      {!isCorrectAns&&isRevd&&isSelected && <XCircle style={{width:16,height:16,flexShrink:0,color:'#cc3333'}}/>}
+                      {isCorrectAns && <CheckCircle style={{width:16,height:16,flexShrink:0,color:'#1a7a3c'}}/>}
+                      {isWrongPick  && <XCircle style={{width:16,height:16,flexShrink:0,color:'#cc3333'}}/>}
                     </button>
                   )
                 })}
@@ -971,6 +984,14 @@ function QuizPlayer({ quiz, studyMode, onFinish }) {
               <div style={{marginTop:20,padding:'14px 16px',borderRadius:8,background:'rgba(0,111,191,0.08)',border:'1px solid rgba(0,111,191,0.2)'}}>
                 <div style={{fontSize:11,fontWeight:700,marginBottom:6,color:'#60a5fa'}}>EXPLANATION</div>
                 <p style={{fontSize:14,color:'#e2e8f0',lineHeight:1.6,margin:0}}>{q.explanation}</p>
+              </div>
+            )}
+
+            {/* Live-quiz confirmation: positive cue without leaking correctness */}
+            {!studyMode && revealed.has(q.id) && (
+              <div style={{marginTop:18,padding:'10px 14px',borderRadius:8,background:'rgba(96,165,250,0.08)',border:'1px solid rgba(96,165,250,0.25)',display:'flex',alignItems:'center',gap:10}}>
+                <CheckCircle style={{width:16,height:16,color:'#60a5fa',flexShrink:0}}/>
+                <span style={{fontSize:13,color:'#cbd5e1'}}>Answer recorded — you'll see results after submitting the quiz.</span>
               </div>
             )}
           </div>
