@@ -93,7 +93,7 @@ export default function QuickActions() {
     return () => cancelAnimationFrame(id)
   }, [])
 
-  const primaryMap  = '/textures/quick-actions-map.jpg'
+  const primaryMap  = '/textures/quick-actions-map.png'
   const fallbackMap = '/textures/worldmap.jpg'
 
   return (
@@ -141,7 +141,10 @@ export default function QuickActions() {
           <div className="atlas-light" aria-hidden="true" />
           <div className="atlas-water-shimmer" aria-hidden="true" />
 
-          {/* Decorative compass rose, top-left corner */}
+          {/* Decorative compass rose — only shown when the parchment isn't
+              loaded (the parchment already has a compass drawn into it,
+              so we'd double up otherwise). */}
+          {imgFailed && (
           <svg viewBox="0 0 160 160" className="atlas-compass" aria-hidden="true">
             <defs>
               <linearGradient id="qaCompassMetal" x1="0" y1="0" x2="0" y2="1">
@@ -171,6 +174,7 @@ export default function QuickActions() {
               </g>
             </g>
           </svg>
+          )}
 
           {/* Wax-seal landing buttons — clickable HTML elements */}
           {ACTIONS.map((action, i) => (
