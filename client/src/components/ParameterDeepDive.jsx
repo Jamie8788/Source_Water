@@ -400,6 +400,7 @@ Write 3 short paragraphs (each 2-3 sentences):
               <SectionHeader icon="🎯" title="Where this reading falls"
                 hint="The coloured bar shows the science-based safety zones. Green = healthy. Amber = stressful for sensitive species. Red = dangerous. The black arrow is this site's most recent reading." />
               <RangeBar meta={meta} pointerPct={pointerPct} pointerValue={latest?.value} />
+              <ScaleLegend meta={meta} currentBandIndex={cls?.index ?? null} unit={displayUnit} />
             </>
           )}
 
@@ -630,6 +631,63 @@ function RangeBar({ meta, pointerPct, pointerValue }) {
           </g>
         )}
       </svg>
+    </div>
+  )
+}
+
+// Plain-English breakdown of every band on the scale. Renders below the
+// RangeBar so a layman reader can understand what each colour zone means
+// for this specific parameter — not just the band the current reading
+// happens to fall into. The band the current reading falls into gets a
+// stronger left-border treatment so it's easy to spot at a glance.
+function ScaleLegend({ meta, currentBandIndex, unit }) {
+  if (!meta?.ranges?.length) return null
+  const fmtRange = (r) => {
+    const u = unit || meta.unit || ''
+    const lo = r.min
+    const hi = r.max
+    if (hi >= 9999) return `${lo}${u} and above`
+    if (lo === 0)   return `Up to ${hi}${u}`
+    return `${lo}${u} – ${hi}${u}`
+  }
+  return (
+    <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span aria-hidden="true">📖</span> Scale explained — what each zone means
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {meta.ranges.map((r, i) => {
+          const color = TONE_COLOR[r.tone] || '#94a3b8'
+          const isCurrent = i === currentBandIndex
+          return (
+            <div key={i} style={{
+              display: 'grid', gridTemplateColumns: '8px 1fr', gap: 10,
+              padding: '8px 10px', borderRadius: 8,
+              background: isCurrent ? `${color}14` : '#f8fafc',
+              border: `1px solid ${isCurrent ? `${color}66` : '#e2e8f0'}`,
+              borderLeft: `4px solid ${color}`,
+            }}>
+              <div />
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
+                  <span style={{ fontWeight: 700, color: '#0f172a', fontSize: 13 }}>{r.label}</span>
+                  <span style={{ fontSize: 11, color: '#475569', background: '#fff', border: '1px solid #e2e8f0', padding: '1px 7px', borderRadius: 999 }}>
+                    {fmtRange(r)}
+                  </span>
+                  {isCurrent && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: color, padding: '2px 7px', borderRadius: 999, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                      This site
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 12.5, lineHeight: 1.55, color: '#334155' }}>
+                  {r.plain || r.note}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
