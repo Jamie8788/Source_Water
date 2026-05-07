@@ -9,8 +9,9 @@
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Marker, Popup, useMap } from 'react-leaflet'
 import MarkerClusterGroup from 'react-leaflet-cluster'
+import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
@@ -91,6 +92,90 @@ function getParamExplain(param) {
   const safe = formatQaRange(wr.qaSafe, wr.unit)
   if (safe) return `${emoji} ${wr.label} — Water Rangers QA "needs review" band: ${safe}.`
   return `${emoji} ${wr.label} — ${WR_NA}`
+}
+
+// Combo marker for coord groups holding multiple monitoring stations.
+// Renders a coloured disc with the count of overlapping sites — solves the
+// "cluster says 9, eye counts 8" mystery by surfacing the duplicate.
+function comboIcon(count, color) {
+  const html = `
+    <div style="
+      width: 30px; height: 30px; border-radius: 50%;
+      background: ${color}; color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 800; line-height: 1;
+      border: 2px solid #ffffff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.4);
+    ">+${count}</div>`
+  return L.divIcon({
+    html,
+    className: 'wr-combo-pin',
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+    popupAnchor: [0, -16],
+  })
+}
+
+// Single-site marker pulled out so the parent JSX stays readable.
+// Compare button is intentionally big + full-width because users were
+// missing the small inline pill. The button's label and colour reflect
+// the current compare state (no A picked → "Compare", A picked but not
+// this → "Compare with A", this is A or B → check + label).
+function SiteCircleMarker({ site, compareA, compareB, onSelect, onCompare }) {
+  const color = BODY_COLORS[site.water_body_type] || BODY_COLORS.other
+  const isA = compareA?.id === site.id
+  const isB = compareB?.id === site.id
+  const compareLabel = isA ? '✓ Comparing as Site A'
+    : isB ? '✓ Comparing as Site B'
+    : compareA && !compareB ? `Compare with ${compareA.name.slice(0, 22)}${compareA.name.length > 22 ? '…' : ''}`
+    : '⇄ Compare this site'
+  const compareBg = isA ? '#60a5fa'
+    : isB ? '#34d399'
+    : compareA && !compareB ? 'linear-gradient(135deg,#60a5fa,#3b82f6)'
+    : 'linear-gradient(135deg,#6366f1,#7c3aed)'
+  return (
+    <CircleMarker center={[parseFloat(site.latitude), parseFloat(site.longitude)]}
+      radius={isA || isB ? 8 : 5}
+      fillColor={color} color={isA ? '#60a5fa' : isB ? '#34d399' : color}
+      weight={isA || isB ? 2.5 : 1} opacity={0.9} fillOpacity={0.6}
+      eventHandlers={{ click: () => onSelect(site) }}>
+      <Popup maxWidth={340}>
+        <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+          <strong style={{ fontSize: 13 }}>{site.name}</strong><br />
+          <span style={{ color: '#666' }}>{BODY_LABELS[site.water_body_type] || site.water_body_type} · {site.country}</span><br />
+          {site.body_of_water && <span style={{ color: '#888' }}>{site.body_of_water}</span>}
+          {site.reference_photo_url && (
+            <img src={site.reference_photo_url} alt={site.name} style={{ width: '100%', borderRadius: 6, marginTop: 6, maxHeight: 120, objectFit: 'cover' }}
+              onError={e => e.target.style.display = 'none'} />
+          )}
+          {site.tested_parameters && (
+            <div style={{ marginTop: 4, fontSize: 11 }}>
+              <strong>What's monitored here:</strong><br />
+              {site.tested_parameters.slice(0, 5).map(p => getParamExplain(p)).join('\n')}
+              {site.tested_parameters.length > 5 && `\n+${site.tested_parameters.length - 5} more`}
+            </div>
+          )}
+          {/* Big, full-width Compare button — was too small as a pill */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onCompare(site) }}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              width: '100%', marginTop: 10, padding: '9px 12px',
+              borderRadius: 10, fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
+              background: compareBg, color: '#fff',
+              border: 'none', boxShadow: '0 4px 12px rgba(99,102,241,0.35)',
+              letterSpacing: '0.02em',
+            }}
+          >{compareLabel}</button>
+          {site.permalink && (
+            <a href={site.permalink} target="_blank" rel="noreferrer"
+              style={{ display: 'inline-block', marginTop: 6, color: '#6366f1', fontSize: 11, fontWeight: 600 }}
+            >View full record on Water Rangers ↗</a>
+          )}
+        </div>
+      </Popup>
+    </CircleMarker>
+  )
 }
 
 function FitBounds({ locations }) {
@@ -404,6 +489,25 @@ export default function WRMonitoringMap() {
   }, [allLocations, countryFilter, bodyFilter, paramFilter, searchText, activeOnly])
 
   const mappable = filtered.filter(l => l.latitude && l.longitude)
+
+  // WR sometimes has multiple monitoring stations sharing the EXACT same
+  // coordinates (one location, several monitoring programs). Without this
+  // grouping they'd render stacked at deep zoom — the cluster bubble would
+  // honestly say "9" and the user would only see 8 dots, which looks like
+  // a bug. Group by 5-decimal lat/lng key (~1 m precision) and render
+  // groups of size > 1 as a combo marker with a count badge.
+  const sitesByCoord = useMemo(() => {
+    const m = new Map()
+    for (const l of mappable) {
+      const lat = parseFloat(l.latitude)
+      const lng = parseFloat(l.longitude)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+      const k = `${lat.toFixed(5)}|${lng.toFixed(5)}`
+      if (!m.has(k)) m.set(k, { lat, lng, sites: [] })
+      m.get(k).sites.push(l)
+    }
+    return Array.from(m.values())
+  }, [mappable])
   const withPhotos = allLocations.filter(l => l.reference_photo_url).length
 
   // Country stats
@@ -623,6 +727,27 @@ export default function WRMonitoringMap() {
         )}
       </div>
 
+      {/* Compare banner — sticks to the top of the map when Site A is picked.
+          Without this, users missed that they were mid-comparison. */}
+      {compareA && !compareB && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+          padding: '10px 14px', marginBottom: 8, borderRadius: 10,
+          background: 'linear-gradient(135deg, rgba(96,165,250,0.18), rgba(99,102,241,0.18))',
+          border: '1px solid rgba(96,165,250,0.45)', color: '#dbeafe', fontSize: 12.5,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ background: '#60a5fa', color: '#fff', borderRadius: 999, padding: '3px 10px', fontWeight: 800, fontSize: 11 }}>SITE A</span>
+            <strong>{compareA.name}</strong>
+            <span style={{ color: '#94a3b8' }}>· now click any 2nd site's <strong style={{ color: '#fff' }}>Compare</strong> button to see them side-by-side</span>
+          </div>
+          <button onClick={clearCompare} style={{
+            padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)',
+            background: 'rgba(255,255,255,0.06)', color: '#cbd5e1', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+          }}>Cancel</button>
+        </div>
+      )}
+
       {/* Map — key changes on filter to force clean re-render */}
       <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)', height: 500, marginBottom: compareA ? 220 : 10, position: 'relative', cursor: toolMode === 'story' ? 'crosshair' : 'auto' }}
         key={`map-${countryFilter}-${bodyFilter}-${paramFilter}-${activeOnly}-${searchText}-${mappable.length}`}>
@@ -670,49 +795,58 @@ export default function WRMonitoringMap() {
               disableClusteringAtZoom={9}
               spiderfyOnMaxZoom={true}
             >
-              {mappable.map(loc => {
-                const color = BODY_COLORS[loc.water_body_type] || BODY_COLORS.other
-                const isCmpA = compareA?.id === loc.id
-                const isCmpB = compareB?.id === loc.id
+              {sitesByCoord.map(({ lat, lng, sites }) => {
+                if (sites.length === 1) {
+                  return <SiteCircleMarker
+                    key={sites[0].id} site={sites[0]}
+                    compareA={compareA} compareB={compareB}
+                    onSelect={setSelected} onCompare={pickForCompare}
+                  />
+                }
+                // Combo marker — multiple sites share these exact coords
+                const primary = sites[0]
+                const color = BODY_COLORS[primary.water_body_type] || BODY_COLORS.other
+                const containsCmpA = sites.some(s => s.id === compareA?.id)
+                const containsCmpB = sites.some(s => s.id === compareB?.id)
+                const ringColor = containsCmpA ? '#60a5fa' : containsCmpB ? '#34d399' : color
                 return (
-                  <CircleMarker key={loc.id} center={[parseFloat(loc.latitude), parseFloat(loc.longitude)]}
-                    radius={isCmpA || isCmpB ? 8 : 5}
-                    fillColor={color} color={isCmpA ? '#60a5fa' : isCmpB ? '#34d399' : color}
-                    weight={isCmpA || isCmpB ? 2.5 : 1} opacity={0.9} fillOpacity={0.6}
-                    eventHandlers={{ click: () => setSelected(loc) }}>
-                    <Popup maxWidth={340}>
-                      <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-                        <strong style={{ fontSize: 13 }}>{loc.name}</strong><br />
-                        <span style={{ color: '#666' }}>{BODY_LABELS[loc.water_body_type] || loc.water_body_type} · {loc.country}</span><br />
-                        {loc.body_of_water && <span style={{ color: '#888' }}>{loc.body_of_water}</span>}
-                        {loc.reference_photo_url && (
-                          <img src={loc.reference_photo_url} alt={loc.name} style={{ width: '100%', borderRadius: 6, marginTop: 6, maxHeight: 120, objectFit: 'cover' }}
-                            onError={e => e.target.style.display = 'none'} />
-                        )}
-                        {loc.tested_parameters && (
-                          <div style={{ marginTop: 4, fontSize: 11 }}>
-                            <strong>What's monitored here:</strong><br />
-                            {loc.tested_parameters.slice(0, 5).map(p => getParamExplain(p)).join('\n')}
-                            {loc.tested_parameters.length > 5 && `\n+${loc.tested_parameters.length - 5} more`}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); pickForCompare(loc) }}
-                            style={{
-                              display: 'inline-flex', alignItems: 'center', gap: 4,
-                              padding: '3px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                              background: isCmpA ? '#60a5fa' : isCmpB ? '#34d399' : 'rgba(96,165,250,0.15)',
-                              color: isCmpA || isCmpB ? '#fff' : '#1d4ed8',
-                              border: '1px solid ' + (isCmpA || isCmpB ? 'transparent' : 'rgba(96,165,250,0.45)'),
-                            }}>
-                            {isCmpA ? '✓ Comparing as A' : isCmpB ? '✓ Comparing as B' : compareA && !compareB ? 'Compare with A' : 'Compare'}
-                          </button>
-                          {loc.permalink && <a href={loc.permalink} target="_blank" rel="noreferrer" style={{ color: '#6366f1', fontSize: 11, alignSelf: 'center' }}>WR ↗</a>}
+                  <Marker key={`combo-${lat}-${lng}`} position={[lat, lng]}
+                    icon={comboIcon(sites.length, ringColor)}>
+                    <Popup maxWidth={360}>
+                      <div style={{ fontSize: 12, lineHeight: 1.45, minWidth: 240 }}>
+                        <strong style={{ fontSize: 13 }}>{sites.length} monitoring sites here</strong>
+                        <div style={{ color: '#666', fontSize: 11, marginBottom: 8 }}>
+                          Same coordinates · multiple programs · tap a site to open it
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 220, overflowY: 'auto' }}>
+                          {sites.map(s => {
+                            const c = BODY_COLORS[s.water_body_type] || BODY_COLORS.other
+                            const isA = compareA?.id === s.id
+                            const isB = compareB?.id === s.id
+                            return (
+                              <div key={s.id} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: 6, borderRadius: 6, background: '#f8fafc', border: '1px solid #e5e7eb' }}>
+                                <span style={{ width: 8, height: 8, borderRadius: 99, background: c, flexShrink: 0 }} />
+                                <button
+                                  onClick={() => setSelected(s)}
+                                  style={{ flex: 1, textAlign: 'left', background: 'none', border: 0, padding: 0, cursor: 'pointer', color: '#1f2937', fontSize: 12, fontWeight: 700 }}
+                                >{s.name}</button>
+                                <button
+                                  onClick={() => pickForCompare(s)}
+                                  title={isA ? 'Comparing as A' : isB ? 'Comparing as B' : compareA && !compareB ? 'Compare with A' : 'Compare'}
+                                  style={{
+                                    padding: '3px 8px', borderRadius: 999, fontSize: 10, fontWeight: 800, cursor: 'pointer',
+                                    background: isA ? '#60a5fa' : isB ? '#34d399' : '#dbeafe',
+                                    color: isA || isB ? '#fff' : '#1d4ed8',
+                                    border: '1px solid ' + (isA || isB ? 'transparent' : '#93c5fd'),
+                                  }}
+                                >{isA ? '✓ A' : isB ? '✓ B' : compareA && !compareB ? '+ B' : 'Compare'}</button>
+                              </div>
+                            )
+                          })}
                         </div>
                       </div>
                     </Popup>
-                  </CircleMarker>
+                  </Marker>
                 )
               })}
             </MarkerClusterGroup>

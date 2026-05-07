@@ -8,7 +8,7 @@
  * extra WR API calls beyond the per-site observation fetch the parent
  * already does for the deep-dive panel.
  */
-import { X, ArrowRight } from 'lucide-react'
+import { X, ArrowRight, ExternalLink, Calendar, Droplets, MapPin } from 'lucide-react'
 import { PARAM_META, PARAM_ORDER, classifyValue, latestValueFor, TONE_COLOR } from '../../utils/waterParams'
 
 function fmt(v, unit) {
@@ -89,13 +89,16 @@ export default function CompareDrawer({
       {siteA && siteB && (
         <div style={{ padding: '10px 14px 18px' }}>
           {loading && (
-            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>Loading observations…</div>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>Loading observations from Water Rangers…</div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr 1fr', gap: 8, alignItems: 'center', fontSize: 12 }}>
+          {/* Overall scoreboard — count of "safer" parameters per side */}
+          <Scoreboard siteA={siteA} siteB={siteB} obsA={obsA} obsB={obsB} />
+
+          <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr 1fr', gap: 8, alignItems: 'stretch', fontSize: 12 }}>
             <div />
-            <ColumnHeader site={siteA} accent="#60a5fa" />
-            <ColumnHeader site={siteB} accent="#34d399" />
+            <ColumnHeader site={siteA} accent="#60a5fa" obs={obsA} />
+            <ColumnHeader site={siteB} accent="#34d399" obs={obsB} />
 
             {PARAM_ORDER.map(pk => {
               const meta = PARAM_META[pk]
@@ -119,7 +122,8 @@ export default function CompareDrawer({
 
           <div style={{ marginTop: 12, fontSize: 11, color: '#94a3b8' }}>
             Highlighted column = sits in the safer SOURCE Water band for that parameter.
-            "—" means no recent reading from that site for that parameter.
+            Pulled live from the Water Rangers public API · readings are from each site's most recent observation.
+            "—" means no reading for that parameter at that site yet.
           </div>
         </div>
       )}
@@ -127,16 +131,91 @@ export default function CompareDrawer({
   )
 }
 
-function ColumnHeader({ site, accent }) {
+function ColumnHeader({ site, accent, obs }) {
+  // Pull useful metadata from the WR site object + the observations array
+  // so the header tells the user who/where/how-active without needing
+  // another tab.
+  const obsCount = Array.isArray(obs) ? obs.length : 0
+  const dates = (obs || []).map(o => o?.observed_at || o?.collected_at || o?.created_at).filter(Boolean)
+  const lastObs = dates.length ? new Date(dates.reduce((a, b) => new Date(a) > new Date(b) ? a : b)) : null
+  const firstObs = site.first_observation_at ? new Date(site.first_observation_at) : null
   return (
     <div style={{
-      padding: '6px 10px', borderRadius: 8,
+      padding: '8px 10px', borderRadius: 8,
       background: `${accent}14`, border: `1px solid ${accent}55`,
       color: '#fff',
     }}>
-      <div style={{ fontWeight: 800, fontSize: 12.5, lineHeight: 1.2 }}>{site.name}</div>
-      <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 2 }}>
-        {site.country || '—'}{site.body_of_water ? ` · ${site.body_of_water}` : ''}
+      <div style={{ fontWeight: 800, fontSize: 13, lineHeight: 1.25, color: '#fff' }}>{site.name}</div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, fontSize: 10.5, color: '#cbd5e1' }}>
+        {site.country && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <MapPin size={10}/> {site.country}
+          </span>
+        )}
+        {site.body_of_water && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Droplets size={10}/> {site.body_of_water}
+          </span>
+        )}
+        {firstObs && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} title="First observation on file">
+            <Calendar size={10}/> Since {firstObs.getFullYear()}
+          </span>
+        )}
+      </div>
+
+      <div style={{ marginTop: 6, display: 'flex', gap: 4, alignItems: 'center', fontSize: 10.5 }}>
+        <span style={{ padding: '1px 7px', borderRadius: 999, background: `${accent}33`, color: '#fff', fontWeight: 700 }}>
+          {obsCount} obs
+        </span>
+        {lastObs && (
+          <span style={{ color: '#cbd5e1' }}>· last {lastObs.toLocaleDateString()}</span>
+        )}
+        {site.permalink && (
+          <a href={site.permalink} target="_blank" rel="noreferrer"
+            style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 3, color: '#a5b4fc', fontWeight: 700, textDecoration: 'none' }}>
+            WR <ExternalLink size={10}/>
+          </a>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Scoreboard — at-a-glance summary of "who's safer on more parameters"
+function Scoreboard({ siteA, siteB, obsA, obsB }) {
+  let scoreA = 0, scoreB = 0, comparable = 0
+  PARAM_ORDER.forEach(pk => {
+    const a = latestValueFor(pk, obsA || [])
+    const b = latestValueFor(pk, obsB || [])
+    if (!a || !b) return
+    comparable++
+    const ca = classifyValue(pk, a.value)
+    const cb = classifyValue(pk, b.value)
+    const order = { safe: 3, warning: 2, critical: 1, unknown: 0 }
+    const ta = order[ca?.tone] ?? 0, tb = order[cb?.tone] ?? 0
+    if (ta > tb) scoreA++
+    else if (tb > ta) scoreB++
+  })
+  if (comparable === 0) return null
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+      padding: '8px 12px', marginBottom: 10, borderRadius: 8,
+      background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 800 }}>
+        <span style={{ color: '#60a5fa' }}>{siteA.name}</span>
+        <span style={{ color: '#fff', background: '#60a5fa', padding: '2px 10px', borderRadius: 999, fontSize: 12 }}>{scoreA}</span>
+        <span style={{ color: '#94a3b8', fontSize: 11 }}>vs</span>
+        <span style={{ color: '#fff', background: '#34d399', padding: '2px 10px', borderRadius: 999, fontSize: 12 }}>{scoreB}</span>
+        <span style={{ color: '#34d399' }}>{siteB.name}</span>
+      </div>
+      <div style={{ fontSize: 11, color: '#94a3b8' }}>
+        {scoreA === scoreB
+          ? `Even — ${comparable} parameters comparable`
+          : `${scoreA > scoreB ? siteA.name : siteB.name} is in the safer band on ${Math.max(scoreA, scoreB)} of ${comparable}`}
       </div>
     </div>
   )
