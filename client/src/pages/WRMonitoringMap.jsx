@@ -10,10 +10,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
+import MarkerClusterGroup from 'react-leaflet-cluster'
 import 'leaflet/dist/leaflet.css'
+import 'leaflet.markercluster/dist/MarkerCluster.css'
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import {
   MapPin, RefreshCw, AlertTriangle, X, Download, Filter,
   ExternalLink, Search, Globe, Droplets, Camera, Activity, ChevronRight, Sparkles,
+  Layers, Flame, MessageSquare, GitCompare, Map as MapIcon, Sun, Moon, Mountain,
 } from 'lucide-react'
 import { getAllLocations, getLocations, getLocationObservations } from '../api/waterRangers'
 import { matchParam } from '../utils/waterParams'
@@ -22,6 +26,9 @@ import ParameterDeepDive from '../components/ParameterDeepDive'
 import { useAuth } from '../context/AuthContext'
 import api from '../utils/api'
 import { MapToolsLayer, MapToolsToolbar, WaypointModal } from '../components/MapTools'
+import HeatLayer from '../components/map/HeatLayer'
+import StoryLayer, { MapClickCatcher, StoryModal, VIBES } from '../components/map/StoryLayer'
+import CompareDrawer from '../components/map/CompareDrawer'
 
 // Color by water body type
 const BODY_COLORS = {
@@ -46,6 +53,15 @@ const KNOWN_BODY_TYPES = new Set([
   'river_or_stream','lake','pond','wetland','ocean','estuary',
   'canal','reservoir','spring','channelized_stream','ditch',
 ])
+
+// Tile-layer themes for the map. Pure swap — Water Rangers data flows
+// through the same `mappable` array regardless of which basemap is shown.
+const THEME_LAYERS = {
+  dark:      { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',  attribution: '&copy; <a href="https://carto.com/">CARTO</a>',     icon: Moon,     label: 'Dark' },
+  light:     { url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attribution: '&copy; <a href="https://carto.com/">CARTO</a>',     icon: Sun,      label: 'Light' },
+  satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri', icon: MapIcon,  label: 'Satellite' },
+  topo:      { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attribution: '&copy; OpenTopoMap (CC-BY-SA)', icon: Mountain, label: 'Topo' },
+}
 
 // Decorative emoji prefixes per parameter category. The descriptive text
 // after the emoji is pulled from Water Rangers — never invented.
@@ -99,7 +115,7 @@ export default function WRMonitoringMap() {
   const [showFilters, setShowFilters] = useState(false)
 
   // ── Map tools (additive overlay — never touches WR data) ──
-  const [toolMode, setToolMode] = useState('off')           // 'off' | 'measure' | 'waypoint'
+  const [toolMode, setToolMode] = useState('off')           // 'off' | 'measure' | 'waypoint' | 'story'
   const [measurePoints, setMeasurePoints] = useState([])
   const [measureClosed, setMeasureClosed] = useState(false)
   const [waypoints, setWaypoints] = useState([])
@@ -107,6 +123,124 @@ export default function WRMonitoringMap() {
   const [wpModal, setWpModal] = useState({ open: false, mode: 'create', latlng: null, initial: null })
   const [wpBusy, setWpBusy] = useState(false)
   const [wpError, setWpError] = useState(null)
+
+  // ── Visualization controls (additive — purely client-side, no API impact) ──
+  const [theme, setTheme]           = useState('dark')        // dark | light | satellite | topo
+  const [viewMode, setViewMode]     = useState('dots')        // dots | heat
+  const [storiesVisible, setStoriesVisible] = useState(true)
+  const [stories, setStories]       = useState([])
+  const [storyModal, setStoryModal] = useState({ open: false, mode: 'create', latlng: null, initial: null })
+  const [storyBusy, setStoryBusy]   = useState(false)
+  const [storyError, setStoryError] = useState(null)
+
+  // ── Compare two sites side-by-side (Stories never trigger this) ──
+  const [compareA, setCompareA] = useState(null)
+  const [compareB, setCompareB] = useState(null)
+  const [obsA, setObsA] = useState([])
+  const [obsB, setObsB] = useState([])
+  const [obsCmpLoading, setObsCmpLoading] = useState(false)
+
+  // Load community stories — globally visible to all signed-in users
+  useEffect(() => {
+    if (!isAuthed) { setStories([]); return }
+    let cancelled = false
+    api.get('/map-stories')
+      .then(r => { if (!cancelled) setStories(r.data?.stories || []) })
+      .catch(() => { /* silent — story layer is optional */ })
+    return () => { cancelled = true }
+  }, [isAuthed])
+
+  const openCreateStory = (latlng) => {
+    if (!isAuthed) return
+    setStoryError(null)
+    setStoryModal({ open: true, mode: 'create', latlng, initial: null })
+  }
+  const openEditStory = (s) => {
+    setStoryError(null)
+    setStoryModal({ open: true, mode: 'edit', latlng: { lat: s.latitude, lng: s.longitude }, initial: s })
+  }
+  const closeStoryModal = () => { if (!storyBusy) setStoryModal({ open: false, mode: 'create', latlng: null, initial: null }) }
+  const saveStory = async (form) => {
+    setStoryBusy(true); setStoryError(null)
+    try {
+      if (storyModal.mode === 'edit' && storyModal.initial) {
+        const r = await api.put(`/map-stories/${storyModal.initial.id}`, form)
+        const updated = r.data?.story
+        setStories(list => list.map(s => s.id === updated.id ? updated : s))
+      } else {
+        const payload = { ...form, latitude: storyModal.latlng.lat, longitude: storyModal.latlng.lng }
+        const r = await api.post('/map-stories', payload)
+        const created = r.data?.story
+        setStories(list => [created, ...list])
+        setToolMode('off')
+      }
+      setStoryModal({ open: false, mode: 'create', latlng: null, initial: null })
+    } catch (e) {
+      setStoryError(e?.response?.data?.error || e?.message || 'Could not save story')
+    } finally { setStoryBusy(false) }
+  }
+  const deleteStory = async (s) => {
+    if (!confirm('Delete this story for everyone?')) return
+    try {
+      await api.delete(`/map-stories/${s.id}`)
+      setStories(list => list.filter(x => x.id !== s.id))
+    } catch (e) {
+      alert(e?.response?.data?.error || e?.message || 'Could not delete story')
+    }
+  }
+
+  // Esc cancels story-drop mode so the user is never trapped in cross-hair mode.
+  useEffect(() => {
+    if (toolMode !== 'story') return
+    const onKey = (e) => { if (e.key === 'Escape') setToolMode('off') }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [toolMode])
+
+  // Compare flow — pick A from a popup, then B; we fetch B's observations on demand.
+  // A's observations are already loaded by the deep-dive flow when A is the
+  // currently-selected site, but we re-fetch defensively so Compare works
+  // even if A was picked without ever opening the deep-dive panel.
+  const pickForCompare = useCallback(async (loc) => {
+    if (!compareA) {
+      setCompareA(loc); setCompareB(null); setObsA([]); setObsB([])
+      setObsCmpLoading(true)
+      try {
+        const data = await getLocationObservations(loc.id, { perPage: 200 })
+        const items = Array.isArray(data?.observations) ? data.observations
+          : Array.isArray(data) ? data
+          : Array.isArray(data?.data) ? data.data : []
+        setObsA(items)
+      } catch { setObsA([]) }
+      finally { setObsCmpLoading(false) }
+      return
+    }
+    if (compareA && !compareB && loc.id !== compareA.id) {
+      setCompareB(loc)
+      setObsCmpLoading(true)
+      try {
+        const data = await getLocationObservations(loc.id, { perPage: 200 })
+        const items = Array.isArray(data?.observations) ? data.observations
+          : Array.isArray(data) ? data
+          : Array.isArray(data?.data) ? data.data : []
+        setObsB(items)
+      } catch { setObsB([]) }
+      finally { setObsCmpLoading(false) }
+      return
+    }
+    // Already comparing two — re-anchor: this becomes the new A, clear B.
+    setCompareA(loc); setCompareB(null); setObsB([])
+    setObsCmpLoading(true)
+    try {
+      const data = await getLocationObservations(loc.id, { perPage: 200 })
+      const items = Array.isArray(data?.observations) ? data.observations
+        : Array.isArray(data) ? data
+        : Array.isArray(data?.data) ? data.data : []
+      setObsA(items)
+    } catch { setObsA([]) }
+    finally { setObsCmpLoading(false) }
+  }, [compareA, compareB])
+  const clearCompare = () => { setCompareA(null); setCompareB(null); setObsA([]); setObsB([]) }
 
   // Load this user's personal waypoints (scoped server-side by user_id)
   useEffect(() => {
@@ -423,18 +557,90 @@ export default function WRMonitoringMap() {
         </div>
       )}
 
+      {/* Visualization controls — additive, never affect WR data flow */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+        {/* Theme switcher */}
+        <div style={{ display: 'flex', gap: 4, padding: 3, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          {Object.entries(THEME_LAYERS).map(([k, v]) => {
+            const Ic = v.icon
+            const active = theme === k
+            return (
+              <button key={k} onClick={() => setTheme(k)} title={`Theme: ${v.label}`} style={{
+                display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px',
+                fontSize: 10, fontWeight: 700, borderRadius: 5,
+                background: active ? 'rgba(99,102,241,.18)' : 'transparent',
+                color: active ? '#a78bfa' : 'var(--text-muted)',
+                border: '1px solid ' + (active ? 'rgba(99,102,241,.45)' : 'transparent'),
+                cursor: 'pointer',
+              }}><Ic size={11}/> {v.label}</button>
+            )
+          })}
+        </div>
+
+        {/* View mode: dots vs heatmap */}
+        <div style={{ display: 'flex', gap: 4, padding: 3, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <button onClick={() => setViewMode('dots')} title="Show individual sites as dots (clustered when zoomed out)" style={{
+            display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5,
+            background: viewMode === 'dots' ? 'rgba(99,102,241,.18)' : 'transparent',
+            color: viewMode === 'dots' ? '#a78bfa' : 'var(--text-muted)',
+            border: '1px solid ' + (viewMode === 'dots' ? 'rgba(99,102,241,.45)' : 'transparent'), cursor: 'pointer',
+          }}><Layers size={11}/> Dots</button>
+          <button onClick={() => setViewMode('heat')} title="Show monitoring density as a heatmap" style={{
+            display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5,
+            background: viewMode === 'heat' ? 'rgba(239,68,68,.18)' : 'transparent',
+            color: viewMode === 'heat' ? '#fca5a5' : 'var(--text-muted)',
+            border: '1px solid ' + (viewMode === 'heat' ? 'rgba(239,68,68,.45)' : 'transparent'), cursor: 'pointer',
+          }}><Flame size={11}/> Heatmap</button>
+        </div>
+
+        {/* Stories layer toggle + drop-mode */}
+        <div style={{ display: 'flex', gap: 4, padding: 3, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <button onClick={() => setStoriesVisible(v => !v)} title="Toggle community story pins" style={{
+            display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5,
+            background: storiesVisible ? 'rgba(167,139,250,.18)' : 'transparent',
+            color: storiesVisible ? '#c4b5fd' : 'var(--text-muted)',
+            border: '1px solid ' + (storiesVisible ? 'rgba(167,139,250,.45)' : 'transparent'), cursor: 'pointer',
+          }}><MessageSquare size={11}/> Stories ({stories.length})</button>
+          {isAuthed && (
+            <button
+              onClick={() => setToolMode(m => m === 'story' ? 'off' : 'story')}
+              title="Click anywhere on the map to drop a story"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5,
+                background: toolMode === 'story' ? 'rgba(34,197,94,.22)' : 'transparent',
+                color: toolMode === 'story' ? '#86efac' : 'var(--text-muted)',
+                border: '1px solid ' + (toolMode === 'story' ? 'rgba(34,197,94,.5)' : 'transparent'), cursor: 'pointer',
+              }}
+            >＋ Drop a story</button>
+          )}
+        </div>
+
+        {compareA && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 8, background: 'rgba(96,165,250,.10)', color: '#60a5fa', border: '1px solid rgba(96,165,250,.3)' }}>
+            <GitCompare size={11}/> Comparing: {compareA.name}{compareB ? ` ↔ ${compareB.name}` : ' (pick a 2nd)'}
+            <button onClick={clearCompare} style={{ marginLeft: 4, background: 'none', border: 'none', color: '#60a5fa', cursor: 'pointer', display: 'flex' }}><X size={11}/></button>
+          </div>
+        )}
+      </div>
+
       {/* Map — key changes on filter to force clean re-render */}
-      <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)', height: 500, marginBottom: 10, position: 'relative' }}
+      <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)', height: 500, marginBottom: compareA ? 220 : 10, position: 'relative', cursor: toolMode === 'story' ? 'crosshair' : 'auto' }}
         key={`map-${countryFilter}-${bodyFilter}-${paramFilter}-${activeOnly}-${searchText}-${mappable.length}`}>
         {loading && (
           <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 1000, background: 'rgba(0,0,0,.8)', color: 'white', padding: '8px 16px', borderRadius: 10, fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, maxWidth: 340, textAlign: 'center' }}>
             <RefreshCw size={12} className="animate-spin" /> {loadMsg || `Loading ${allLocations.length.toLocaleString()} sites...`}
           </div>
         )}
+        {toolMode === 'story' && (
+          <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 1000, background: 'rgba(34,197,94,.95)', color: 'white', padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700 }}>
+            Click anywhere on the map to drop a story · Esc to cancel
+          </div>
+        )}
         <MapContainer center={[45, -40]} zoom={3} style={{ height: '100%', width: '100%' }} scrollWheelZoom={true} preferCanvas={true}>
           <TileLayer
-            attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            key={theme}
+            attribution={THEME_LAYERS[theme].attribution}
+            url={THEME_LAYERS[theme].url}
           />
           <FitBounds locations={mappable} />
           <MapToolsLayer
@@ -447,34 +653,81 @@ export default function WRMonitoringMap() {
             onWaypointEdit={openEditWaypoint}
             onWaypointDelete={deleteWaypoint}
           />
-          {mappable.map(loc => {
-            const color = BODY_COLORS[loc.water_body_type] || BODY_COLORS.other
-            return (
-              <CircleMarker key={loc.id} center={[parseFloat(loc.latitude), parseFloat(loc.longitude)]}
-                radius={5} fillColor={color} color={color} weight={1} opacity={0.8} fillOpacity={0.6}
-                eventHandlers={{ click: () => setSelected(loc) }}>
-                <Popup maxWidth={340}>
-                  <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-                    <strong style={{ fontSize: 13 }}>{loc.name}</strong><br />
-                    <span style={{ color: '#666' }}>{BODY_LABELS[loc.water_body_type] || loc.water_body_type} · {loc.country}</span><br />
-                    {loc.body_of_water && <span style={{ color: '#888' }}>{loc.body_of_water}</span>}
-                    {loc.reference_photo_url && (
-                      <img src={loc.reference_photo_url} alt={loc.name} style={{ width: '100%', borderRadius: 6, marginTop: 6, maxHeight: 120, objectFit: 'cover' }}
-                        onError={e => e.target.style.display = 'none'} />
-                    )}
-                    {loc.tested_parameters && (
-                      <div style={{ marginTop: 4, fontSize: 11 }}>
-                        <strong>What's monitored here:</strong><br />
-                        {loc.tested_parameters.slice(0, 5).map(p => getParamExplain(p)).join('\n')}
-                        {loc.tested_parameters.length > 5 && `\n+${loc.tested_parameters.length - 5} more`}
+
+          {/* Click-to-drop story (separate from MapToolsLayer's waypoint mode) */}
+          <MapClickCatcher enabled={toolMode === 'story'} onMapClick={openCreateStory} />
+
+          {/* WR sites — heatmap OR clustered dots, never both at once */}
+          {viewMode === 'heat' ? (
+            <HeatLayer
+              points={mappable.map(l => ({ lat: parseFloat(l.latitude), lng: parseFloat(l.longitude), intensity: 0.6 }))}
+            />
+          ) : (
+            <MarkerClusterGroup
+              chunkedLoading
+              maxClusterRadius={55}
+              showCoverageOnHover={false}
+              disableClusteringAtZoom={9}
+              spiderfyOnMaxZoom={true}
+            >
+              {mappable.map(loc => {
+                const color = BODY_COLORS[loc.water_body_type] || BODY_COLORS.other
+                const isCmpA = compareA?.id === loc.id
+                const isCmpB = compareB?.id === loc.id
+                return (
+                  <CircleMarker key={loc.id} center={[parseFloat(loc.latitude), parseFloat(loc.longitude)]}
+                    radius={isCmpA || isCmpB ? 8 : 5}
+                    fillColor={color} color={isCmpA ? '#60a5fa' : isCmpB ? '#34d399' : color}
+                    weight={isCmpA || isCmpB ? 2.5 : 1} opacity={0.9} fillOpacity={0.6}
+                    eventHandlers={{ click: () => setSelected(loc) }}>
+                    <Popup maxWidth={340}>
+                      <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+                        <strong style={{ fontSize: 13 }}>{loc.name}</strong><br />
+                        <span style={{ color: '#666' }}>{BODY_LABELS[loc.water_body_type] || loc.water_body_type} · {loc.country}</span><br />
+                        {loc.body_of_water && <span style={{ color: '#888' }}>{loc.body_of_water}</span>}
+                        {loc.reference_photo_url && (
+                          <img src={loc.reference_photo_url} alt={loc.name} style={{ width: '100%', borderRadius: 6, marginTop: 6, maxHeight: 120, objectFit: 'cover' }}
+                            onError={e => e.target.style.display = 'none'} />
+                        )}
+                        {loc.tested_parameters && (
+                          <div style={{ marginTop: 4, fontSize: 11 }}>
+                            <strong>What's monitored here:</strong><br />
+                            {loc.tested_parameters.slice(0, 5).map(p => getParamExplain(p)).join('\n')}
+                            {loc.tested_parameters.length > 5 && `\n+${loc.tested_parameters.length - 5} more`}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); pickForCompare(loc) }}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                              padding: '3px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                              background: isCmpA ? '#60a5fa' : isCmpB ? '#34d399' : 'rgba(96,165,250,0.15)',
+                              color: isCmpA || isCmpB ? '#fff' : '#1d4ed8',
+                              border: '1px solid ' + (isCmpA || isCmpB ? 'transparent' : 'rgba(96,165,250,0.45)'),
+                            }}>
+                            {isCmpA ? '✓ Comparing as A' : isCmpB ? '✓ Comparing as B' : compareA && !compareB ? 'Compare with A' : 'Compare'}
+                          </button>
+                          {loc.permalink && <a href={loc.permalink} target="_blank" rel="noreferrer" style={{ color: '#6366f1', fontSize: 11, alignSelf: 'center' }}>WR ↗</a>}
+                        </div>
                       </div>
-                    )}
-                    {loc.permalink && <a href={loc.permalink} target="_blank" rel="noreferrer" style={{ color: '#6366f1', fontSize: 11, display: 'block', marginTop: 4 }}>View on Water Rangers ↗</a>}
-                  </div>
-                </Popup>
-              </CircleMarker>
-            )
-          })}
+                    </Popup>
+                  </CircleMarker>
+                )
+              })}
+            </MarkerClusterGroup>
+          )}
+
+          {/* Community stories — globally visible, additive */}
+          {storiesVisible && stories.length > 0 && (
+            <StoryLayer
+              stories={stories}
+              currentUserId={user?.id}
+              isAdmin={!!user?.is_admin}
+              onEdit={openEditStory}
+              onDelete={deleteStory}
+            />
+          )}
         </MapContainer>
         <MapToolsToolbar
           mode={toolMode} setMode={setToolMode}
@@ -484,6 +737,25 @@ export default function WRMonitoringMap() {
           isAuthed={isAuthed}
         />
       </div>
+
+      <CompareDrawer
+        siteA={compareA} siteB={compareB}
+        obsA={obsA} obsB={obsB}
+        loading={obsCmpLoading}
+        onClose={clearCompare}
+        onClear={clearCompare}
+        onPickB={() => { setCompareA(null); setCompareB(null); setObsA([]); setObsB([]) }}
+      />
+      <StoryModal
+        open={storyModal.open}
+        mode={storyModal.mode}
+        latlng={storyModal.latlng}
+        initial={storyModal.initial}
+        onClose={closeStoryModal}
+        onSave={saveStory}
+        busy={storyBusy}
+        error={storyError}
+      />
 
       <WaypointModal
         open={wpModal.open}

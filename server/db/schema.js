@@ -457,6 +457,24 @@ async function initSchema() {
         updated_at TIMESTAMPTZ DEFAULT NOW()
       )`,
       `CREATE INDEX IF NOT EXISTS idx_waypoints_user ON waypoints(user_id)`,
+      // Community stories layer for the Monitoring Map. Globally visible to
+      // all signed-in users (NOT scoped per-user like waypoints) — this is
+      // the layer that differentiates SOURCE Water from Water Rangers' map:
+      // WR shows scientific monitoring, we add community context on top.
+      // Text-only by design (no photos) to keep moderation simple and
+      // payloads small.
+      `CREATE TABLE IF NOT EXISTS map_stories (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        latitude REAL NOT NULL,
+        longitude REAL NOT NULL,
+        vibe TEXT NOT NULL DEFAULT 'curious',
+        text TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_map_stories_user ON map_stories(user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_map_stories_created ON map_stories(created_at DESC)`,
     ]
     for (const m of migrations) {
       await db.exec(m).catch(() => {}) // ignore if already exists
@@ -966,6 +984,19 @@ async function initSchema() {
         updated_at TEXT DEFAULT (datetime('now'))
       )`,
       `CREATE INDEX IF NOT EXISTS idx_waypoints_user ON waypoints(user_id)`,
+      // Community map_stories — see PG migration above for rationale.
+      `CREATE TABLE IF NOT EXISTS map_stories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        latitude REAL NOT NULL,
+        longitude REAL NOT NULL,
+        vibe TEXT NOT NULL DEFAULT 'curious',
+        text TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_map_stories_user ON map_stories(user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_map_stories_created ON map_stories(created_at DESC)`,
     ]
     for (const m of sqliteMigrations) {
       try { db.sqlite.exec(m) } catch (_) {} // ignore "duplicate column" errors

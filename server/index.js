@@ -98,6 +98,7 @@ app.use('/api/geoai',          require('./routes/geoai'))  // 🌍 GeoAI — iso
 app.use('/api/wr',             require('./routes/waterrangers'))  // Water Rangers API proxy
 app.use('/api/alert-watches',  require('./routes/alert-watches')) // user-defined threshold rules
 app.use('/api/waypoints',      require('./routes/waypoints'))     // per-user field pins on the map
+app.use('/api/map-stories',    require('./routes/mapStories'))    // shared community-context layer on the map
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }))
