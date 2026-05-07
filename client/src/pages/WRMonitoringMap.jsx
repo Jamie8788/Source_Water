@@ -933,10 +933,38 @@ export default function WRMonitoringMap() {
             background: 'var(--card-bg, #1e1e2e)', border: '1px solid var(--border)',
             borderRadius: 14, padding: 20, maxWidth: 520, width: '92%', maxHeight: '85vh', overflowY: 'auto',
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-              <h2 style={{ color: 'var(--text)', fontSize: 16, fontWeight: 900, margin: 0 }}>{selected.name}</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 10 }}>
+              <h2 style={{ color: 'var(--text)', fontSize: 16, fontWeight: 900, margin: 0, flex: 1 }}>{selected.name}</h2>
               <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={16} /></button>
             </div>
+
+            {/* Compare button — reachable straight from the detail modal so the
+                user doesn't have to navigate back through a popup to start
+                or finish a comparison. State-aware label mirrors the popup's. */}
+            {(() => {
+              const isA = compareA?.id === selected.id
+              const isB = compareB?.id === selected.id
+              const label = isA ? '✓ Comparing as Site A'
+                : isB ? '✓ Comparing as Site B'
+                : compareA && !compareB ? `Compare with ${compareA.name.length > 28 ? compareA.name.slice(0, 28) + '…' : compareA.name}`
+                : '⇄ Compare this site with another'
+              const bg = isA ? '#60a5fa'
+                : isB ? '#34d399'
+                : compareA && !compareB ? 'linear-gradient(135deg,#60a5fa,#3b82f6)'
+                : 'linear-gradient(135deg,#6366f1,#7c3aed)'
+              return (
+                <button
+                  onClick={() => pickForCompare(selected)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    width: '100%', marginBottom: 12, padding: '10px 14px',
+                    borderRadius: 10, fontSize: 13, fontWeight: 800, cursor: 'pointer',
+                    background: bg, color: '#fff', border: 'none',
+                    boxShadow: '0 4px 14px rgba(99,102,241,0.35)', letterSpacing: '0.02em',
+                  }}
+                >{label}</button>
+              )
+            })()}
 
             {selected.reference_photo_url && (
               <img src={selected.reference_photo_url} alt={selected.name}
