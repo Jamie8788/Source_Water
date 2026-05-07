@@ -14,7 +14,7 @@
  * where labels truncated to "y" / "ivity" / "mperature").
  */
 import { useMemo } from 'react'
-import { X, ArrowRight, ExternalLink, Calendar, Droplets, MapPin } from 'lucide-react'
+import { X, ArrowRight, ExternalLink, Calendar, Droplets, MapPin, Sparkles, Maximize2 } from 'lucide-react'
 import { PARAM_META, classifyValue, latestValueFor, matchParam, TONE_COLOR } from '../../utils/waterParams'
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -82,6 +82,7 @@ export default function CompareDrawer({
   siteA, siteB,
   obsA, obsB,
   onClose, onClear, onPickB,
+  onOpenDeepDive,
   loading,
 }) {
   // Compute the union of WR parameter names across both sites' observations.
@@ -177,6 +178,27 @@ export default function CompareDrawer({
           <div style={{ padding: '10px 14px 18px', minWidth: 720 }}>
             {loading && (
               <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>Loading observations from Water Rangers…</div>
+            )}
+
+            {/* Big launch button — opens the full-screen deep-dive
+                comparison with overlay charts + stats per side. The
+                drawer below stays available as a quick scan. */}
+            {onOpenDeepDive && (
+              <button
+                onClick={onOpenDeepDive}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  width: '100%', padding: '12px 16px', marginBottom: 12,
+                  borderRadius: 12, fontSize: 13.5, fontWeight: 800, cursor: 'pointer',
+                  background: 'linear-gradient(135deg, #6366f1 0%, #7c3aed 50%, #ec4899 100%)',
+                  color: '#fff', border: 'none', letterSpacing: '0.02em',
+                  boxShadow: '0 6px 18px rgba(124, 58, 237, 0.45)',
+                }}
+              >
+                <Sparkles size={14}/>
+                Open Full Deep-Dive Comparison — charts, bands, stats per parameter
+                <Maximize2 size={14}/>
+              </button>
             )}
 
             {/* Scoreboard + headers */}

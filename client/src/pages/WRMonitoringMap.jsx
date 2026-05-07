@@ -30,6 +30,7 @@ import { MapToolsLayer, MapToolsToolbar, WaypointModal } from '../components/Map
 import HeatLayer from '../components/map/HeatLayer'
 import StoryLayer, { MapClickCatcher, StoryModal, VIBES } from '../components/map/StoryLayer'
 import CompareDrawer from '../components/map/CompareDrawer'
+import CompareDeepDive from '../components/map/CompareDeepDive'
 
 // Color by water body type
 const BODY_COLORS = {
@@ -224,6 +225,7 @@ export default function WRMonitoringMap() {
   const [obsA, setObsA] = useState([])
   const [obsB, setObsB] = useState([])
   const [obsCmpLoading, setObsCmpLoading] = useState(false)
+  const [deepDiveOpen, setDeepDiveOpen] = useState(false)
 
   // Load community stories — globally visible to all signed-in users
   useEffect(() => {
@@ -325,7 +327,7 @@ export default function WRMonitoringMap() {
     } catch { setObsA([]) }
     finally { setObsCmpLoading(false) }
   }, [compareA, compareB])
-  const clearCompare = () => { setCompareA(null); setCompareB(null); setObsA([]); setObsB([]) }
+  const clearCompare = () => { setCompareA(null); setCompareB(null); setObsA([]); setObsB([]); setDeepDiveOpen(false) }
 
   // Load this user's personal waypoints (scoped server-side by user_id)
   useEffect(() => {
@@ -879,6 +881,14 @@ export default function WRMonitoringMap() {
         onClose={clearCompare}
         onClear={clearCompare}
         onPickB={() => { setCompareA(null); setCompareB(null); setObsA([]); setObsB([]) }}
+        onOpenDeepDive={() => setDeepDiveOpen(true)}
+      />
+      <CompareDeepDive
+        open={deepDiveOpen && !!compareA && !!compareB}
+        siteA={compareA} siteB={compareB}
+        obsA={obsA} obsB={obsB}
+        loading={obsCmpLoading}
+        onClose={() => setDeepDiveOpen(false)}
       />
       <StoryModal
         open={storyModal.open}
