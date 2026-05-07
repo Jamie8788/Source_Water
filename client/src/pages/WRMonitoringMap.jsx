@@ -313,6 +313,11 @@ export default function WRMonitoringMap() {
         setObsB(items)
       } catch { setObsB([]) }
       finally { setObsCmpLoading(false) }
+      // Auto-open the full-screen deep-dive the moment the 2nd site is
+      // locked in. The bottom drawer was getting buried under WR popups
+      // + scoreboard so users couldn't find the launch button.
+      setSelected(null)            // close any open site detail modal
+      setDeepDiveOpen(true)
       return
     }
     // Already comparing two — re-anchor: this becomes the new A, clear B.
@@ -820,26 +825,42 @@ export default function WRMonitoringMap() {
                         <div style={{ color: '#666', fontSize: 11, marginBottom: 8 }}>
                           Same coordinates · multiple programs · tap a site to open it
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 220, overflowY: 'auto' }}>
-                          {sites.map(s => {
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 260, overflowY: 'auto' }}>
+                          {sites.map((s, idx) => {
                             const c = BODY_COLORS[s.water_body_type] || BODY_COLORS.other
                             const isA = compareA?.id === s.id
                             const isB = compareB?.id === s.id
+                            // WR sometimes lists sites with the same name at the same
+                            // coords (different programs / kits). Surface what makes
+                            // each one unique so the user can tell them apart.
+                            const lastObs = s.last_observation_at ? new Date(s.last_observation_at).toLocaleDateString() : null
+                            const paramCount = Array.isArray(s.tested_parameters) ? s.tested_parameters.length : 0
+                            const subBits = []
+                            if (paramCount) subBits.push(`${paramCount} param${paramCount !== 1 ? 's' : ''}`)
+                            if (lastObs) subBits.push(`last ${lastObs}`)
+                            else subBits.push('no observations yet')
+                            subBits.push(`#${String(s.id).slice(-5)}`)
                             return (
-                              <div key={s.id} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: 6, borderRadius: 6, background: '#f8fafc', border: '1px solid #e5e7eb' }}>
-                                <span style={{ width: 8, height: 8, borderRadius: 99, background: c, flexShrink: 0 }} />
+                              <div key={s.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: 8, borderRadius: 8, background: isA || isB ? '#eff6ff' : '#f8fafc', border: '1px solid ' + (isA ? '#60a5fa' : isB ? '#34d399' : '#e5e7eb') }}>
+                                <span style={{ width: 8, height: 8, borderRadius: 99, background: c, flexShrink: 0, marginTop: 5 }} />
                                 <button
                                   onClick={() => setSelected(s)}
-                                  style={{ flex: 1, textAlign: 'left', background: 'none', border: 0, padding: 0, cursor: 'pointer', color: '#1f2937', fontSize: 12, fontWeight: 700 }}
-                                >{s.name}</button>
+                                  style={{ flex: 1, textAlign: 'left', background: 'none', border: 0, padding: 0, cursor: 'pointer', color: '#1f2937', fontSize: 12, fontWeight: 700, lineHeight: 1.3 }}
+                                >
+                                  <div style={{ marginBottom: 3 }}>{s.name}</div>
+                                  <div style={{ fontSize: 10, fontWeight: 500, color: '#64748b' }}>
+                                    {subBits.join(' · ')}
+                                  </div>
+                                </button>
                                 <button
                                   onClick={() => pickForCompare(s)}
                                   title={isA ? 'Comparing as A' : isB ? 'Comparing as B' : compareA && !compareB ? 'Compare with A' : 'Compare'}
                                   style={{
-                                    padding: '3px 8px', borderRadius: 999, fontSize: 10, fontWeight: 800, cursor: 'pointer',
+                                    padding: '4px 9px', borderRadius: 999, fontSize: 10, fontWeight: 800, cursor: 'pointer',
                                     background: isA ? '#60a5fa' : isB ? '#34d399' : '#dbeafe',
                                     color: isA || isB ? '#fff' : '#1d4ed8',
                                     border: '1px solid ' + (isA || isB ? 'transparent' : '#93c5fd'),
+                                    flexShrink: 0, alignSelf: 'flex-start',
                                   }}
                                 >{isA ? '✓ A' : isB ? '✓ B' : compareA && !compareB ? '+ B' : 'Compare'}</button>
                               </div>
