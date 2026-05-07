@@ -5,6 +5,7 @@ import {
   BookOpen, ExternalLink, Download, Search, Bookmark, BookmarkCheck,
   Plus, Trash2, X, Link, FileText, Star, Eye, TrendingUp, Filter
 } from 'lucide-react'
+import DatasetAnalyzer from '../components/resources/DatasetAnalyzer'
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api', '')
 
@@ -34,17 +35,13 @@ const TYPE_CFG = {
 const typeOf = t => TYPE_CFG[t] || TYPE_CFG.other
 
 // ── Partner badge ─────────────────────────────────────────────────────────────
+// Curated to the two real data partners SOURCE Water relies on. Any user-added
+// resource will simply not show a badge — that's intentional, badges only
+// stamp the vetted feeds.
 function partnerBadge(url) {
   if (!url) return null
-  if (url.includes('waterrangers'))   return { label: 'Water Rangers', color: '#006fbf' }
-  if (url.includes('who.int'))        return { label: 'WHO',           color: '#009edb' }
-  if (url.includes('canada.ca') || url.includes('gc.ca')) return { label: 'Government of Canada', color: '#cc0000' }
-  if (url.includes('ontario.ca'))     return { label: 'Ontario',       color: '#e00000' }
-  if (url.includes('usgs.gov') || url.includes('epa.gov')) return { label: 'US Federal',    color: '#003087' }
-  if (url.includes('who.int'))        return { label: 'WHO',           color: '#009edb' }
-  if (url.includes('ccme.ca'))        return { label: 'CCME',          color: '#004C97' }
-  if (url.includes('gemstat'))        return { label: 'UN Environment', color: '#009edb' }
-  if (url.includes('wateroffice'))    return { label: 'ECCC',          color: '#CC0000' }
+  if (url.includes('waterrangers')) return { label: 'Water Rangers', color: '#006fbf' }
+  if (url.includes('datastream'))   return { label: 'DataStream',    color: '#22a06b' }
   return null
 }
 
@@ -342,6 +339,11 @@ export default function Resources() {
         </div>
       </div>
 
+      {/* ── Dataset Analyzer ── purely client-side stats / charts /
+          anomalies / correlations for any CSV from WR, DataStream, or
+          a community member's own field log. No LLM, no upload.       */}
+      {!loading && <DatasetAnalyzer />}
+
       {/* ── Featured resources ── */}
       {!loading && featured.length > 0 && (
         <div style={{ marginBottom: 24 }}>
@@ -475,16 +477,18 @@ export default function Resources() {
         </div>
       )}
 
-      {/* ── Water Rangers credit ── */}
+      {/* ── Curated-data credit ── */}
       {!loading && (
         <div style={{ marginTop: 32, padding: '14px 20px', borderRadius: 10, background: 'rgba(0,111,191,0.05)', border: '1px solid rgba(0,111,191,0.15)', display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 22 }}>💧</span>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#006fbf' }}>Powered by community science</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#006fbf' }}>Real data only — no fake links</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Resources curated in partnership with{' '}
-              <a href="https://www.waterrangers.ca" target="_blank" rel="noopener noreferrer" style={{ color: '#006fbf', fontWeight: 600 }}>Water Rangers</a>,
-              WHO, Health Canada, and ECCC. Have a resource to add? Contact your admin.
+              Curated to the two open data partners SOURCE Water actually pulls from:{' '}
+              <a href="https://www.waterrangers.ca" target="_blank" rel="noopener noreferrer" style={{ color: '#006fbf', fontWeight: 600 }}>Water Rangers</a>
+              {' and '}
+              <a href="https://datastream.org" target="_blank" rel="noopener noreferrer" style={{ color: '#22a06b', fontWeight: 600 }}>DataStream</a>.
+              Anything else here was added by a community admin. The Dataset Analyzer above runs entirely in your browser — no upload, no LLM.
             </div>
           </div>
         </div>
