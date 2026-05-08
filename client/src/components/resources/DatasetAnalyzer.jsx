@@ -18,12 +18,15 @@
  * out-of-the-box too — no remote URL fetch in v1 (CORS makes it unreliable),
  * so users hit "Download" on those sites and feed the file in here.
  */
-import { useMemo, useState, useRef, useCallback } from 'react'
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import Papa from 'papaparse'
 import {
   Upload, FileText, BarChart3, Activity, GitMerge, AlertTriangle, Download,
-  Database, X, Sparkles, Trash2, ChevronDown, ChevronUp,
+  Database, X, Sparkles, Trash2, ChevronDown, ChevronUp, MessageSquare, Send,
+  Lightbulb, Shield,
 } from 'lucide-react'
+import api from '../../utils/api'
+import { PARAM_META, classifyValue, matchParam, TONE_COLOR } from '../../utils/waterParams'
 
 // ── stats ──────────────────────────────────────────────────────────────────
 
@@ -216,6 +219,91 @@ function CorrelationGrid({ cols, matrix }) {
   )
 }
 
+// ── plain-English layer (no LLM — pure deterministic prose) ───────────────
+
+function explainStability(stats) {
+  if (!stats || stats.mean === 0) return 'consistent'
+  const cv = Math.abs(stats.sigma / stats.mean)
+  if (cv < 0.05) return 'very stable'
+  if (cv < 0.15) return 'consistent'
+  if (cv < 0.35) return 'somewhat variable'
+  return 'highly variable'
+}
+
+// Compute a plain-English numeric column summary, optionally enriched with
+// SOURCE Water (CCME) band coverage when the column name maps to a known
+// parameter. Returns { text, safetyVerdict, safeRange, pctSafe }.
+function explainNumeric(name, info, paramKey) {
+  const s = info.stats
+  if (!s) return { text: 'Not enough data to summarise.', safetyVerdict: null }
+  const stab = explainStability(s)
+  const r = `${s.min.toFixed(2)} → ${s.max.toFixed(2)}`
+  let text = `${s.n} reading${s.n !== 1 ? 's' : ''} of ${name}. Typical value ~${s.mean.toFixed(2)} (${stab}; range ${r}; std dev ±${s.sigma.toFixed(2)}).`
+  let safetyVerdict = null
+  let safeRange = null
+  let pctSafe = null
+  if (paramKey && PARAM_META[paramKey]) {
+    const meta = PARAM_META[paramKey]
+    const safeBands = meta.ranges.filter(r => r.tone === 'safe')
+    if (safeBands.length) {
+      const lo = Math.min(...safeBands.map(r => r.min))
+      const hi = Math.max(...safeBands.map(r => r.max))
+      safeRange = `${lo}–${hi >= 9999 ? '∞' : hi}${meta.unit || ''}`
+      let safeCount = 0, warnCount = 0, critCount = 0
+      for (const v of info.vals) {
+        const c = classifyValue(paramKey, v)
+        if (c?.tone === 'safe') safeCount++
+        else if (c?.tone === 'warning') warnCount++
+        else if (c?.tone === 'critical') critCount++
+      }
+      pctSafe = Math.round(safeCount / s.n * 100)
+      const verdict = pctSafe >= 95 ? 'safe'
+        : pctSafe >= 70 ? 'mostly-safe'
+        : pctSafe >= 40 ? 'mixed'
+        : 'concerning'
+      safetyVerdict = { tone: verdict, pctSafe, warnCount, critCount }
+      text += ` Safe range for aquatic life: ${safeRange}. ${pctSafe}% of readings sit inside it.`
+    }
+  }
+  return { text, safetyVerdict, safeRange, pctSafe }
+}
+
+// Pull out the strongest pairwise relationships and label them in plain
+// English ("when one rises, the other rises too"). Filters by absolute r.
+function explainCorrelations(numericCols, matrix) {
+  if (!numericCols || numericCols.length < 2) return []
+  const out = []
+  for (let i = 0; i < numericCols.length; i++) {
+    for (let j = i + 1; j < numericCols.length; j++) {
+      const r = matrix[i][j]
+      if (r == null || !Number.isFinite(r) || Math.abs(r) < 0.4) continue
+      const strength = Math.abs(r) >= 0.85 ? 'very strong'
+        : Math.abs(r) >= 0.7 ? 'strong'
+        : Math.abs(r) >= 0.55 ? 'moderate'
+        : 'weak'
+      const dir = r > 0 ? 'rise together' : 'move in opposite directions'
+      out.push({
+        a: numericCols[i], b: numericCols[j], r,
+        text: `${numericCols[i]} and ${numericCols[j]} ${dir} (${strength} link, r=${r.toFixed(2)}).`,
+      })
+    }
+  }
+  out.sort((x, y) => Math.abs(y.r) - Math.abs(x.r))
+  return out.slice(0, 5)
+}
+
+function overallSafetyVerdict(perColumnVerdicts) {
+  // Roll up per-column safety verdicts into one site-level rating.
+  const banded = perColumnVerdicts.filter(v => v && v.pctSafe != null)
+  if (!banded.length) return null
+  const avgPct = banded.reduce((a, v) => a + v.pctSafe, 0) / banded.length
+  const minPct = Math.min(...banded.map(v => v.pctSafe))
+  if (minPct >= 95) return { tone: 'safe', text: `All ${banded.length} matched parameter${banded.length !== 1 ? 's' : ''} are 95%+ inside their safe range.` }
+  if (minPct >= 70) return { tone: 'mostly-safe', text: `${banded.length} matched parameter${banded.length !== 1 ? 's' : ''} mostly safe (lowest ${Math.round(minPct)}% in range). Worth checking the outliers.` }
+  if (avgPct >= 40)  return { tone: 'mixed', text: `Mixed picture — average ${Math.round(avgPct)}% of readings sit in the safe band across matched parameters.` }
+  return { tone: 'concerning', text: `Concerning — average only ${Math.round(avgPct)}% of readings inside safe ranges. Investigation recommended.` }
+}
+
 // ── analysis pipeline ─────────────────────────────────────────────────────
 
 function analyzeRows(rows) {
@@ -229,8 +317,15 @@ function analyzeRows(rows) {
     const numericVals = raw.filter(isFiniteNumeric).map(toNum)
     const missing = raw.filter(v => v == null || v === '').length
     if (numericVals.length >= Math.max(3, raw.length * 0.4)) {
-      // ≥40% numeric and ≥3 samples → treat as numeric
-      profile[c] = { kind: 'numeric', stats: summarize(numericVals), missing, total: raw.length, vals: numericVals }
+      // ≥40% numeric and ≥3 samples → treat as numeric. Try to map to a
+      // SOURCE Water parameter (pH, turbidity, water temp, DO, conductivity)
+      // by name so we can attach safe-range bands.
+      const paramKey = matchParam(c)
+      const stats = summarize(numericVals)
+      const colInfo = { kind: 'numeric', stats, missing, total: raw.length, vals: numericVals, paramKey }
+      const explanation = explainNumeric(c, colInfo, paramKey)
+      colInfo.explanation = explanation
+      profile[c] = colInfo
       numericCols.push(c)
     } else if (looksLikeDate(raw)) {
       profile[c] = { kind: 'date', missing, total: raw.length }
@@ -287,6 +382,22 @@ function analyzeRows(rows) {
       return pearson(xs, ys)
     })
   )
+  const correlationInsights = explainCorrelations(numericCols, corrMatrix)
+  const safetyVerdicts = numericCols.map(c => profile[c].explanation?.safetyVerdict).filter(Boolean)
+  const overallSafety = overallSafetyVerdict(safetyVerdicts)
+
+  // Date span helper for the takeaways header
+  let dateSpan = null
+  if (dateCols.length) {
+    const dc = dateCols[0]
+    const ts = rows.map(r => Date.parse(String(r[dc] ?? ''))).filter(Number.isFinite)
+    if (ts.length >= 2) {
+      const t0 = Math.min(...ts), t1 = Math.max(...ts)
+      const days = Math.round((t1 - t0) / 86400000)
+      dateSpan = { first: new Date(t0), last: new Date(t1), days, dateColumn: dc }
+    }
+  }
+
   return {
     rowCount: rows.length,
     colCount: cols.length,
@@ -298,6 +409,9 @@ function analyzeRows(rows) {
     timeseries,
     anomalies,
     corrMatrix,
+    correlationInsights,
+    overallSafety,
+    dateSpan,
   }
 }
 
@@ -518,6 +632,29 @@ function NumericColumnCard({ name, info, anomalies, histogramData, tsData }) {
 
       {open && (
         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Plain-English summary — computed locally, not from an LLM, so
+              it always reflects the EXACT numbers in the loaded data. */}
+          {info.explanation && (
+            <div style={{
+              padding: 12, borderRadius: 10,
+              background: 'rgba(167,139,250,0.06)', border: '1px solid rgba(167,139,250,0.22)',
+              display: 'flex', gap: 10, alignItems: 'flex-start',
+            }}>
+              <Lightbulb size={14} color="#c4b5fd" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: '#c4b5fd', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 }}>
+                  In plain English
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.6 }}>
+                  {info.explanation.text}
+                </div>
+                {info.explanation.safetyVerdict && (
+                  <SafetyChip verdict={info.explanation.safetyVerdict} />
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Stats grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 6 }}>
             {[
@@ -574,6 +711,353 @@ function NumericColumnCard({ name, info, anomalies, histogramData, tsData }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── grounded Q&A ──────────────────────────────────────────────────────────
+// Hard cap on LLM calls: 5 questions per browser per UTC day. Counter is
+// kept in localStorage so a refresh / reload doesn't reset it. The cap
+// keeps the free-tier endpoint affordable; users see how many they have
+// left and can still browse the full report after running out.
+const QA_DAILY_CAP = 5
+const qaKey = () => 'sw_dataset_qa_used_' + new Date().toISOString().slice(0, 10)
+
+function readUsed()  { try { return parseInt(localStorage.getItem(qaKey()) || '0', 10) || 0 } catch { return 0 } }
+function bumpUsed()  { try { localStorage.setItem(qaKey(), String(readUsed() + 1)) } catch {} }
+
+// Build a compact, exact factual summary of the dataset that the LLM is
+// allowed to reference. We deliberately keep this small (a few hundred
+// tokens) to (a) avoid free-tier overages and (b) prevent the model from
+// drowning in noise and inventing details. Every fact here was computed
+// deterministically from the user's CSV.
+function summarizeForLLM(analysis, filename, sampleRows) {
+  const cols = analysis.cols.map(c => {
+    const p = analysis.profile[c]
+    if (p.kind === 'numeric') {
+      const s = p.stats
+      const e = p.explanation || {}
+      return {
+        name: c, kind: 'numeric',
+        n: s.n, missing: p.missing,
+        min: +s.min.toFixed(3), max: +s.max.toFixed(3),
+        mean: +s.mean.toFixed(3), median: +s.median.toFixed(3),
+        std_dev: +s.sigma.toFixed(3),
+        ...(p.paramKey ? {
+          source_water_band: e.safeRange,
+          percent_in_safe_range: e.pctSafe,
+          critical_readings: e.safetyVerdict?.critCount || 0,
+          warning_readings: e.safetyVerdict?.warnCount || 0,
+        } : {}),
+        outlier_count: (analysis.anomalies?.[c] || []).length,
+      }
+    }
+    if (p.kind === 'date') return { name: c, kind: 'date', missing: p.missing }
+    return { name: c, kind: 'text', unique_values: p.unique, missing: p.missing, examples: p.topValues }
+  })
+  return {
+    filename,
+    row_count: analysis.rowCount,
+    column_count: analysis.colCount,
+    date_range: analysis.dateSpan ? {
+      first: analysis.dateSpan.first.toISOString().slice(0, 10),
+      last: analysis.dateSpan.last.toISOString().slice(0, 10),
+      days: analysis.dateSpan.days,
+    } : null,
+    columns: cols,
+    overall_safety_verdict: analysis.overallSafety?.text || null,
+    strongest_correlations: (analysis.correlationInsights || []).slice(0, 5).map(c => ({
+      a: c.a, b: c.b, r: +c.r.toFixed(2), summary: c.text,
+    })),
+    sample_rows: sampleRows,
+  }
+}
+
+// Auto-generate a few starter prompts grounded in what the data actually
+// contains. Avoids generic suggestions that the data can't answer.
+function buildSuggestions(analysis) {
+  const out = []
+  const matched = analysis.numericCols.filter(c => analysis.profile[c]?.paramKey)
+  if (analysis.overallSafety) out.push(`Is this water safe overall? Why?`)
+  if (matched.length) out.push(`Which ${matched[0]} readings are concerning, and when?`)
+  const conc = analysis.numericCols.find(c => {
+    const v = analysis.profile[c]?.explanation?.safetyVerdict
+    return v && (v.tone === 'concerning' || v.tone === 'mixed')
+  })
+  if (conc) out.push(`Why might ${conc} be outside the safe range?`)
+  if ((analysis.correlationInsights || []).length) out.push(`What does the link between ${analysis.correlationInsights[0].a} and ${analysis.correlationInsights[0].b} mean?`)
+  if (analysis.dateSpan && analysis.dateSpan.days > 30) out.push(`Are values trending up or down over time?`)
+  if (out.length < 4 && analysis.numericCols.length) out.push(`Summarise this dataset for someone who isn't a scientist.`)
+  return out.slice(0, 4)
+}
+
+function AskAboutDataset({ analysis, filename }) {
+  const [used, setUsed]       = useState(() => readUsed())
+  const [input, setInput]     = useState('')
+  const [busy, setBusy]       = useState(false)
+  const [error, setError]     = useState('')
+  const [history, setHistory] = useState([])  // [{ q, a, model }]
+  const remaining = Math.max(0, QA_DAILY_CAP - used)
+  const suggestions = useMemo(() => buildSuggestions(analysis), [analysis])
+
+  // Sample 3 rows from the user's CSV. Only used to ground the LLM, never
+  // shown back to the user. Keeps token cost minimal.
+  const sampleRows = useMemo(() => {
+    const rowCount = analysis.rowCount
+    if (!rowCount) return []
+    // We only have profile-level data here; sample synthetic rows by
+    // picking representative values per column to ensure factual grounding.
+    const samples = []
+    for (let i = 0; i < Math.min(3, rowCount); i++) {
+      const row = {}
+      for (const c of analysis.cols) {
+        const p = analysis.profile[c]
+        if (p?.kind === 'numeric' && p.vals?.length) {
+          row[c] = +p.vals[Math.min(i, p.vals.length - 1)].toFixed(3)
+        }
+      }
+      samples.push(row)
+    }
+    return samples
+  }, [analysis])
+
+  const SYSTEM_PROMPT = useMemo(() => {
+    const summary = summarizeForLLM(analysis, filename, sampleRows)
+    return [
+      `You are a careful water-quality educator embedded in SOURCE Water's Resources tab. A community member just uploaded a CSV and is asking you to interpret it for them.`,
+      ``,
+      `STRICT RULES — break any of these and you fail the task:`,
+      `1. Use ONLY the dataset summary below. Do NOT invent values, dates, units, sources, or thresholds.`,
+      `2. Quote exact numbers from the summary when citing values. Round only for readability and say so ("about", "roughly").`,
+      `3. If the user's question can't be answered from this summary, reply EXACTLY: "The data you uploaded doesn't show that — but here's what we can see…" then describe related facts that ARE in the summary.`,
+      `4. For safety questions, reference ONLY the SOURCE Water bands listed in the summary. Do NOT cite WHO, EPA, Health Canada, or any external threshold — they are not in this dataset.`,
+      `5. Never give medical, drinking-water, or treatment advice. SOURCE Water is for surface-water / aquatic-life context only. If asked about drinking safety, say so and stop.`,
+      `6. Keep answers under 100 words. Plain English. Define any technical term you use.`,
+      `7. Never make up correlations, trends, anomalies, or column names that aren't in the summary.`,
+      ``,
+      `DATASET SUMMARY (the ONLY facts you may cite):`,
+      JSON.stringify(summary, null, 2),
+    ].join('\n')
+  }, [analysis, filename, sampleRows])
+
+  const ask = async (rawQ) => {
+    const q = String(rawQ || '').trim().slice(0, 240)
+    if (!q) return
+    if (remaining <= 0) {
+      setError(`You've used all ${QA_DAILY_CAP} questions for today. Resets after midnight.`)
+      return
+    }
+    setBusy(true); setError('')
+    try {
+      // Pre-flight: refuse off-topic questions locally (no LLM call) when
+      // they obviously can't be answered from the data — keeps the daily
+      // budget for real questions.
+      const lower = q.toLowerCase()
+      const driftKeywords = ['drink', 'safe to drink', 'should i drink', 'medical', 'treat', 'illness', 'disease', 'symptom']
+      if (driftKeywords.some(k => lower.includes(k))) {
+        setHistory(h => [...h, {
+          q, model: 'local',
+          a: `SOURCE Water is a surface-water and aquatic-life tool — it doesn't cover drinking-water safety, medical, or treatment questions. For those, talk to your local public-health authority. The dataset above tells you about the water environment, not consumption risk.`,
+        }])
+        setInput('')
+        return
+      }
+      const messages = [
+        { role: 'system', content: SYSTEM_PROMPT },
+        ...history.flatMap(h => [
+          { role: 'user', content: h.q },
+          { role: 'assistant', content: h.a },
+        ]),
+        { role: 'user', content: q },
+      ]
+      const r = await api.post('/ai/public-chat', { messages, max_tokens: 320 })
+      const reply = String(r.data?.reply || '').trim() || `I couldn't generate an answer this time. Please rephrase or try again.`
+      bumpUsed()
+      setUsed(readUsed())
+      setHistory(h => [...h, { q, a: reply, model: r.data?.model || 'AI' }])
+      setInput('')
+    } catch (e) {
+      setError(e?.response?.data?.error || e?.message || 'Network error.')
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{
+      padding: 14, borderRadius: 12, marginBottom: 14,
+      background: 'rgba(20,184,166,0.06)', border: '1px solid rgba(20,184,166,0.28)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <MessageSquare size={14} color="#5eead4"/>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#5eead4', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            Ask about your data
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+          {remaining} of {QA_DAILY_CAP} questions left today · grounded only in this CSV
+        </div>
+      </div>
+
+      {/* Suggestions — built from the actual data, not generic */}
+      {history.length === 0 && suggestions.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+          {suggestions.map((s, i) => (
+            <button key={i} onClick={() => ask(s)} disabled={busy || remaining <= 0}
+              style={{
+                padding: '5px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, cursor: busy || remaining <= 0 ? 'not-allowed' : 'pointer',
+                background: 'rgba(20,184,166,0.10)', color: '#5eead4',
+                border: '1px solid rgba(20,184,166,0.40)', opacity: busy || remaining <= 0 ? 0.5 : 1,
+              }}>
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Conversation history */}
+      {history.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, maxHeight: 360, overflowY: 'auto' }}>
+          {history.map((h, i) => (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{
+                alignSelf: 'flex-end', maxWidth: '85%',
+                padding: '8px 12px', borderRadius: '12px 12px 4px 12px',
+                background: 'rgba(96,165,250,0.18)', color: '#e2e8f0',
+                fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre-wrap',
+              }}>{h.q}</div>
+              <div style={{
+                alignSelf: 'flex-start', maxWidth: '92%',
+                padding: '10px 12px', borderRadius: '12px 12px 12px 4px',
+                background: 'rgba(255,255,255,0.05)', color: 'var(--text)',
+                fontSize: 12.5, lineHeight: 1.6, whiteSpace: 'pre-wrap',
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}>
+                {h.a}
+                <div style={{ marginTop: 4, fontSize: 9.5, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                  {h.model === 'local' ? 'no AI call · grounded redirect' : `via ${h.model}`}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Input */}
+      <form onSubmit={e => { e.preventDefault(); ask(input) }} style={{ display: 'flex', gap: 6 }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value.slice(0, 240))}
+          placeholder={remaining > 0
+            ? "Ask anything about the data above (max 240 chars)…"
+            : "Daily limit reached — resets after midnight."}
+          disabled={busy || remaining <= 0}
+          style={{
+            flex: 1, padding: '9px 12px', borderRadius: 8,
+            background: 'rgba(0,0,0,0.18)', border: '1px solid var(--border)', color: 'var(--text)',
+            fontSize: 13, outline: 'none', fontFamily: 'inherit',
+          }}
+        />
+        <button type="submit" disabled={busy || !input.trim() || remaining <= 0}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '9px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 800, cursor: busy || !input.trim() || remaining <= 0 ? 'not-allowed' : 'pointer',
+            background: 'linear-gradient(135deg, #14b8a6, #0d9488)', color: '#fff', border: 'none',
+            opacity: busy || !input.trim() || remaining <= 0 ? 0.55 : 1,
+          }}
+        >
+          {busy ? '…' : <><Send size={12}/> Ask</>}
+        </button>
+      </form>
+
+      {error && (
+        <div style={{ marginTop: 8, padding: 8, borderRadius: 8, fontSize: 11.5, color: '#fca5a5', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
+          {error}
+        </div>
+      )}
+
+      <div style={{ marginTop: 8, fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+        Answers are grounded ONLY in the dataset summary above (column stats + sample rows + matched SOURCE Water bands).
+        The model is told never to invent values, never to cite external thresholds, and never to give drinking-water or medical advice.
+        If a question can't be answered from your CSV, the assistant will say so instead of guessing.
+      </div>
+    </div>
+  )
+}
+
+// Small coloured pill summarising one column's safe-range coverage.
+function SafetyChip({ verdict }) {
+  const styles = {
+    safe:        { bg: 'rgba(34,197,94,0.14)',  bd: 'rgba(34,197,94,0.4)',  fg: '#86efac', emoji: '✓', text: 'In safe range' },
+    'mostly-safe':{ bg: 'rgba(132,204,22,0.14)',bd: 'rgba(132,204,22,0.4)', fg: '#bef264', emoji: '✓', text: 'Mostly safe' },
+    mixed:       { bg: 'rgba(251,191,36,0.14)', bd: 'rgba(251,191,36,0.4)', fg: '#fcd34d', emoji: '⚠', text: 'Mixed — watch' },
+    concerning:  { bg: 'rgba(239,68,68,0.14)',  bd: 'rgba(239,68,68,0.4)',  fg: '#fca5a5', emoji: '⚠', text: 'Concerning' },
+  }
+  const s = styles[verdict.tone] || styles.mixed
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6,
+      padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+      background: s.bg, border: `1px solid ${s.bd}`, color: s.fg,
+    }}>
+      {s.emoji} {s.text} · {verdict.pctSafe}% in safe range
+      {verdict.critCount > 0 && <span style={{ marginLeft: 4, color: '#fca5a5' }}>· {verdict.critCount} critical</span>}
+    </div>
+  )
+}
+
+// Top-of-report at-a-glance card. Pure deterministic — every line maps
+// to a value already in `analysis`, so the LLM (used below in Q&A) can
+// never disagree with what's shown here.
+function QuickTakeaways({ analysis }) {
+  const safety = analysis.overallSafety
+  const corrs = analysis.correlationInsights || []
+  const totalAnomalies = Object.values(analysis.anomalies || {}).reduce((a, b) => a + (b?.length || 0), 0)
+  const matchedCount = analysis.numericCols.filter(c => analysis.profile[c]?.paramKey).length
+  return (
+    <div style={{
+      padding: 14, borderRadius: 12, marginBottom: 12,
+      background: 'linear-gradient(135deg, rgba(99,102,241,0.10), rgba(167,139,250,0.06))',
+      border: '1px solid rgba(99,102,241,0.32)',
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#c4b5fd', marginBottom: 8 }}>
+        ✦ Quick takeaways
+      </div>
+      <ul style={{ margin: 0, padding: '0 0 0 18px', display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5, color: 'var(--text)', lineHeight: 1.55 }}>
+        <li>
+          <strong>{analysis.rowCount.toLocaleString()}</strong> rows across <strong>{analysis.colCount}</strong> columns
+          {analysis.numericCols.length > 0 && <> ({analysis.numericCols.length} numeric)</>}
+          {analysis.dateSpan && <> · spans <strong>{analysis.dateSpan.days}</strong> days ({analysis.dateSpan.first.toLocaleDateString()} → {analysis.dateSpan.last.toLocaleDateString()})</>}
+        </li>
+        {matchedCount > 0 && (
+          <li>
+            <strong>{matchedCount}</strong> column{matchedCount !== 1 ? 's' : ''} matched a SOURCE Water safety band
+            (pH, turbidity, temperature, dissolved oxygen, conductivity).
+          </li>
+        )}
+        {safety && (
+          <li>
+            <Shield size={11} style={{ display: 'inline', verticalAlign: '-1px', marginRight: 4, color: safety.tone === 'safe' ? '#86efac' : safety.tone === 'concerning' ? '#fca5a5' : '#fcd34d' }}/>
+            <strong>Safety roll-up:</strong> {safety.text}
+          </li>
+        )}
+        {totalAnomalies > 0 && (
+          <li>
+            <AlertTriangle size={11} style={{ display: 'inline', verticalAlign: '-1px', marginRight: 4, color: '#fca5a5' }}/>
+            <strong>{totalAnomalies}</strong> outlier reading{totalAnomalies !== 1 ? 's' : ''} flagged across all columns (|z| ≥ 2).
+          </li>
+        )}
+        {corrs.slice(0, 2).map((c, i) => (
+          <li key={i}>
+            <GitMerge size={11} style={{ display: 'inline', verticalAlign: '-1px', marginRight: 4, color: '#a78bfa' }}/>
+            {c.text}
+          </li>
+        ))}
+        {analysis.numericCols.length === 0 && (
+          <li style={{ color: 'var(--text-muted)' }}>
+            No numeric columns detected — everything looks like text or categorical data.
+          </li>
+        )}
+      </ul>
     </div>
   )
 }
@@ -637,6 +1121,14 @@ function AnalysisReport({ analysis, filename, onReset, onDownload }) {
           </button>
         </div>
       </div>
+
+      {/* Plain-English at-a-glance — every line maps to a deterministic
+          value from `analysis`, so it never contradicts the cards below. */}
+      <QuickTakeaways analysis={analysis} />
+
+      {/* Grounded Q&A — uses the existing free /api/ai/public-chat with a
+          strict system prompt + the dataset summary as the only context. */}
+      <AskAboutDataset analysis={analysis} filename={filename} />
 
       {/* Numeric column cards */}
       {analysis.numericCols.length > 0 && (
