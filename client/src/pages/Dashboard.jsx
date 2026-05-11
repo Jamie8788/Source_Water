@@ -228,7 +228,7 @@ export default function Dashboard() {
             <h1 className="text-2xl font-black text-white">{user?.display_name || user?.username} 👋</h1>
             <p className="text-white/70 text-sm mt-1">
               <CMSField page="dashboard" block="hero" field="subtitle"
-                default="Northern Ontario's water needs you. Here's today's snapshot."
+                default="Our waters need you. Select a dataset to view today's data snapshot."
                 style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14 }}/>
             </p>
           </div>

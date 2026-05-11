@@ -24,7 +24,7 @@ const NAV_GROUPS = [
       { label: 'Dashboard',      icon: LayoutDashboard, path: '/dashboard',    color: '#3b82f6', sub: 'Key metrics · AI' },
       { label: 'Ask Water (AI)', icon: Sparkles,        path: '/ask-water',    color: '#8b5cf6', sub: 'Chat · scan · analyze' },
       { label: 'Site Map',       icon: Map,             path: '/monitoring',   color: '#14b8a6', sub: 'Explore live data' },
-      { label: 'Alerts',         icon: BellRing,        path: '/alerts',       color: '#f59e0b', sub: 'Threshold warnings' },
+      { label: 'Alerts',         icon: BellRing,        path: '/alerts',       color: '#f59e0b', sub: 'Threshold warnings', adminOnly: true },
       { label: 'Community',      icon: Users,           path: '/social',       color: '#ec4899', sub: 'Posts · DMs · leaders' },
     ],
   },
@@ -255,7 +255,7 @@ function NavItem({ item, active, collapsed, onClick, onSubNav }) {
 }
 
 /* ─── Section group ─────────────────────────────────────────────── */
-function SectionGroup({ group, open, onToggle, location, navigate, collapsed }) {
+function SectionGroup({ group, open, onToggle, location, navigate, collapsed, isAdmin }) {
   const anyActive = group.items.some(i => location.pathname === i.path)
   const count = group.items.length
 
@@ -324,7 +324,12 @@ function SectionGroup({ group, open, onToggle, location, navigate, collapsed }) 
         transition: 'max-height 0.32s cubic-bezier(0.4,0,0.2,1)',
         opacity: open || collapsed ? 1 : 0,
       }}>
-        {group.items.map(item => (
+        {group.items
+          // Hide adminOnly items for non-admins. Per Elaine #78 the
+          // Alerts page should disappear from the sidebar entirely
+          // for regular users until the feature is ready.
+          .filter(item => !item.adminOnly || isAdmin)
+          .map(item => (
           <NavItem
             key={item.path}
             item={item}
@@ -523,6 +528,7 @@ export default function Sidebar({ collapsed, onToggle }) {
               location={location}
               navigate={go}
               collapsed={collapsed}
+              isAdmin={isAdmin}
             />
           ))}
 

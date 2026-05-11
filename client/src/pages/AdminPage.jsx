@@ -672,7 +672,7 @@ const CMS_SCHEMA = {
     label: '🏠 Landing Page',
     route: '/',
     fields: [
-      { block: 'badge',  field: 'text',        label: 'Live badge text',        type: 'text',  default: 'LIVE · Northern Ontario Water Intelligence' },
+      { block: 'badge',  field: 'text',        label: 'Live badge text',        type: 'text',  default: 'LIVE · Community Water Intelligence' },
       { block: 'hero',   field: 'title_line1', label: 'Hero title line 1',      type: 'text',  default: 'Protect our' },
       { block: 'hero',   field: 'title_line2', label: 'Hero title line 2 (accent)', type: 'text', default: 'Watersheds' },
       { block: 'hero',   field: 'subtitle',    label: 'Hero subtitle',           type: 'textarea', default: 'Real-time water quality monitoring, AI insights, and community science for Northern Ontario.' },
@@ -747,7 +747,7 @@ const CMS_SCHEMA = {
     route: null,
     fields: [
       { block: 'site',   field: 'name',        label: 'Site name',              type: 'text',  default: 'SOURCE Water' },
-      { block: 'site',   field: 'tagline',     label: 'Site tagline',           type: 'text',  default: 'Northern Ontario Water Intelligence' },
+      { block: 'site',   field: 'tagline',     label: 'Site tagline',           type: 'text',  default: 'Community Water Intelligence' },
       { block: 'footer', field: 'copyright',   label: 'Footer copyright',       type: 'text',  default: '© 2025 NORDIK Institute · Algoma University' },
       { block: 'footer', field: 'tagline',     label: 'Footer tagline',         type: 'text',  default: 'Protecting Northern Ontario watersheds through community science.' },
       { block: 'announcement', field: 'text',  label: 'Global announcement banner (leave blank to hide)', type: 'textarea', default: '' },

@@ -190,6 +190,28 @@ function FitBounds({ locations }) {
   return null
 }
 
+// When the user toggles the Stories layer on and there's at least one
+// story, fly the map to fit the story pins. Elaine #81: clicking
+// "Stories (1)" wasn't always making the pin visible because the user
+// was zoomed out / panned elsewhere — now the click reliably brings
+// them into view.
+function FitStoriesOnShow({ stories, visible }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!visible) return
+    const pts = (stories || [])
+      .map(s => [parseFloat(s.latitude), parseFloat(s.longitude)])
+      .filter(([la, ln]) => Number.isFinite(la) && Number.isFinite(ln))
+    if (pts.length === 0) return
+    if (pts.length === 1) {
+      map.flyTo(pts[0], Math.max(map.getZoom(), 8), { duration: 0.8 })
+    } else {
+      map.fitBounds(pts, { padding: [40, 40], maxZoom: 9 })
+    }
+  }, [visible, (stories || []).length])
+  return null
+}
+
 export default function WRMonitoringMap() {
   const { user } = useAuth()
   const isAuthed = !!user
@@ -211,7 +233,7 @@ export default function WRMonitoringMap() {
   const [wpError, setWpError] = useState(null)
 
   // ── Visualization controls (additive — purely client-side, no API impact) ──
-  const [theme, setTheme]           = useState('dark')        // dark | light | satellite | topo
+  const [theme, setTheme]           = useState('light')       // dark | light | satellite | topo — Elaine #81 wants light by default
   const [viewMode, setViewMode]     = useState('dots')        // dots | heat
   const [storiesVisible, setStoriesVisible] = useState(true)
   const [stories, setStories]       = useState([])
@@ -775,6 +797,7 @@ export default function WRMonitoringMap() {
             url={THEME_LAYERS[theme].url}
           />
           <FitBounds locations={mappable} />
+          <FitStoriesOnShow stories={stories} visible={storiesVisible} />
           <MapToolsLayer
             mode={toolMode}
             measurePoints={measurePoints} setMeasurePoints={setMeasurePoints}

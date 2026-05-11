@@ -47,9 +47,21 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   res.json({ success: true })
 })
 
-// POST /api/resources/:id/view  — increment view count
+// POST /api/resources/:id/view  — increment view count + (first-time only)
+// award leaderboard points. Elaine #87: opening / downloading a resource
+// should reward the user, not just liking posts. First view ever earns 2
+// pts; repeat views still bump the counter but don't give more points so
+// nobody can grind it.
 router.post('/:id/view', requireAuth, async (req, res) => {
-  await db.run('UPDATE resources SET view_count = COALESCE(view_count,0) + 1 WHERE id=?', [req.params.id]).catch(() => {})
+  try {
+    await db.run('UPDATE resources SET view_count = COALESCE(view_count,0) + 1 WHERE id=?', [req.params.id])
+    const action = `resource_view_${req.params.id}`
+    const prior = await db.get('SELECT 1 AS x FROM leaderboard_points WHERE user_id=? AND action=? LIMIT 1', [req.user.id, action])
+    if (!prior) {
+      await db.run('INSERT INTO leaderboard_points (user_id,points,action,month) VALUES (?,?,?,?)',
+        [req.user.id, 2, action, new Date().toISOString().slice(0, 7)])
+    }
+  } catch (_) {}
   res.json({ ok: true })
 })
 

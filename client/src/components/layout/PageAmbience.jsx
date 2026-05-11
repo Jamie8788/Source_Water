@@ -9,7 +9,7 @@
  * Usage:
  *   <PageAmbience variant="dashboard" />   (or "social", "map", "quiz", "analysis", "admin", "default")
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const PALETTES = {
   dashboard: { orb1: 'rgba(99,102,241,0.14)', orb2: 'rgba(20,184,166,0.10)', orb3: 'rgba(139,92,246,0.08)', particle: 'rgba(99,102,241,0.5)' },
@@ -25,10 +25,31 @@ const PALETTES = {
   default:   { orb1: 'rgba(99,102,241,0.12)', orb2: 'rgba(20,184,166,0.09)', orb3: 'rgba(139,92,246,0.07)', particle: 'rgba(99,102,241,0.5)' },
 }
 
-/* Mini canvas particle system — ~12 slow-rising dots */
+/* Mini canvas particle system — ~12 slow-rising dots.
+ * Honours the global "effects off" toggle (<html class="sw-no-anim">).
+ * Without this, the RAF loop ignores the CSS animation kill-switch and
+ * the bubble particles keep climbing even after the user disabled
+ * motion — that was the bug Elaine reported in #74 + #89. */
 function ParticleCanvas({ color }) {
   const ref = useRef(null)
+  const [animOff, setAnimOff] = useState(() => {
+    try { return localStorage.getItem('sw-anim-off') === '1' } catch { return false }
+  })
+
+  // React to the toggle without a refresh — the TopBar button only flips
+  // localStorage + the <html> class. Watch the class with MutationObserver
+  // so this canvas tears down / restarts the moment the user clicks.
   useEffect(() => {
+    const root = document.documentElement
+    const sync = () => setAnimOff(root.classList.contains('sw-no-anim'))
+    sync()
+    const obs = new MutationObserver(sync)
+    obs.observe(root, { attributes: true, attributeFilter: ['class'] })
+    return () => obs.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (animOff) return                          // ← stays still when effects are off
     const canvas = ref.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
@@ -72,7 +93,11 @@ function ParticleCanvas({ color }) {
     }
     draw()
     return () => cancelAnimationFrame(raf)
-  }, [color])
+  }, [color, animOff])
+
+  // Hide the canvas entirely when effects are off so it can't render even
+  // a stale frame (defense-in-depth alongside the RAF stop above).
+  if (animOff) return null
 
   return <canvas ref={ref} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}/>
 }
@@ -82,8 +107,10 @@ export default function PageAmbience({ variant = 'default', scanLine = false }) 
 
   return (
     <>
-      {/* Orb layer */}
-      <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
+      {/* Orb layer. data-sw-ambient lets the global CSS kill-switch
+          (html.sw-no-anim) hide everything in here when the user
+          turns effects off — orbs, particles, scan line, shimmer. */}
+      <div data-sw-ambient="1" style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
         {/* Orb 1 */}
         <div style={{
           position: 'absolute', width: 600, height: 600, borderRadius: '50%',

@@ -21,10 +21,54 @@ html.sw-no-anim, html.sw-no-anim *, html.sw-no-anim *::before, html.sw-no-anim *
   transition-delay: 0s !important;
   scroll-behavior: auto !important;
 }
-/* Hide ambient eye-candy entirely when animations are off */
+/* Hide ambient eye-candy entirely when animations are off. The
+   PageAmbience orb / particle layer marks its root with
+   data-sw-ambient so we can kill the canvas + drifting blobs in one
+   rule — previously the bubbles kept rising because they're driven
+   by requestAnimationFrame, not CSS animations. */
 html.sw-no-anim .fish-layer,
 html.sw-no-anim .ambient-bg,
-html.sw-no-anim .water-ripple-bar { display: none !important; }
+html.sw-no-anim .water-ripple-bar,
+html.sw-no-anim [data-sw-ambient] { display: none !important; }
+
+/* ── Chunkier, higher-contrast scrollbars (Elaine #77).
+   Webkit ships ~8px hairlines by default, which Elaine flagged as
+   "too thin and hard to see". 12px + a proper thumb colour fixes it
+   without crowding content. Firefox honours scrollbar-* properties
+   for the same effect. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(99, 102, 241, 0.55) transparent;
+}
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track {
+  background: rgba(99, 102, 241, 0.06);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.55);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.85); background-clip: padding-box; }
+[data-theme="dark"] ::-webkit-scrollbar-track { background: rgba(99, 102, 241, 0.08); }
+[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(167, 139, 250, 0.55); background-clip: padding-box; }
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(167, 139, 250, 0.85); background-clip: padding-box; }
+
+/* ── Small-screen safety (Elaine #90).
+   Stops the entire page from horizontally scrolling on mobile when one
+   wide child (a table, a big chart, a misbehaving popup) tries to push
+   past the viewport. Pages that legitimately need x-scroll (Compare
+   drawer, large CSV tables) opt in locally with overflow-x:auto on
+   their own container. */
+html, body { max-width: 100vw; overflow-x: hidden; }
+@media (max-width: 640px) {
+  /* Tighten default page padding so 320–360px screens don\'t crop */
+  .min-h-screen { padding-left: 8px; padding-right: 8px; }
+  /* Force wrapped flex layouts to actually wrap on tiny screens */
+  [style*="display: flex"][style*="flexWrap"] { flex-wrap: wrap !important; }
+}
 
 /* ── CSS Variables — D2L Brightspace colour system ── */
 :root {

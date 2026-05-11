@@ -3,7 +3,7 @@ import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import {
   BookOpen, ExternalLink, Download, Search, Bookmark, BookmarkCheck,
-  Plus, Trash2, X, Link, FileText, Star, Eye, TrendingUp, Filter
+  Plus, Trash2, X, Link, FileText, Star, Eye, TrendingUp, Filter, Pencil
 } from 'lucide-react'
 import DatasetAnalyzer from '../components/resources/DatasetAnalyzer'
 
@@ -45,23 +45,43 @@ function partnerBadge(url) {
   return null
 }
 
-// ── Add Resource Modal ────────────────────────────────────────────────────────
-function AddResourceModal({ onClose, onAdded }) {
-  const [form, setForm] = useState({ title: '', description: '', resource_type: 'link', category: '', external_url: '', visibility: 'public' })
+// ── Add / Edit Resource Modal ─────────────────────────────────────────────────
+// Dual-mode: pass `existing` to switch into edit mode (PUT instead of POST,
+// title field auto-filled, file upload hidden since edit is metadata-only
+// on the server route — see server/routes/resources.js line 37).
+function AddResourceModal({ onClose, onAdded, existing = null }) {
+  const isEdit = !!existing
+  const [form, setForm] = useState(() => existing ? {
+    title: existing.title || '',
+    description: existing.description || '',
+    resource_type: existing.resource_type || 'link',
+    category: existing.category || '',
+    external_url: existing.external_url || '',
+    visibility: existing.visibility || 'public',
+    featured: existing.featured ? 1 : 0,
+  } : { title: '', description: '', resource_type: 'link', category: '', external_url: '', visibility: 'public', featured: 0 })
   const [file, setFile]     = useState(null)
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
 
   const submit = async () => {
     if (!form.title.trim()) { setError('Title is required'); return }
-    if (!file && !form.external_url.trim()) { setError('Provide either a file upload or a URL'); return }
+    if (!isEdit && !file && !form.external_url.trim()) { setError('Provide either a file upload or a URL'); return }
     setSaving(true); setError('')
     try {
-      const fd = new FormData()
-      Object.entries(form).forEach(([k, v]) => fd.append(k, v))
-      if (file) fd.append('file', file)
-      const r = await api.post('/resources', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      onAdded(r.data)
+      if (isEdit) {
+        const r = await api.put(`/resources/${existing.id}`, {
+          title: form.title, description: form.description, category: form.category,
+          tags: existing.tags || [], visibility: form.visibility, featured: form.featured,
+        })
+        onAdded(r.data)
+      } else {
+        const fd = new FormData()
+        Object.entries(form).forEach(([k, v]) => fd.append(k, v))
+        if (file) fd.append('file', file)
+        const r = await api.post('/resources', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+        onAdded(r.data)
+      }
       onClose()
     } catch (e) { setError(e.response?.data?.error || 'Failed to save resource') }
     setSaving(false)
@@ -73,7 +93,7 @@ function AddResourceModal({ onClose, onAdded }) {
     <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, background: 'rgba(0,0,0,0.55)', padding: 16 }}>
       <div style={{ width: '100%', maxWidth: 540, borderRadius: 12, overflow: 'hidden', background: 'var(--card-bg)', border: '1px solid var(--border)', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
-          <h3 style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)', margin: 0 }}>Add Resource</h3>
+          <h3 style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)', margin: 0 }}>{isEdit ? 'Edit Resource' : 'Add Resource'}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X style={{ width: 16, height: 16, color: 'var(--text-muted)' }}/></button>
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '70vh', overflowY: 'auto' }}>
@@ -141,7 +161,7 @@ function AddResourceModal({ onClose, onAdded }) {
 }
 
 // ── Resource Card ─────────────────────────────────────────────────────────────
-function ResourceCard({ r, idx, bookmarked, onBookmark, onView, onDelete, isAdmin }) {
+function ResourceCard({ r, idx, bookmarked, onBookmark, onView, onDelete, onEdit, isAdmin }) {
   const tc   = typeOf(r.resource_type)
   const cc   = catColor(r.category)
   const pb   = partnerBadge(r.external_url)
@@ -230,9 +250,14 @@ function ResourceCard({ r, idx, bookmarked, onBookmark, onView, onDelete, isAdmi
           )}
           <div style={{ flex: 1 }}/>
           {isAdmin && (
-            <button onClick={() => onDelete(r.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--text-muted)' }}>
-              <Trash2 style={{ width: 13, height: 13 }}/>
-            </button>
+            <>
+              <button onClick={() => onEdit(r)} title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--text-muted)' }}>
+                <Pencil style={{ width: 13, height: 13 }}/>
+              </button>
+              <button onClick={() => onDelete(r.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--text-muted)' }}>
+                <Trash2 style={{ width: 13, height: 13 }}/>
+              </button>
+            </>
           )}
           <button onClick={() => onView(r)} style={{
             display: 'flex', alignItems: 'center', gap: 5, padding: '6px 13px', borderRadius: 7,
@@ -259,6 +284,7 @@ export default function Resources() {
   const [category,   setCategory]   = useState('all')
   const [typeFilter, setTypeFilter] = useState('All Types')
   const [showAdd,    setShowAdd]    = useState(false)
+  const [editing,    setEditing]    = useState(null)   // resource object when editing
   const [loading,    setLoading]    = useState(true)
   const searchRef = useRef()
 
@@ -317,6 +343,11 @@ export default function Resources() {
       `}</style>
 
       {showAdd && <AddResourceModal onClose={() => setShowAdd(false)} onAdded={r => setResources(prev => [r, ...prev])}/>}
+      {editing && <AddResourceModal
+        existing={editing}
+        onClose={() => setEditing(null)}
+        onAdded={(updated) => setResources(prev => prev.map(x => x.id === updated.id ? { ...x, ...updated } : x))}
+      />}
 
       {/* ── Page header ── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
@@ -471,6 +502,7 @@ export default function Resources() {
               onBookmark={toggleBookmark}
               onView={openResource}
               onDelete={deleteResource}
+              onEdit={setEditing}
               isAdmin={isAdmin}
             />
           ))}
