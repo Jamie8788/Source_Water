@@ -20,6 +20,23 @@ function rgbToHex(rgb) {
 }
 
 const LS_TOOLBAR_OPEN = 'sw_cms_toolbar_open'
+// Warm-start cache keys. Reading the last-known CMS state from
+// localStorage on first render kills the flash-of-old-content flicker
+// Elaine reported: the page now boots with the correct strings already
+// in state, and the API fetch only matters if the server has newer
+// values. Schema is tiny so we can keep it indefinitely.
+const LS_CMS_CONTENT   = 'sw_cms_content_v1'
+const LS_CMS_OVERRIDES = 'sw_cms_overrides_v1'
+
+function readCache(key) {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+function writeCache(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)) } catch {}
+}
 
 export function CMSProvider({ children }) {
   const { isAdmin } = useAuth()
@@ -29,8 +46,11 @@ export function CMSProvider({ children }) {
   // closed so admin pages render cleanly until the user explicitly opens CMS.
   const [toolbarOpen, setToolbarOpen]   = useState(() => localStorage.getItem(LS_TOOLBAR_OPEN) === '1')
   const [cmsMode, setCmsMode]           = useState(false)
-  const [content, setContent]           = useState({})
-  const [overrides, setOverrides]       = useState({})
+  // Warm-start from localStorage so the FIRST paint already has the
+  // latest known CMS strings. Avoids the JSX-default → API-response
+  // flicker on refresh that Elaine reported on the login page.
+  const [content, setContent]           = useState(() => readCache(LS_CMS_CONTENT) || {})
+  const [overrides, setOverrides]       = useState(() => readCache(LS_CMS_OVERRIDES) || {})
   const [saving, setSaving]             = useState(false)
   const [selectedEl, setSelectedEl]     = useState(null)
   const [notification, setNotification] = useState(null)
@@ -40,17 +60,23 @@ export function CMSProvider({ children }) {
   const observersRef = useRef(new Map())
 
   // ── Load CMS field content ────────────────────────────────────────────────
+  // Persist every successful fetch so the NEXT page load can render
+  // immediately with the latest known values (kills the FOUC flicker).
   useEffect(() => {
     api.get('/cms/content').then(({ data }) => {
-      setContent(data || {})
+      const next = data || {}
+      setContent(next)
+      writeCache(LS_CMS_CONTENT, next)
     }).catch(() => {})
   }, [])
 
   // ── Load element overrides ────────────────────────────────────────────────
   useEffect(() => {
     api.get('/cms/overrides').then(({ data }) => {
-      setOverrides(data || {})
-      applyOverrideStyles(data || {})
+      const next = data || {}
+      setOverrides(next)
+      writeCache(LS_CMS_OVERRIDES, next)
+      applyOverrideStyles(next)
     }).catch(() => {})
   }, [])
 
@@ -295,7 +321,11 @@ export function CMSProvider({ children }) {
 
   const save = useCallback(async (pageKey, blockKey, field, value) => {
     const key = `${pageKey}__${blockKey}__${field}`
-    setContent(prev => ({ ...prev, [key]: value }))
+    setContent(prev => {
+      const next = { ...prev, [key]: value }
+      writeCache(LS_CMS_CONTENT, next)   // keep warm-start cache in sync
+      return next
+    })
     setSaving(true)
     await api.put('/cms/content', { page_key: pageKey, block_key: blockKey, field, value }).catch(() => {})
     setSaving(false)
@@ -312,6 +342,7 @@ export function CMSProvider({ children }) {
     }
     const newOverrides = { ...overrides, [key]: { text, styles, html } }
     setOverrides(newOverrides)
+    writeCache(LS_CMS_OVERRIDES, newOverrides)
     applyOverrideStyles(newOverrides)
     attachObservers(newOverrides)
     try {
@@ -337,6 +368,7 @@ export function CMSProvider({ children }) {
     const newOverrides = { ...overrides }
     delete newOverrides[key]
     setOverrides(newOverrides)
+    writeCache(LS_CMS_OVERRIDES, newOverrides)
     applyOverrideStyles(newOverrides)
     await api.delete(`/cms/overrides/${encodeURIComponent(key)}`).catch(() => {})
   }, [overrides])
