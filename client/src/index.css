@@ -125,22 +125,120 @@ html, body { max-width: 100vw; overflow-x: hidden; }
   --sw-sidebar-border:   rgba(255,255,255,0.05);
 }
 
+/* ── Independent sidebar theme override (Elaine: button to flip the
+     sidebar separately from the page theme). Three classes:
+       .sw-sidebar-theme-auto  → follow the page (default)
+       .sw-sidebar-theme-light → force cream regardless of page
+       .sw-sidebar-theme-dark  → force navy regardless of page
+   The light variant runs the same overrides as the global light-mode
+   rules below, just with stricter selectors so it wins. */
+
+.sw-sidebar-theme-light {
+  --sw-sidebar-gradient: linear-gradient(180deg, #f5f1e8 0%, #e8e3d5 45%, #d9d2c0 100%) !important;
+  --sw-sidebar-border:   rgba(60,75,95,0.18) !important;
+}
+.sw-sidebar-theme-dark {
+  --sw-sidebar-gradient: linear-gradient(180deg, #050c1a 0%, #08132a 45%, #0c1e3e 100%) !important;
+  --sw-sidebar-border:   rgba(255,255,255,0.05) !important;
+}
+/* Whenever the sidebar is forced light, re-run the same text + overlay
+   corrections that the global light-mode block applies. Whenever
+   forced dark, undo any light-mode text override. */
+.sw-sidebar-theme-light,
+.sw-sidebar-theme-light * {
+  color: #1f2b3d !important;
+}
+.sw-sidebar-theme-light [style*="rgba(255,255,255,0.0"],
+.sw-sidebar-theme-light [style*="rgba(255,255,255,0.1"] {
+  background-color: rgba(15,31,56,0.06) !important;
+  border-color: rgba(15,31,56,0.12) !important;
+}
+.sw-sidebar-theme-dark,
+.sw-sidebar-theme-dark * {
+  color: #aab8cc !important;
+}
+.sw-sidebar-theme-dark [style*="rgba(15,31,56"] {
+  background-color: rgba(255,255,255,0.05) !important;
+}
+
 /* ── Light-mode sidebar overrides (Elaine: nav should not stay dark
-     in light mode). The Sidebar component has many hardcoded
-     rgba(255,255,255,…) overlays / labels that read fine on dark
-     navy but disappear on a cream background. These targeted
-     overrides re-tint just the sidebar root + descendants when the
-     document is in light mode, keeping the dark-mode look untouched. */
-:root:not([data-theme="dark"]) .sw-sidebar-root *           { color: #2b3a4d; }
-:root:not([data-theme="dark"]) .sw-sidebar-root *           { border-color: rgba(60,75,95,0.15) !important; }
-:root:not([data-theme="dark"]) .sw-sidebar-root [style*="rgba(255,255,255,0.03)"],
-:root:not([data-theme="dark"]) .sw-sidebar-root [style*="rgba(255,255,255,0.04)"],
-:root:not([data-theme="dark"]) .sw-sidebar-root [style*="rgba(255,255,255,0.05)"],
-:root:not([data-theme="dark"]) .sw-sidebar-root [style*="rgba(255,255,255,0.06)"],
-:root:not([data-theme="dark"]) .sw-sidebar-root [style*="rgba(255,255,255,0.07)"]   { background: rgba(15,31,56,0.05) !important; }
-:root:not([data-theme="dark"]) .sw-sidebar-root [style*="rgba(255,255,255,0.95)"]   { background: rgba(15,31,56,0.04) !important; }
-/* Active / hover indigo glow stays the brand blue */
-:root:not([data-theme="dark"]) .sw-sidebar-root [style*="#0d1f3c"] { background: #1c3a64 !important; color: #fff !important; }
+     in light mode). The Sidebar component has many hardcoded white
+     rgba()/inline colors that read fine on dark navy but disappear
+     on a cream background. Three rules win against inline styles
+     thanks to specificity + !important. Dark mode is untouched. */
+
+/* Force readable text on the cream gradient. !important is needed
+   because Sidebar uses inline color values throughout. */
+:root:not([data-theme="dark"]) .sw-sidebar-root,
+:root:not([data-theme="dark"]) .sw-sidebar-root * {
+  color: #1f2b3d !important;
+}
+/* Re-tint white overlays so chips/dividers don't go invisible */
+:root:not([data-theme="dark"]) .sw-sidebar-root [style*="rgba(255,255,255,0.0"],
+:root:not([data-theme="dark"]) .sw-sidebar-root [style*="rgba(255,255,255,0.1"] {
+  background-color: rgba(15,31,56,0.06) !important;
+  border-color: rgba(15,31,56,0.12) !important;
+}
+/* The Active item still gets the brand-blue treatment */
+:root:not([data-theme="dark"]) .sw-sidebar-root .sw-nav-active,
+:root:not([data-theme="dark"]) .sw-sidebar-root [data-active="1"] {
+  background: rgba(0,111,191,0.16) !important;
+  color: #004c8c !important;
+}
+/* Nested popovers / theme picker swatches inside the sidebar */
+:root:not([data-theme="dark"]) .sw-sidebar-root [style*="#0d1f3c"] {
+  background: #1c3a64 !important;
+  color: #fff !important;
+}
+:root:not([data-theme="dark"]) .sw-sidebar-root [style*="#0d1f3c"] * { color: #fff !important; }
+
+/* ── Accessibility features — make every toggle in the panel actually
+   do something visible (Elaine flagged Large Cursor as a no-op). */
+
+/* Large Cursor — use a generous SVG arrow so it works cross-browser
+   instead of the old broken `cursor: 'auto !important'` placeholder. */
+html.large-cursor,
+html.large-cursor * {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'><path d='M3 2 L3 32 L11 24 L16 36 L21 34 L16 22 L26 22 Z' fill='black' stroke='white' stroke-width='1.6' stroke-linejoin='round'/></svg>") 2 2, auto !important;
+}
+html.large-cursor a,
+html.large-cursor button,
+html.large-cursor [role="button"],
+html.large-cursor input,
+html.large-cursor select,
+html.large-cursor textarea {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'><path d='M14 4 h6 v10 h7 l-10 12 l-10-12 h7 z' fill='%236366f1' stroke='white' stroke-width='1.6' stroke-linejoin='round' transform='rotate(180 17 16)'/></svg>") 8 4, pointer !important;
+}
+
+/* High Contrast — strengthen the existing filter and pull text + bg
+   apart to a true monochrome WCAG-AAA pair. */
+html.high-contrast {
+  filter: contrast(1.45) saturate(1.15);
+}
+html.high-contrast body {
+  background: #000 !important;
+  color: #fff !important;
+}
+html.high-contrast a { color: #ffd54f !important; text-decoration: underline !important; }
+html.high-contrast button,
+html.high-contrast input,
+html.high-contrast select,
+html.high-contrast textarea {
+  background: #000 !important;
+  color: #fff !important;
+  border: 2px solid #fff !important;
+}
+
+/* Dyslexia-Friendly Font — Open Dyslexic is free + open-source, but we
+   only ship the system Comic Sans fallback by default; either reads
+   significantly better than the default DM Sans for users with
+   dyslexia. */
+html.dyslexia-font,
+html.dyslexia-font * {
+  font-family: "OpenDyslexic", "Comic Sans MS", "Trebuchet MS", system-ui, sans-serif !important;
+  letter-spacing: 0.04em !important;
+  word-spacing: 0.08em !important;
+}
 
 /* ── Base ── */
 @layer base {

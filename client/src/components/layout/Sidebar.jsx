@@ -345,6 +345,7 @@ function SectionGroup({ group, open, onToggle, location, navigate, collapsed, is
 }
 
 /* ─── Main sidebar ──────────────────────────────────────────────── */
+const LS_SIDEBAR_THEME = 'sw_sidebar_theme'
 export default function Sidebar({ collapsed, onToggle }) {
   const { user, logout, isAdmin, isQuizCreator } = useAuth()
   const { play } = useSound()
@@ -352,6 +353,17 @@ export default function Sidebar({ collapsed, onToggle }) {
   const location = useLocation()
   const nav = useNavigate()
   const [showThemePicker, setShowThemePicker] = useState(false)
+  // Independent sidebar theme override: 'auto' follows the page, 'light'
+  // and 'dark' lock the sidebar regardless of page mode. Stored in
+  // localStorage so the choice survives reloads.
+  const [sidebarTheme, setSidebarTheme] = useState(() => {
+    try { return localStorage.getItem(LS_SIDEBAR_THEME) || 'auto' } catch { return 'auto' }
+  })
+  const cycleSidebarTheme = () => {
+    const next = sidebarTheme === 'auto' ? 'light' : sidebarTheme === 'light' ? 'dark' : 'auto'
+    setSidebarTheme(next)
+    try { localStorage.setItem(LS_SIDEBAR_THEME, next) } catch {}
+  }
 
   // Determine which group contains the active route, open it by default
   const getDefaultOpen = () => {
@@ -422,7 +434,7 @@ export default function Sidebar({ collapsed, onToggle }) {
 
       <aside
         data-sidebar
-        className="sw-sidebar-root fixed top-0 left-0 h-screen flex flex-col z-40"
+        className={`sw-sidebar-root sw-sidebar-theme-${sidebarTheme} fixed top-0 left-0 h-screen flex flex-col z-40`}
         style={{
           width: collapsed ? 64 : 280,
           transition: 'width 0.28s cubic-bezier(0.4,0,0.2,1)',
@@ -689,7 +701,24 @@ export default function Sidebar({ collapsed, onToggle }) {
                     onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.06)'}
                     onMouseLeave={e => e.currentTarget.style.background='transparent'}>
                     <span style={{ fontSize:13 }}>{mode === 'dark' ? '☀️' : '🌙'}</span>
-                    <span style={{ fontSize:12, color:'rgba(255,255,255,0.7)' }}>{mode === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+                    <span style={{ fontSize:12 }}>Page: {mode === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+                  </button>
+                  {/* Independent sidebar theme toggle (Elaine #?: button
+                      to flip the sidebar separately from the page). */}
+                  <button onClick={cycleSidebarTheme}
+                    title="Cycle sidebar theme: Auto → Light → Dark"
+                    style={{
+                      display:'flex', alignItems:'center', gap:8,
+                      width:'100%', padding:'7px 10px', borderRadius:8,
+                      border:'none', background:'transparent', cursor:'pointer',
+                      transition:'background 0.12s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.06)'}
+                    onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                    <span style={{ fontSize:13 }}>{sidebarTheme === 'auto' ? '🔄' : sidebarTheme === 'light' ? '🌤️' : '🌑'}</span>
+                    <span style={{ fontSize:12 }}>
+                      Sidebar: {sidebarTheme === 'auto' ? 'Auto' : sidebarTheme === 'light' ? 'Light' : 'Dark'}
+                    </span>
                   </button>
                 </div>
               )}

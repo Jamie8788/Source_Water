@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import NibiMascotImage from '../NibiMascotImage'
+import FloatingNibiVideo from './FloatingNibiVideo'
 
 /**
  * SimpleFloatingMascot — Nibi on every page, lifelike but lag-free.
@@ -235,18 +235,12 @@ export default function SimpleFloatingMascot() {
         >
           ×
         </button>
-        {/* keyed inner div triggers a fresh cross-fade animation every
-            time the mood changes, so transitions feel intentional
-            instead of the previous hard image swap that flickered. */}
-        <div
-          key={mood}
-          style={{
-            filter: 'drop-shadow(0 8px 20px rgba(99,102,241,0.35))',
-            animation: 'swMoodFade 0.45s ease-out both',
-            willChange: 'opacity, transform',
-          }}
-        >
-          <NibiMascotImage mood={mood} size={96} />
+        {/* Animated MP4 Nibi (FloatingNibiVideo) — one always-looping
+            video + chroma-key + PNG fallback. Mood only changes the
+            glow + a quick bounce; the video source never swaps, so
+            there's no flicker like the previous attempts. */}
+        <div style={{ filter: 'drop-shadow(0 8px 20px rgba(99,102,241,0.35))' }}>
+          <FloatingNibiVideo mood={mood} size={96} />
         </div>
       </div>
 

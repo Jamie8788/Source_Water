@@ -73,7 +73,9 @@ export default function AccessibilityPanel({ onClose }) {
               { key: 'dyslexiaFont', label: 'Dyslexia-Friendly Font' },
               { key: 'underlineLinks', label: 'Underline Links' },
               { key: 'largeCursor', label: 'Large Cursor' },
-              { key: 'reduceMotion', label: 'Reduce Motion' },
+              // Reduce Motion removed — the global effects toggle in
+              // TopBar already covers this and a second control was
+              // confusing users (Elaine flagged it as not needed).
             ].map(({ key, label }) => (
               <div key={key} className="flex items-center justify-between">
                 <span className="text-sm font-medium text-gray-700">{label}</span>
