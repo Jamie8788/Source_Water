@@ -424,6 +424,21 @@ async function initSchema() {
       `ALTER TABLE cms_overrides ADD COLUMN IF NOT EXISTS styles TEXT DEFAULT '{}'`,
       `ALTER TABLE cms_overrides ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
       `ALTER TABLE cms_content ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+      // ── One-time CMS content rotation (Elaine #75 + #85) ──────────────
+      // Earlier defaults stored "Northern Ontario Water Intelligence(s)"
+      // and the old Dashboard hero subtitle directly in cms_content as
+      // overrides — so just changing the JSX default didn't help. These
+      // UPDATEs are idempotent: only rows whose value still matches the
+      // OLD text get rotated, so a teammate's later edit is preserved.
+      `UPDATE cms_content SET value='LIVE · Community Water Intelligence', updated_at=NOW()
+         WHERE page_key='landing' AND block_key='badge' AND field='text'
+           AND value IN ('LIVE · Northern Ontario Water Intelligence', 'LIVE · Northern Ontario Water Intelligences')`,
+      `UPDATE cms_content SET value='Community Water Intelligence', updated_at=NOW()
+         WHERE page_key='site' AND block_key='site' AND field='tagline'
+           AND value IN ('Northern Ontario Water Intelligence', 'Northern Ontario Water Intelligences')`,
+      `UPDATE cms_content SET value='Our waters need you. Select a dataset to view today''s data snapshot.', updated_at=NOW()
+         WHERE page_key='dashboard' AND block_key='hero' AND field='subtitle'
+           AND value=$$Northern Ontario's water needs you. Here's today's snapshot.$$`,
       `ALTER TABLE cms_site_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
       `ALTER TABLE cms_page_blocks ADD COLUMN IF NOT EXISTS content TEXT DEFAULT '{}'`,
       `ALTER TABLE cms_page_blocks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
@@ -1029,6 +1044,16 @@ async function initSchema() {
       )`,
       `CREATE INDEX IF NOT EXISTS idx_map_stories_user ON map_stories(user_id)`,
       `CREATE INDEX IF NOT EXISTS idx_map_stories_created ON map_stories(created_at DESC)`,
+      // Mirror of the PG rotation (Elaine #75 + #85) for local dev SQLite.
+      `UPDATE cms_content SET value='LIVE · Community Water Intelligence', updated_at=datetime('now')
+         WHERE page_key='landing' AND block_key='badge' AND field='text'
+           AND value IN ('LIVE · Northern Ontario Water Intelligence', 'LIVE · Northern Ontario Water Intelligences')`,
+      `UPDATE cms_content SET value='Community Water Intelligence', updated_at=datetime('now')
+         WHERE page_key='site' AND block_key='site' AND field='tagline'
+           AND value IN ('Northern Ontario Water Intelligence', 'Northern Ontario Water Intelligences')`,
+      `UPDATE cms_content SET value='Our waters need you. Select a dataset to view today''s data snapshot.', updated_at=datetime('now')
+         WHERE page_key='dashboard' AND block_key='hero' AND field='subtitle'
+           AND value='Northern Ontario''s water needs you. Here''s today''s snapshot.'`,
     ]
     for (const m of sqliteMigrations) {
       try { db.sqlite.exec(m) } catch (_) {} // ignore "duplicate column" errors
