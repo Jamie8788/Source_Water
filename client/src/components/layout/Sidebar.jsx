@@ -422,12 +422,14 @@ export default function Sidebar({ collapsed, onToggle }) {
 
       <aside
         data-sidebar
-        className="fixed top-0 left-0 h-screen flex flex-col z-40"
+        className="sw-sidebar-root fixed top-0 left-0 h-screen flex flex-col z-40"
         style={{
           width: collapsed ? 64 : 280,
           transition: 'width 0.28s cubic-bezier(0.4,0,0.2,1)',
-          background: 'linear-gradient(180deg, #050c1a 0%, #08132a 45%, #0c1e3e 100%)',
-          borderRight: '1px solid rgba(255,255,255,0.05)',
+          // Driven by CSS vars so light/dark modes both feel intentional.
+          // Light mode: soft slate-blue cream; dark mode: original deep navy.
+          background: 'var(--sw-sidebar-gradient, linear-gradient(180deg, #050c1a 0%, #08132a 45%, #0c1e3e 100%))',
+          borderRight: '1px solid var(--sw-sidebar-border, rgba(255,255,255,0.05))',
           overflow: 'hidden',
         }}>
 

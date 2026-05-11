@@ -83,10 +83,20 @@ html, body { max-width: 100vw; overflow-x: hidden; }
   /* Legacy alias (used by older components) */
   --secondary:     #067d62;
   --accent:        #c45f00;
-  /* Sidebar — D2L dark navy */
-  --sidebar-bg:    #0f1f38;
-  --sidebar-text:  #aab8cc;
-  --sidebar-active:#006fbf;
+  /* Sidebar — light theme default: soft cream/slate so the nav feels at
+     home in light mode instead of staying dark navy. Dark theme below
+     keeps the original deep navy. */
+  --sidebar-bg:           #eef3f8;
+  --sidebar-text:         #3a4a5c;
+  --sidebar-text-muted:   #6e8094;
+  --sidebar-active:       #006fbf;
+  --sidebar-active-bg:    #d9eaf7;
+  --sidebar-divider:      rgba(15,31,56,0.08);
+  /* The gradient + border are consumed directly by Sidebar.jsx's inline
+     style via var(). Two extra vars keep the look softer than a flat
+     fill — paper-cream at the top, dusty slate at the bottom. */
+  --sw-sidebar-gradient:  linear-gradient(180deg, #f5f1e8 0%, #e8e3d5 45%, #d9d2c0 100%);
+  --sw-sidebar-border:    rgba(60,75,95,0.18);
   /* Surface */
   --card-bg:       #ffffff;
   --page-bg:       #f5f7f9;
@@ -104,7 +114,33 @@ html, body { max-width: 100vw; overflow-x: hidden; }
   --text:       #e8edf2;
   --text-muted: #8fa3b8;
   --text-light: #4a6280;
+  /* Sidebar — keep the original deep-navy aesthetic in dark mode. */
+  --sidebar-bg:         #0f1f38;
+  --sidebar-text:       #aab8cc;
+  --sidebar-text-muted: #6e85a3;
+  --sidebar-active:     #4db6f5;
+  --sidebar-active-bg:  rgba(0,111,191,0.18);
+  --sidebar-divider:    rgba(255,255,255,0.06);
+  --sw-sidebar-gradient: linear-gradient(180deg, #050c1a 0%, #08132a 45%, #0c1e3e 100%);
+  --sw-sidebar-border:   rgba(255,255,255,0.05);
 }
+
+/* ── Light-mode sidebar overrides (Elaine: nav should not stay dark
+     in light mode). The Sidebar component has many hardcoded
+     rgba(255,255,255,…) overlays / labels that read fine on dark
+     navy but disappear on a cream background. These targeted
+     overrides re-tint just the sidebar root + descendants when the
+     document is in light mode, keeping the dark-mode look untouched. */
+:root:not([data-theme="dark"]) .sw-sidebar-root *           { color: #2b3a4d; }
+:root:not([data-theme="dark"]) .sw-sidebar-root *           { border-color: rgba(60,75,95,0.15) !important; }
+:root:not([data-theme="dark"]) .sw-sidebar-root [style*="rgba(255,255,255,0.03)"],
+:root:not([data-theme="dark"]) .sw-sidebar-root [style*="rgba(255,255,255,0.04)"],
+:root:not([data-theme="dark"]) .sw-sidebar-root [style*="rgba(255,255,255,0.05)"],
+:root:not([data-theme="dark"]) .sw-sidebar-root [style*="rgba(255,255,255,0.06)"],
+:root:not([data-theme="dark"]) .sw-sidebar-root [style*="rgba(255,255,255,0.07)"]   { background: rgba(15,31,56,0.05) !important; }
+:root:not([data-theme="dark"]) .sw-sidebar-root [style*="rgba(255,255,255,0.95)"]   { background: rgba(15,31,56,0.04) !important; }
+/* Active / hover indigo glow stays the brand blue */
+:root:not([data-theme="dark"]) .sw-sidebar-root [style*="#0d1f3c"] { background: #1c3a64 !important; color: #fff !important; }
 
 /* ── Base ── */
 @layer base {

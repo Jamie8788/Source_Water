@@ -12,7 +12,10 @@ export default function FeedbackButton() {
       aria-label="Share feedback"
       style={{
         position: 'fixed',
-        bottom: 20,
+        // Stacked above Nibi so they don't fight for the bottom-right
+        // corner. Nibi lives at bottom:18 with ~96px height, so
+        // bottom:130 keeps a clean 16px gap between them.
+        bottom: 130,
         right: 20,
         height: 44,
         padding: '0 16px 0 12px',
