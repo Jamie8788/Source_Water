@@ -439,6 +439,32 @@ async function initSchema() {
       `UPDATE cms_content SET value='Our waters need you. Select a dataset to view today''s data snapshot.', updated_at=NOW()
          WHERE page_key='dashboard' AND block_key='hero' AND field='subtitle'
            AND value=$$Northern Ontario's water needs you. Here's today's snapshot.$$`,
+      // ── Rotate any element-level CMS overrides too ──────────────────
+      // The visual CMS editor saves to cms_overrides separately from
+      // cms_content, and a saved-element copy of the old text was
+      // flicking in BETWEEN the JSX default and the CMSField re-render
+      // (Elaine's FOUC report on the badge). REPLACE() is targeted at
+      // the exact substring so unrelated overrides are not touched.
+      `UPDATE cms_overrides SET
+         text_content = REPLACE(REPLACE(text_content,
+           'Northern Ontario Water Intelligences', 'Community Water Intelligence'),
+           'Northern Ontario Water Intelligence',  'Community Water Intelligence'),
+         html_content = REPLACE(REPLACE(html_content,
+           'Northern Ontario Water Intelligences', 'Community Water Intelligence'),
+           'Northern Ontario Water Intelligence',  'Community Water Intelligence'),
+         updated_at = NOW()
+       WHERE text_content LIKE '%Northern Ontario Water Intelligence%'
+          OR html_content LIKE '%Northern Ontario Water Intelligence%'`,
+      `UPDATE cms_overrides SET
+         text_content = REPLACE(text_content,
+           $$Northern Ontario's water needs you. Here's today's snapshot.$$,
+           'Our waters need you. Select a dataset to view today''s data snapshot.'),
+         html_content = REPLACE(html_content,
+           $$Northern Ontario's water needs you. Here's today's snapshot.$$,
+           'Our waters need you. Select a dataset to view today''s data snapshot.'),
+         updated_at = NOW()
+       WHERE text_content LIKE $$%Northern Ontario's water needs you%$$
+          OR html_content LIKE $$%Northern Ontario's water needs you%$$`,
       `ALTER TABLE cms_site_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
       `ALTER TABLE cms_page_blocks ADD COLUMN IF NOT EXISTS content TEXT DEFAULT '{}'`,
       `ALTER TABLE cms_page_blocks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
@@ -1054,6 +1080,27 @@ async function initSchema() {
       `UPDATE cms_content SET value='Our waters need you. Select a dataset to view today''s data snapshot.', updated_at=datetime('now')
          WHERE page_key='dashboard' AND block_key='hero' AND field='subtitle'
            AND value='Northern Ontario''s water needs you. Here''s today''s snapshot.'`,
+      // Rotate cms_overrides text/html for the SQLite branch too.
+      `UPDATE cms_overrides SET
+         text_content = REPLACE(REPLACE(IFNULL(text_content,''),
+           'Northern Ontario Water Intelligences', 'Community Water Intelligence'),
+           'Northern Ontario Water Intelligence',  'Community Water Intelligence'),
+         html_content = REPLACE(REPLACE(IFNULL(html_content,''),
+           'Northern Ontario Water Intelligences', 'Community Water Intelligence'),
+           'Northern Ontario Water Intelligence',  'Community Water Intelligence'),
+         updated_at = datetime('now')
+       WHERE text_content LIKE '%Northern Ontario Water Intelligence%'
+          OR html_content LIKE '%Northern Ontario Water Intelligence%'`,
+      `UPDATE cms_overrides SET
+         text_content = REPLACE(IFNULL(text_content,''),
+           'Northern Ontario''s water needs you. Here''s today''s snapshot.',
+           'Our waters need you. Select a dataset to view today''s data snapshot.'),
+         html_content = REPLACE(IFNULL(html_content,''),
+           'Northern Ontario''s water needs you. Here''s today''s snapshot.',
+           'Our waters need you. Select a dataset to view today''s data snapshot.'),
+         updated_at = datetime('now')
+       WHERE text_content LIKE '%Northern Ontario''s water needs you%'
+          OR html_content LIKE '%Northern Ontario''s water needs you%'`,
     ]
     for (const m of sqliteMigrations) {
       try { db.sqlite.exec(m) } catch (_) {} // ignore "duplicate column" errors
