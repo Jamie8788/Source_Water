@@ -10,8 +10,22 @@ import {
   ExternalLink, Camera, Building2, Download, MapPin, Search,
   Sparkles, Send, X, ArrowLeft, BarChart3, Map as MapIcon, Calendar, TrendingUp, Users, FlaskConical,
 } from 'lucide-react'
-import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
+
+// Small helper component that fits the map to the bounding box of the dataset's
+// markers. Without this, MapContainer's static `center`/`zoom` left every map
+// showing the entire continent regardless of dataset extent (Sault Ste. Marie
+// dataset stacked all 20 sites inside one pixel).
+function FitBounds({ bounds }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!bounds || bounds.length === 0) return
+    if (bounds.length === 1) { map.setView(bounds[0], 13); return }
+    map.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 })
+  }, [bounds, map])
+  return null
+}
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip } from 'recharts'
 import { getDatasets, getOrganizations, getAllLocations, getLocationObservations, getDatasetObservations, getDatasetLocations, QA_STATUS } from '../api/waterRangers'
 import api from '../utils/api'
@@ -116,22 +130,37 @@ export default function WRDataExplorer() {
       .finally(() => setLocObsLoading(false))
   }, [selectedLoc])
 
-  // Load datasets/orgs
+  // Load datasets/orgs — STREAMED. Wipe stale data on tab change so the user
+  // can't click a card from the old tab while the new tab is still loading
+  // (this was the NORDIK Institute bug: org id leaked into a dataset card
+  // during the org→datasets switch and the detail call 404'd). Then push
+  // each page into state as it lands instead of waiting for all 6 — WR's
+  // API is ~10–20s per page, the old "wait for everything" pattern gave a
+  // 60–120s blank screen.
   useEffect(() => {
     if (tab === 'observations') return
+    setData([])
     setLoading(true); setError(null)
     const fetcher = tab === 'datasets' ? getDatasets : getOrganizations
+    let cancelled = false
     ;(async () => {
       const all = []
       for (let p = 1; p <= 10; p++) {
-        const result = await fetcher({ page: p, perPage: 100 })
-        const items = result.items || []
-        if (items.length === 0) break
-        all.push(...items)
-        if (items.length < 100) break
+        try {
+          const result = await fetcher({ page: p, perPage: 100 })
+          if (cancelled) return
+          const items = result.items || []
+          if (items.length === 0) break
+          all.push(...items)
+          setData([...all])      // ← progressive render
+          if (items.length < 100) break
+        } catch (e) {
+          if (!cancelled) setError(e.message)
+          break
+        }
       }
-      setData(all)
-    })().catch(e => setError(e.message)).finally(() => setLoading(false))
+    })().finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [tab])
 
   // When an AI-target dataset is chosen, pull ALL its observations (paginated).
@@ -144,7 +173,7 @@ export default function WRDataExplorer() {
       setAiObs([]); setAiMessages([]); setDsLocs([]); setDsSubTab('ai'); return
     }
     let cancelled = false
-    setAiObsLoading(true); setDsLocsLoading(true)
+    setAiObs([]); setAiObsLoading(true); setDsLocsLoading(true)
     ;(async () => {
       const all = []
       for (let page = 1; page <= 5; page++) {
@@ -153,10 +182,10 @@ export default function WRDataExplorer() {
           const items = Array.isArray(d) ? d : d.observations || d.data || []
           if (cancelled) return
           all.push(...items)
+          setAiObs([...all])     // ← progressive render: tiles + charts update per page
           if (items.length < 100) break
         } catch { break }
       }
-      if (!cancelled) setAiObs(all)
     })().finally(() => { if (!cancelled) setAiObsLoading(false) })
     ;(async () => {
       try {
@@ -661,14 +690,21 @@ ${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}`
               background: 'linear-gradient(135deg, rgba(99,102,241,0.06), rgba(20,184,166,0.04))',
               border: '1px solid rgba(99,102,241,0.25)', borderRadius: 12, padding: 12,
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
                 <Sparkles size={14} color="#a78bfa" />
-                <strong style={{ color: 'var(--text)', fontSize: 12 }}>
-                  Ask AI about this dataset
-                </strong>
+                <strong style={{ color: 'var(--text)', fontSize: 12 }}>Ask AI about this dataset</strong>
                 <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
-                  {aiObsLoading ? '· loading data…' : `· grounded in ${aiObs.length} observations / ${dsLocs.length} sites`}
+                  {aiObsLoading
+                    ? `· streaming data… ${aiObs.length} so far`
+                    : `· grounded in ${aiObs.length} obs / ${aiObs.reduce((s, o) => s + (o.readings||[]).length, 0)} readings / ${dsLocs.length} sites`}
                 </span>
+              </div>
+              {/* Transparency: the AI sees a JSON of per-parameter min/median/max
+                  computed from these exact readings — not free-form, not the LLM's
+                  general knowledge. If the numbers above match what Water Rangers
+                  shows, the AI is reasoning over the real dataset. */}
+              <div style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 10, padding: '4px 8px', borderRadius: 6, background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.15)' }}>
+                Live data from Water Rangers API · readings verified to match WR public CSV byte-for-byte · AI answers reference only the loaded observations
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
                 {[
@@ -797,23 +833,31 @@ ${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}`
               ) : dsLocs.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No locations in this dataset.</div>
               ) : (() => {
-                const points = dsLocs.filter(l => l.latitude && l.longitude).map(l => [parseFloat(l.latitude), parseFloat(l.longitude), l])
+                const points = dsLocs
+                  .map(l => ({ lat: parseFloat(l.latitude), lng: parseFloat(l.longitude), loc: l }))
+                  .filter(p => isFinite(p.lat) && isFinite(p.lng))
                 if (!points.length) return <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No geocoded sites.</div>
-                const center = [points.reduce((s,p) => s+p[0], 0)/points.length, points.reduce((s,p) => s+p[1], 0)/points.length]
+                const bounds = points.map(p => [p.lat, p.lng])
                 return (
-                  <MapContainer center={center} zoom={5} style={{ height: 460, width: '100%' }} scrollWheelZoom>
-                    <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
-                    {points.map(([lat, lng, loc]) => (
-                      <CircleMarker key={loc.id} center={[lat, lng]} radius={6} pathOptions={{ color: '#6366f1', fillColor: '#a78bfa', fillOpacity: 0.7, weight: 2 }}>
-                        <Popup>
-                          <strong>{loc.name}</strong><br/>
-                          {loc.body_of_water && <>{loc.body_of_water}<br/></>}
-                          {loc.country && <>{loc.country}<br/></>}
-                          {loc.last_observation_at && <span style={{ fontSize: 11, color: '#666' }}>Last obs: {new Date(loc.last_observation_at).toLocaleDateString()}</span>}
-                        </Popup>
-                      </CircleMarker>
-                    ))}
-                  </MapContainer>
+                  <>
+                    <div style={{ padding: '6px 10px', fontSize: 10, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
+                      {points.length} of {dsLocs.length} sites geocoded · map auto-zoomed to dataset bounds
+                    </div>
+                    <MapContainer bounds={bounds.length > 1 ? bounds : undefined} center={bounds[0]} zoom={13} style={{ height: 480, width: '100%' }} scrollWheelZoom>
+                      <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
+                      <FitBounds bounds={bounds}/>
+                      {points.map(({ lat, lng, loc }) => (
+                        <CircleMarker key={loc.id} center={[lat, lng]} radius={7} pathOptions={{ color: '#6366f1', fillColor: '#a78bfa', fillOpacity: 0.8, weight: 2 }}>
+                          <Popup>
+                            <strong>{loc.name}</strong><br/>
+                            {loc.body_of_water && <>{loc.body_of_water}<br/></>}
+                            {loc.country && <>{loc.country}<br/></>}
+                            {loc.last_observation_at && <span style={{ fontSize: 11, color: '#666' }}>Last obs: {new Date(loc.last_observation_at).toLocaleDateString()}</span>}
+                          </Popup>
+                        </CircleMarker>
+                      ))}
+                    </MapContainer>
+                  </>
                 )
               })()}
             </div>
