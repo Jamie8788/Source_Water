@@ -8,8 +8,10 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Database, Eye, RefreshCw, AlertTriangle,
   ExternalLink, Camera, Building2, Download, MapPin, Search,
+  Sparkles, Send, X,
 } from 'lucide-react'
-import { getDatasets, getOrganizations, getAllLocations, getLocationObservations, QA_STATUS } from '../api/waterRangers'
+import { getDatasets, getOrganizations, getAllLocations, getLocationObservations, getDatasetObservations, QA_STATUS } from '../api/waterRangers'
+import api from '../utils/api'
 
 // Plain English + safety for readings
 const PARAM_INFO = {
@@ -75,6 +77,20 @@ export default function WRDataExplorer() {
   const [dsSearch, setDsSearch] = useState('')
   const [dsStatusFilter, setDsStatusFilter] = useState('')
 
+  // ── AI contextual analysis (Datasets tab only) ─────────────────────────
+  // The original Datasets tab just rendered cards — no way to actually
+  // *use* the data without leaving for waterrangers.ca (where you also
+  // need org permission to join a dataset). The AI bar pulls a sample of
+  // observations for the picked dataset and feeds the user's question
+  // through /ai/public-chat with that context. So a non-member can still
+  // get real analysis out of WR data via our site.
+  const [aiDataset, setAiDataset] = useState(null)
+  const [aiObs, setAiObs] = useState([])
+  const [aiObsLoading, setAiObsLoading] = useState(false)
+  const [aiInput, setAiInput] = useState('')
+  const [aiMessages, setAiMessages] = useState([])
+  const [aiThinking, setAiThinking] = useState(false)
+
   // Load all locations (from server cache — should be instant)
   useEffect(() => {
     setLocsLoading(true)
@@ -111,6 +127,94 @@ export default function WRDataExplorer() {
       setData(all)
     })().catch(e => setError(e.message)).finally(() => setLoading(false))
   }, [tab])
+
+  // When an AI-target dataset is chosen, pull a sample of its observations
+  useEffect(() => {
+    if (!aiDataset) { setAiObs([]); setAiMessages([]); return }
+    setAiObsLoading(true)
+    getDatasetObservations(aiDataset.id, { perPage: 100 })
+      .then(d => {
+        const items = Array.isArray(d) ? d : d.observations || d.data || []
+        setAiObs(items)
+      })
+      .catch(() => setAiObs([]))
+      .finally(() => setAiObsLoading(false))
+  }, [aiDataset])
+
+  // Boil 100 observations into a compact stats blob the LLM can reason
+  // over. Per-parameter min/median/max + sample size + date range.
+  const aiStats = useMemo(() => {
+    if (!aiObs.length) return null
+    const byParam = {}
+    let firstDate = null, lastDate = null
+    aiObs.forEach(o => {
+      const t = o.observed_at ? new Date(o.observed_at).getTime() : null
+      if (t) {
+        if (!firstDate || t < firstDate) firstDate = t
+        if (!lastDate  || t > lastDate)  lastDate  = t
+      }
+      ;(o.readings || []).forEach(r => {
+        const v = parseFloat(r.value)
+        if (!isFinite(v) || !r.parameter) return
+        const k = r.parameter.toLowerCase()
+        if (!byParam[k]) byParam[k] = { values: [], unit: r.unit || '' }
+        byParam[k].values.push(v)
+      })
+    })
+    const summary = {}
+    Object.entries(byParam).forEach(([p, { values, unit }]) => {
+      const sorted = [...values].sort((a, b) => a - b)
+      const median = sorted[Math.floor(sorted.length / 2)]
+      const info = getParamInfo(p)
+      summary[p] = {
+        n: values.length,
+        min: +sorted[0].toFixed(3),
+        median: +median.toFixed(3),
+        max: +sorted[sorted.length - 1].toFixed(3),
+        unit,
+        safe_range: info.safe,
+      }
+    })
+    return {
+      observations_loaded: aiObs.length,
+      date_range: firstDate && lastDate
+        ? `${new Date(firstDate).toISOString().slice(0,10)} → ${new Date(lastDate).toISOString().slice(0,10)}`
+        : 'unknown',
+      parameters: summary,
+    }
+  }, [aiObs])
+
+  const askAI = useCallback(async (question) => {
+    const q = (question || aiInput).trim()
+    if (!q || !aiDataset || aiThinking) return
+    setAiInput('')
+    const userMsg = { role: 'user', content: q }
+    const history = [...aiMessages, userMsg]
+    setAiMessages(history)
+    setAiThinking(true)
+    const context = `Dataset: "${aiDataset.name}"
+Description: ${aiDataset.description || '(none)'}
+Status: ${aiDataset.dormant ? 'DORMANT' : 'ACTIVE'}${aiDataset.share_with_datastream ? ', shared on DataStream' : ''}
+Active since: ${aiDataset.start_date || 'unknown'}
+Last observation: ${aiDataset.last_observation_at || 'unknown'}
+
+Sample analysis from ${aiObs.length} most recent observations:
+${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}`
+    try {
+      const { data } = await api.post('/ai/public-chat', {
+        messages: [
+          { role: 'system', content: `You are analysing a Water Rangers community-monitoring dataset. Use ONLY the context below to answer; cite specific parameter names, values, and the date range. If the data doesn't support an answer, say so plainly. Keep answers tight (max ~5 short paragraphs or bullets).\n\n${context}` },
+          ...history,
+        ],
+        max_tokens: 600,
+      })
+      setAiMessages([...history, { role: 'assistant', content: data.reply || 'No response.' }])
+    } catch (e) {
+      setAiMessages([...history, { role: 'assistant', content: 'AI is unavailable right now. Try again in a moment.' }])
+    } finally {
+      setAiThinking(false)
+    }
+  }, [aiInput, aiDataset, aiMessages, aiThinking, aiStats, aiObs.length])
 
   // Filter locations
   const filteredLocs = useMemo(() => {
@@ -346,6 +450,108 @@ export default function WRDataExplorer() {
       {/* ══════ DATASETS ══════ */}
       {tab === 'datasets' && (
         <div>
+          {/* AI contextual bar — appears at the top of the datasets tab.
+              Idle state nudges the user to pick a dataset; active state
+              shows the dataset name + quick-prompt chips + a small chat. */}
+          <div style={{
+            background: aiDataset ? 'linear-gradient(135deg, rgba(99,102,241,0.10), rgba(20,184,166,0.08))' : 'var(--card-bg)',
+            border: `1px solid ${aiDataset ? 'rgba(99,102,241,0.35)' : 'var(--border)'}`,
+            borderRadius: 12, padding: 12, marginBottom: 10,
+            boxShadow: aiDataset ? '0 6px 22px rgba(99,102,241,0.10)' : 'none',
+            transition: 'all 0.2s',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: aiDataset ? 8 : 0 }}>
+              <Sparkles size={14} color="#a78bfa" />
+              <strong style={{ color: 'var(--text)', fontSize: 12 }}>Ask AI about a dataset</strong>
+              {!aiDataset && (
+                <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                  — click <em>Ask AI</em> on any dataset card below to start
+                </span>
+              )}
+              {aiDataset && (
+                <>
+                  <span style={{
+                    padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700,
+                    background: 'rgba(99,102,241,.12)', color: '#a78bfa',
+                    maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{aiDataset.name}</span>
+                  <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
+                    {aiObsLoading ? '· loading data…' : aiObs.length ? `· ${aiObs.length} obs sampled` : '· no observations'}
+                  </span>
+                  <button onClick={() => { setAiDataset(null); setAiMessages([]); setAiObs([]) }}
+                    title="Clear" style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, fontSize: 11 }}>
+                    <X size={12} /> close
+                  </button>
+                </>
+              )}
+            </div>
+
+            {aiDataset && (
+              <>
+                {/* Quick prompts */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
+                  {[
+                    'Summarise the key findings.',
+                    'Any health or safety concerns in this data?',
+                    'Which parameters are outside safe ranges?',
+                    'What trends or patterns stand out?',
+                  ].map(q => (
+                    <button key={q} onClick={() => askAI(q)} disabled={aiThinking || aiObsLoading}
+                      style={{
+                        padding: '4px 9px', borderRadius: 999, fontSize: 10, fontWeight: 600,
+                        background: 'rgba(99,102,241,.06)', border: '1px solid rgba(99,102,241,.25)',
+                        color: '#a78bfa', cursor: (aiThinking || aiObsLoading) ? 'wait' : 'pointer',
+                        opacity: (aiThinking || aiObsLoading) ? 0.5 : 1,
+                      }}>{q}</button>
+                  ))}
+                </div>
+
+                {/* Conversation */}
+                {aiMessages.length > 0 && (
+                  <div style={{ maxHeight: 280, overflowY: 'auto', marginBottom: 8, paddingRight: 4 }}>
+                    {aiMessages.map((m, i) => (
+                      <div key={i} style={{
+                        padding: '6px 9px', borderRadius: 8, marginBottom: 4, fontSize: 11, lineHeight: 1.5,
+                        background: m.role === 'user' ? 'rgba(99,102,241,.10)' : 'var(--card-bg)',
+                        border: m.role === 'user' ? '1px solid rgba(99,102,241,.20)' : '1px solid var(--border)',
+                        color: 'var(--text)', whiteSpace: 'pre-wrap',
+                      }}>
+                        <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 2 }}>
+                          {m.role === 'user' ? 'You' : 'AI'}
+                        </div>
+                        {m.content}
+                      </div>
+                    ))}
+                    {aiThinking && (
+                      <div style={{ padding: '6px 9px', fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <RefreshCw size={11} className="animate-spin" /> Thinking…
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Input */}
+                <form onSubmit={e => { e.preventDefault(); askAI() }} style={{ display: 'flex', gap: 6 }}>
+                  <input value={aiInput} onChange={e => setAiInput(e.target.value)} disabled={aiThinking}
+                    placeholder={aiObsLoading ? 'Loading dataset…' : 'Ask anything about this dataset…'}
+                    style={{
+                      flex: 1, padding: '7px 10px', borderRadius: 8, fontSize: 11,
+                      background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text)',
+                      outline: 'none',
+                    }} />
+                  <button type="submit" disabled={aiThinking || aiObsLoading || !aiInput.trim()}
+                    style={{
+                      padding: '7px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                      background: 'linear-gradient(135deg, #6366f1, #14b8a6)', border: 'none', color: '#fff',
+                      cursor: (aiThinking || aiObsLoading || !aiInput.trim()) ? 'not-allowed' : 'pointer',
+                      opacity: (aiThinking || aiObsLoading || !aiInput.trim()) ? 0.5 : 1,
+                      display: 'flex', alignItems: 'center', gap: 4,
+                    }}><Send size={11} /> Ask</button>
+                </form>
+              </>
+            )}
+          </div>
+
           <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
             <input value={dsSearch} onChange={e => setDsSearch(e.target.value)} placeholder="Search datasets..."
               style={{ padding: '5px 8px', borderRadius: 6, fontSize: 11, background: 'rgba(0,0,0,.1)', border: '1px solid var(--border)', color: 'var(--text)', width: 200 }} />
@@ -380,7 +586,19 @@ export default function WRDataExplorer() {
                     {ds.last_observation_at && <span>🔬 Last: {new Date(ds.last_observation_at).toLocaleDateString()}</span>}
                     {ds.share_with_datastream && <span style={{ color: '#14b8a6' }}>🔗 DataStream</span>}
                   </div>
-                  {ds.permalink && <a href={ds.permalink} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 7px', borderRadius: 5, background: 'rgba(99,102,241,.06)', color: '#a78bfa', fontSize: 10, fontWeight: 600, textDecoration: 'none', marginTop: 6 }}><ExternalLink size={9}/> View Data</a>}
+                  <div style={{ display: 'flex', gap: 5, marginTop: 6, flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => { setAiDataset(ds); setAiMessages([]); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 7px', borderRadius: 5,
+                        background: aiDataset?.id === ds.id ? 'rgba(167,139,250,.20)' : 'rgba(167,139,250,.08)',
+                        border: aiDataset?.id === ds.id ? '1px solid rgba(167,139,250,.45)' : '1px solid rgba(167,139,250,.20)',
+                        color: '#a78bfa', fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                      }}>
+                      <Sparkles size={9}/> {aiDataset?.id === ds.id ? 'Asking AI…' : 'Ask AI'}
+                    </button>
+                    {ds.permalink && <a href={ds.permalink} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 7px', borderRadius: 5, background: 'rgba(99,102,241,.06)', color: '#a78bfa', fontSize: 10, fontWeight: 600, textDecoration: 'none' }}><ExternalLink size={9}/> View Data</a>}
+                  </div>
                 </div>
               ))}
             </div>

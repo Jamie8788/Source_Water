@@ -36,6 +36,15 @@ html.sw-no-anim [data-sw-ambient] { display: none !important; }
    "too thin and hard to see". 12px + a proper thumb colour fixes it
    without crowding content. Firefox honours scrollbar-* properties
    for the same effect. */
+/* Force the vertical scrollbar gutter to be reserved at all times so
+   it doesn't pop in/out on refresh or route change (Elaine: "scroll
+   bar disappears when I refresh"). overflow-y:scroll covers older
+   browsers, scrollbar-gutter:stable is the modern equivalent without
+   forcing a visible track when content fits. Keep both — they layer. */
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(99, 102, 241, 0.55) transparent;
