@@ -105,6 +105,7 @@ export default function WRDataExplorer() {
   const [dsSubTab, setDsSubTab] = useState('ai')
   const [aiObs, setAiObs] = useState([])
   const [aiObsLoading, setAiObsLoading] = useState(false)
+  const [aiObsComplete, setAiObsComplete] = useState(false) // last page returned < 100
   const [dsLocs, setDsLocs] = useState([])
   const [dsLocsLoading, setDsLocsLoading] = useState(false)
   const [aiInput, setAiInput] = useState('')
@@ -173,19 +174,24 @@ export default function WRDataExplorer() {
       setAiObs([]); setAiMessages([]); setDsLocs([]); setDsSubTab('ai'); return
     }
     let cancelled = false
-    setAiObs([]); setAiObsLoading(true); setDsLocsLoading(true)
+    setAiObs([]); setAiObsComplete(false); setAiObsLoading(true); setDsLocsLoading(true)
     ;(async () => {
       const all = []
-      for (let page = 1; page <= 5; page++) {
+      let complete = false
+      // 20 pages × 100 = up to 2000 obs. Covers ~99% of WR datasets.
+      // Datasets bigger than that show a "+" badge on the tile so the
+      // user knows they're seeing a sample, not the full set.
+      for (let page = 1; page <= 20; page++) {
         try {
           const d = await getDatasetObservations(selectedDs.id, { page, perPage: 100 })
           const items = Array.isArray(d) ? d : d.observations || d.data || []
           if (cancelled) return
           all.push(...items)
-          setAiObs([...all])     // ← progressive render: tiles + charts update per page
-          if (items.length < 100) break
+          setAiObs([...all])
+          if (items.length < 100) { complete = true; break }
         } catch { break }
       }
+      if (!cancelled) setAiObsComplete(complete)
     })().finally(() => { if (!cancelled) setAiObsLoading(false) })
     ;(async () => {
       try {
@@ -198,13 +204,17 @@ export default function WRDataExplorer() {
     return () => { cancelled = true }
   }, [selectedDs])
 
-  // Boil 100 observations into a compact stats blob the LLM can reason
-  // over. Per-parameter min/median/max + sample size + date range.
+  // Boil loaded observations into a compact stats blob the LLM can reason
+  // over: per-parameter min/median/max, date range, AND contributor count
+  // (unique owner_ids — that's how WR computes their site's "Contributors"
+  // figure since there's no dedicated /contributors endpoint).
   const aiStats = useMemo(() => {
     if (!aiObs.length) return null
     const byParam = {}
+    const owners = new Set()
     let firstDate = null, lastDate = null
     aiObs.forEach(o => {
+      if (o.owner_id) owners.add(o.owner_id)
       const t = o.observed_at ? new Date(o.observed_at).getTime() : null
       if (t) {
         if (!firstDate || t < firstDate) firstDate = t
@@ -234,6 +244,7 @@ export default function WRDataExplorer() {
     })
     return {
       observations_loaded: aiObs.length,
+      contributors: owners.size,
       date_range: firstDate && lastDate
         ? `${new Date(firstDate).toISOString().slice(0,10)} → ${new Date(lastDate).toISOString().slice(0,10)}`
         : 'unknown',
@@ -311,14 +322,16 @@ Description: ${selectedDs.description || '(none)'}
 Status: ${selectedDs.dormant ? 'DORMANT' : 'ACTIVE'}${selectedDs.share_with_datastream ? ', shared on DataStream' : ''}
 Active since: ${selectedDs.start_date || 'unknown'}
 Last observation: ${selectedDs.last_observation_at || 'unknown'}
-Total locations: ${dsLocs.length}
+Total locations in dataset: ${dsLocs.length}
+Contributors (unique observers in loaded data): ${aiStats?.contributors ?? 'unknown'}
+Data completeness: ${aiObsComplete ? `complete — all ${aiObs.length} observations are loaded` : `partial — ${aiObs.length} observations loaded, dataset has more (cap reached)`}
 
-Full analysis from ${aiObs.length} observations:
+Stats from loaded observations:
 ${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}`
     try {
       const { data } = await api.post('/ai/public-chat', {
         messages: [
-          { role: 'system', content: `You are analysing a Water Rangers community-monitoring dataset. Use ONLY the context below to answer; cite specific parameter names, values, and the date range. If the data doesn't support an answer, say so plainly. Keep answers tight (max ~5 short paragraphs or bullets).\n\n${context}` },
+          { role: 'system', content: `You are analysing a Water Rangers community-monitoring dataset. Use ONLY the context below to answer — never invent numbers. Cite specific parameter names, values, and the date range when you cite data. If the context says "Data completeness: partial", note that for any question that requires the full dataset (totals, counts) and answer with the qualifier "from the X observations loaded". When asked about contributors, use the "Contributors" field directly. Keep answers tight (max ~5 short paragraphs or bullets).\n\n${context}` },
           ...history,
         ],
         max_tokens: 600,
@@ -329,7 +342,7 @@ ${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}`
     } finally {
       setAiThinking(false)
     }
-  }, [aiInput, selectedDs, aiMessages, aiThinking, aiStats, aiObs.length, dsLocs.length])
+  }, [aiInput, selectedDs, aiMessages, aiThinking, aiStats, aiObs.length, dsLocs.length, aiObsComplete])
 
   // Filter locations
   const filteredLocs = useMemo(() => {
@@ -647,21 +660,25 @@ ${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}`
             </div>
           </div>
 
-          {/* Stat tiles */}
+          {/* Stat tiles. When the dataset is bigger than what we paginated
+              we append a "+" so the number doesn't look like the WHOLE thing.
+              Locations is always exact (single API call returns them all). */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 10 }}>
             {[
-              { label: 'Observations', value: aiObsLoading ? '…' : aiObs.length.toLocaleString(), icon: Eye, color: '#6366f1' },
-              { label: 'Readings',     value: aiObsLoading ? '…' : aiObs.reduce((s, o) => s + (o.readings||[]).length, 0).toLocaleString(), icon: FlaskConical, color: '#14b8a6' },
+              { label: 'Observations', value: aiObsLoading ? '…' : `${aiObs.length.toLocaleString()}${aiObsComplete ? '' : '+'}`, icon: Eye, color: '#6366f1', partial: !aiObsComplete && !aiObsLoading },
+              { label: 'Readings',     value: aiObsLoading ? '…' : `${aiObs.reduce((s, o) => s + (o.readings||[]).length, 0).toLocaleString()}${aiObsComplete ? '' : '+'}`, icon: FlaskConical, color: '#14b8a6', partial: !aiObsComplete && !aiObsLoading },
               { label: 'Locations',    value: dsLocsLoading ? '…' : dsLocs.length.toLocaleString(), icon: MapPin, color: '#f59e0b' },
+              { label: 'Contributors', value: aiObsLoading ? '…' : `${aiStats?.contributors || 0}${aiObsComplete ? '' : '+'}`, icon: Users, color: '#ec4899', partial: !aiObsComplete && !aiObsLoading },
               { label: 'Parameters',   value: aiObsLoading ? '…' : paramRows.length.toLocaleString(), icon: BarChart3, color: '#a78bfa' },
-              { label: 'Date range',   value: aiStats?.date_range || '—', icon: Calendar, color: '#ec4899', wide: true },
+              { label: 'Date range',   value: aiStats?.date_range || '—', icon: Calendar, color: '#6366f1', wide: true },
             ].map((t, i) => (
-              <div key={i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 10, display: 'flex', alignItems: 'center', gap: 8, gridColumn: t.wide ? 'span 2' : 'auto' }}>
+              <div key={i} title={t.partial ? 'Showing sample — dataset has more observations than the paginated cap' : ''} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 10, display: 'flex', alignItems: 'center', gap: 8, gridColumn: t.wide ? 'span 2' : 'auto', position: 'relative' }}>
                 <div style={{ width: 32, height: 32, borderRadius: 8, background: `${t.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: t.color }}><t.icon size={16}/></div>
                 <div>
                   <div style={{ color: 'var(--text-muted)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t.label}</div>
                   <div style={{ color: 'var(--text)', fontSize: t.wide ? 12 : 16, fontWeight: 900 }}>{t.value}</div>
                 </div>
+                {t.partial && <span style={{ position: 'absolute', top: 4, right: 6, fontSize: 8, fontWeight: 800, color: '#f59e0b', background: 'rgba(245,158,11,0.10)', padding: '1px 5px', borderRadius: 4, letterSpacing: '0.04em' }}>SAMPLE</span>}
               </div>
             ))}
           </div>
@@ -695,16 +712,20 @@ ${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}`
                 <strong style={{ color: 'var(--text)', fontSize: 12 }}>Ask AI about this dataset</strong>
                 <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
                   {aiObsLoading
-                    ? `· streaming data… ${aiObs.length} so far`
-                    : `· grounded in ${aiObs.length} obs / ${aiObs.reduce((s, o) => s + (o.readings||[]).length, 0)} readings / ${dsLocs.length} sites`}
+                    ? `· streaming… ${aiObs.length} obs loaded so far`
+                    : `· grounded in ${aiObs.length}${aiObsComplete ? '' : '+'} obs / ${aiObs.reduce((s, o) => s + (o.readings||[]).length, 0)}${aiObsComplete ? '' : '+'} readings / ${dsLocs.length} sites / ${aiStats?.contributors ?? '?'} contributors`}
                 </span>
               </div>
-              {/* Transparency: the AI sees a JSON of per-parameter min/median/max
-                  computed from these exact readings — not free-form, not the LLM's
-                  general knowledge. If the numbers above match what Water Rangers
-                  shows, the AI is reasoning over the real dataset. */}
-              <div style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 10, padding: '4px 8px', borderRadius: 6, background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.15)' }}>
-                Live data from Water Rangers API · readings verified to match WR public CSV byte-for-byte · AI answers reference only the loaded observations
+              {/* Transparency. The AI sees the dataset metadata + a JSON of
+                  per-parameter min/median/max + the contributor count, all
+                  computed from the actual Water Rangers API response — not
+                  free-form, not the LLM's general knowledge. We also tell it
+                  whether the loaded data is the FULL dataset or a sample so it
+                  doesn't pretend to know totals beyond what it was given. */}
+              <div style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 10, padding: '4px 8px', borderRadius: 6, background: aiObsComplete ? 'rgba(16,185,129,0.05)' : 'rgba(245,158,11,0.06)', border: aiObsComplete ? '1px solid rgba(16,185,129,0.15)' : '1px solid rgba(245,158,11,0.20)' }}>
+                {aiObsComplete
+                  ? 'Live data from Water Rangers API · complete dataset loaded · AI answers reference only these observations'
+                  : 'Live data from Water Rangers API · this is a sample (dataset exceeds the 2,000-obs cap) · the AI knows it\'s seeing partial data and will say so when relevant'}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
                 {[
