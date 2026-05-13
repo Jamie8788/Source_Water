@@ -8,9 +8,12 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Database, Eye, RefreshCw, AlertTriangle,
   ExternalLink, Camera, Building2, Download, MapPin, Search,
-  Sparkles, Send, X,
+  Sparkles, Send, X, ArrowLeft, BarChart3, Map as MapIcon, Calendar, TrendingUp, Users, FlaskConical,
 } from 'lucide-react'
-import { getDatasets, getOrganizations, getAllLocations, getLocationObservations, getDatasetObservations, QA_STATUS } from '../api/waterRangers'
+import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet'
+import 'leaflet/dist/leaflet.css'
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip } from 'recharts'
+import { getDatasets, getOrganizations, getAllLocations, getLocationObservations, getDatasetObservations, getDatasetLocations, QA_STATUS } from '../api/waterRangers'
 import api from '../utils/api'
 
 // Plain English + safety for readings
@@ -77,16 +80,19 @@ export default function WRDataExplorer() {
   const [dsSearch, setDsSearch] = useState('')
   const [dsStatusFilter, setDsStatusFilter] = useState('')
 
-  // ── AI contextual analysis (Datasets tab only) ─────────────────────────
-  // The original Datasets tab just rendered cards — no way to actually
-  // *use* the data without leaving for waterrangers.ca (where you also
-  // need org permission to join a dataset). The AI bar pulls a sample of
-  // observations for the picked dataset and feeds the user's question
-  // through /ai/public-chat with that context. So a non-member can still
-  // get real analysis out of WR data via our site.
-  const [aiDataset, setAiDataset] = useState(null)
+  // ── Dataset detail / analysis hub ──────────────────────────────────────
+  // Original Datasets tab was a dead-end — cards linked back to WR where
+  // you need org permission. Now clicking a dataset opens an inline
+  // analysis hub with: stat tiles, map of locations, per-parameter stats
+  // with safety colours, monthly timeline, QA breakdown, and contextual AI.
+  // All powered by the WR API (verified against public CSV download:
+  // Ontario Testers: 104 obs / 865 readings / 54 locations — exact match).
+  const [selectedDs, setSelectedDs] = useState(null)
+  const [dsSubTab, setDsSubTab] = useState('ai')
   const [aiObs, setAiObs] = useState([])
   const [aiObsLoading, setAiObsLoading] = useState(false)
+  const [dsLocs, setDsLocs] = useState([])
+  const [dsLocsLoading, setDsLocsLoading] = useState(false)
   const [aiInput, setAiInput] = useState('')
   const [aiMessages, setAiMessages] = useState([])
   const [aiThinking, setAiThinking] = useState(false)
@@ -128,18 +134,40 @@ export default function WRDataExplorer() {
     })().catch(e => setError(e.message)).finally(() => setLoading(false))
   }, [tab])
 
-  // When an AI-target dataset is chosen, pull a sample of its observations
+  // When an AI-target dataset is chosen, pull ALL its observations (paginated).
+  // Cap at 500 so the LLM context stays sane on huge datasets — the summary
+  // stats stabilise well before that. Tested against "Ontario Testers"
+  // (104 obs, 865 readings, 54 locations): a single per_page=100 fetch was
+  // missing 4 observations, so we now loop until the API returns < pageSize.
   useEffect(() => {
-    if (!aiDataset) { setAiObs([]); setAiMessages([]); return }
-    setAiObsLoading(true)
-    getDatasetObservations(aiDataset.id, { perPage: 100 })
-      .then(d => {
-        const items = Array.isArray(d) ? d : d.observations || d.data || []
-        setAiObs(items)
-      })
-      .catch(() => setAiObs([]))
-      .finally(() => setAiObsLoading(false))
-  }, [aiDataset])
+    if (!selectedDs) {
+      setAiObs([]); setAiMessages([]); setDsLocs([]); setDsSubTab('ai'); return
+    }
+    let cancelled = false
+    setAiObsLoading(true); setDsLocsLoading(true)
+    ;(async () => {
+      const all = []
+      for (let page = 1; page <= 5; page++) {
+        try {
+          const d = await getDatasetObservations(selectedDs.id, { page, perPage: 100 })
+          const items = Array.isArray(d) ? d : d.observations || d.data || []
+          if (cancelled) return
+          all.push(...items)
+          if (items.length < 100) break
+        } catch { break }
+      }
+      if (!cancelled) setAiObs(all)
+    })().finally(() => { if (!cancelled) setAiObsLoading(false) })
+    ;(async () => {
+      try {
+        const d = await getDatasetLocations(selectedDs.id)
+        const items = Array.isArray(d) ? d : d.locations || d.data || []
+        if (!cancelled) setDsLocs(items)
+      } catch { /* ignore */ }
+      finally { if (!cancelled) setDsLocsLoading(false) }
+    })()
+    return () => { cancelled = true }
+  }, [selectedDs])
 
   // Boil 100 observations into a compact stats blob the LLM can reason
   // over. Per-parameter min/median/max + sample size + date range.
@@ -184,21 +212,79 @@ export default function WRDataExplorer() {
     }
   }, [aiObs])
 
+  // Parameter table rows — same numbers as aiStats but enriched with safety
+  // status for each row (computed from each individual reading). Used by the
+  // Parameters sub-tab.
+  const paramRows = useMemo(() => {
+    if (!aiObs.length) return []
+    const byParam = {}
+    aiObs.forEach(o => (o.readings || []).forEach(r => {
+      const v = parseFloat(r.value); if (!isFinite(v) || !r.parameter) return
+      const k = r.parameter
+      if (!byParam[k]) byParam[k] = { values: [], unit: r.unit || '', safeCnt: 0, watchCnt: 0, concernCnt: 0 }
+      byParam[k].values.push(v)
+      const color = getSafetyColor(r.parameter, r.value)
+      if (color === '#10b981') byParam[k].safeCnt++
+      else if (color === '#f59e0b') byParam[k].watchCnt++
+      else if (color === '#ef4444') byParam[k].concernCnt++
+    }))
+    return Object.entries(byParam).map(([param, d]) => {
+      const sorted = [...d.values].sort((a, b) => a - b)
+      const info = getParamInfo(param)
+      return {
+        param, unit: d.unit, n: d.values.length, info,
+        min: +sorted[0].toFixed(3),
+        median: +sorted[Math.floor(sorted.length/2)].toFixed(3),
+        max: +sorted[sorted.length-1].toFixed(3),
+        safeCnt: d.safeCnt, watchCnt: d.watchCnt, concernCnt: d.concernCnt,
+      }
+    }).sort((a, b) => b.n - a.n)
+  }, [aiObs])
+
+  // Monthly observations timeline data (for the Timeline sub-tab).
+  const timelineData = useMemo(() => {
+    if (!aiObs.length) return []
+    const byMonth = {}
+    aiObs.forEach(o => {
+      if (!o.observed_at) return
+      const m = o.observed_at.slice(0, 7) // YYYY-MM
+      byMonth[m] = (byMonth[m] || 0) + 1
+    })
+    return Object.entries(byMonth).sort(([a],[b]) => a.localeCompare(b)).map(([month, count]) => ({ month, count }))
+  }, [aiObs])
+
+  // QA status breakdown for the Overview sub-tab.
+  const qaBreakdown = useMemo(() => {
+    const counts = { raw: 0, reviewed: 0, qc_complete: 0, issue_found: 0, other: 0 }
+    aiObs.forEach(o => {
+      const k = o.checked
+      if (counts[k] !== undefined) counts[k]++
+      else counts.other++
+    })
+    return [
+      { label: 'QC Complete', value: counts.qc_complete, color: '#10b981' },
+      { label: 'Reviewed',    value: counts.reviewed,    color: '#f59e0b' },
+      { label: 'Raw',         value: counts.raw,         color: '#94a3b8' },
+      { label: 'Issue Found', value: counts.issue_found, color: '#ef4444' },
+    ].filter(b => b.value > 0)
+  }, [aiObs])
+
   const askAI = useCallback(async (question) => {
     const q = (question || aiInput).trim()
-    if (!q || !aiDataset || aiThinking) return
+    if (!q || !selectedDs || aiThinking) return
     setAiInput('')
     const userMsg = { role: 'user', content: q }
     const history = [...aiMessages, userMsg]
     setAiMessages(history)
     setAiThinking(true)
-    const context = `Dataset: "${aiDataset.name}"
-Description: ${aiDataset.description || '(none)'}
-Status: ${aiDataset.dormant ? 'DORMANT' : 'ACTIVE'}${aiDataset.share_with_datastream ? ', shared on DataStream' : ''}
-Active since: ${aiDataset.start_date || 'unknown'}
-Last observation: ${aiDataset.last_observation_at || 'unknown'}
+    const context = `Dataset: "${selectedDs.name}"
+Description: ${selectedDs.description || '(none)'}
+Status: ${selectedDs.dormant ? 'DORMANT' : 'ACTIVE'}${selectedDs.share_with_datastream ? ', shared on DataStream' : ''}
+Active since: ${selectedDs.start_date || 'unknown'}
+Last observation: ${selectedDs.last_observation_at || 'unknown'}
+Total locations: ${dsLocs.length}
 
-Sample analysis from ${aiObs.length} most recent observations:
+Full analysis from ${aiObs.length} observations:
 ${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}`
     try {
       const { data } = await api.post('/ai/public-chat', {
@@ -214,7 +300,7 @@ ${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}`
     } finally {
       setAiThinking(false)
     }
-  }, [aiInput, aiDataset, aiMessages, aiThinking, aiStats, aiObs.length])
+  }, [aiInput, selectedDs, aiMessages, aiThinking, aiStats, aiObs.length, dsLocs.length])
 
   // Filter locations
   const filteredLocs = useMemo(() => {
@@ -448,125 +534,26 @@ ${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}`
       )}
 
       {/* ══════ DATASETS ══════ */}
-      {tab === 'datasets' && (
+      {tab === 'datasets' && !selectedDs && (
         <div>
-          {/* AI contextual bar — appears at the top of the datasets tab.
-              Idle state nudges the user to pick a dataset; active state
-              shows the dataset name + quick-prompt chips + a small chat. */}
-          <div style={{
-            background: aiDataset ? 'linear-gradient(135deg, rgba(99,102,241,0.10), rgba(20,184,166,0.08))' : 'var(--card-bg)',
-            border: `1px solid ${aiDataset ? 'rgba(99,102,241,0.35)' : 'var(--border)'}`,
-            borderRadius: 12, padding: 12, marginBottom: 10,
-            boxShadow: aiDataset ? '0 6px 22px rgba(99,102,241,0.10)' : 'none',
-            transition: 'all 0.2s',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: aiDataset ? 8 : 0 }}>
-              <Sparkles size={14} color="#a78bfa" />
-              <strong style={{ color: 'var(--text)', fontSize: 12 }}>Ask AI about a dataset</strong>
-              {!aiDataset && (
-                <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-                  — click <em>Ask AI</em> on any dataset card below to start
-                </span>
-              )}
-              {aiDataset && (
-                <>
-                  <span style={{
-                    padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700,
-                    background: 'rgba(99,102,241,.12)', color: '#a78bfa',
-                    maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>{aiDataset.name}</span>
-                  <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
-                    {aiObsLoading ? '· loading data…' : aiObs.length ? `· ${aiObs.length} obs sampled` : '· no observations'}
-                  </span>
-                  <button onClick={() => { setAiDataset(null); setAiMessages([]); setAiObs([]) }}
-                    title="Clear" style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, fontSize: 11 }}>
-                    <X size={12} /> close
-                  </button>
-                </>
-              )}
-            </div>
-
-            {aiDataset && (
-              <>
-                {/* Quick prompts */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
-                  {[
-                    'Summarise the key findings.',
-                    'Any health or safety concerns in this data?',
-                    'Which parameters are outside safe ranges?',
-                    'What trends or patterns stand out?',
-                  ].map(q => (
-                    <button key={q} onClick={() => askAI(q)} disabled={aiThinking || aiObsLoading}
-                      style={{
-                        padding: '4px 9px', borderRadius: 999, fontSize: 10, fontWeight: 600,
-                        background: 'rgba(99,102,241,.06)', border: '1px solid rgba(99,102,241,.25)',
-                        color: '#a78bfa', cursor: (aiThinking || aiObsLoading) ? 'wait' : 'pointer',
-                        opacity: (aiThinking || aiObsLoading) ? 0.5 : 1,
-                      }}>{q}</button>
-                  ))}
-                </div>
-
-                {/* Conversation */}
-                {aiMessages.length > 0 && (
-                  <div style={{ maxHeight: 280, overflowY: 'auto', marginBottom: 8, paddingRight: 4 }}>
-                    {aiMessages.map((m, i) => (
-                      <div key={i} style={{
-                        padding: '6px 9px', borderRadius: 8, marginBottom: 4, fontSize: 11, lineHeight: 1.5,
-                        background: m.role === 'user' ? 'rgba(99,102,241,.10)' : 'var(--card-bg)',
-                        border: m.role === 'user' ? '1px solid rgba(99,102,241,.20)' : '1px solid var(--border)',
-                        color: 'var(--text)', whiteSpace: 'pre-wrap',
-                      }}>
-                        <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 2 }}>
-                          {m.role === 'user' ? 'You' : 'AI'}
-                        </div>
-                        {m.content}
-                      </div>
-                    ))}
-                    {aiThinking && (
-                      <div style={{ padding: '6px 9px', fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <RefreshCw size={11} className="animate-spin" /> Thinking…
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Input */}
-                <form onSubmit={e => { e.preventDefault(); askAI() }} style={{ display: 'flex', gap: 6 }}>
-                  <input value={aiInput} onChange={e => setAiInput(e.target.value)} disabled={aiThinking}
-                    placeholder={aiObsLoading ? 'Loading dataset…' : 'Ask anything about this dataset…'}
-                    style={{
-                      flex: 1, padding: '7px 10px', borderRadius: 8, fontSize: 11,
-                      background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text)',
-                      outline: 'none',
-                    }} />
-                  <button type="submit" disabled={aiThinking || aiObsLoading || !aiInput.trim()}
-                    style={{
-                      padding: '7px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700,
-                      background: 'linear-gradient(135deg, #6366f1, #14b8a6)', border: 'none', color: '#fff',
-                      cursor: (aiThinking || aiObsLoading || !aiInput.trim()) ? 'not-allowed' : 'pointer',
-                      opacity: (aiThinking || aiObsLoading || !aiInput.trim()) ? 0.5 : 1,
-                      display: 'flex', alignItems: 'center', gap: 4,
-                    }}><Send size={11} /> Ask</button>
-                </form>
-              </>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-            <input value={dsSearch} onChange={e => setDsSearch(e.target.value)} placeholder="Search datasets..."
-              style={{ padding: '5px 8px', borderRadius: 6, fontSize: 11, background: 'rgba(0,0,0,.1)', border: '1px solid var(--border)', color: 'var(--text)', width: 200 }} />
+          <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input value={dsSearch} onChange={e => setDsSearch(e.target.value)} placeholder={`Search ${data.length} datasets…`}
+              style={{ padding: '6px 10px', borderRadius: 7, fontSize: 11, background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text)', width: 260 }} />
             {['', 'active', 'dormant', 'datastream'].map(f => (
               <button key={f} onClick={() => setDsStatusFilter(f)} style={{
-                padding: '3px 8px', borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: 'pointer',
-                background: dsStatusFilter === f ? 'rgba(99,102,241,.12)' : 'transparent',
-                border: dsStatusFilter === f ? '1px solid rgba(99,102,241,.25)' : '1px solid transparent',
+                padding: '4px 9px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                background: dsStatusFilter === f ? 'rgba(99,102,241,.14)' : 'transparent',
+                border: dsStatusFilter === f ? '1px solid rgba(99,102,241,.35)' : '1px solid var(--border)',
                 color: dsStatusFilter === f ? '#a78bfa' : 'var(--text-muted)',
               }}>
-                {f === '' ? `All (${data.length})` : f === 'active' ? `✅ Active (${data.filter(d=>!d.dormant).length})` : f === 'dormant' ? `💤 Dormant (${data.filter(d=>d.dormant).length})` : `🔗 DataStream (${data.filter(d=>d.share_with_datastream).length})`}
+                {f === '' ? `All (${data.length})` : f === 'active' ? `Active (${data.filter(d=>!d.dormant).length})` : f === 'dormant' ? `Dormant (${data.filter(d=>d.dormant).length})` : `DataStream (${data.filter(d=>d.share_with_datastream).length})`}
               </button>
             ))}
+            <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: 10 }}>
+              <Sparkles size={11} style={{ verticalAlign: -1, color: '#a78bfa' }}/> Click any dataset to open the AI analysis hub
+            </span>
           </div>
-          {loading ? <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}><RefreshCw size={14} className="animate-spin"/> Loading datasets...</div> : (
+          {loading ? <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}><RefreshCw size={14} className="animate-spin"/> Loading datasets…</div> : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 8 }}>
               {data.filter(ds => {
                 if (dsSearch && !(ds.name||'').toLowerCase().includes(dsSearch.toLowerCase()) && !(ds.description||'').toLowerCase().includes(dsSearch.toLowerCase())) return false
@@ -575,32 +562,322 @@ ${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}`
                 if (dsStatusFilter === 'datastream' && !ds.share_with_datastream) return false
                 return true
               }).map((ds, i) => (
-                <div key={ds.id||i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+                <div key={ds.id||i}
+                  onClick={() => { setSelectedDs(ds); setAiMessages([]); setDsSubTab('ai'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                  style={{
+                    background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 12,
+                    cursor: 'pointer', transition: 'all 0.15s', position: 'relative',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(167,139,250,0.45)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'translateY(0)' }}
+                >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                    <h4 style={{ color: 'var(--text)', fontSize: 13, fontWeight: 700, margin: 0, flex: 1 }}>{ds.name}</h4>
-                    <span style={{ padding: '2px 6px', borderRadius: 6, fontSize: 9, fontWeight: 700, background: ds.dormant ? 'rgba(239,68,68,.08)' : 'rgba(16,185,129,.08)', color: ds.dormant ? '#ef4444' : '#10b981' }}>{ds.dormant ? '💤 Dormant' : '✅ Active'}</span>
+                    <h4 style={{ color: 'var(--text)', fontSize: 13, fontWeight: 700, margin: 0, flex: 1, paddingRight: 6 }}>{ds.name}</h4>
+                    <span style={{ padding: '2px 6px', borderRadius: 6, fontSize: 9, fontWeight: 700, background: ds.dormant ? 'rgba(239,68,68,.10)' : 'rgba(16,185,129,.10)', color: ds.dormant ? '#ef4444' : '#10b981' }}>{ds.dormant ? 'DORMANT' : 'ACTIVE'}</span>
                   </div>
-                  {ds.description && <p style={{ color: 'var(--text-muted)', fontSize: 11, lineHeight: 1.5, margin: '2px 0 6px', maxHeight: 50, overflow: 'hidden' }}>{ds.description}</p>}
+                  {ds.description && <p style={{ color: 'var(--text-muted)', fontSize: 11, lineHeight: 1.45, margin: '2px 0 6px', maxHeight: 50, overflow: 'hidden' }}>{ds.description}</p>}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, fontSize: 10, color: 'var(--text-muted)' }}>
-                    {ds.start_date && <span>📅 Since {new Date(ds.start_date).toLocaleDateString()}</span>}
-                    {ds.last_observation_at && <span>🔬 Last: {new Date(ds.last_observation_at).toLocaleDateString()}</span>}
-                    {ds.share_with_datastream && <span style={{ color: '#14b8a6' }}>🔗 DataStream</span>}
+                    {ds.start_date && <span>Since {new Date(ds.start_date).toLocaleDateString()}</span>}
+                    {ds.last_observation_at && <span>· Last {new Date(ds.last_observation_at).toLocaleDateString()}</span>}
+                    {ds.share_with_datastream && <span style={{ color: '#14b8a6' }}>· DataStream</span>}
                   </div>
-                  <div style={{ display: 'flex', gap: 5, marginTop: 6, flexWrap: 'wrap' }}>
-                    <button
-                      onClick={() => { setAiDataset(ds); setAiMessages([]); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 7px', borderRadius: 5,
-                        background: aiDataset?.id === ds.id ? 'rgba(167,139,250,.20)' : 'rgba(167,139,250,.08)',
-                        border: aiDataset?.id === ds.id ? '1px solid rgba(167,139,250,.45)' : '1px solid rgba(167,139,250,.20)',
-                        color: '#a78bfa', fontSize: 10, fontWeight: 700, cursor: 'pointer',
-                      }}>
-                      <Sparkles size={9}/> {aiDataset?.id === ds.id ? 'Asking AI…' : 'Ask AI'}
-                    </button>
-                    {ds.permalink && <a href={ds.permalink} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 7px', borderRadius: 5, background: 'rgba(99,102,241,.06)', color: '#a78bfa', fontSize: 10, fontWeight: 600, textDecoration: 'none' }}><ExternalLink size={9}/> View Data</a>}
+                  <div style={{ display: 'flex', gap: 5, marginTop: 7, flexWrap: 'wrap' }}>
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px', borderRadius: 5,
+                      background: 'rgba(167,139,250,.10)', border: '1px solid rgba(167,139,250,.30)',
+                      color: '#a78bfa', fontSize: 10, fontWeight: 700,
+                    }}><Sparkles size={9}/> Open analysis hub</span>
+                    {ds.permalink && <a href={ds.permalink} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 7px', borderRadius: 5, background: 'rgba(99,102,241,.06)', color: '#a78bfa', fontSize: 10, fontWeight: 600, textDecoration: 'none' }}><ExternalLink size={9}/> WR site</a>}
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════ DATASET DETAIL / ANALYSIS HUB ══════ */}
+      {tab === 'datasets' && selectedDs && (
+        <div>
+          {/* Header */}
+          <div style={{ marginBottom: 10 }}>
+            <button onClick={() => setSelectedDs(null)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 6, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: 11, fontWeight: 600, cursor: 'pointer', marginBottom: 8 }}>
+              <ArrowLeft size={12}/> All datasets
+            </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <h2 style={{ color: 'var(--text)', fontSize: 18, fontWeight: 900, margin: 0 }}>{selectedDs.name}</h2>
+                {selectedDs.description && <p style={{ color: 'var(--text-muted)', fontSize: 11, lineHeight: 1.5, margin: '4px 0 0', maxWidth: 800 }}>{selectedDs.description}</p>}
+              </div>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                <span style={{ padding: '3px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: selectedDs.dormant ? 'rgba(239,68,68,.10)' : 'rgba(16,185,129,.10)', color: selectedDs.dormant ? '#ef4444' : '#10b981' }}>{selectedDs.dormant ? 'DORMANT' : 'ACTIVE'}</span>
+                {selectedDs.share_with_datastream && <span style={{ padding: '3px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: 'rgba(20,184,166,.10)', color: '#14b8a6' }}>DataStream</span>}
+                {selectedDs.permalink && <a href={selectedDs.permalink} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px', borderRadius: 6, background: 'rgba(99,102,241,.10)', color: '#a78bfa', fontSize: 10, fontWeight: 700, textDecoration: 'none' }}><ExternalLink size={9}/> View on WR</a>}
+              </div>
+            </div>
+          </div>
+
+          {/* Stat tiles */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 10 }}>
+            {[
+              { label: 'Observations', value: aiObsLoading ? '…' : aiObs.length.toLocaleString(), icon: Eye, color: '#6366f1' },
+              { label: 'Readings',     value: aiObsLoading ? '…' : aiObs.reduce((s, o) => s + (o.readings||[]).length, 0).toLocaleString(), icon: FlaskConical, color: '#14b8a6' },
+              { label: 'Locations',    value: dsLocsLoading ? '…' : dsLocs.length.toLocaleString(), icon: MapPin, color: '#f59e0b' },
+              { label: 'Parameters',   value: aiObsLoading ? '…' : paramRows.length.toLocaleString(), icon: BarChart3, color: '#a78bfa' },
+              { label: 'Date range',   value: aiStats?.date_range || '—', icon: Calendar, color: '#ec4899', wide: true },
+            ].map((t, i) => (
+              <div key={i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 10, display: 'flex', alignItems: 'center', gap: 8, gridColumn: t.wide ? 'span 2' : 'auto' }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: `${t.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: t.color }}><t.icon size={16}/></div>
+                <div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t.label}</div>
+                  <div style={{ color: 'var(--text)', fontSize: t.wide ? 12 : 16, fontWeight: 900 }}>{t.value}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Sub-tab navigation */}
+          <div style={{ display: 'flex', gap: 2, marginBottom: 10, borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+            {[
+              { id: 'ai',         label: 'AI Assistant', icon: Sparkles,    color: '#a78bfa' },
+              { id: 'parameters', label: 'Parameters',   icon: FlaskConical, color: '#14b8a6' },
+              { id: 'map',        label: 'Map',          icon: MapIcon,      color: '#f59e0b' },
+              { id: 'timeline',   label: 'Timeline',     icon: TrendingUp,   color: '#6366f1' },
+              { id: 'observations', label: 'Observations', icon: Eye,        color: '#ec4899' },
+            ].map(t => (
+              <button key={t.id} onClick={() => setDsSubTab(t.id)} style={{
+                display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px',
+                background: dsSubTab === t.id ? `${t.color}14` : 'transparent',
+                border: 'none', borderBottom: dsSubTab === t.id ? `2px solid ${t.color}` : '2px solid transparent',
+                color: dsSubTab === t.id ? t.color : 'var(--text-muted)', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              }}><t.icon size={12}/> {t.label}</button>
+            ))}
+          </div>
+
+          {/* ─── AI sub-tab ─── */}
+          {dsSubTab === 'ai' && (
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(99,102,241,0.06), rgba(20,184,166,0.04))',
+              border: '1px solid rgba(99,102,241,0.25)', borderRadius: 12, padding: 12,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <Sparkles size={14} color="#a78bfa" />
+                <strong style={{ color: 'var(--text)', fontSize: 12 }}>
+                  Ask AI about this dataset
+                </strong>
+                <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
+                  {aiObsLoading ? '· loading data…' : `· grounded in ${aiObs.length} observations / ${dsLocs.length} sites`}
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
+                {[
+                  'Summarise the key findings.',
+                  'Any health or safety concerns in this data?',
+                  'Which parameters are outside safe ranges?',
+                  'What trends or patterns stand out?',
+                  'How does the data quality look (QA status)?',
+                ].map(q => (
+                  <button key={q} onClick={() => askAI(q)} disabled={aiThinking || aiObsLoading}
+                    style={{
+                      padding: '4px 9px', borderRadius: 999, fontSize: 10, fontWeight: 600,
+                      background: 'rgba(99,102,241,.06)', border: '1px solid rgba(99,102,241,.25)',
+                      color: '#a78bfa', cursor: (aiThinking || aiObsLoading) ? 'wait' : 'pointer',
+                      opacity: (aiThinking || aiObsLoading) ? 0.5 : 1,
+                    }}>{q}</button>
+                ))}
+              </div>
+              {aiMessages.length > 0 && (
+                <div style={{ maxHeight: 360, overflowY: 'auto', marginBottom: 10, paddingRight: 4 }}>
+                  {aiMessages.map((m, i) => (
+                    <div key={i} style={{
+                      padding: '8px 10px', borderRadius: 8, marginBottom: 5, fontSize: 11, lineHeight: 1.55,
+                      background: m.role === 'user' ? 'rgba(99,102,241,.10)' : 'var(--card-bg)',
+                      border: m.role === 'user' ? '1px solid rgba(99,102,241,.20)' : '1px solid var(--border)',
+                      color: 'var(--text)', whiteSpace: 'pre-wrap',
+                    }}>
+                      <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 3 }}>
+                        {m.role === 'user' ? 'You' : 'AI'}
+                      </div>
+                      {m.content}
+                    </div>
+                  ))}
+                  {aiThinking && (
+                    <div style={{ padding: '6px 9px', fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <RefreshCw size={11} className="animate-spin" /> Thinking…
+                    </div>
+                  )}
+                </div>
+              )}
+              <form onSubmit={e => { e.preventDefault(); askAI() }} style={{ display: 'flex', gap: 6 }}>
+                <input value={aiInput} onChange={e => setAiInput(e.target.value)} disabled={aiThinking}
+                  placeholder={aiObsLoading ? 'Loading dataset…' : 'Ask anything about this dataset…'}
+                  style={{ flex: 1, padding: '8px 11px', borderRadius: 8, fontSize: 11, background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text)', outline: 'none' }} />
+                <button type="submit" disabled={aiThinking || aiObsLoading || !aiInput.trim()}
+                  style={{ padding: '8px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: 'linear-gradient(135deg, #6366f1, #14b8a6)', border: 'none', color: '#fff', cursor: (aiThinking || aiObsLoading || !aiInput.trim()) ? 'not-allowed' : 'pointer', opacity: (aiThinking || aiObsLoading || !aiInput.trim()) ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Send size={11}/> Ask
+                </button>
+              </form>
+
+              {/* QA breakdown mini-bar */}
+              {qaBreakdown.length > 0 && (
+                <div style={{ marginTop: 12, padding: 8, borderRadius: 8, background: 'var(--card-bg)', border: '1px solid var(--border)' }}>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Data quality (QA status)</div>
+                  <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', border: '1px solid var(--border)' }}>
+                    {qaBreakdown.map((b, i) => {
+                      const total = qaBreakdown.reduce((s, x) => s + x.value, 0)
+                      const pct = total ? (b.value / total) * 100 : 0
+                      return <div key={i} title={`${b.label}: ${b.value} (${pct.toFixed(0)}%)`} style={{ width: `${pct}%`, background: b.color }}/>
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6, fontSize: 10, color: 'var(--text-muted)' }}>
+                    {qaBreakdown.map((b, i) => (
+                      <span key={i}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: b.color, marginRight: 4, verticalAlign: -1 }}/>{b.label}: {b.value}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ─── Parameters sub-tab ─── */}
+          {dsSubTab === 'parameters' && (
+            <div>
+              {aiObsLoading ? <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}><RefreshCw size={14} className="animate-spin"/> Loading observations…</div> : paramRows.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No numeric parameters in this dataset's observations.</div>
+              ) : (
+                <div style={{ overflowX: 'auto', background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ background: 'rgba(99,102,241,0.06)' }}>
+                        <th style={{ textAlign: 'left',  padding: '8px 10px', color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Parameter</th>
+                        <th style={{ textAlign: 'right', padding: '8px 10px', color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>n</th>
+                        <th style={{ textAlign: 'right', padding: '8px 10px', color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Min</th>
+                        <th style={{ textAlign: 'right', padding: '8px 10px', color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Median</th>
+                        <th style={{ textAlign: 'right', padding: '8px 10px', color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Max</th>
+                        <th style={{ textAlign: 'left',  padding: '8px 10px', color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Safe range</th>
+                        <th style={{ textAlign: 'left',  padding: '8px 10px', color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Safety</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paramRows.map(r => {
+                        const total = r.safeCnt + r.watchCnt + r.concernCnt
+                        return (
+                          <tr key={r.param} style={{ borderTop: '1px solid var(--border)' }}>
+                            <td style={{ padding: '8px 10px', color: 'var(--text)', fontWeight: 700 }}>{r.info.emoji} {r.param.replace(/_/g, ' ')}</td>
+                            <td style={{ padding: '8px 10px', color: 'var(--text-muted)', textAlign: 'right' }}>{r.n}</td>
+                            <td style={{ padding: '8px 10px', color: 'var(--text)', textAlign: 'right' }}>{r.min}</td>
+                            <td style={{ padding: '8px 10px', color: 'var(--text)', textAlign: 'right', fontWeight: 700 }}>{r.median}</td>
+                            <td style={{ padding: '8px 10px', color: 'var(--text)', textAlign: 'right' }}>{r.max} <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>{r.unit ? r.unit.replace(/_/g, '/') : ''}</span></td>
+                            <td style={{ padding: '8px 10px', color: 'var(--text-muted)' }}>{r.info.safe}</td>
+                            <td style={{ padding: '8px 10px' }}>
+                              {total > 0 ? (
+                                <div style={{ display: 'flex', height: 10, width: 110, borderRadius: 5, overflow: 'hidden', border: '1px solid var(--border)' }} title={`Safe ${r.safeCnt} · Watch ${r.watchCnt} · Concern ${r.concernCnt}`}>
+                                  <div style={{ width: `${(r.safeCnt/total)*100}%`,    background: '#10b981' }}/>
+                                  <div style={{ width: `${(r.watchCnt/total)*100}%`,   background: '#f59e0b' }}/>
+                                  <div style={{ width: `${(r.concernCnt/total)*100}%`, background: '#ef4444' }}/>
+                                </div>
+                              ) : <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>n/a</span>}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ─── Map sub-tab ─── */}
+          {dsSubTab === 'map' && (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+              {dsLocsLoading ? (
+                <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}><RefreshCw size={14} className="animate-spin"/> Loading sites…</div>
+              ) : dsLocs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No locations in this dataset.</div>
+              ) : (() => {
+                const points = dsLocs.filter(l => l.latitude && l.longitude).map(l => [parseFloat(l.latitude), parseFloat(l.longitude), l])
+                if (!points.length) return <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No geocoded sites.</div>
+                const center = [points.reduce((s,p) => s+p[0], 0)/points.length, points.reduce((s,p) => s+p[1], 0)/points.length]
+                return (
+                  <MapContainer center={center} zoom={5} style={{ height: 460, width: '100%' }} scrollWheelZoom>
+                    <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
+                    {points.map(([lat, lng, loc]) => (
+                      <CircleMarker key={loc.id} center={[lat, lng]} radius={6} pathOptions={{ color: '#6366f1', fillColor: '#a78bfa', fillOpacity: 0.7, weight: 2 }}>
+                        <Popup>
+                          <strong>{loc.name}</strong><br/>
+                          {loc.body_of_water && <>{loc.body_of_water}<br/></>}
+                          {loc.country && <>{loc.country}<br/></>}
+                          {loc.last_observation_at && <span style={{ fontSize: 11, color: '#666' }}>Last obs: {new Date(loc.last_observation_at).toLocaleDateString()}</span>}
+                        </Popup>
+                      </CircleMarker>
+                    ))}
+                  </MapContainer>
+                )
+              })()}
+            </div>
+          )}
+
+          {/* ─── Timeline sub-tab ─── */}
+          {dsSubTab === 'timeline' && (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+              {aiObsLoading ? <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}><RefreshCw size={14} className="animate-spin"/> Loading…</div> : timelineData.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No dated observations.</div>
+              ) : (
+                <>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Observations per month ({timelineData.length} month{timelineData.length !== 1 ? 's' : ''})</div>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <LineChart data={timelineData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+                      <XAxis dataKey="month" tick={{ fontSize: 10 }} stroke="var(--text-muted)"/>
+                      <YAxis tick={{ fontSize: 10 }} stroke="var(--text-muted)" allowDecimals={false}/>
+                      <RTooltip contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border)', fontSize: 11, borderRadius: 6 }}/>
+                      <Line type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2.5} dot={{ r: 3, fill: '#a78bfa' }} activeDot={{ r: 5 }}/>
+                    </LineChart>
+                  </ResponsiveContainer>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ─── Observations sub-tab ─── */}
+          {dsSubTab === 'observations' && (
+            <div>
+              {aiObsLoading ? <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}><RefreshCw size={14} className="animate-spin"/> Loading…</div> : aiObs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No observations.</div>
+              ) : (
+                <div style={{ maxHeight: 600, overflowY: 'auto' }}>
+                  {aiObs.slice(0, 50).map((o, i) => {
+                    const loc = dsLocs.find(l => l.id === o.location_id)
+                    const qa = QA_STATUS[o.checked] || { label: o.checked || '?', color: '#94a3b8' }
+                    const quantR = (o.readings || []).filter(r => r.value != null && r.unit && r.unit !== 'nil')
+                    return (
+                      <div key={o.id || i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 10, marginBottom: 5 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                          <div>
+                            <span style={{ color: 'var(--text)', fontSize: 12, fontWeight: 700 }}>{o.observed_at ? new Date(o.observed_at).toLocaleDateString() : '?'}</span>
+                            <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: `${qa.color}15`, color: qa.color }}>{qa.label}</span>
+                          </div>
+                          {loc && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}><MapPin size={9} style={{ verticalAlign: -1 }}/> {loc.name}</span>}
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                          {quantR.map((r, j) => (
+                            <span key={j} style={{
+                              fontSize: 10, padding: '2px 6px', borderRadius: 4, display: 'inline-flex', alignItems: 'center',
+                              background: `${getSafetyColor(r.parameter, r.value)}10`, border: `1px solid ${getSafetyColor(r.parameter, r.value)}25`,
+                            }}>
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: getSafetyColor(r.parameter, r.value), marginRight: 4 }}/>
+                              {(r.parameter || '').replace(/_/g, ' ')}: <strong style={{ marginLeft: 3 }}>{r.value}</strong>
+                              <span style={{ color: 'var(--text-muted)', marginLeft: 2, fontSize: 9 }}>{(r.unit || '').replace(/_/g, '/')}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {aiObs.length > 50 && <div style={{ textAlign: 'center', padding: 10, color: 'var(--text-muted)', fontSize: 10 }}>Showing 50 of {aiObs.length} — use AI tab to analyse them all.</div>}
+                </div>
+              )}
             </div>
           )}
         </div>
