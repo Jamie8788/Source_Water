@@ -79,7 +79,10 @@ export async function getDatasets(opts = {}) {
 }
 
 export const getDataset = (id) => wrGet(`/datasets/${id}`)
-export const getDatasetLocations = (id) => wrGet(`/datasets/${id}/locations`)
+// v2: server now paginates and returns the complete site list (was 20-cap).
+// Bumping the cache-key salt forces a fresh fetch so users with a stale
+// 5-min cache entry from before the server change don't see the old 20.
+export const getDatasetLocations = (id) => wrGet(`/datasets/${id}/locations`, { _v: 2 })
 export const getDatasetObservations = (id, opts = {}) =>
   wrGet(`/datasets/${id}/observations`, { page: opts.page || 1, per_page: opts.perPage || 50 })
 export const getDatasetForm = (id) => wrGet(`/datasets/${id}/form`)
