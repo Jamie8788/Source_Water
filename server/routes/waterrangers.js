@@ -255,10 +255,23 @@ router.get('/datasets/:id/form', async (req, res) => {
 })
 
 // GET /api/wr/datasets/:id/locations
+// Paginates until WR stops returning a full page. The WR locations endpoint
+// defaults to 20 per page when per_page isn't set, which caused us to ship
+// the Locations stat tile + map markers with only 20 of (for example) 78
+// real sites in County Sustainability Group. We always want every site.
 router.get('/datasets/:id/locations', async (req, res) => {
   try {
-    const data = await wrFetch(`/datasets/${req.params.id}/locations.json`)
-    res.json(data)
+    const all = []
+    for (let page = 1; page <= 20; page++) {
+      const data = await wrFetch(
+        `/datasets/${req.params.id}/locations.json`,
+        { ...req.query, per_page: 100, page }
+      )
+      const items = Array.isArray(data) ? data : data.locations || data.data || []
+      all.push(...items)
+      if (items.length < 100) break
+    }
+    res.json({ locations: all })
   } catch (e) {
     res.status(502).json({ error: e.message })
   }
