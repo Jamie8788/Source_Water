@@ -349,7 +349,7 @@ const LS_SIDEBAR_THEME = 'sw_sidebar_theme'
 export default function Sidebar({ collapsed, onToggle }) {
   const { user, logout, isAdmin, isQuizCreator } = useAuth()
   const { play } = useSound()
-  const { colorKey, setColorKey, mode, toggleMode, themes } = useTheme()
+  const { colorKey, setColorKey, mode, toggleMode, themes, lightVariant, setLightVariant, variants } = useTheme()
   const location = useLocation()
   const nav = useNavigate()
   const [showThemePicker, setShowThemePicker] = useState(false)
@@ -690,6 +690,43 @@ export default function Sidebar({ collapsed, onToggle }) {
                       {colorKey === key && <Circle style={{ width:8, height:8, fill:'#818cf8', color:'#818cf8' }}/>}
                     </button>
                   ))}
+                  <div style={{ height:1, background:'rgba(255,255,255,0.06)', margin:'5px 4px' }}/>
+
+                  {/* Light-skin variants — pick a tone for the whole UI
+                      when the page is in light mode. Disabled (greyed)
+                      while the page is in dark mode. (Elaine: white
+                      feels plain, want softer cream / sand options.) */}
+                  <div style={{ padding:'4px 8px 6px' }}>
+                    <div style={{ fontSize:9, fontWeight:800, letterSpacing:'0.08em', textTransform:'uppercase', opacity: mode === 'dark' ? 0.4 : 0.85, marginBottom:4 }}>
+                      Light skin {mode === 'dark' && '(switch to light first)'}
+                    </div>
+                    <div style={{ display:'flex', gap:6 }}>
+                      {variants && Object.entries(variants).map(([key, v]) => {
+                        const active = lightVariant === key
+                        return (
+                          <button
+                            key={key}
+                            disabled={mode === 'dark'}
+                            onClick={() => setLightVariant(key)}
+                            title={v.name}
+                            style={{
+                              flex:1, height:30, borderRadius:8,
+                              cursor: mode === 'dark' ? 'not-allowed' : 'pointer',
+                              opacity: mode === 'dark' ? 0.35 : 1,
+                              background: v.swatch,
+                              border: active ? '2px solid #6366f1' : '1px solid rgba(0,0,0,0.18)',
+                              boxShadow: active ? '0 0 0 2px rgba(99,102,241,0.25)' : 'none',
+                              position:'relative',
+                              transition: 'all 0.15s',
+                            }}
+                          >
+                            {active && <span style={{ position:'absolute', top:-6, right:-4, fontSize:10, background:'#6366f1', color:'#fff', borderRadius:99, padding:'1px 5px', fontWeight:800 }}>✓</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
                   <div style={{ height:1, background:'rgba(255,255,255,0.06)', margin:'5px 4px' }}/>
                   <button onClick={toggleMode}
                     style={{
