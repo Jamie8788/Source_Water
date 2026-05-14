@@ -350,27 +350,12 @@ export default function WRDataExplorer() {
     // questions. Sites with 0 loaded obs are skipped from the list (kept in
     // the count). Cap at 800 entries to keep token use sane on giant
     // datasets — Water Quality Testers has 971 sites but they all fit.
-    // Smart trim — full list blows Groq's 6K TPM rate limit on big datasets
-    // (Water Quality Testers = 763 sites with obs → 65KB context → AI errors).
-    // Include the top 50 most-active sites + any site whose 5+ char name word
-    // appears in the user's question (so "obs at Gazebo..." still finds the
-    // Gazebo site even though it's not in the top 50).
     const sitesWithObs = locStats.filter(l => l.obs > 0)
-    const TOP_N = 50
-    const topSites = sitesWithObs.slice(0, TOP_N)
-    const qLower = q.toLowerCase()
-    const stop = new Set(['water','lake','river','near','pond','park','bay','creek','marsh','road','street','point','bridge','beach','dock','site','area','plant','north','south','east','west','upper','lower','great','little','first','second'])
-    const mentioned = sitesWithObs.filter(l => {
-      const tokens = (l.name + ' ' + (l.water_body || '')).toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length >= 5 && !stop.has(t))
-      return tokens.some(t => qLower.includes(t))
-    })
-    const shownMap = new Map()
-    ;[...topSites, ...mentioned].forEach(l => shownMap.set(l.id, l))
-    const shown = [...shownMap.values()]
+    const shown = sitesWithObs.slice(0, 800)
     const omitted = sitesWithObs.length - shown.length
     const locListText = shown.map(l =>
       `- "${l.name}"${l.water_body ? ` (${l.water_body})` : ''}: ${l.obs} obs, ${l.readings} readings${l.last_obs ? `, last ${l.last_obs}` : ''}`
-    ).join('\n') + (omitted > 0 ? `\n(+${omitted} additional sites with fewer observations not listed above)` : '')
+    ).join('\n') + (omitted > 0 ? `\n(+${omitted} more low-activity sites omitted)` : '')
 
     const context = `Dataset: "${selectedDs.name}"
 Description: ${selectedDs.description || '(none)'}
