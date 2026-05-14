@@ -52,7 +52,7 @@ function moodForPath(pathname) {
 // community members get an instant "what is this page for?"
 function explainerForPath(pathname) {
   const p = (pathname || '').toLowerCase()
-  if (p.startsWith('/quick'))      return "Tap any seal to jump to a part of the platform."
+  if (p.startsWith('/quick'))      return "Follow the river — five stops link you to the rest of the platform."
   if (p.startsWith('/dashboard'))  return "Today's water snapshot — totals, recent samples, AI insights."
   if (p.startsWith('/ask-water'))  return "Ask me anything about water science or this platform."
   if (p.startsWith('/monitoring')) return "9,000+ real monitoring sites. Filter, compare, drop a story."

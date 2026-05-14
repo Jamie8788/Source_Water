@@ -13,14 +13,15 @@ import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import NibiMascotImage from '../components/NibiMascotImage'
 
-// Numbered stops along the river. Positions are percent of the stage so the
-// layout scales with the responsive container. Each stop's `body` is a JSX
-// fragment so we can drop <Link> elements inline.
+// Numbered stops along the river. `side` controls which edge the stop is
+// anchored to (left side of stage or right side), and `top` is a percent.
+// Numbers sit between the callout and the river so they're always visible
+// inside the stage (the previous centered layout pushed left-side numbers
+// off the left edge — Elaine: "wtf I can only see 2 and 5"). Each stop's
+// `body` is a JSX fragment so we can drop <Link> elements inline.
 const STOPS = [
   {
-    n: 1,
-    x: 10, y: 22,
-    align: 'left',
+    n: 1, side: 'left',  top: 18,
     body: (
       <>
         Community members have collected a lot of data! First, visit{' '}
@@ -31,9 +32,7 @@ const STOPS = [
     ),
   },
   {
-    n: 2,
-    x: 72, y: 18,
-    align: 'right',
+    n: 2, side: 'right', top: 14,
     body: (
       <>
         I'll guide you to the data most relevant to your needs. Ask me
@@ -44,9 +43,7 @@ const STOPS = [
     ),
   },
   {
-    n: 3,
-    x: 12, y: 50,
-    align: 'left',
+    n: 3, side: 'left',  top: 48,
     body: (
       <>
         Track the data on your location(s) or topic(s) of interest to view
@@ -58,9 +55,7 @@ const STOPS = [
     ),
   },
   {
-    n: 4,
-    x: 10, y: 78,
-    align: 'left',
+    n: 4, side: 'left',  top: 76,
     body: (
       <>
         Discuss your observations and concerns with the{' '}
@@ -69,9 +64,7 @@ const STOPS = [
     ),
   },
   {
-    n: 5,
-    x: 70, y: 78,
-    align: 'right',
+    n: 5, side: 'right', top: 74,
     body: (
       <>
         Learn more using other{' '}
@@ -84,17 +77,18 @@ const STOPS = [
 ]
 
 function Stop({ stop, ready, index }) {
-  const calloutLeft  = stop.align === 'left'
+  const isLeft = stop.side === 'left'
   return (
     <div
-      className={`qa-stop ${calloutLeft ? 'qa-stop-l' : 'qa-stop-r'} ${ready ? 'is-ready' : ''}`}
+      className={`qa-stop ${isLeft ? 'qa-stop-l' : 'qa-stop-r'} ${ready ? 'is-ready' : ''}`}
       style={{
-        left: `${stop.x}%`,
-        top: `${stop.y}%`,
+        top: `${stop.top}%`,
         animationDelay: `${260 + index * 110}ms`,
       }}
     >
-      <span className="qa-num" aria-hidden="true">{stop.n}</span>
+      <span className="qa-num" aria-hidden="true" style={{ animationDelay: `${index * 0.4}s` }}>
+        {stop.n}
+      </span>
       <div className="qa-callout">
         <p className="qa-body">{stop.body}</p>
       </div>
@@ -140,24 +134,23 @@ export default function QuickActions() {
 
       <style>{`
         .qa-root {
-          min-height: 100vh;
-          padding: 18px 14px 28px;
+          padding: 14px 14px 22px;
           background: var(--page-bg, #f5f1e8);
           opacity: 0;
           transform: translateY(8px);
           transition: opacity 600ms ease, transform 800ms ease;
         }
         .qa-root.is-ready { opacity: 1; transform: translateY(0); }
-        @media (min-width: 768px) { .qa-root { padding: 28px 36px 40px; } }
+        @media (min-width: 768px) { .qa-root { padding: 18px 28px 28px; } }
 
         .qa-header {
-          display: flex; align-items: center; gap: 14px;
-          max-width: 1280px; margin: 0 auto 16px;
+          display: flex; align-items: center; gap: 12px;
+          max-width: 1200px; margin: 0 auto 12px;
         }
         .qa-title {
           margin: 0;
           font-family: Georgia, 'Times New Roman', serif;
-          font-size: clamp(20px, 2.6vw, 28px);
+          font-size: clamp(18px, 2.2vw, 24px);
           font-weight: 800;
           letter-spacing: -0.01em;
           color: var(--text, #1f2b3d);
@@ -173,8 +166,9 @@ export default function QuickActions() {
           position: relative;
           margin: 0 auto;
           width: 100%;
-          max-width: 1280px;
+          max-width: 1200px;
           aspect-ratio: 16 / 9;
+          max-height: calc(100vh - 140px);
           border-radius: 14px;
           overflow: hidden;
           background: #e6e7e2;
@@ -186,29 +180,56 @@ export default function QuickActions() {
           object-fit: cover;
           user-select: none;
           pointer-events: none;
+          animation: qaImgPan 60s ease-in-out infinite alternate;
         }
         .qa-stage-fallback {
           position: absolute; inset: 0;
           background: linear-gradient(180deg, #cbd5e1 0%, #a0b4c8 35%, #6f8aa6 70%, #a8b894 100%);
         }
+        /* Subtle water-shimmer overlay — single linear-gradient sweeping
+           diagonally. Very low CPU cost, just a single transform animation. */
+        .qa-stage::before {
+          content: '';
+          position: absolute; inset: 0;
+          background: linear-gradient(115deg,
+            rgba(180,210,225,0) 0%,
+            rgba(180,210,225,0.10) 45%,
+            rgba(180,210,225,0) 70%);
+          mix-blend-mode: screen;
+          pointer-events: none;
+          animation: qaShimmer 12s linear infinite;
+          background-size: 220% 100%;
+        }
+        /* Soft vignette so the centre of the river stays bright and the
+           edges sink into the page background. */
+        .qa-stage::after {
+          content: '';
+          position: absolute; inset: 0;
+          background: radial-gradient(ellipse at 50% 48%, rgba(0,0,0,0) 55%, rgba(20,30,50,0.18) 100%);
+          pointer-events: none;
+        }
 
         /* ── Numbered stop ── */
         .qa-stop {
           position: absolute;
-          transform: translate(-50%, -50%);
           display: flex;
           align-items: flex-start;
-          gap: 12px;
-          max-width: min(360px, 38vw);
+          gap: 10px;
+          max-width: min(300px, 34vw);
           opacity: 0;
+          transform: translateY(-50%);
           pointer-events: auto;
         }
         .qa-stop.is-ready {
           animation: qaFadeIn 540ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
         }
-        .qa-stop-l { flex-direction: row; }
-        .qa-stop-r { flex-direction: row-reverse; text-align: right; }
+        .qa-stop-l { left: 16px; flex-direction: row; }
+        .qa-stop-r { right: 16px; flex-direction: row-reverse; text-align: right; }
         .qa-stop-r .qa-callout { text-align: right; }
+        @media (min-width: 1024px) {
+          .qa-stop-l { left: 24px; }
+          .qa-stop-r { right: 24px; }
+        }
 
         .qa-num {
           flex: 0 0 auto;
@@ -217,37 +238,45 @@ export default function QuickActions() {
           justify-content: center;
           width: 42px; height: 42px;
           border-radius: 50%;
-          background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+          background: radial-gradient(circle at 32% 28%, #f87171 0%, #dc2626 40%, #991b1b 100%);
           color: #fff;
           font-family: Georgia, 'Times New Roman', serif;
           font-size: 22px;
           font-weight: 800;
           line-height: 1;
           box-shadow:
-            0 4px 12px rgba(185,28,28,0.42),
-            inset 0 -2px 4px rgba(0,0,0,0.20),
-            inset 0 2px 4px rgba(255,255,255,0.25),
-            0 0 0 3px rgba(255,255,255,0.85);
+            0 6px 14px rgba(153,27,27,0.45),
+            inset 0 -2px 4px rgba(0,0,0,0.25),
+            inset 0 2px 4px rgba(255,255,255,0.30),
+            0 0 0 3px rgba(255,255,255,0.92);
+          animation: qaNumPulse 4.5s ease-in-out infinite;
         }
         @media (max-width: 640px) {
           .qa-num { width: 34px; height: 34px; font-size: 18px; }
         }
 
         .qa-callout {
-          background: rgba(255,255,255,0.92);
-          backdrop-filter: blur(4px);
+          background: rgba(255,253,247,0.94);
+          backdrop-filter: blur(6px);
           border: 1px solid rgba(15,31,56,0.10);
           border-radius: 10px;
-          padding: 9px 12px;
+          padding: 8px 11px;
           box-shadow:
-            0 3px 8px rgba(15,31,56,0.10),
-            0 12px 24px rgba(15,31,56,0.08);
+            0 2px 6px rgba(15,31,56,0.10),
+            0 10px 22px rgba(15,31,56,0.10);
+          transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 240ms ease;
+        }
+        .qa-stop:hover .qa-callout {
+          transform: translateY(-2px);
+          box-shadow:
+            0 3px 8px rgba(15,31,56,0.14),
+            0 14px 28px rgba(15,31,56,0.14);
         }
         .qa-body {
           margin: 0;
           font-family: Georgia, 'Times New Roman', serif;
-          font-size: clamp(11px, 1.05vw, 13px);
-          line-height: 1.5;
+          font-size: clamp(10.5px, 0.95vw, 12.5px);
+          line-height: 1.45;
           color: #1f2b3d;
         }
 
@@ -257,34 +286,51 @@ export default function QuickActions() {
           text-decoration: underline;
           text-decoration-color: rgba(29,78,216,0.45);
           text-underline-offset: 2px;
-          transition: color 0.15s, text-decoration-color 0.15s;
+          transition: color 0.15s, text-decoration-color 0.15s, background 0.15s;
+          padding: 0 2px;
+          border-radius: 3px;
         }
         .qa-link:hover {
           color: #1e3a8a;
           text-decoration-color: rgba(30,58,138,0.85);
+          background: rgba(29,78,216,0.06);
         }
 
         @keyframes qaFadeIn {
-          0%   { opacity: 0; transform: translate(-50%, -42%); }
-          100% { opacity: 1; transform: translate(-50%, -50%); }
+          0%   { opacity: 0; transform: translateY(-42%); }
+          100% { opacity: 1; transform: translateY(-50%); }
+        }
+        @keyframes qaNumPulse {
+          0%, 100% { box-shadow: 0 6px 14px rgba(153,27,27,0.45), inset 0 -2px 4px rgba(0,0,0,0.25), inset 0 2px 4px rgba(255,255,255,0.30), 0 0 0 3px rgba(255,255,255,0.92); }
+          50%      { box-shadow: 0 6px 16px rgba(153,27,27,0.55), inset 0 -2px 4px rgba(0,0,0,0.25), inset 0 2px 4px rgba(255,255,255,0.30), 0 0 0 3px rgba(255,255,255,0.92), 0 0 18px rgba(220,38,38,0.30); }
+        }
+        @keyframes qaShimmer {
+          0%   { background-position: -120% 0; }
+          100% { background-position: 220% 0; }
+        }
+        @keyframes qaImgPan {
+          0%   { transform: scale(1.00) translate(0, 0); }
+          100% { transform: scale(1.04) translate(-0.6%, -0.4%); }
         }
 
-        /* On narrow screens the river illustration crops awkwardly. Stack
-           the stops vertically below the image so nothing gets squished. */
-        @media (max-width: 600px) {
-          .qa-stage { aspect-ratio: 4 / 3; }
+        /* Mobile: stack stops below the image. */
+        @media (max-width: 720px) {
+          .qa-stage { aspect-ratio: 4 / 3; max-height: 60vh; }
           .qa-stop {
             position: static;
             transform: none;
             max-width: none;
-            margin: 10px 12px;
+            margin: 8px 12px;
           }
-          .qa-stop-r { flex-direction: row; text-align: left; }
+          .qa-stop-l, .qa-stop-r { left: auto; right: auto; flex-direction: row; text-align: left; }
           .qa-stop-r .qa-callout { text-align: left; }
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .qa-root, .qa-stop { animation: none !important; transition: none !important; }
+          .qa-root, .qa-stop, .qa-stage::before, .qa-stage-img, .qa-num {
+            animation: none !important;
+            transition: none !important;
+          }
           .qa-stop { opacity: 1; }
         }
       `}</style>
