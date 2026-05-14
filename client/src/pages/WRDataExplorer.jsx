@@ -281,6 +281,35 @@ export default function WRDataExplorer() {
     }).sort((a, b) => b.n - a.n)
   }, [aiObs])
 
+  // Per-location stats — # obs, # readings, last-obs date per site. Without
+  // this the AI couldn't answer "how many observations at site X" because
+  // the context was dataset-aggregate only. With Water Rangers Water Quality
+  // Testers having 971 sites, this list is the only way AI can resolve a
+  // site-specific question. Sorted by obs count.
+  const locStats = useMemo(() => {
+    if (!aiObs.length || !dsLocs.length) return []
+    const byLoc = {}
+    aiObs.forEach(o => {
+      const lid = o.location_id
+      if (!lid) return
+      if (!byLoc[lid]) byLoc[lid] = { obs: 0, readings: 0, lastT: 0 }
+      byLoc[lid].obs += 1
+      byLoc[lid].readings += (o.readings || []).length
+      if (o.observed_at) {
+        const t = new Date(o.observed_at).getTime()
+        if (t > byLoc[lid].lastT) byLoc[lid].lastT = t
+      }
+    })
+    return dsLocs.map(l => {
+      const s = byLoc[l.id] || { obs: 0, readings: 0, lastT: 0 }
+      return {
+        id: l.id, name: l.name, water_body: l.body_of_water,
+        obs: s.obs, readings: s.readings,
+        last_obs: s.lastT ? new Date(s.lastT).toISOString().slice(0, 10) : null,
+      }
+    }).sort((a, b) => b.obs - a.obs)
+  }, [aiObs, dsLocs])
+
   // Monthly observations timeline data (for the Timeline sub-tab).
   const timelineData = useMemo(() => {
     if (!aiObs.length) return []
@@ -317,6 +346,17 @@ export default function WRDataExplorer() {
     const history = [...aiMessages, userMsg]
     setAiMessages(history)
     setAiThinking(true)
+    // Build the per-location breakdown the AI uses to answer site-specific
+    // questions. Sites with 0 loaded obs are skipped from the list (kept in
+    // the count). Cap at 800 entries to keep token use sane on giant
+    // datasets — Water Quality Testers has 971 sites but they all fit.
+    const sitesWithObs = locStats.filter(l => l.obs > 0)
+    const shown = sitesWithObs.slice(0, 800)
+    const omitted = sitesWithObs.length - shown.length
+    const locListText = shown.map(l =>
+      `- "${l.name}"${l.water_body ? ` (${l.water_body})` : ''}: ${l.obs} obs, ${l.readings} readings${l.last_obs ? `, last ${l.last_obs}` : ''}`
+    ).join('\n') + (omitted > 0 ? `\n(+${omitted} more low-activity sites omitted)` : '')
+
     const context = `Dataset: "${selectedDs.name}"
 Description: ${selectedDs.description || '(none)'}
 Status: ${selectedDs.dormant ? 'DORMANT' : 'ACTIVE'}${selectedDs.share_with_datastream ? ', shared on DataStream' : ''}
@@ -326,12 +366,25 @@ Total locations in dataset: ${dsLocs.length}
 Contributors (unique observers in loaded data): ${aiStats?.contributors ?? 'unknown'}
 Data completeness: ${aiObsComplete ? `complete — all ${aiObs.length} observations are loaded` : `partial — ${aiObs.length} observations loaded, dataset has more (cap reached)`}
 
-Stats from loaded observations:
-${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}`
+Per-parameter stats from loaded observations:
+${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}
+
+Per-location breakdown (${sitesWithObs.length} of ${dsLocs.length} sites have observations in the loaded data):
+${locListText || '(no per-location data available)'}`
     try {
       const { data } = await api.post('/ai/public-chat', {
         messages: [
-          { role: 'system', content: `You are analysing a Water Rangers community-monitoring dataset. Use ONLY the context below to answer — never invent numbers. Cite specific parameter names, values, and the date range when you cite data. If the context says "Data completeness: partial", note that for any question that requires the full dataset (totals, counts) and answer with the qualifier "from the X observations loaded". When asked about contributors, use the "Contributors" field directly. Keep answers tight (max ~5 short paragraphs or bullets).\n\n${context}` },
+          { role: 'system', content: `You are analysing a Water Rangers community-monitoring dataset. Use ONLY the context below to answer — never invent numbers.
+
+Rules:
+- For dataset totals (observations, readings, contributors), use the explicit fields in the context.
+- For SITE-SPECIFIC questions (e.g. "how many obs at Gazebo near water treatment plant"), look the site up in the "Per-location breakdown" list. Match by substring on the site name — user-typed names may be partial or slightly different. If you find it, cite the exact "obs", "readings", and last-obs date for that site. If you can't find the site, say so explicitly and list the closest names.
+- For per-parameter stats (min/median/max), use the "Per-parameter stats" JSON.
+- If "Data completeness: partial", qualify totals with "from the X observations loaded".
+- Cite real values from the context; never round wildly or invent.
+- Keep answers tight (max ~5 short paragraphs or bullets).
+
+${context}` },
           ...history,
         ],
         max_tokens: 600,
@@ -342,7 +395,7 @@ ${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}`
     } finally {
       setAiThinking(false)
     }
-  }, [aiInput, selectedDs, aiMessages, aiThinking, aiStats, aiObs.length, dsLocs.length, aiObsComplete])
+  }, [aiInput, selectedDs, aiMessages, aiThinking, aiStats, aiObs.length, dsLocs.length, aiObsComplete, locStats])
 
   // Filter locations
   const filteredLocs = useMemo(() => {
