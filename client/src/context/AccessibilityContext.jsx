@@ -25,7 +25,14 @@ export function AccessibilityProvider({ children }) {
   useEffect(() => {
     localStorage.setItem('sw_a11y', JSON.stringify(settings))
     const root = document.documentElement
-    root.style.fontSize = TEXT_SIZES[settings.textSize] + 'px'
+    const textPx = TEXT_SIZES[settings.textSize]
+    root.style.fontSize = textPx + 'px'
+    // Elaine: when text size grew, only the main page scaled — the
+    // sidebar was stuck because its inline styles use hardcoded px.
+    // Emit a scale factor (relative to the default index 2 = 18px) so
+    // the sidebar (and anything else that opts in) can multiply its
+    // own dimensions. See .sw-sidebar-root rule in index.css.
+    root.style.setProperty('--sw-text-scale', (textPx / TEXT_SIZES[defaults.textSize]).toFixed(4))
     root.style.zoom = ZOOMS[settings.zoom] / 100
     root.style.lineHeight = LINE_SPACINGS[settings.lineSpacing]
     root.classList.toggle('high-contrast', settings.highContrast)

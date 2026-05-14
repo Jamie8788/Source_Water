@@ -294,20 +294,31 @@ html.large-cursor textarea {
   cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'><path d='M14 4 h6 v10 h7 l-10 12 l-10-12 h7 z' fill='%236366f1' stroke='white' stroke-width='1.6' stroke-linejoin='round' transform='rotate(180 17 16)'/></svg>") 8 4, pointer !important;
 }
 
-/* High Contrast — strengthen the existing filter and pull text + bg
-   apart to a true monochrome WCAG-AAA pair. */
-html.high-contrast {
-  filter: contrast(1.45) saturate(1.15);
+/* Sync the sidebar to the Accessibility Text Size setting — the sidebar's
+   inline styles use hardcoded px, so changing html font-size alone did
+   nothing to it (Elaine: "only the page got bigger, nav bar stayed").
+   `zoom` scales every dimension uniformly (text, padding, icons) so the
+   nav bar grows with the page. Default 1 = no change. Negligible perf
+   cost — `zoom` is GPU-composited on Chromium/Webkit/modern Firefox. */
+.sw-sidebar-root {
+  zoom: var(--sw-text-scale, 1);
 }
+
+/* High Contrast — pull text + bg apart to a true monochrome WCAG-AAA pair.
+   Scoped to the document body so the Accessibility panel itself stays
+   readable. Removed the global filter (it darkened toggle controls into
+   black squares, making the panel unusable in high-contrast mode). */
 html.high-contrast body {
   background: #000 !important;
   color: #fff !important;
 }
 html.high-contrast a { color: #ffd54f !important; text-decoration: underline !important; }
-html.high-contrast button,
-html.high-contrast input,
-html.high-contrast select,
-html.high-contrast textarea {
+/* Buttons + inputs go monochrome, BUT skip anything inside the
+   Accessibility panel so the user can still see + use its toggles. */
+html.high-contrast button:not(.a11y-panel *),
+html.high-contrast input:not(.a11y-panel *),
+html.high-contrast select:not(.a11y-panel *),
+html.high-contrast textarea:not(.a11y-panel *) {
   background: #000 !important;
   color: #fff !important;
   border: 2px solid #fff !important;
