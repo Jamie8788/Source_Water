@@ -95,6 +95,23 @@ function getParamExplain(param) {
   return `${emoji} ${wr.label} — ${WR_NA}`
 }
 
+// Cluster icon that counts SITES, not markers. Combo +N pins each represent
+// multiple sites at the same coords, so a markercluster containing one
+// single + one +8 combo should read "9", not "2". Each child marker tags
+// itself with `options.siteCount` in its `add` handler; we sum those here.
+// Elaine: "cluster numbers don't add up to the 9,520 total".
+function clusterIconCreate(cluster) {
+  const children = cluster.getAllChildMarkers()
+  let total = 0
+  for (const m of children) total += (m.options && m.options.siteCount) || 1
+  const size = total < 10 ? 'small' : total < 100 ? 'medium' : 'large'
+  return L.divIcon({
+    html: `<div><span>${total.toLocaleString()}</span></div>`,
+    className: `marker-cluster marker-cluster-${size}`,
+    iconSize: L.point(40, 40, true),
+  })
+}
+
 // Combo marker for coord groups holding multiple monitoring stations.
 // Renders a coloured disc with the count of overlapping sites — solves the
 // "cluster says 9, eye counts 8" mystery by surfacing the duplicate.
@@ -139,7 +156,11 @@ function SiteCircleMarker({ site, compareA, compareB, onSelect, onCompare }) {
       radius={isA || isB ? 8 : 5}
       fillColor={color} color={isA ? '#60a5fa' : isB ? '#34d399' : color}
       weight={isA || isB ? 2.5 : 1} opacity={0.9} fillOpacity={0.6}
-      eventHandlers={{ click: () => onSelect(site) }}>
+      eventHandlers={{
+        click: () => onSelect(site),
+        // Tag with site count so clusterIconCreate can sum truthfully (1 here).
+        add: (e) => { e.target.options.siteCount = 1 },
+      }}>
       <Popup maxWidth={340}>
         <div style={{ fontSize: 12, lineHeight: 1.5 }}>
           <strong style={{ fontSize: 13 }}>{site.name}</strong><br />
@@ -779,7 +800,7 @@ export default function WRMonitoringMap() {
 
       {/* Map — key changes on filter to force clean re-render */}
       <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)', height: 500, marginBottom: compareA ? 220 : 10, position: 'relative', cursor: toolMode === 'story' ? 'crosshair' : 'auto' }}
-        key={`map-${countryFilter}-${bodyFilter}-${paramFilter}-${activeOnly}-${searchText}-${mappable.length}`}>
+        key={`map-${countryFilter}-${bodyFilter}-${paramFilter}-${activeOnly}-${searchText}`}>
         {loading && (
           <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 1000, background: 'rgba(0,0,0,.8)', color: 'white', padding: '8px 16px', borderRadius: 10, fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, maxWidth: 340, textAlign: 'center' }}>
             <RefreshCw size={12} className="animate-spin" /> {loadMsg || `Loading ${allLocations.length.toLocaleString()} sites...`}
@@ -824,6 +845,7 @@ export default function WRMonitoringMap() {
               showCoverageOnHover={false}
               disableClusteringAtZoom={9}
               spiderfyOnMaxZoom={true}
+              iconCreateFunction={clusterIconCreate}
             >
               {sitesByCoord.map(({ lat, lng, sites }) => {
                 if (sites.length === 1) {
@@ -841,7 +863,12 @@ export default function WRMonitoringMap() {
                 const ringColor = containsCmpA ? '#60a5fa' : containsCmpB ? '#34d399' : color
                 return (
                   <Marker key={`combo-${lat}-${lng}`} position={[lat, lng]}
-                    icon={comboIcon(sites.length, ringColor)}>
+                    icon={comboIcon(sites.length, ringColor)}
+                    eventHandlers={{
+                      // Tag with the real site count so clusters that contain
+                      // this combo add up to the actual number of sites.
+                      add: (e) => { e.target.options.siteCount = sites.length },
+                    }}>
                     <Popup maxWidth={360}>
                       <div style={{ fontSize: 12, lineHeight: 1.45, minWidth: 240 }}>
                         <strong style={{ fontSize: 13 }}>{sites.length} monitoring sites here</strong>
