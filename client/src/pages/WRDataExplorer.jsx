@@ -392,29 +392,98 @@ export default function WRDataExplorer() {
       `- "${l.name}"${l.water_body ? ` (${l.water_body})` : ''}: ${l.obs} obs, ${l.readings} readings${l.last_obs ? `, last ${l.last_obs}` : ''}`
     ).join('\n') + (omitted > 0 ? `\n(+${omitted} more low-activity sites omitted)` : '')
 
+    // Stable anonymous contributor labels. WR's public API only exposes an
+    // owner_id UUID per observation — never a name (verified: /users
+    // endpoints 500, /contributors 406). So we can't show "James Woodrich";
+    // instead each owner_id gets a stable "Contributor N" label, ordered by
+    // observation count, so the AI can still attribute rows truthfully.
+    const ownerCounts = {}
+    aiObs.forEach(o => { if (o.owner_id) ownerCounts[o.owner_id] = (ownerCounts[o.owner_id] || 0) + 1 })
+    const ownerLabel = {}
+    Object.keys(ownerCounts)
+      .sort((a, b) => ownerCounts[b] - ownerCounts[a])
+      .forEach((id, i) => { ownerLabel[id] = `Contributor ${i + 1}` })
+
+    // Compact per-observation log so the AI can answer ROW-level questions
+    // (what was measured on date X, at which site, by which contributor).
+    // The FULL log with every reading is far too big for Groq's free tier
+    // (~24KB ceiling), so the log is QUESTION-AWARE: rows for any site or
+    // date mentioned in the question are ALWAYS included (so "obs at
+    // Bridgeview" works even if Bridgeview's single obs is years old), then
+    // recent rows fill whatever budget is left.
+    const locName = {}
+    dsLocs.forEach(l => { locName[l.id] = l.name })
+    const logEntries = [...aiObs]
+      .sort((a, b) => (b.observed_at || '').localeCompare(a.observed_at || ''))
+      .map(o => {
+        const date = (o.observed_at || '').slice(0, 10) || '?'
+        const site = (locName[o.location_id] || '?').slice(0, 30)
+        const who = ownerLabel[o.owner_id] || '?'
+        const qa = (o.checked || '?')
+        const reads = (o.readings || [])
+          .filter(r => r.value != null && r.value !== '')
+          .map(r => `${r.parameter}=${r.value}${r.unit && r.unit !== 'nil' ? r.unit : ''}`)
+          .join(' ')
+        return { locId: o.location_id, date, text: `${date} | ${site} | ${who} | ${qa} | ${reads}` }
+      })
+    // Which sites does the question name? (reuse the same word-match logic.)
+    const qSiteIds = new Set(
+      dsLocs.filter(l => {
+        const toks = (l.name + ' ' + (l.water_body || '')).toLowerCase()
+          .split(/[^a-z0-9]+/).filter(t => t.length >= 5 && !stop.has(t))
+        return toks.some(t => qLower.includes(t))
+      }).map(l => l.id)
+    )
+    // Which years / dates does the question name?
+    const qDates = q.match(/\b20[12]\d(?:-\d{2}){0,2}\b/g) || []
+    // Three priority tiers: a site named in the question is the most
+    // specific signal, then a date/year, then everything else (recent).
+    // ONE hard budget cap covers all tiers so the context can never blow
+    // past Groq's ceiling — a bare year like "2022" can match hundreds of
+    // rows, so it must not bypass the cap. Site-matched rows are listed
+    // first, so a named site (which has few rows) always lands.
+    const dateMatch = (e) => qDates.length > 0 && qDates.some(h => e.date.startsWith(h))
+    const siteMatched = logEntries.filter(e => qSiteIds.has(e.locId))
+    const dateMatched = logEntries.filter(e => !qSiteIds.has(e.locId) && dateMatch(e))
+    const filler      = logEntries.filter(e => !qSiteIds.has(e.locId) && !dateMatch(e))
+    let logText = '', logIncluded = 0
+    for (const e of [...siteMatched, ...dateMatched, ...filler]) {
+      if (logText.length + e.text.length > 13000) break
+      logText += e.text + '\n'; logIncluded++
+    }
+    const logNote = logIncluded < logEntries.length
+      ? `\n(${logIncluded} of ${logEntries.length} observations shown: rows matching the question's site/date come first, then the most-recent others. If asked about a row not shown here, say it isn't in this view rather than guessing.)`
+      : ''
+
     const context = `Dataset: "${selectedDs.name}"
 Description: ${selectedDs.description || '(none)'}
 Status: ${selectedDs.dormant ? 'DORMANT' : 'ACTIVE'}${selectedDs.share_with_datastream ? ', shared on DataStream' : ''}
 Active since: ${selectedDs.start_date || 'unknown'}
 Last observation: ${selectedDs.last_observation_at || 'unknown'}
 Total locations in dataset: ${dsLocs.length}
-Contributors (unique observers in loaded data): ${aiStats?.contributors ?? 'unknown'}
+Contributors: ${Object.keys(ownerCounts).length} unique (anonymous — WR's public API does not publish observer names, only IDs)
 Data completeness: ${aiObsComplete ? `complete — all ${aiObs.length} observations are loaded` : `partial — ${aiObs.length} observations loaded, dataset has more (cap reached)`}
 
 Per-parameter stats from loaded observations:
 ${aiStats ? JSON.stringify(aiStats, null, 2) : '(no observations loaded yet)'}
 
 Per-location breakdown (${sitesWithObs.length} of ${dsLocs.length} sites have observations in the loaded data):
-${locListText || '(no per-location data available)'}`
+${locListText || '(no per-location data available)'}
+
+Observation log — every observation as one row (date | site | contributor | QA status | readings):
+${logText || '(no observations)'}${logNote}`
     try {
       const { data } = await api.post('/ai/public-chat', {
         messages: [
-          { role: 'system', content: `You are analysing a Water Rangers community-monitoring dataset. Use ONLY the context below to answer — never invent numbers.
+          { role: 'system', content: `You are analysing a Water Rangers community-monitoring dataset. Use ONLY the context below to answer — never invent numbers, names, dates, or values.
 
 Rules:
 - For dataset totals (observations, readings, contributors), use the explicit fields in the context.
-- For SITE-SPECIFIC questions (e.g. "how many obs at Gazebo near water treatment plant"), look the site up in the "Per-location breakdown" list. Match by substring on the site name — user-typed names may be partial or slightly different. If you find it, cite the exact "obs", "readings", and last-obs date for that site. If you can't find the site, say so explicitly and list the closest names.
+- For SITE-SPECIFIC questions (e.g. "how many obs at Gazebo"), use the "Per-location breakdown". Match by substring on the site name. If not found, say so and list the closest names.
 - For per-parameter stats (min/median/max), use the "Per-parameter stats" JSON.
+- For ROW-LEVEL questions — what was measured on a specific date, at a specific site, by whom, what a reading's value was — use the "Observation log". Each row is: date | site | contributor | QA status | readings. Read the relevant row(s) and quote the exact values.
+- "Who made an observation": the log gives an anonymous label like "Contributor 3". Water Rangers' public API does NOT publish real observer names — so answer with the contributor label and state plainly that real names are not available via the public data. Never invent a name.
+- If the Observation log shows "showing N most-recent of M" and the user asks about a date/observation not in those rows, say it falls outside the loaded log rather than guessing.
 - If "Data completeness: partial", qualify totals with "from the X observations loaded".
 - Cite real values from the context; never round wildly or invent.
 - Keep answers tight (max ~5 short paragraphs or bullets).
