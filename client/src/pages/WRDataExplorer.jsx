@@ -426,7 +426,13 @@ export default function WRDataExplorer() {
           .join(' ')
         return { locId: o.location_id, date, text: `${date} | ${site} | ${who} | ${qa} | ${reads}` }
       })
-    // Which sites does the question name? (reuse the same word-match logic.)
+    // Which sites does the question name? Match on 5+ char distinctive
+    // words from the site name. Common words are filtered so "Lake" or
+    // "River" don't drag in every site. (NOTE: `stop` and `qLower` must be
+    // declared here — referencing a bare `stop` resolves to the global
+    // window.stop() function and crashes with "stop.has is not a function".)
+    const qLower = q.toLowerCase()
+    const stop = new Set(['water','lake','river','near','pond','park','bay','creek','marsh','road','street','point','bridge','beach','dock','site','area','plant','north','south','east','west','great','little','first','second'])
     const qSiteIds = new Set(
       dsLocs.filter(l => {
         const toks = (l.name + ' ' + (l.water_body || '')).toLowerCase()
