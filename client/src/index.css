@@ -304,24 +304,26 @@ html.large-cursor textarea {
   zoom: var(--sw-text-scale, 1);
 }
 
-/* High Contrast — pull text + bg apart to a true monochrome WCAG-AAA pair.
-   Scoped to the document body so the Accessibility panel itself stays
-   readable. Removed the global filter (it darkened toggle controls into
-   black squares, making the panel unusable in high-contrast mode). */
-html.high-contrast body {
-  background: #000 !important;
-  color: #fff !important;
+/* High Contrast — boost contrast without rewriting the design.
+   Elaine: previous implementation repainted every <button> solid black
+   (every sidebar nav item is a <button>, so they ALL turned into black
+   blocks — totally unreadable). The proper accessibility approach is a
+   filter that amplifies existing contrast + bolder text + visible
+   outlines on interactive controls. Design stays intact. */
+html.high-contrast {
+  filter: contrast(1.30) saturate(1.15);
 }
-html.high-contrast a { color: #ffd54f !important; text-decoration: underline !important; }
-/* Buttons + inputs go monochrome, BUT skip anything inside the
-   Accessibility panel so the user can still see + use its toggles. */
-html.high-contrast button:not(.a11y-panel *),
-html.high-contrast input:not(.a11y-panel *),
-html.high-contrast select:not(.a11y-panel *),
-html.high-contrast textarea:not(.a11y-panel *) {
-  background: #000 !important;
-  color: #fff !important;
-  border: 2px solid #fff !important;
+html.high-contrast :where(p, span, h1, h2, h3, h4, h5, h6, li, td, th, label, button, a) {
+  font-weight: 600;
+}
+html.high-contrast :where(a):not(.a11y-panel *) {
+  text-decoration: underline !important;
+  text-underline-offset: 2px;
+}
+/* Visible outlines on interactive controls so they don't blend in. */
+html.high-contrast :where(button, input, textarea, select):not(.a11y-panel *) {
+  outline: 1.5px solid currentColor;
+  outline-offset: 1px;
 }
 
 /* Dyslexia-Friendly Font — Open Dyslexic is free + open-source, but we

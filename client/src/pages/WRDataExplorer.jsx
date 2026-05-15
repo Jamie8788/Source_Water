@@ -911,25 +911,73 @@ ${context}` },
                   .map(l => ({ lat: parseFloat(l.latitude), lng: parseFloat(l.longitude), loc: l }))
                   .filter(p => isFinite(p.lat) && isFinite(p.lng))
                 if (!points.length) return <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No geocoded sites.</div>
+                // Group sites that share near-identical coordinates so the
+                // user can SEE how many are stacked. WR sometimes lists two
+                // sites ~10 m apart (e.g. Lake Wilbar / Lake Wilbut differ
+                // only in the 4th decimal) — at any reasonable zoom they
+                // overlap as one pixel, and Elaine: "I see 5 dots but it
+                // says 6 sites — are you faking shit?". Round to 4 decimals
+                // (~10 m), then render groups of size > 1 as a count badge.
+                const groups = new Map()
+                for (const p of points) {
+                  const k = `${p.lat.toFixed(4)}|${p.lng.toFixed(4)}`
+                  if (!groups.has(k)) groups.set(k, { lat: p.lat, lng: p.lng, sites: [] })
+                  groups.get(k).sites.push(p.loc)
+                }
+                const groupList = [...groups.values()]
+                const stacked = groupList.filter(g => g.sites.length > 1)
                 const bounds = points.map(p => [p.lat, p.lng])
                 return (
                   <>
                     <div style={{ padding: '6px 10px', fontSize: 10, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
-                      {points.length} of {dsLocs.length} sites geocoded · map auto-zoomed to dataset bounds
+                      {points.length} of {dsLocs.length} sites geocoded · {groupList.length} pin{groupList.length !== 1 ? 's' : ''} on the map
+                      {stacked.length > 0 && (
+                        <> · <span style={{ color: '#f59e0b', fontWeight: 700 }}>
+                          {stacked.length} pin{stacked.length !== 1 ? 's' : ''} hold{stacked.length === 1 ? 's' : ''} multiple sites within ~10 m
+                        </span> (click for list)</>
+                      )}
                     </div>
                     <MapContainer bounds={bounds.length > 1 ? bounds : undefined} center={bounds[0]} zoom={13} style={{ height: 480, width: '100%' }} scrollWheelZoom>
                       <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
                       <FitBounds bounds={bounds}/>
-                      {points.map(({ lat, lng, loc }) => (
-                        <CircleMarker key={loc.id} center={[lat, lng]} radius={7} pathOptions={{ color: '#6366f1', fillColor: '#a78bfa', fillOpacity: 0.8, weight: 2 }}>
-                          <Popup>
-                            <strong>{loc.name}</strong><br/>
-                            {loc.body_of_water && <>{loc.body_of_water}<br/></>}
-                            {loc.country && <>{loc.country}<br/></>}
-                            {loc.last_observation_at && <span style={{ fontSize: 11, color: '#666' }}>Last obs: {new Date(loc.last_observation_at).toLocaleDateString()}</span>}
-                          </Popup>
-                        </CircleMarker>
-                      ))}
+                      {groupList.map(({ lat, lng, sites }) => {
+                        const count = sites.length
+                        // Single site → plain circle marker.
+                        if (count === 1) {
+                          const loc = sites[0]
+                          return (
+                            <CircleMarker key={loc.id} center={[lat, lng]} radius={7} pathOptions={{ color: '#6366f1', fillColor: '#a78bfa', fillOpacity: 0.8, weight: 2 }}>
+                              <Popup>
+                                <strong>{loc.name}</strong><br/>
+                                {loc.body_of_water && <>{loc.body_of_water}<br/></>}
+                                {loc.country && <>{loc.country}<br/></>}
+                                {loc.last_observation_at && <span style={{ fontSize: 11, color: '#666' }}>Last obs: {new Date(loc.last_observation_at).toLocaleDateString()}</span>}
+                              </Popup>
+                            </CircleMarker>
+                          )
+                        }
+                        // Multiple sites at this coord → larger ringed circle
+                        // with the count, plus a popup listing each site.
+                        return (
+                          <CircleMarker key={`stack-${lat}-${lng}`} center={[lat, lng]} radius={11} pathOptions={{ color: '#dc2626', fillColor: '#f59e0b', fillOpacity: 0.85, weight: 3 }}>
+                            <Popup maxWidth={320}>
+                              <strong>{count} sites at this location</strong>
+                              <div style={{ fontSize: 11, color: '#666', marginBottom: 6 }}>
+                                Near-identical coordinates (within ~10 m)
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                {sites.map(s => (
+                                  <div key={s.id} style={{ padding: '5px 7px', borderRadius: 5, background: '#f8fafc', fontSize: 11, lineHeight: 1.35 }}>
+                                    <div style={{ fontWeight: 700, color: '#1f2937' }}>{s.name}</div>
+                                    {s.body_of_water && <div style={{ color: '#64748b', fontSize: 10 }}>{s.body_of_water}</div>}
+                                    {s.last_observation_at && <div style={{ color: '#94a3b8', fontSize: 10 }}>Last obs: {new Date(s.last_observation_at).toLocaleDateString()}</div>}
+                                  </div>
+                                ))}
+                              </div>
+                            </Popup>
+                          </CircleMarker>
+                        )
+                      })}
                     </MapContainer>
                   </>
                 )
