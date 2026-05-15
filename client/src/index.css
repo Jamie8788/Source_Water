@@ -304,6 +304,21 @@ html.large-cursor textarea {
   zoom: var(--sw-text-scale, 1);
 }
 
+/* Dataset-map observation-count labels — Leaflet tooltips rendered as a
+   bare number centred inside each marker (no white box / arrow). */
+.leaflet-tooltip.ds-map-count {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: #fff;
+  font-weight: 800;
+  font-size: 10px;
+  padding: 0;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.55);
+  pointer-events: none;
+}
+.leaflet-tooltip.ds-map-count::before { display: none; }
+
 /* High Contrast — boost contrast without rewriting the design.
    Elaine: previous implementation repainted every <button> solid black
    (every sidebar nav item is a <button>, so they ALL turned into black
@@ -325,6 +340,25 @@ html.high-contrast :where(button, input, textarea, select):not(.a11y-panel *) {
   outline: 1.5px solid currentColor;
   outline-offset: 1px;
 }
+
+/* Dataset Map — permanent observation-count label centred on each pin.
+   Leaflet tooltips ship a white box + border + arrow by default; strip
+   all of that so it reads as a bare number sitting on the coloured
+   marker (like the green count badges on the Water Rangers site). */
+.leaflet-tooltip.ds-map-count {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+  color: #fff;
+  font-weight: 800;
+  font-size: 10px;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.65), 0 0 2px rgba(0,0,0,0.5);
+  pointer-events: none;
+}
+.leaflet-tooltip.ds-map-count::before { display: none; }
 
 /* Dyslexia-Friendly Font — Open Dyslexic is free + open-source, but we
    only ship the system Comic Sans fallback by default; either reads

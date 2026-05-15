@@ -10,7 +10,7 @@ import {
   ExternalLink, Camera, Building2, Download, MapPin, Search,
   Sparkles, Send, X, ArrowLeft, BarChart3, Map as MapIcon, Calendar, TrendingUp, Users, FlaskConical,
 } from 'lucide-react'
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Popup, Tooltip, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 
 // Small helper component that fits the map to the bounding box of the dataset's
@@ -103,6 +103,9 @@ export default function WRDataExplorer() {
   // Ontario Testers: 104 obs / 865 readings / 54 locations — exact match).
   const [selectedDs, setSelectedDs] = useState(null)
   const [dsSubTab, setDsSubTab] = useState('ai')
+  // When the user clicks "View observations" on a map pin, jump to the
+  // Observations sub-tab pre-filtered to that site.
+  const [obsSiteFilter, setObsSiteFilter] = useState(null)
   const [aiObs, setAiObs] = useState([])
   const [aiObsLoading, setAiObsLoading] = useState(false)
   const [aiObsComplete, setAiObsComplete] = useState(false) // last page returned < 100
@@ -171,8 +174,9 @@ export default function WRDataExplorer() {
   // missing 4 observations, so we now loop until the API returns < pageSize.
   useEffect(() => {
     if (!selectedDs) {
-      setAiObs([]); setAiMessages([]); setDsLocs([]); setDsSubTab('ai'); return
+      setAiObs([]); setAiMessages([]); setDsLocs([]); setDsSubTab('ai'); setObsSiteFilter(null); return
     }
+    setObsSiteFilter(null)
     let cancelled = false
     setAiObs([]); setAiObsComplete(false); setAiObsLoading(true); setDsLocsLoading(true)
     ;(async () => {
@@ -309,6 +313,37 @@ export default function WRDataExplorer() {
       }
     }).sort((a, b) => b.obs - a.obs)
   }, [aiObs, dsLocs])
+
+  // Per-site water-health grade — the thing that makes the dataset Map
+  // genuinely useful and distinct from the global Site Map: every pin is
+  // coloured by whether that site's readings are mostly safe / watch /
+  // concern, so a community member sees problem spots at a glance.
+  const siteHealthById = useMemo(() => {
+    const acc = {}
+    aiObs.forEach(o => {
+      const lid = o.location_id
+      if (!lid) return
+      if (!acc[lid]) acc[lid] = { safe: 0, watch: 0, concern: 0, total: 0 }
+      ;(o.readings || []).forEach(r => {
+        const c = getSafetyColor(r.parameter, r.value)
+        if (c === '#10b981') acc[lid].safe++
+        else if (c === '#f59e0b') acc[lid].watch++
+        else if (c === '#ef4444') acc[lid].concern++
+        else return
+        acc[lid].total++
+      })
+    })
+    const out = {}
+    Object.entries(acc).forEach(([lid, a]) => {
+      if (a.total === 0) { out[lid] = { color: '#6366f1', label: 'Ungraded', ...a }; return }
+      const concernPct = a.concern / a.total
+      const flaggedPct = (a.concern + a.watch) / a.total
+      if (concernPct >= 0.15)      out[lid] = { color: '#ef4444', label: 'Concern', ...a }
+      else if (flaggedPct >= 0.30) out[lid] = { color: '#f59e0b', label: 'Watch', ...a }
+      else                         out[lid] = { color: '#10b981', label: 'Healthy', ...a }
+    })
+    return out
+  }, [aiObs])
 
   // Monthly observations timeline data (for the Timeline sub-tab).
   const timelineData = useMemo(() => {
@@ -907,70 +942,105 @@ ${context}` },
               ) : dsLocs.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No locations in this dataset.</div>
               ) : (() => {
+                // Enrich every site with its obs/reading count + health grade.
+                const obsById = {}
+                locStats.forEach(s => { obsById[s.id] = s })
                 const points = dsLocs
-                  .map(l => ({ lat: parseFloat(l.latitude), lng: parseFloat(l.longitude), loc: l }))
+                  .map(l => ({
+                    lat: parseFloat(l.latitude), lng: parseFloat(l.longitude), loc: l,
+                    obs: obsById[l.id]?.obs || 0,
+                    readings: obsById[l.id]?.readings || 0,
+                    health: siteHealthById[l.id] || { color: '#6366f1', label: 'Ungraded' },
+                  }))
                   .filter(p => isFinite(p.lat) && isFinite(p.lng))
                 if (!points.length) return <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No geocoded sites.</div>
-                // Group sites that share near-identical coordinates so the
-                // user can SEE how many are stacked. WR sometimes lists two
-                // sites ~10 m apart (e.g. Lake Wilbar / Lake Wilbut differ
-                // only in the 4th decimal) — at any reasonable zoom they
-                // overlap as one pixel, and Elaine: "I see 5 dots but it
-                // says 6 sites — are you faking shit?". Round to 4 decimals
-                // (~10 m), then render groups of size > 1 as a count badge.
+                // Group sites within ~10 m (4-decimal coord) so stacked sites
+                // surface a count instead of hiding behind one pixel.
                 const groups = new Map()
                 for (const p of points) {
                   const k = `${p.lat.toFixed(4)}|${p.lng.toFixed(4)}`
                   if (!groups.has(k)) groups.set(k, { lat: p.lat, lng: p.lng, sites: [] })
-                  groups.get(k).sites.push(p.loc)
+                  groups.get(k).sites.push(p)
                 }
                 const groupList = [...groups.values()]
-                const stacked = groupList.filter(g => g.sites.length > 1)
                 const bounds = points.map(p => [p.lat, p.lng])
+                // Health rollup for the summary strip.
+                const tally = { Healthy: 0, Watch: 0, Concern: 0, Ungraded: 0 }
+                points.forEach(p => { tally[p.health.label] = (tally[p.health.label] || 0) + 1 })
+                // Radius scales with observation count (busiest sites read
+                // bigger). sqrt keeps a 200-obs site from dwarfing a 5-obs one.
+                const radiusFor = (obs) => Math.max(7, Math.min(7 + Math.sqrt(obs) * 1.6, 20))
+                const HEALTH = [
+                  { label: 'Healthy', color: '#10b981' },
+                  { label: 'Watch',   color: '#f59e0b' },
+                  { label: 'Concern', color: '#ef4444' },
+                  { label: 'Ungraded',color: '#6366f1' },
+                ]
                 return (
                   <>
-                    <div style={{ padding: '6px 10px', fontSize: 10, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
-                      {points.length} of {dsLocs.length} sites geocoded · {groupList.length} pin{groupList.length !== 1 ? 's' : ''} on the map
-                      {stacked.length > 0 && (
-                        <> · <span style={{ color: '#f59e0b', fontWeight: 700 }}>
-                          {stacked.length} pin{stacked.length !== 1 ? 's' : ''} hold{stacked.length === 1 ? 's' : ''} multiple sites within ~10 m
-                        </span> (click for list)</>
-                      )}
+                    <div style={{ padding: '7px 10px', borderBottom: '1px solid var(--border)', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', fontSize: 10, color: 'var(--text-muted)' }}>
+                      <span>{points.length} sites · {groupList.length} pins</span>
+                      {HEALTH.filter(h => tally[h.label] > 0).map(h => (
+                        <span key={h.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ width: 9, height: 9, borderRadius: '50%', background: h.color, border: '1.5px solid #fff', boxShadow: '0 0 0 1px ' + h.color }}/>
+                          {h.label}: <strong style={{ color: 'var(--text)' }}>{tally[h.label]}</strong>
+                        </span>
+                      ))}
+                      <span style={{ marginLeft: 'auto', fontStyle: 'italic' }}>Pin size = monitoring activity · number = observations · click to drill in</span>
                     </div>
                     <MapContainer bounds={bounds.length > 1 ? bounds : undefined} center={bounds[0]} zoom={13} style={{ height: 480, width: '100%' }} scrollWheelZoom>
                       <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
                       <FitBounds bounds={bounds}/>
                       {groupList.map(({ lat, lng, sites }) => {
-                        const count = sites.length
-                        // Single site → plain circle marker.
-                        if (count === 1) {
-                          const loc = sites[0]
-                          return (
-                            <CircleMarker key={loc.id} center={[lat, lng]} radius={7} pathOptions={{ color: '#6366f1', fillColor: '#a78bfa', fillOpacity: 0.8, weight: 2 }}>
-                              <Popup>
-                                <strong>{loc.name}</strong><br/>
-                                {loc.body_of_water && <>{loc.body_of_water}<br/></>}
-                                {loc.country && <>{loc.country}<br/></>}
-                                {loc.last_observation_at && <span style={{ fontSize: 11, color: '#666' }}>Last obs: {new Date(loc.last_observation_at).toLocaleDateString()}</span>}
-                              </Popup>
-                            </CircleMarker>
-                          )
-                        }
-                        // Multiple sites at this coord → larger ringed circle
-                        // with the count, plus a popup listing each site.
+                        const totalObs = sites.reduce((s, x) => s + x.obs, 0)
+                        // Group colour = worst health among stacked sites.
+                        const rank = { Concern: 3, Watch: 2, Healthy: 1, Ungraded: 0 }
+                        const worst = sites.reduce((w, x) => rank[x.health.label] > rank[w.label] ? x.health : w, sites[0].health)
+                        const r = radiusFor(totalObs)
                         return (
-                          <CircleMarker key={`stack-${lat}-${lng}`} center={[lat, lng]} radius={11} pathOptions={{ color: '#dc2626', fillColor: '#f59e0b', fillOpacity: 0.85, weight: 3 }}>
+                          <CircleMarker
+                            key={`pin-${lat}-${lng}`} center={[lat, lng]} radius={r}
+                            pathOptions={{ color: '#fff', fillColor: worst.color, fillOpacity: 0.85, weight: 2 }}
+                          >
+                            {totalObs > 0 && (
+                              <Tooltip permanent direction="center" className="ds-map-count">
+                                {totalObs}
+                              </Tooltip>
+                            )}
                             <Popup maxWidth={320}>
-                              <strong>{count} sites at this location</strong>
-                              <div style={{ fontSize: 11, color: '#666', marginBottom: 6 }}>
-                                Near-identical coordinates (within ~10 m)
-                              </div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                {sites.map(s => (
-                                  <div key={s.id} style={{ padding: '5px 7px', borderRadius: 5, background: '#f8fafc', fontSize: 11, lineHeight: 1.35 }}>
-                                    <div style={{ fontWeight: 700, color: '#1f2937' }}>{s.name}</div>
-                                    {s.body_of_water && <div style={{ color: '#64748b', fontSize: 10 }}>{s.body_of_water}</div>}
-                                    {s.last_observation_at && <div style={{ color: '#94a3b8', fontSize: 10 }}>Last obs: {new Date(s.last_observation_at).toLocaleDateString()}</div>}
+                              {sites.length > 1 && (
+                                <div style={{ fontSize: 10, color: '#dc2626', fontWeight: 700, marginBottom: 4 }}>
+                                  {sites.length} sites stacked here (within ~10 m)
+                                </div>
+                              )}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                                {sites.map(({ loc, obs, readings, health }) => (
+                                  <div key={loc.id} style={{ padding: '6px 8px', borderRadius: 6, background: '#f8fafc', borderLeft: `3px solid ${health.color}` }}>
+                                    <div style={{ fontWeight: 700, color: '#1f2937', fontSize: 12 }}>{loc.name}</div>
+                                    {loc.body_of_water && <div style={{ color: '#64748b', fontSize: 10 }}>{loc.body_of_water}</div>}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, margin: '4px 0', flexWrap: 'wrap' }}>
+                                      <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 6px', borderRadius: 99, background: `${health.color}22`, color: health.color }}>
+                                        {health.label}
+                                      </span>
+                                      <span style={{ fontSize: 10, color: '#475569' }}>
+                                        <strong>{obs}</strong> obs · <strong>{readings}</strong> readings
+                                      </span>
+                                    </div>
+                                    {health.total > 0 && (
+                                      <div style={{ fontSize: 9, color: '#94a3b8', marginBottom: 4 }}>
+                                        {health.safe} safe · {health.watch} watch · {health.concern} concern readings
+                                      </div>
+                                    )}
+                                    {obs > 0 && (
+                                      <button
+                                        onClick={() => { setObsSiteFilter(loc.id); setDsSubTab('observations') }}
+                                        style={{
+                                          fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 5,
+                                          background: 'linear-gradient(135deg,#6366f1,#14b8a6)', color: '#fff',
+                                          border: 0, cursor: 'pointer',
+                                        }}
+                                      >View {obs} observation{obs !== 1 ? 's' : ''} →</button>
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -1007,13 +1077,29 @@ ${context}` },
           )}
 
           {/* ─── Observations sub-tab ─── */}
-          {dsSubTab === 'observations' && (
+          {dsSubTab === 'observations' && (() => {
+            const filterLoc = obsSiteFilter ? dsLocs.find(l => l.id === obsSiteFilter) : null
+            const shownObs = obsSiteFilter ? aiObs.filter(o => o.location_id === obsSiteFilter) : aiObs
+            return (
             <div>
-              {aiObsLoading ? <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}><RefreshCw size={14} className="animate-spin"/> Loading…</div> : aiObs.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No observations.</div>
+              {/* Site filter chip — set when the user drills in from a map pin. */}
+              {filterLoc && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)' }}>
+                  <MapPin size={12} color="#6366f1"/>
+                  <span style={{ fontSize: 11, color: 'var(--text)' }}>
+                    Showing <strong>{shownObs.length}</strong> observation{shownObs.length !== 1 ? 's' : ''} at <strong>{filterLoc.name}</strong>
+                  </span>
+                  <button onClick={() => setObsSiteFilter(null)}
+                    style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: '#6366f1', background: 'transparent', border: 0, cursor: 'pointer' }}>
+                    <X size={11}/> Show all sites
+                  </button>
+                </div>
+              )}
+              {aiObsLoading ? <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}><RefreshCw size={14} className="animate-spin"/> Loading…</div> : shownObs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No observations{filterLoc ? ' at this site' : ''}.</div>
               ) : (
                 <div style={{ maxHeight: 600, overflowY: 'auto' }}>
-                  {aiObs.slice(0, 50).map((o, i) => {
+                  {shownObs.slice(0, 50).map((o, i) => {
                     const loc = dsLocs.find(l => l.id === o.location_id)
                     const qa = QA_STATUS[o.checked] || { label: o.checked || '?', color: '#94a3b8' }
                     const quantR = (o.readings || []).filter(r => r.value != null && r.unit && r.unit !== 'nil')
@@ -1041,11 +1127,12 @@ ${context}` },
                       </div>
                     )
                   })}
-                  {aiObs.length > 50 && <div style={{ textAlign: 'center', padding: 10, color: 'var(--text-muted)', fontSize: 10 }}>Showing 50 of {aiObs.length} — use AI tab to analyse them all.</div>}
+                  {shownObs.length > 50 && <div style={{ textAlign: 'center', padding: 10, color: 'var(--text-muted)', fontSize: 10 }}>Showing 50 of {shownObs.length} — use AI tab to analyse them all.</div>}
                 </div>
               )}
             </div>
-          )}
+            )
+          })()}
         </div>
       )}
 
