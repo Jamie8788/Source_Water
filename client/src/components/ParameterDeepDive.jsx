@@ -580,52 +580,74 @@ function StatsGrid({ stats, unit }) {
 }
 
 // SVG range bar with tone-coloured bands and a pointer marker for the current value.
-function RangeBar({ meta, pointerPct, pointerValue }) {
+function RangeBar({ meta, pointerValue }) {
   const W = 580
   const H = 56
-  const top = 16
+  const top = 18
   const barH = 14
-  const minEdge = meta.ranges[0].min
-  const maxEdge = meta.ranges[meta.ranges.length - 1].max
-  const span = Math.max(1e-6, maxEdge - minEdge)
+  const SENTINEL = 9999
+  const ranges = meta.ranges
+  const minEdge = ranges[0].min
+
+  // The last band is usually open-ended with a sentinel max (9999 / 99999).
+  // Scaling the whole bar to that sentinel squashes every real band into a
+  // sliver at the left and overlaps all the labels (Elaine: "Stestwatch /
+  // Safe / Soft" piled on top of each other). Scale to the last REAL
+  // boundary instead, with headroom, and let the open band run to the
+  // right edge. Extend the scale if the reading itself sits beyond it.
+  const realMaxes = ranges.map(r => r.max).filter(m => m < SENTINEL)
+  let visualMax = (realMaxes.length ? Math.max(...realMaxes) : ranges[ranges.length - 1].min || 1) * 1.15
+  if (Number.isFinite(pointerValue) && pointerValue > visualMax) visualMax = pointerValue * 1.12
+  const span = Math.max(1e-6, visualMax - minEdge)
+  const xOf = (v) => {
+    const m = v >= SENTINEL ? visualMax : v
+    return Math.max(0, Math.min(W, ((m - minEdge) / span) * W))
+  }
+  const px = Number.isFinite(pointerValue) ? xOf(pointerValue) : null
+
+  // Boundary numbers along the bottom — only drawn when they won't collide
+  // with the previous one (narrow bands would otherwise overprint).
+  let lastNumX = -999
+  const boundaryLabels = []
+  const pushNum = (x, val) => {
+    if (x - lastNumX < 30) return
+    lastNumX = x
+    boundaryLabels.push(
+      <text key={`n-${x}`} x={x} y={top + barH + 13} fontSize="10" fill="#475569"
+        textAnchor={x < 12 ? 'start' : x > W - 12 ? 'end' : 'middle'}>{val}</text>
+    )
+  }
 
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H + 36}`} width="100%" height="auto" role="img" aria-label="Parameter range diagram">
-        {meta.ranges.map((r, i) => {
-          const x1 = ((r.min - minEdge) / span) * W
-          const x2 = ((r.max - minEdge) / span) * W
+      <svg viewBox={`0 0 ${W} ${H + 40}`} width="100%" height="auto" role="img" aria-label="Parameter range diagram">
+        {ranges.map((r, i) => {
+          const x1 = xOf(r.min)
+          const x2 = xOf(r.max)
+          const w = Math.max(0, x2 - x1)
+          if (i === 0) pushNum(x1, r.min)
+          if (r.max < SENTINEL) pushNum(x2, r.max)
           return (
             <g key={i}>
-              <rect x={x1} y={top} width={Math.max(0, x2 - x1)} height={barH} fill={TONE_COLOR[r.tone]} opacity={0.9} />
-              {i === 0 && (
-                <text x={x1} y={top + barH + 12} fontSize="10" fill="#475569">{r.min}</text>
+              <rect x={x1} y={top} width={w} height={barH} fill={TONE_COLOR[r.tone]} opacity={0.9} />
+              {/* Band label above the bar — only if the band is wide enough
+                  to hold the text; narrow bands are covered by the legend. */}
+              {w >= 56 && (
+                <text x={x1 + w / 2} y={top - 5} fontSize="9" fill="#0f172a" textAnchor="middle" fontWeight="600">
+                  {r.label}
+                </text>
               )}
-              <text x={x2} y={top + barH + 12} fontSize="10" fill="#475569" textAnchor="end">
-                {r.max >= 9999 ? '' : r.max}
-              </text>
-              <text x={(x1 + x2) / 2} y={top - 4} fontSize="9" fill="#0f172a" textAnchor="middle" fontWeight="600">
-                {r.label}
-              </text>
             </g>
           )
         })}
+        {boundaryLabels}
 
-        {pointerPct != null && (
+        {px != null && (
           <g>
-            <line
-              x1={(pointerPct / 100) * W} x2={(pointerPct / 100) * W}
-              y1={top - 8} y2={top + barH + 6}
-              stroke="#0f172a" strokeWidth="2"
-            />
-            <polygon
-              points={`${(pointerPct / 100) * W - 5},${top - 10} ${(pointerPct / 100) * W + 5},${top - 10} ${(pointerPct / 100) * W},${top - 2}`}
-              fill="#0f172a"
-            />
-            <text
-              x={(pointerPct / 100) * W} y={top + barH + 26}
-              fontSize="11" fontWeight="700" fill="#0f172a" textAnchor="middle"
-            >
+            <line x1={px} x2={px} y1={top - 9} y2={top + barH + 6} stroke="#0f172a" strokeWidth="2" />
+            <polygon points={`${px - 5},${top - 11} ${px + 5},${top - 11} ${px},${top - 3}`} fill="#0f172a" />
+            <text x={Math.max(24, Math.min(W - 24, px))} y={top + barH + 30}
+              fontSize="11" fontWeight="700" fill="#0f172a" textAnchor="middle">
               {pointerValue}{meta.unit}
             </text>
           </g>
