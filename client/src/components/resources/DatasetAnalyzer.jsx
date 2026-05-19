@@ -505,6 +505,10 @@ export default function DatasetAnalyzer() {
           const { rows, pivoted, info } = maybePivotLongFormat(raw)
           const a = analyzeRows(rows)
           if (a && pivoted) a.pivotInfo = info
+          // Keep the ORIGINAL parsed rows (pre-pivot — they still carry
+          // reading IDs, site IDs, etc.) so the Q&A box can answer
+          // row-level questions, not just summary stats.
+          if (a) a.rawRows = raw
           setAnalysis(a)
           setFilename(name || 'pasted-data.csv')
         } catch (e) {
@@ -527,6 +531,8 @@ export default function DatasetAnalyzer() {
           const { rows, pivoted, info } = maybePivotLongFormat(raw)
           const a = analyzeRows(rows)
           if (a && pivoted) a.pivotInfo = info
+          // Keep the ORIGINAL parsed rows for row-level Q&A (see runOnText).
+          if (a) a.rawRows = raw
           setAnalysis(a)
           setFilename(file.name)
         } catch (e) {
@@ -798,6 +804,50 @@ const qaKey = () => 'sw_dataset_qa_used_' + new Date().toISOString().slice(0, 10
 function readUsed()  { try { return parseInt(localStorage.getItem(qaKey()) || '0', 10) || 0 } catch { return 0 } }
 function bumpUsed()  { try { localStorage.setItem(qaKey(), String(readUsed() + 1)) } catch {} }
 
+// Question-aware row lookup. The dataset summary (below) only carries
+// per-column STATISTICS — so the Q&A box could answer "what's the typical
+// pH" but not "what was the value for reading id X on date Y". This scans
+// the raw CSV rows and returns only the rows whose own cell values are
+// referenced in the question (an ID, a date, a site name, a parameter…),
+// so the LLM gets the exact records it needs without being handed the
+// whole file (which would blow the free-tier token budget).
+function relevantRawRows(rawRows, question, byteCap = 11000) {
+  if (!Array.isArray(rawRows) || !rawRows.length) return { text: '', count: 0 }
+  const q = String(question || '').toLowerCase()
+  const qTokens = q.split(/[^a-z0-9]+/).filter(t => t.length >= 4)
+  const cols = Object.keys(rawRows[0])
+  // SCORE each row, don't just flag a hit. An exact match on a long cell
+  // value (a UUID, an ISO date) is a far stronger signal than a generic
+  // word overlap, so those rows must survive the byte budget first —
+  // otherwise file-order bias keeps the wrong 12 rows and the AI answers
+  // "no data for that site" while the real record sits just past the cap.
+  const scored = []
+  for (const row of rawRows) {
+    let score = 0
+    for (const c of cols) {
+      const cell = String(row[c] ?? '').toLowerCase().trim()
+      if (!cell || cell.length < 3) continue
+      if (cell.length >= 12 && q.includes(cell)) score += 10      // UUID-ish exact hit
+      else if (cell.length >= 6 && q.includes(cell)) score += 6   // date / precise value
+      else if (cell.length >= 4 && q.includes(cell)) score += 2   // short exact hit
+      else if (qTokens.some(t => cell.includes(t) || t.includes(cell))) score += 1 // loose word overlap
+    }
+    if (score > 0) scored.push({ row, score })
+  }
+  if (!scored.length) return { text: '', count: 0 }
+  scored.sort((a, b) => b.score - a.score)
+  let text = '', used = 0
+  for (const { row } of scored) {
+    const line = cols
+      .filter(c => row[c] != null && String(row[c]).trim() !== '')
+      .map(c => `${c}=${row[c]}`)
+      .join(' | ')
+    if (text.length + line.length > byteCap) break
+    text += line + '\n'; used++
+  }
+  return { text, count: used, total: scored.length }
+}
+
 // Build a compact, exact factual summary of the dataset that the LLM is
 // allowed to reference. We deliberately keep this small (a few hundred
 // tokens) to (a) avoid free-tier overages and (b) prevent the model from
@@ -899,9 +949,10 @@ function AskAboutDataset({ analysis, filename }) {
       `You are a careful water-quality educator embedded in SOURCE Water's Resources tab. A community member just uploaded a CSV and is asking you to interpret it for them.`,
       ``,
       `STRICT RULES — break any of these and you fail the task:`,
-      `1. Use ONLY the dataset summary below. Do NOT invent values, dates, units, sources, or thresholds.`,
-      `2. Quote exact numbers from the summary when citing values. Round only for readability and say so ("about", "roughly").`,
-      `3. If the user's question can't be answered from this summary, reply EXACTLY: "The data you uploaded doesn't show that — but here's what we can see…" then describe related facts that ARE in the summary.`,
+      `1. Use ONLY the dataset summary and the MATCHING DATA ROWS block (when present) below. Do NOT invent values, dates, units, sources, or thresholds.`,
+      `2. Quote exact numbers when citing values. Round only for readability and say so ("about", "roughly").`,
+      `2b. ROW-LEVEL questions (a specific reading ID, site ID, date, or record): answer from the MATCHING DATA ROWS block. Each line is one raw CSV record as field=value pairs. Find the row(s) the user means and quote the exact value. If the user names a parameter that doesn't match the row they cited (e.g. asks for "nitrates" but the reading is "nitrites"), say so plainly and give the value that IS there, plus the right parameter's value if another row has it.`,
+      `3. If the question can't be answered from the summary OR the rows, reply EXACTLY: "The data you uploaded doesn't show that — but here's what we can see…" then describe related facts that ARE present.`,
       `4. For safety questions, reference ONLY the SOURCE Water bands listed in the summary. Do NOT cite WHO, EPA, Health Canada, or any external threshold — they are not in this dataset.`,
       `5. Never give medical, drinking-water, or treatment advice. SOURCE Water is for surface-water / aquatic-life context only. If asked about drinking safety, say so and stop.`,
       `6. Keep answers under 100 words. Plain English. Define any technical term you use.`,
@@ -934,8 +985,16 @@ function AskAboutDataset({ analysis, filename }) {
         setInput('')
         return
       }
+      // Question-aware row lookup: pull the raw CSV records that mention
+      // anything in the question (a reading ID, site ID, date, parameter…)
+      // and hand them to the model so it can answer row-level questions,
+      // not just summary stats. Empty for purely statistical questions.
+      const hits = relevantRawRows(analysis.rawRows, q)
+      const systemContent = hits.count > 0
+        ? `${SYSTEM_PROMPT}\n\nMATCHING DATA ROWS — ${hits.count}${hits.total > hits.count ? ` of ${hits.total}` : ''} raw CSV record(s) that reference something in the question. Each line is one record as field=value pairs:\n${hits.text}`
+        : SYSTEM_PROMPT
       const messages = [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemContent },
         ...history.flatMap(h => [
           { role: 'user', content: h.q },
           { role: 'assistant', content: h.a },
