@@ -304,6 +304,69 @@ function overallSafetyVerdict(perColumnVerdicts) {
   return { tone: 'concerning', text: `Concerning — average only ${Math.round(avgPct)}% of readings inside safe ranges. Investigation recommended.` }
 }
 
+// ── long-format pivot ─────────────────────────────────────────────────────
+// DataStream and Water Rangers CSV exports are "long" / "tidy": one READING
+// per row, with the parameter name in a `CharacteristicName` cell and the
+// number in `ResultValue`. The analyzer expects "wide" data (one column per
+// parameter) — without this pivot it sees a single meaningless "ResultValue"
+// column mixing pH, nitrites, temperature… together, matches no SOURCE Water
+// band, and "fails to provide info" (Elaine, on dataset_download_4344.csv).
+//
+// This detects the long layout and pivots it: readings are grouped by
+// location + date + time into one observation row each, and every distinct
+// CharacteristicName becomes its own column. Every output row carries every
+// parameter column (blank where unmeasured) so the analyzer's column scan
+// doesn't miss params absent from the first row.
+function maybePivotLongFormat(rows) {
+  if (!rows.length) return { rows, pivoted: false }
+  const cols = Object.keys(rows[0])
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  const find = (re) => cols.find(c => re.test(norm(c)))
+  const charCol = find(/^(characteristicname|parameter|parametername|analyte)$/)
+  const valCol  = find(/^(resultvalue|value|measurementvalue|result)$/)
+  if (!charCol || !valCol) return { rows, pivoted: false }  // already wide
+
+  const locCol  = find(/(monitoringlocationname|locationname|sitename|^location$|^site$|station)/)
+  const idCol   = find(/(monitoringlocationid|locationid|siteid)/)
+  const dateCol = find(/(activitystartdate|^date$|sampledate|observeddate|datetime)/)
+  const timeCol = find(/(activitystarttime|^time$|sampletime)/)
+
+  const groups = new Map()
+  const order = []
+  const allParams = new Set()
+  for (const r of rows) {
+    const param = String(r[charCol] ?? '').trim()
+    if (!param) continue
+    allParams.add(param)
+    const loc  = locCol  ? String(r[locCol]  ?? '').trim() : ''
+    const id   = idCol   ? String(r[idCol]   ?? '').trim() : ''
+    const date = dateCol ? String(r[dateCol] ?? '').trim() : ''
+    const time = timeCol ? String(r[timeCol] ?? '').trim() : ''
+    const key  = `${id}|${loc}|${date}|${time}`
+    if (!groups.has(key)) {
+      const base = {}
+      if (locCol)  base.Location = loc
+      if (dateCol) base.Date = date
+      groups.set(key, base)
+      order.push(key)
+    }
+    const wide = groups.get(key)
+    // First non-empty value wins if a parameter repeats within one observation.
+    if (wide[param] == null || wide[param] === '') wide[param] = r[valCol]
+  }
+  const paramList = [...allParams]
+  const pivotedRows = order.map(k => {
+    const w = groups.get(k)
+    for (const p of paramList) if (!(p in w)) w[p] = ''
+    return w
+  })
+  return {
+    rows: pivotedRows,
+    pivoted: true,
+    info: { readings: rows.length, observations: pivotedRows.length, parameters: paramList.length },
+  }
+}
+
 // ── analysis pipeline ─────────────────────────────────────────────────────
 
 function analyzeRows(rows) {
@@ -316,10 +379,15 @@ function analyzeRows(rows) {
     const raw = rows.map(r => r[c])
     const numericVals = raw.filter(isFiniteNumeric).map(toNum)
     const missing = raw.filter(v => v == null || v === '').length
-    if (numericVals.length >= Math.max(3, raw.length * 0.4)) {
-      // ≥40% numeric and ≥3 samples → treat as numeric. Try to map to a
-      // SOURCE Water parameter (pH, turbidity, water temp, DO, conductivity)
-      // by name so we can attach safe-range bands.
+    const filled = raw.length - missing
+    // A column is numeric when ≥3 of its FILLED cells are numbers AND ≥70%
+    // of the filled cells are numeric. The old test used 40% of ALL rows,
+    // which wrongly demoted sparse parameters to "text" — e.g. nitrites,
+    // measured in only 11 of 99 pivoted observations, never reached the
+    // bar even though every value present was a real number.
+    if (numericVals.length >= 3 && numericVals.length >= filled * 0.7) {
+      // Try to map to a SOURCE Water parameter (pH, turbidity, water temp,
+      // DO, conductivity, nitrate…) by name so we attach safe-range bands.
       const paramKey = matchParam(c)
       const stats = summarize(numericVals)
       const colInfo = { kind: 'numeric', stats, missing, total: raw.length, vals: numericVals, paramKey }
@@ -432,9 +500,11 @@ export default function DatasetAnalyzer() {
       header: true, skipEmptyLines: true, dynamicTyping: false,
       complete: (res) => {
         try {
-          const rows = (res.data || []).filter(r => r && Object.keys(r).length)
-          if (!rows.length) { setError('No data rows found in this CSV.'); setBusy(false); return }
+          const raw = (res.data || []).filter(r => r && Object.keys(r).length)
+          if (!raw.length) { setError('No data rows found in this CSV.'); setBusy(false); return }
+          const { rows, pivoted, info } = maybePivotLongFormat(raw)
           const a = analyzeRows(rows)
+          if (a && pivoted) a.pivotInfo = info
           setAnalysis(a)
           setFilename(name || 'pasted-data.csv')
         } catch (e) {
@@ -452,9 +522,11 @@ export default function DatasetAnalyzer() {
       header: true, skipEmptyLines: true, dynamicTyping: false,
       complete: (res) => {
         try {
-          const rows = (res.data || []).filter(r => r && Object.keys(r).length)
-          if (!rows.length) { setError('No data rows found in this file.'); setBusy(false); return }
+          const raw = (res.data || []).filter(r => r && Object.keys(r).length)
+          if (!raw.length) { setError('No data rows found in this file.'); setBusy(false); return }
+          const { rows, pivoted, info } = maybePivotLongFormat(raw)
           const a = analyzeRows(rows)
+          if (a && pivoted) a.pivotInfo = info
           setAnalysis(a)
           setFilename(file.name)
         } catch (e) {
@@ -1121,6 +1193,24 @@ function AnalysisReport({ analysis, filename, onReset, onDownload }) {
           </button>
         </div>
       </div>
+
+      {/* Pivot notice — shown when a long-format DataStream/WR export was
+          reshaped into a wide table so the analyzer could read it. */}
+      {analysis.pivotInfo && (
+        <div style={{
+          marginBottom: 12, padding: '9px 12px', borderRadius: 10, fontSize: 12,
+          color: '#a5b4fc', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.28)',
+          display: 'flex', gap: 8, alignItems: 'flex-start',
+        }}>
+          <GitMerge size={14} style={{ flexShrink: 0, marginTop: 1 }}/>
+          <span>
+            Detected a long-format DataStream / Water Rangers export — pivoted{' '}
+            <strong>{analysis.pivotInfo.readings.toLocaleString()}</strong> readings into{' '}
+            <strong>{analysis.pivotInfo.observations.toLocaleString()}</strong> observations across{' '}
+            <strong>{analysis.pivotInfo.parameters}</strong> parameters so each parameter could be analysed on its own.
+          </span>
+        </div>
+      )}
 
       {/* Plain-English at-a-glance — every line maps to a deterministic
           value from `analysis`, so it never contradicts the cards below. */}
