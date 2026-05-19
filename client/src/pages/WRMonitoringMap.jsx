@@ -102,28 +102,6 @@ function getParamExplain(param) {
 // what we rely on now. Combo "+N" pins are a small fraction of markers,
 // so cluster numbers stay within a hair of the true site total.
 
-// Combo marker for coord groups holding multiple monitoring stations.
-// Renders a coloured disc with the count of overlapping sites — solves the
-// "cluster says 9, eye counts 8" mystery by surfacing the duplicate.
-function comboIcon(count, color) {
-  const html = `
-    <div style="
-      width: 30px; height: 30px; border-radius: 50%;
-      background: ${color}; color: #fff;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 12px; font-weight: 800; line-height: 1;
-      border: 2px solid #ffffff;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.4);
-    ">+${count}</div>`
-  return L.divIcon({
-    html,
-    className: 'wr-combo-pin',
-    iconSize: [30, 30],
-    iconAnchor: [15, 15],
-    popupAnchor: [0, -16],
-  })
-}
-
 // Single-site marker pulled out so the parent JSX stays readable.
 // Compare button is intentionally big + full-width because users were
 // missing the small inline pill. The button's label and colour reflect
@@ -524,26 +502,16 @@ export default function WRMonitoringMap() {
     })
   }, [allLocations, countryFilter, bodyFilter, paramFilter, searchText, activeOnly])
 
-  const mappable = filtered.filter(l => l.latitude && l.longitude)
-
-  // WR sometimes has multiple monitoring stations sharing the EXACT same
-  // coordinates (one location, several monitoring programs). Without this
-  // grouping they'd render stacked at deep zoom — the cluster bubble would
-  // honestly say "9" and the user would only see 8 dots, which looks like
-  // a bug. Group by 5-decimal lat/lng key (~1 m precision) and render
-  // groups of size > 1 as a combo marker with a count badge.
-  const sitesByCoord = useMemo(() => {
-    const m = new Map()
-    for (const l of mappable) {
-      const lat = parseFloat(l.latitude)
-      const lng = parseFloat(l.longitude)
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
-      const k = `${lat.toFixed(5)}|${lng.toFixed(5)}`
-      if (!m.has(k)) m.set(k, { lat, lng, sites: [] })
-      m.get(k).sites.push(l)
-    }
-    return Array.from(m.values())
-  }, [mappable])
+  // Only sites with a real, in-range coordinate can be plotted. WR has a
+  // handful (≈7) with 0,0 or out-of-range junk coords — excluding them keeps
+  // the cluster total honest and stops a phantom marker off the Gulf of
+  // Guinea. `mappable.length` is what the header reports as "shown".
+  const mappable = filtered.filter(l => {
+    const lat = parseFloat(l.latitude), lng = parseFloat(l.longitude)
+    return Number.isFinite(lat) && Number.isFinite(lng) &&
+           lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 &&
+           !(lat === 0 && lng === 0)
+  })
   const withPhotos = allLocations.filter(l => l.reference_photo_url).length
 
   // Country stats
@@ -829,79 +797,25 @@ export default function WRMonitoringMap() {
               chunkedLoading
               maxClusterRadius={55}
               showCoverageOnHover={false}
-              disableClusteringAtZoom={9}
               spiderfyOnMaxZoom={true}
             >
-              {sitesByCoord.map(({ lat, lng, sites }) => {
-                if (sites.length === 1) {
-                  return <SiteCircleMarker
-                    key={sites[0].id} site={sites[0]}
-                    compareA={compareA} compareB={compareB}
-                    onSelect={setSelected} onCompare={pickForCompare}
-                  />
-                }
-                // Combo marker — multiple sites share these exact coords
-                const primary = sites[0]
-                const color = BODY_COLORS[primary.water_body_type] || BODY_COLORS.other
-                const containsCmpA = sites.some(s => s.id === compareA?.id)
-                const containsCmpB = sites.some(s => s.id === compareB?.id)
-                const ringColor = containsCmpA ? '#60a5fa' : containsCmpB ? '#34d399' : color
-                return (
-                  <Marker key={`combo-${lat}-${lng}`} position={[lat, lng]}
-                    icon={comboIcon(sites.length, ringColor)}>
-                    <Popup maxWidth={360}>
-                      <div style={{ fontSize: 12, lineHeight: 1.45, minWidth: 240 }}>
-                        <strong style={{ fontSize: 13 }}>{sites.length} monitoring sites here</strong>
-                        <div style={{ color: '#666', fontSize: 11, marginBottom: 8 }}>
-                          Same coordinates · multiple programs · tap a site to open it
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 260, overflowY: 'auto' }}>
-                          {sites.map((s, idx) => {
-                            const c = BODY_COLORS[s.water_body_type] || BODY_COLORS.other
-                            const isA = compareA?.id === s.id
-                            const isB = compareB?.id === s.id
-                            // WR sometimes lists sites with the same name at the same
-                            // coords (different programs / kits). Surface what makes
-                            // each one unique so the user can tell them apart.
-                            const lastObs = s.last_observation_at ? new Date(s.last_observation_at).toLocaleDateString() : null
-                            const paramCount = Array.isArray(s.tested_parameters) ? s.tested_parameters.length : 0
-                            const subBits = []
-                            if (paramCount) subBits.push(`${paramCount} param${paramCount !== 1 ? 's' : ''}`)
-                            if (lastObs) subBits.push(`last ${lastObs}`)
-                            else subBits.push('no observations yet')
-                            subBits.push(`#${String(s.id).slice(-5)}`)
-                            return (
-                              <div key={s.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: 8, borderRadius: 8, background: isA || isB ? '#eff6ff' : '#f8fafc', border: '1px solid ' + (isA ? '#60a5fa' : isB ? '#34d399' : '#e5e7eb') }}>
-                                <span style={{ width: 8, height: 8, borderRadius: 99, background: c, flexShrink: 0, marginTop: 5 }} />
-                                <button
-                                  onClick={() => setSelected(s)}
-                                  style={{ flex: 1, textAlign: 'left', background: 'none', border: 0, padding: 0, cursor: 'pointer', color: '#1f2937', fontSize: 12, fontWeight: 700, lineHeight: 1.3 }}
-                                >
-                                  <div style={{ marginBottom: 3 }}>{s.name}</div>
-                                  <div style={{ fontSize: 10, fontWeight: 500, color: '#64748b' }}>
-                                    {subBits.join(' · ')}
-                                  </div>
-                                </button>
-                                <button
-                                  onClick={() => pickForCompare(s)}
-                                  title={isA ? 'Comparing as A' : isB ? 'Comparing as B' : compareA && !compareB ? 'Compare with A' : 'Compare'}
-                                  style={{
-                                    padding: '4px 9px', borderRadius: 999, fontSize: 10, fontWeight: 800, cursor: 'pointer',
-                                    background: isA ? '#60a5fa' : isB ? '#34d399' : '#dbeafe',
-                                    color: isA || isB ? '#fff' : '#1d4ed8',
-                                    border: '1px solid ' + (isA || isB ? 'transparent' : '#93c5fd'),
-                                    flexShrink: 0, alignSelf: 'flex-start',
-                                  }}
-                                >{isA ? '✓ A' : isB ? '✓ B' : compareA && !compareB ? '+ B' : 'Compare'}</button>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    </Popup>
-                  </Marker>
-                )
-              })}
+              {/* One marker PER SITE — no combo "+N" pins. The combo pattern
+                  collapsed same-coordinate sites into a single marker, and
+                  markercluster's default count then counted that combo as 1,
+                  so cluster bubbles undershot the true total by ~1,250
+                  (Elaine: "7070+1190+12+3 doesn't add to 9,525"). With one
+                  marker per site the cluster count IS the site count.
+                  disableClusteringAtZoom was removed so sites at identical
+                  coordinates always form a clickable cluster that spiderfies
+                  into individual dots at full zoom, instead of stacking
+                  unclickably on one pixel. */}
+              {mappable.map(site => (
+                <SiteCircleMarker
+                  key={site.id} site={site}
+                  compareA={compareA} compareB={compareB}
+                  onSelect={setSelected} onCompare={pickForCompare}
+                />
+              ))}
             </MarkerClusterGroup>
           )}
 
