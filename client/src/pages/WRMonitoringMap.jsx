@@ -420,6 +420,17 @@ export default function WRMonitoringMap() {
     setSearchParams(next, { replace: true })
   }, [searchText])
 
+  // URL → state sync. The searchText useState initializer only runs on
+  // first mount. If the user is ALREADY on this page and uses the global
+  // TopBar search, react-router just updates ?q= without remounting — so
+  // the new query was silently ignored and "nothing happened" (Elaine).
+  // This pulls an externally-changed ?q= into searchText, which then
+  // re-keys the map and FitBounds zooms to the matching site.
+  useEffect(() => {
+    const current = searchParams.get('q') || ''
+    setSearchText(prev => (prev === current ? prev : current))
+  }, [searchParams])
+
   const [loadMsg, setLoadMsg] = useState('')
 
   // Load ALL locations via bulk endpoint (server fetches in parallel, cached 1hr)
