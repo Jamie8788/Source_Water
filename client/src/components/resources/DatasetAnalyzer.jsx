@@ -43,16 +43,21 @@ function toNum(v) {
 }
 
 // Cheap date detector: tries Date.parse on a sample of cells.
+// Requires ≥3 non-empty samples so a sparse 1–2 value column can't be
+// mislabelled a "date" column, and skips bare numbers — a stray integer
+// like "2015" or a measurement value is NOT a date and was flipping
+// single-value parameter columns into phantom date columns.
 function looksLikeDate(values) {
   let hits = 0, total = 0
   for (const v of values) {
     if (v == null || v === '') continue
+    const s = String(v).trim()
+    if (/^-?\d+(\.\d+)?$/.test(s)) continue   // bare number → measurement, not a date
     total++
     if (total > 30) break
-    const t = Date.parse(String(v))
-    if (Number.isFinite(t)) hits++
+    if (Number.isFinite(Date.parse(s))) hits++
   }
-  return total > 0 && hits / total > 0.7
+  return total >= 3 && hits / total > 0.7
 }
 
 function summarize(vals) {
@@ -1155,7 +1160,9 @@ function QuickTakeaways({ analysis }) {
       </div>
       <ul style={{ margin: 0, padding: '0 0 0 18px', display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5, color: 'var(--text)', lineHeight: 1.55 }}>
         <li>
-          <strong>{analysis.rowCount.toLocaleString()}</strong> rows across <strong>{analysis.colCount}</strong> columns
+          <strong>{analysis.rowCount.toLocaleString()}</strong> {analysis.pivotInfo ? 'observations' : 'rows'}
+          {analysis.pivotInfo && <> (pivoted from <strong>{analysis.pivotInfo.readings.toLocaleString()}</strong> readings)</>}
+          {' '}across <strong>{analysis.colCount}</strong> columns
           {analysis.numericCols.length > 0 && <> ({analysis.numericCols.length} numeric)</>}
           {analysis.dateSpan && <> · spans <strong>{analysis.dateSpan.days}</strong> days ({analysis.dateSpan.first.toLocaleDateString()} → {analysis.dateSpan.last.toLocaleDateString()})</>}
         </li>
@@ -1229,7 +1236,12 @@ function AnalysisReport({ analysis, filename, onReset, onDownload }) {
           <div>
             <div style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--text)' }}>{filename}</div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              {analysis.rowCount.toLocaleString()} rows · {analysis.colCount} columns
+              {/* When the CSV was pivoted, "rows" are observations — say so,
+                  and show the original reading count so the number doesn't
+                  look like data was lost. */}
+              {analysis.pivotInfo
+                ? <>{analysis.rowCount.toLocaleString()} observations · {analysis.pivotInfo.readings.toLocaleString()} readings · {analysis.colCount} columns</>
+                : <>{analysis.rowCount.toLocaleString()} rows · {analysis.colCount} columns</>}
               {analysis.numericCols.length > 0 && <> · {analysis.numericCols.length} numeric</>}
               {analysis.dateCols.length > 0 && <> · {analysis.dateCols.length} date</>}
             </div>
