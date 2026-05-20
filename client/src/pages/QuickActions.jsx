@@ -220,9 +220,8 @@ export default function QuickActions() {
           transform: translateY(-50%);
           pointer-events: auto;
         }
-        .qa-stop.is-ready {
-          animation: qaFadeIn 540ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-        }
+        .qa-stop-l.is-ready { animation: qaSlideInL 620ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+        .qa-stop-r.is-ready { animation: qaSlideInR 620ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
         .qa-stop-l { left: 16px; flex-direction: row; }
         .qa-stop-r { right: 16px; flex-direction: row-reverse; text-align: right; }
         .qa-stop-r .qa-callout { text-align: right; }
@@ -249,7 +248,11 @@ export default function QuickActions() {
             inset 0 -2px 4px rgba(0,0,0,0.25),
             inset 0 2px 4px rgba(255,255,255,0.30),
             0 0 0 3px rgba(255,255,255,0.92);
-          animation: qaNumPulse 4.5s ease-in-out infinite;
+          animation: qaNumPulse 4.5s ease-in-out infinite, qaNumBob 5.8s ease-in-out infinite;
+        }
+        .qa-stop:hover .qa-num {
+          transform: scale(1.08);
+          transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
         }
         @media (max-width: 640px) {
           .qa-num { width: 34px; height: 34px; font-size: 18px; }
@@ -266,11 +269,13 @@ export default function QuickActions() {
             0 10px 22px rgba(15,31,56,0.10);
           transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 240ms ease;
         }
-        .qa-stop:hover .qa-callout {
-          transform: translateY(-2px);
-          box-shadow:
-            0 3px 8px rgba(15,31,56,0.14),
-            0 14px 28px rgba(15,31,56,0.14);
+        .qa-stop-l:hover .qa-callout {
+          transform: translateY(-2px) rotate(-0.3deg);
+          box-shadow: 0 3px 8px rgba(15,31,56,0.14), 0 14px 28px rgba(15,31,56,0.14);
+        }
+        .qa-stop-r:hover .qa-callout {
+          transform: translateY(-2px) rotate(0.3deg);
+          box-shadow: 0 3px 8px rgba(15,31,56,0.14), 0 14px 28px rgba(15,31,56,0.14);
         }
         .qa-body {
           margin: 0;
@@ -296,9 +301,17 @@ export default function QuickActions() {
           background: rgba(29,78,216,0.06);
         }
 
-        @keyframes qaFadeIn {
-          0%   { opacity: 0; transform: translateY(-42%); }
-          100% { opacity: 1; transform: translateY(-50%); }
+        @keyframes qaSlideInL {
+          0%   { opacity: 0; transform: translate(-22px, -50%); }
+          100% { opacity: 1; transform: translate(0, -50%); }
+        }
+        @keyframes qaSlideInR {
+          0%   { opacity: 0; transform: translate(22px, -50%); }
+          100% { opacity: 1; transform: translate(0, -50%); }
+        }
+        @keyframes qaNumBob {
+          0%, 100% { transform: translateY(0); }
+          50%      { transform: translateY(-2px); }
         }
         @keyframes qaNumPulse {
           0%, 100% { box-shadow: 0 6px 14px rgba(153,27,27,0.45), inset 0 -2px 4px rgba(0,0,0,0.25), inset 0 2px 4px rgba(255,255,255,0.30), 0 0 0 3px rgba(255,255,255,0.92); }
@@ -321,9 +334,14 @@ export default function QuickActions() {
             transform: none;
             max-width: none;
             margin: 8px 12px;
+            opacity: 1;
           }
+          /* The slide-in keyframes set transform: translate(0,-50%) at 100%,
+             which would fight the static mobile layout — disable on mobile. */
+          .qa-stop-l.is-ready, .qa-stop-r.is-ready { animation: none; }
           .qa-stop-l, .qa-stop-r { left: auto; right: auto; flex-direction: row; text-align: left; }
           .qa-stop-r .qa-callout { text-align: left; }
+          .qa-stop-l:hover .qa-callout, .qa-stop-r:hover .qa-callout { transform: translateY(-2px); }
         }
 
         @media (prefers-reduced-motion: reduce) {

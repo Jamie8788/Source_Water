@@ -50,6 +50,152 @@ function Sparkline({ data, color }) {
   )
 }
 
+/* ── Your Activity This Month — real data from /users/me/activity-summary.
+   Points, rank, streak, breakdown by source (games / quizzes / resources /
+   community), and this-month counts. No fabricated values — every number
+   is computed deterministically from leaderboard_points + posts +
+   quiz_attempts on the server. Lets a user see their own contribution at
+   a glance and where their points come from. */
+function YourActivity() {
+  const navigate = useNavigate()
+  const [data, setData] = useState(null)
+  useEffect(() => {
+    api.get('/users/me/activity-summary').then(r => setData(r.data)).catch(() => {})
+  }, [])
+  const sources = [
+    { key: 'games',     label: 'Games',     color: '#10b981' },
+    { key: 'quizzes',   label: 'Quizzes',   color: '#a78bfa' },
+    { key: 'resources', label: 'Resources', color: '#06b6d4' },
+    { key: 'social',    label: 'Community', color: '#ec4899' },
+  ]
+  if (!data) {
+    return (
+      <div className="card p-5 animate-pulse">
+        <div className="h-4 w-40 bg-gray-200 rounded mb-4"/>
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {[0,1,2].map(i => <div key={i} className="h-16 bg-gray-100 rounded-lg"/>)}
+        </div>
+        <div className="h-3 bg-gray-100 rounded-full"/>
+      </div>
+    )
+  }
+  const totalForBar = Math.max(1, sources.reduce((s, x) => s + (data.points_by_source[x.key] || 0), 0))
+  const monthName = new Date().toLocaleString('default', { month: 'long' })
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-bold flex items-center gap-2" style={{ color: 'var(--text)' }}>
+          <Activity className="w-4 h-4 text-indigo-500"/> Your Activity · {monthName}
+        </h3>
+        <button onClick={() => navigate('/profile')} className="text-xs font-semibold text-indigo-500 flex items-center gap-1">
+          Profile <ChevronRight className="w-3 h-3"/>
+        </button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        <div className="rounded-lg p-3" style={{ background: 'rgba(99,102,241,0.08)' }}>
+          <div className="text-2xl font-black text-indigo-500"><AnimatedNumber value={data.points_this_month}/></div>
+          <div className="text-[10px] font-bold mt-0.5 uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Points</div>
+        </div>
+        <div className="rounded-lg p-3" style={{ background: 'rgba(245,158,11,0.08)' }}>
+          <div className="text-2xl font-black text-amber-500">{data.rank_this_month ? `#${data.rank_this_month}` : '—'}</div>
+          <div className="text-[10px] font-bold mt-0.5 uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+            Rank{data.total_ranked_users ? <span className="font-medium"> / {data.total_ranked_users}</span> : ''}
+          </div>
+        </div>
+        <div className="rounded-lg p-3" style={{ background: 'rgba(236,72,153,0.08)' }}>
+          <div className="text-2xl font-black text-pink-500">{data.streak_days}d</div>
+          <div className="text-[10px] font-bold mt-0.5 uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Streak</div>
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <div className="text-[10px] font-bold mb-1.5 uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+          Points by source
+        </div>
+        <div className="flex h-3 rounded-full overflow-hidden border" style={{ borderColor: 'var(--border)' }}>
+          {sources.map(s => {
+            const pct = ((data.points_by_source[s.key] || 0) / totalForBar) * 100
+            return pct > 0 ? <div key={s.key} style={{ width: `${pct}%`, background: s.color, transition: 'width 0.6s' }} title={`${s.label}: ${data.points_by_source[s.key]}`}/> : null
+          })}
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[11px]">
+          {sources.map(s => {
+            const val = data.points_by_source[s.key] || 0
+            return (
+              <span key={s.key} className="flex items-center gap-1.5" style={{ color: val > 0 ? 'var(--text)' : 'var(--text-muted)' }}>
+                <span className="w-2 h-2 rounded-full" style={{ background: s.color, opacity: val > 0 ? 1 : 0.4 }}/>
+                <span className="font-semibold">{s.label}</span>
+                <span>{val}</span>
+              </span>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-1 pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
+        {[
+          { v: data.this_month.posts,            l: 'Posts',     to: '/social' },
+          { v: data.this_month.quizzes_passed,   l: 'Quiz wins', to: '/quiz' },
+          { v: data.this_month.resources_viewed, l: 'Resources', to: '/resources' },
+        ].map(x => (
+          <button key={x.l} onClick={() => navigate(x.to)}
+            className="text-left rounded p-1.5 transition hover:bg-gray-50">
+            <div className="text-base font-black" style={{ color: 'var(--text)' }}>{x.v}</div>
+            <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>{x.l}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ── Recently Active Sites — pulled from the existing Water Rangers
+   locations array (no extra API call). Sorts by last_observation_at desc
+   and shows the five most recent, clickable straight into the map. */
+function TrendingSites({ locations }) {
+  const navigate = useNavigate()
+  const top = (locations || [])
+    .filter(l => l.last_observation_at)
+    .sort((a, b) => new Date(b.last_observation_at) - new Date(a.last_observation_at))
+    .slice(0, 5)
+  if (top.length === 0) return null
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-bold flex items-center gap-2" style={{ color: 'var(--text)' }}>
+          <TrendingUp className="w-4 h-4 text-emerald-500"/> Recently Active Sites
+        </h3>
+        <button onClick={() => navigate('/monitoring')} className="text-xs font-semibold text-indigo-500 flex items-center gap-1">
+          All sites <ChevronRight className="w-3 h-3"/>
+        </button>
+      </div>
+      <div className="space-y-1">
+        {top.map(s => {
+          const when = new Date(s.last_observation_at)
+          const ago = Math.round((Date.now() - when.getTime()) / 86400000)
+          return (
+            <button key={s.id}
+              onClick={() => navigate(`/monitoring?q=${encodeURIComponent(s.name)}`)}
+              className="w-full flex items-center gap-3 py-2 px-2 -mx-2 rounded transition text-left hover:bg-gray-50">
+              <Droplets className="w-4 h-4 text-blue-400 flex-shrink-0"/>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-bold truncate" style={{ color: 'var(--text)' }}>{s.name}</div>
+                <div className="text-[10px] truncate" style={{ color: 'var(--text-muted)' }}>
+                  {[s.body_of_water, s.country].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+              <div className="text-[10px] font-semibold text-emerald-600 flex-shrink-0">
+                {ago === 0 ? 'today' : ago === 1 ? '1d ago' : `${ago}d ago`}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 /* ── KPI Card ── */
 function KPICard({ icon: Icon, label, value, sub, trend, color, spark, onClick }) {
   return (
@@ -69,8 +215,14 @@ function KPICard({ icon: Icon, label, value, sub, trend, color, spark, onClick }
       </div>
       <div>
         <div className="text-2xl font-black" style={{ color: 'var(--text)' }}>
-          <AnimatedNumber value={typeof value === 'number' ? value : 0}/>
-          {typeof value === 'string' ? value : ''}
+          {value == null ? (
+            <span className="inline-block w-20 h-7 rounded animate-pulse" style={{ background: 'rgba(15,31,56,0.08)' }}/>
+          ) : (
+            <>
+              <AnimatedNumber value={typeof value === 'number' ? value : 0}/>
+              {typeof value === 'string' ? value : ''}
+            </>
+          )}
         </div>
         <div className="text-sm font-medium mt-0.5" style={{ color: 'var(--text-muted)' }}>{label}</div>
         {sub && <div className="text-xs mt-0.5" style={{ color: 'var(--text-light)' }}>{sub}</div>}
@@ -167,6 +319,8 @@ export default function Dashboard() {
   // Dashboard "Monitoring Sites" tile reconciles with the map's 9,438 count
   // instead of showing the sparse local `sites` table (~33 rows).
   const [wr, setWr] = useState({ sites: 0, sampled: 0 })
+  const [wrLoaded, setWrLoaded] = useState(false)
+  const [wrAll, setWrAll] = useState([]) // full list for the TrendingSites card
   const [latestObs, setLatestObs] = useState(null) // real observation or null
 
   useEffect(() => {
@@ -181,11 +335,15 @@ export default function Dashboard() {
     api.get('/sites/latest-observation').then(r => setLatestObs(r.data?.observation || null)).catch(() => {})
     // Cached server-side for 30min, so this is cheap on repeat loads.
     getAllLocations()
-      .then(locs => setWr({
-        sites: locs.length,
-        sampled: locs.filter(l => l.last_observation_at).length,
-      }))
-      .catch(() => {})
+      .then(locs => {
+        setWr({
+          sites: locs.length,
+          sampled: locs.filter(l => l.last_observation_at).length,
+        })
+        setWrAll(locs)
+        setWrLoaded(true)
+      })
+      .catch(() => setWrLoaded(true))
     loadPage('dashboard')
   }, [])
 
@@ -268,32 +426,31 @@ export default function Dashboard() {
           /map, so numbers reconcile). Alerts + Members are platform data
           and stay on the local DB. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard icon={Droplets} label="Monitoring Sites" value={wr.sites}
+        <KPICard icon={Droplets} label="Monitoring Sites" value={wrLoaded ? wr.sites : null}
           sub="Water Rangers global network"
           color="#6366f1" onClick={() => navigate('/monitoring')}/>
-        <KPICard icon={Activity} label="Sampled Stations" value={wr.sampled}
+        <KPICard icon={Activity} label="Sampled Stations" value={wrLoaded ? wr.sampled : null}
           sub="Sites with recorded observations"
           color="#14b8a6" onClick={() => navigate('/monitoring')}/>
         <KPICard icon={Bell} label="Active Alerts" value={alerts.filter(a => a.is_active).length}
           color="#f59e0b" onClick={() => navigate('/alerts')}/>
-        <KPICard icon={Users} label="Community Members" value={stats.total_users || 0}
+        <KPICard icon={Users} label="Community Members" value={stats.total_users == null ? null : stats.total_users}
           color="#ec4899" onClick={() => navigate('/social')}/>
       </div>
 
       {/* ── Main grid ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
-        {/* Quick Actions — 2/3 width */}
+        {/* Main column — 2/3 width. The Quick Actions tile grid that used
+            to live here was removed: it duplicated the dedicated /quick-
+            actions river-journey page. In its place: Your Activity (real
+            points-by-source for this month, streak, rank from the live
+            leaderboard_points table) + Recently Active Sites (top 5 by
+            real last_observation_at from Water Rangers). */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-bold flex items-center gap-2" style={{ color: 'var(--text)' }}>
-              <Zap className="w-4 h-4 text-indigo-500"/>
-              <CMSField page="dashboard" block="sections" field="quickActionsTitle" default="Quick Actions"
-                style={{ color: 'var(--text)', fontWeight: 700 }}/>
-            </h2>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {ACTIONS.map(a => <ActionCard key={a.id} action={a}/>)}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <YourActivity />
+            <TrendingSites locations={wrAll} />
           </div>
 
           {/* Water Quality Live */}

@@ -95,6 +95,88 @@ router.get('/:id/stats', requireAuth, async (req, res) => {
   })
 })
 
+// GET /api/users/me/activity-summary
+// Dashboard "Your Activity This Month" card. Returns the current user's
+// monthly points broken down by action category, their rank for the
+// month, day-streak (consecutive days with any points awarded), and
+// raw counts for posts / quiz passes / resource views this month.
+// Everything comes from real tables — leaderboard_points, posts,
+// quiz_attempts. Nothing fabricated.
+router.get('/me/activity-summary', requireAuth, async (req, res) => {
+  try {
+    const uid = req.user.id
+    const month = new Date().toISOString().slice(0, 7)
+    const monthStart = `${month}-01`
+    const [pointsRow, breakdownRows, postsRow, quizRow, resourceRow, streakRows, rankRows] = await Promise.all([
+      db.get('SELECT COALESCE(SUM(points),0) AS pts FROM leaderboard_points WHERE user_id=? AND month=?', [uid, month]),
+      db.all(`
+        SELECT
+          CASE
+            WHEN action LIKE 'game_%'     THEN 'games'
+            WHEN action = 'quiz_pass'     THEN 'quizzes'
+            WHEN action LIKE 'resource_%' THEN 'resources'
+            WHEN action IN ('post','comment','reaction','first_post','daily_login') THEN 'social'
+            ELSE 'other'
+          END AS source,
+          COALESCE(SUM(points),0) AS pts
+        FROM leaderboard_points WHERE user_id=? AND month=?
+        GROUP BY source
+      `, [uid, month]),
+      db.get(`SELECT COUNT(*) AS c FROM posts WHERE user_id=? AND created_at >= ?`, [uid, monthStart]),
+      db.get(`SELECT COUNT(*) AS c FROM quiz_attempts WHERE user_id=? AND passed=1 AND completed_at >= ?`, [uid, monthStart]).catch(() => ({ c: 0 })),
+      db.get(`SELECT COUNT(*) AS c FROM leaderboard_points WHERE user_id=? AND action LIKE 'resource_view_%' AND month=?`, [uid, month]),
+      db.all(`SELECT DISTINCT DATE(created_at) AS d FROM leaderboard_points WHERE user_id=? ORDER BY d DESC LIMIT 60`, [uid]),
+      db.all(`
+        SELECT user_id, COALESCE(SUM(points),0) AS pts
+        FROM leaderboard_points WHERE month=? GROUP BY user_id ORDER BY pts DESC
+      `, [month]),
+    ])
+
+    // Streak: count back from today, breaking on the first missed day.
+    const todayKey = new Date().toISOString().slice(0, 10)
+    const days = new Set((streakRows || []).map(r => String(r.d || '').slice(0, 10)))
+    let streak = 0
+    const cur = new Date(`${todayKey}T00:00:00Z`)
+    while (days.has(cur.toISOString().slice(0, 10))) {
+      streak++
+      cur.setUTCDate(cur.getUTCDate() - 1)
+    }
+    // If today has no points yet, allow streak from yesterday so the user
+    // doesn't see "0" until they happen to do something today.
+    if (streak === 0 && days.size > 0) {
+      const y = new Date(`${todayKey}T00:00:00Z`)
+      y.setUTCDate(y.getUTCDate() - 1)
+      const c = new Date(y)
+      while (days.has(c.toISOString().slice(0, 10))) {
+        streak++
+        c.setUTCDate(c.getUTCDate() - 1)
+      }
+    }
+
+    const rankIdx = (rankRows || []).findIndex(r => Number(r.user_id) === Number(uid))
+    const rank = rankIdx >= 0 ? rankIdx + 1 : null
+    const breakdown = { games: 0, quizzes: 0, resources: 0, social: 0, other: 0 }
+    ;(breakdownRows || []).forEach(r => { breakdown[r.source] = parseInt(r.pts ?? 0) })
+
+    res.json({
+      month,
+      points_this_month: parseInt(pointsRow?.pts ?? 0),
+      points_by_source: breakdown,
+      rank_this_month: rank,
+      total_ranked_users: (rankRows || []).length,
+      streak_days: streak,
+      this_month: {
+        posts:           parseInt(postsRow?.c ?? 0),
+        quizzes_passed:  parseInt(quizRow?.c ?? 0),
+        resources_viewed: parseInt(resourceRow?.c ?? 0),
+      },
+    })
+  } catch (err) {
+    console.error('[users/me/activity-summary]', err.message)
+    res.status(500).json({ error: 'activity summary unavailable' })
+  }
+})
+
 // Admin: update user role/status
 router.put('/:id/admin', requireAuth, requireAdmin, async (req, res) => {
   const { role, is_active, is_admin } = req.body
