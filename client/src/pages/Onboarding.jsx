@@ -66,17 +66,33 @@ export default function Onboarding() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-start pt-8 px-4 onboarding-root"
       style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0f172a 100%)' }}>
-      {/* Larger, easier-to-grab scrollbar for this flow — scoped via html.sw-onboarding-scroll */}
+      {/* Bigger, brighter scrollbar for the onboarding flow — Elaine couldn't
+          see it against the dark backdrop. 22px wide, solid teal thumb with
+          a soft glow, lighter track outline. Scoped via html.sw-onboarding-scroll. */}
       <style>{`
-        html.sw-onboarding-scroll { scrollbar-width: auto; scrollbar-color: #14b8a6 rgba(255,255,255,0.08); }
+        html.sw-onboarding-scroll { scrollbar-width: auto; scrollbar-color: #2dd4bf rgba(255,255,255,0.18); }
         html.sw-onboarding-scroll::-webkit-scrollbar,
-        html.sw-onboarding-scroll *::-webkit-scrollbar { width: 18px; height: 18px; }
+        html.sw-onboarding-scroll *::-webkit-scrollbar { width: 22px; height: 22px; }
         html.sw-onboarding-scroll::-webkit-scrollbar-track,
-        html.sw-onboarding-scroll *::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 9px; }
+        html.sw-onboarding-scroll *::-webkit-scrollbar-track {
+          background: rgba(255,255,255,0.08);
+          border: 1px solid rgba(255,255,255,0.18);
+          border-radius: 11px;
+        }
         html.sw-onboarding-scroll::-webkit-scrollbar-thumb,
-        html.sw-onboarding-scroll *::-webkit-scrollbar-thumb { background: linear-gradient(135deg,#0ea5e9,#14b8a6); border-radius: 9px; border: 3px solid #0f172a; min-height: 60px; }
+        html.sw-onboarding-scroll *::-webkit-scrollbar-thumb {
+          background: linear-gradient(180deg, #5eead4 0%, #14b8a6 60%, #0d9488 100%);
+          border-radius: 11px;
+          border: 2px solid rgba(15,23,42,0.55);
+          min-height: 80px;
+          box-shadow: 0 0 0 1px rgba(94,234,212,0.45), 0 0 10px rgba(20,184,166,0.55);
+        }
         html.sw-onboarding-scroll::-webkit-scrollbar-thumb:hover,
-        html.sw-onboarding-scroll *::-webkit-scrollbar-thumb:hover { background: linear-gradient(135deg,#38bdf8,#2dd4bf); }
+        html.sw-onboarding-scroll *::-webkit-scrollbar-thumb:hover {
+          background: linear-gradient(180deg, #99f6e4 0%, #2dd4bf 60%, #14b8a6 100%);
+          box-shadow: 0 0 0 1px rgba(94,234,212,0.7), 0 0 14px rgba(20,184,166,0.75);
+        }
+        html.sw-onboarding-scroll::-webkit-scrollbar-corner { background: transparent; }
       `}</style>
 
       {/* Top: Step indicator */}
