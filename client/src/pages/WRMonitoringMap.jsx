@@ -197,6 +197,16 @@ function FitStoriesOnShow({ stories, visible }) {
   return null
 }
 
+// Tablet = a touch-PRIMARY device on a narrow screen. Both conditions must
+// hold, which deliberately excludes touch-enabled laptops/desktops: their
+// primary pointer is a trackpad/mouse ('fine'), and they're wider than
+// 1024px. So a 15" laptop never matches — the tablet-only map tuning below
+// can't change the desktop/laptop experience. Computed once at load.
+const IS_TABLET = typeof window !== 'undefined'
+  && typeof window.matchMedia === 'function'
+  && window.matchMedia('(pointer: coarse)').matches
+  && window.innerWidth <= 1024
+
 export default function WRMonitoringMap() {
   const { user } = useAuth()
   const isAuthed = !!user
@@ -806,9 +816,13 @@ export default function WRMonitoringMap() {
           ) : (
             <MarkerClusterGroup
               chunkedLoading
-              maxClusterRadius={55}
+              chunkInterval={IS_TABLET ? 60 : 200}
+              chunkDelay={IS_TABLET ? 20 : 50}
+              maxClusterRadius={IS_TABLET ? 140 : 55}
               showCoverageOnHover={false}
-              spiderfyOnMaxZoom={true}
+              removeOutsideVisibleBounds={true}
+              spiderfyOnMaxZoom={!IS_TABLET}
+              zoomToBoundsOnClick={true}
             >
               {/* One marker PER SITE — no combo "+N" pins. The combo pattern
                   collapsed same-coordinate sites into a single marker, and
