@@ -207,6 +207,9 @@ const IS_TABLET = typeof window !== 'undefined'
   && window.matchMedia('(pointer: coarse)').matches
   && window.innerWidth <= 1024
 
+// Below this zoom a tablet shows the heatmap; at/above it, clickable dots.
+const TABLET_DOTS_ZOOM = 8
+
 // Reports the map's zoom + bounds up to the page after every zoom/pan, so
 // the tablet auto-switch (heatmap vs dots) and viewport marker-filtering can
 // react. No-op visually.
@@ -576,6 +579,21 @@ export default function WRMonitoringMap() {
     return mappable
   }, [mappable, mapBounds])
 
+  // Heatmap points — MEMOIZED so leaflet.heat isn't destroyed and rebuilt
+  // over thousands of points on every pan (that rebuild was the tablet pan
+  // lag). On tablet, also down-sample to ~2,000 points: a density heatmap
+  // looks identical but redraws far faster on a weak GPU. Desktop/laptop
+  // keeps the full point set (IS_TABLET false) — only the stable reference
+  // changes there, which is visually identical and slightly cheaper.
+  const heatPoints = useMemo(() => {
+    const pts = mappable.map(l => ({ lat: parseFloat(l.latitude), lng: parseFloat(l.longitude), intensity: 0.6 }))
+    if (IS_TABLET && pts.length > 2000) {
+      const step = Math.ceil(pts.length / 2000)
+      return pts.filter((_, i) => i % step === 0)
+    }
+    return pts
+  }, [mappable])
+
   // Country stats
   const countryStats = useMemo(() => {
     const c = {}
@@ -836,7 +854,15 @@ export default function WRMonitoringMap() {
             url={THEME_LAYERS[theme].url}
           />
           <FitBounds locations={mappable} />
-          {IS_TABLET && <MapStateWatcher onChange={(z, b) => { setMapZoom(z); setMapBounds(b) }} />}
+          {IS_TABLET && <MapStateWatcher onChange={(z, b) => {
+            // Only re-render when something that matters changed. Panning the
+            // heatmap (zoom unchanged, below the dots threshold) updates
+            // nothing → no React re-render → Leaflet just translates its
+            // canvas. Bounds are tracked only in dots mode, where they drive
+            // the viewport marker filter.
+            setMapZoom(prev => (prev === z ? prev : z))
+            if (z >= TABLET_DOTS_ZOOM) setMapBounds(b)
+          }} />}
           <FitStoriesOnShow stories={stories} visible={storiesVisible} />
           <MapToolsLayer
             mode={toolMode}
@@ -857,9 +883,7 @@ export default function WRMonitoringMap() {
               or the user's explicit toggle. dotsSource is viewport-limited
               on tablet so the cluster tree stays tiny. */}
           {showHeat ? (
-            <HeatLayer
-              points={mappable.map(l => ({ lat: parseFloat(l.latitude), lng: parseFloat(l.longitude), intensity: 0.6 }))}
-            />
+            <HeatLayer points={heatPoints} />
           ) : (
             <MarkerClusterGroup
               chunkedLoading
