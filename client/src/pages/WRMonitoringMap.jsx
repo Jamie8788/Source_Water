@@ -9,7 +9,7 @@
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { MapContainer, TileLayer, CircleMarker, Marker, Popup, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import MarkerClusterGroup from 'react-leaflet-cluster'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -207,6 +207,17 @@ const IS_TABLET = typeof window !== 'undefined'
   && window.matchMedia('(pointer: coarse)').matches
   && window.innerWidth <= 1024
 
+// Reports the map's zoom + bounds up to the page after every zoom/pan, so
+// the tablet auto-switch (heatmap vs dots) and viewport marker-filtering can
+// react. No-op visually.
+function MapStateWatcher({ onChange }) {
+  const map = useMapEvents({
+    zoomend: () => onChange(map.getZoom(), map.getBounds()),
+    moveend: () => onChange(map.getZoom(), map.getBounds()),
+  })
+  return null
+}
+
 export default function WRMonitoringMap() {
   const { user } = useAuth()
   const isAuthed = !!user
@@ -229,7 +240,14 @@ export default function WRMonitoringMap() {
 
   // ── Visualization controls (additive — purely client-side, no API impact) ──
   const [theme, setTheme]           = useState('light')       // dark | light | satellite | topo — Elaine #81 wants light by default
-  const [viewMode, setViewMode]     = useState('dots')        // dots | heat
+  const [viewMode, setViewMode]     = useState('dots')        // dots | heat (user's explicit choice)
+  // Tablet auto-switch: zoomed out → heatmap (no cluster freeze), zoomed in
+  // → real clickable dots (few in view = fast). On by default for tablets,
+  // turned off the moment the user taps Dots/Heat themselves. Never active
+  // on desktop/laptop (IS_TABLET is false there).
+  const [tabletAuto, setTabletAuto] = useState(IS_TABLET)
+  const [mapZoom, setMapZoom]       = useState(3)
+  const [mapBounds, setMapBounds]   = useState(null)
   const [storiesVisible, setStoriesVisible] = useState(true)
   const [stories, setStories]       = useState([])
   const [storyModal, setStoryModal] = useState({ open: false, mode: 'create', latlng: null, initial: null })
@@ -535,6 +553,29 @@ export default function WRMonitoringMap() {
   })
   const withPhotos = allLocations.filter(l => l.reference_photo_url).length
 
+  // Tablet auto-switch: heatmap when zoomed out (cheap canvas pass over all
+  // points), dots once zoomed past ~level 8 (regional view). Manual toggle
+  // turns auto off. Desktop ignores all this and uses viewMode directly.
+  const TABLET_DOTS_ZOOM = 8
+  const showHeat = (IS_TABLET && tabletAuto)
+    ? mapZoom < TABLET_DOTS_ZOOM
+    : viewMode === 'heat'
+
+  // Markers handed to the cluster group. On a tablet we feed ONLY the
+  // markers inside the current viewport, so markercluster builds a tiny
+  // tree (fast) instead of clustering all 9,500 every pinch. Desktop gets
+  // the full set unchanged (IS_TABLET false → mappable as-is). Heatmap
+  // always uses the full set since canvas handles it cheaply.
+  const dotsSource = useMemo(() => {
+    if (IS_TABLET && mapBounds) {
+      return mappable.filter(l => {
+        const lat = parseFloat(l.latitude), lng = parseFloat(l.longitude)
+        return mapBounds.contains([lat, lng])
+      })
+    }
+    return mappable
+  }, [mappable, mapBounds])
+
   // Country stats
   const countryStats = useMemo(() => {
     const c = {}
@@ -706,19 +747,21 @@ export default function WRMonitoringMap() {
           })}
         </div>
 
-        {/* View mode: dots vs heatmap */}
+        {/* View mode: dots vs heatmap. Highlight reflects what's actually
+            on screen (showHeat) so the tablet auto-switch stays honest.
+            Tapping either turns the tablet auto-switch off (explicit choice). */}
         <div style={{ display: 'flex', gap: 4, padding: 3, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8 }}>
-          <button onClick={() => setViewMode('dots')} title="Show individual sites as dots (clustered when zoomed out)" style={{
+          <button onClick={() => { setTabletAuto(false); setViewMode('dots') }} title="Show individual sites as dots (clustered when zoomed out)" style={{
             display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5,
-            background: viewMode === 'dots' ? 'rgba(99,102,241,.18)' : 'transparent',
-            color: viewMode === 'dots' ? '#a78bfa' : 'var(--text-muted)',
-            border: '1px solid ' + (viewMode === 'dots' ? 'rgba(99,102,241,.45)' : 'transparent'), cursor: 'pointer',
+            background: !showHeat ? 'rgba(99,102,241,.18)' : 'transparent',
+            color: !showHeat ? '#a78bfa' : 'var(--text-muted)',
+            border: '1px solid ' + (!showHeat ? 'rgba(99,102,241,.45)' : 'transparent'), cursor: 'pointer',
           }}><Layers size={11}/> Dots</button>
-          <button onClick={() => setViewMode('heat')} title="Show monitoring density as a heatmap" style={{
+          <button onClick={() => { setTabletAuto(false); setViewMode('heat') }} title="Show monitoring density as a heatmap" style={{
             display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5,
-            background: viewMode === 'heat' ? 'rgba(239,68,68,.18)' : 'transparent',
-            color: viewMode === 'heat' ? '#fca5a5' : 'var(--text-muted)',
-            border: '1px solid ' + (viewMode === 'heat' ? 'rgba(239,68,68,.45)' : 'transparent'), cursor: 'pointer',
+            background: showHeat ? 'rgba(239,68,68,.18)' : 'transparent',
+            color: showHeat ? '#fca5a5' : 'var(--text-muted)',
+            border: '1px solid ' + (showHeat ? 'rgba(239,68,68,.45)' : 'transparent'), cursor: 'pointer',
           }}><Flame size={11}/> Heatmap</button>
         </div>
 
@@ -793,6 +836,7 @@ export default function WRMonitoringMap() {
             url={THEME_LAYERS[theme].url}
           />
           <FitBounds locations={mappable} />
+          {IS_TABLET && <MapStateWatcher onChange={(z, b) => { setMapZoom(z); setMapBounds(b) }} />}
           <FitStoriesOnShow stories={stories} visible={storiesVisible} />
           <MapToolsLayer
             mode={toolMode}
@@ -808,8 +852,11 @@ export default function WRMonitoringMap() {
           {/* Click-to-drop story (separate from MapToolsLayer's waypoint mode) */}
           <MapClickCatcher enabled={toolMode === 'story'} onMapClick={openCreateStory} />
 
-          {/* WR sites — heatmap OR clustered dots, never both at once */}
-          {viewMode === 'heat' ? (
+          {/* WR sites — heatmap OR clustered dots, never both at once.
+              showHeat reflects the tablet auto-switch (heat when zoomed out)
+              or the user's explicit toggle. dotsSource is viewport-limited
+              on tablet so the cluster tree stays tiny. */}
+          {showHeat ? (
             <HeatLayer
               points={mappable.map(l => ({ lat: parseFloat(l.latitude), lng: parseFloat(l.longitude), intensity: 0.6 }))}
             />
@@ -834,7 +881,7 @@ export default function WRMonitoringMap() {
                   coordinates always form a clickable cluster that spiderfies
                   into individual dots at full zoom, instead of stacking
                   unclickably on one pixel. */}
-              {mappable.map(site => (
+              {dotsSource.map(site => (
                 <SiteCircleMarker
                   key={site.id} site={site}
                   compareA={compareA} compareB={compareB}
