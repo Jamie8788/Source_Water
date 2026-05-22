@@ -1063,7 +1063,7 @@ ${context}` },
                       ))}
                       <span style={{ marginLeft: 'auto', fontStyle: 'italic' }}>Pin size = monitoring activity · number = observations · click to drill in</span>
                     </div>
-                    <MapContainer bounds={bounds.length > 1 ? bounds : undefined} center={bounds[0]} zoom={13} style={{ height: 480, width: '100%' }} scrollWheelZoom>
+                    <MapContainer bounds={bounds.length > 1 ? bounds : undefined} center={bounds[0]} zoom={13} style={{ height: 480, width: '100%' }} scrollWheelZoom preferCanvas={true}>
                       <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
                       <FitBounds bounds={bounds}/>
                       {groupList.map(({ lat, lng, sites }) => {
