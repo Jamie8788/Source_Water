@@ -244,11 +244,13 @@ export default function WRMonitoringMap() {
   // ── Visualization controls (additive — purely client-side, no API impact) ──
   const [theme, setTheme]           = useState('light')       // dark | light | satellite | topo — Elaine #81 wants light by default
   const [viewMode, setViewMode]     = useState('dots')        // dots | heat (user's explicit choice)
-  // Tablet auto-switch: zoomed out → heatmap (no cluster freeze), zoomed in
-  // → real clickable dots (few in view = fast). On by default for tablets,
-  // turned off the moment the user taps Dots/Heat themselves. Never active
-  // on desktop/laptop (IS_TABLET is false there).
-  const [tabletAuto, setTabletAuto] = useState(IS_TABLET)
+  // Auto-switch (ON by default for EVERY device): zoomed out → heatmap, so
+  // the map never has to mount 9,500 marker components on load (that React
+  // reconciliation was the freeze, on tablets AND when the data first
+  // arrives). Zoom past TABLET_DOTS_ZOOM → real clickable dots, but only
+  // for the markers in the current viewport (a few, so it's instant).
+  // Tapping the Dots/Heatmap toggle turns auto off and respects the choice.
+  const [autoView, setAutoView]     = useState(true)
   const [mapZoom, setMapZoom]       = useState(3)
   const [mapBounds, setMapBounds]   = useState(null)
   const [storiesVisible, setStoriesVisible] = useState(true)
@@ -558,19 +560,19 @@ export default function WRMonitoringMap() {
 
   // Tablet auto-switch: heatmap when zoomed out (cheap canvas pass over all
   // points), dots once zoomed past ~level 8 (regional view). Manual toggle
-  // turns auto off. Desktop ignores all this and uses viewMode directly.
+  // Below this zoom = heatmap, at/above = dots. ~8 is regional level where
+  // only a manageable number of sites sit in the viewport.
   const TABLET_DOTS_ZOOM = 8
-  const showHeat = (IS_TABLET && tabletAuto)
+  const showHeat = autoView
     ? mapZoom < TABLET_DOTS_ZOOM
     : viewMode === 'heat'
 
-  // Markers handed to the cluster group. On a tablet we feed ONLY the
-  // markers inside the current viewport, so markercluster builds a tiny
-  // tree (fast) instead of clustering all 9,500 every pinch. Desktop gets
-  // the full set unchanged (IS_TABLET false → mappable as-is). Heatmap
-  // always uses the full set since canvas handles it cheaply.
+  // Markers handed to the cluster group: ONLY those inside the current
+  // viewport. At the zoom where dots appear (≥8) that's a small set, so
+  // markercluster builds a tiny tree and React mounts few components —
+  // instant, on any device. (When the heatmap is showing, this isn't used.)
   const dotsSource = useMemo(() => {
-    if (IS_TABLET && mapBounds) {
+    if (mapBounds) {
       return mappable.filter(l => {
         const lat = parseFloat(l.latitude), lng = parseFloat(l.longitude)
         return mapBounds.contains([lat, lng])
@@ -579,16 +581,14 @@ export default function WRMonitoringMap() {
     return mappable
   }, [mappable, mapBounds])
 
-  // Heatmap points — MEMOIZED so leaflet.heat isn't destroyed and rebuilt
-  // over thousands of points on every pan (that rebuild was the tablet pan
-  // lag). On tablet, also down-sample to ~2,000 points: a density heatmap
-  // looks identical but redraws far faster on a weak GPU. Desktop/laptop
-  // keeps the full point set (IS_TABLET false) — only the stable reference
-  // changes there, which is visually identical and slightly cheaper.
+  // Heatmap points — MEMOIZED so leaflet.heat isn't torn down and rebuilt on
+  // every pan, and down-sampled past ~4,000 points (a density heatmap looks
+  // identical with fewer points but redraws far faster). Applies to all
+  // devices; it's purely a perf win, visually the same.
   const heatPoints = useMemo(() => {
     const pts = mappable.map(l => ({ lat: parseFloat(l.latitude), lng: parseFloat(l.longitude), intensity: 0.6 }))
-    if (IS_TABLET && pts.length > 2000) {
-      const step = Math.ceil(pts.length / 2000)
+    if (pts.length > 4000) {
+      const step = Math.ceil(pts.length / 4000)
       return pts.filter((_, i) => i % step === 0)
     }
     return pts
@@ -769,13 +769,13 @@ export default function WRMonitoringMap() {
             on screen (showHeat) so the tablet auto-switch stays honest.
             Tapping either turns the tablet auto-switch off (explicit choice). */}
         <div style={{ display: 'flex', gap: 4, padding: 3, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8 }}>
-          <button onClick={() => { setTabletAuto(false); setViewMode('dots') }} title="Show individual sites as dots (clustered when zoomed out)" style={{
+          <button onClick={() => { setAutoView(false); setViewMode('dots') }} title="Show individual sites as dots (clustered when zoomed out)" style={{
             display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5,
             background: !showHeat ? 'rgba(99,102,241,.18)' : 'transparent',
             color: !showHeat ? '#a78bfa' : 'var(--text-muted)',
             border: '1px solid ' + (!showHeat ? 'rgba(99,102,241,.45)' : 'transparent'), cursor: 'pointer',
           }}><Layers size={11}/> Dots</button>
-          <button onClick={() => { setTabletAuto(false); setViewMode('heat') }} title="Show monitoring density as a heatmap" style={{
+          <button onClick={() => { setAutoView(false); setViewMode('heat') }} title="Show monitoring density as a heatmap" style={{
             display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5,
             background: showHeat ? 'rgba(239,68,68,.18)' : 'transparent',
             color: showHeat ? '#fca5a5' : 'var(--text-muted)',
@@ -854,7 +854,7 @@ export default function WRMonitoringMap() {
             url={THEME_LAYERS[theme].url}
           />
           <FitBounds locations={mappable} />
-          {IS_TABLET && <MapStateWatcher onChange={(z, b) => {
+          <MapStateWatcher onChange={(z, b) => {
             // Only re-render when something that matters changed. Panning the
             // heatmap (zoom unchanged, below the dots threshold) updates
             // nothing → no React re-render → Leaflet just translates its
@@ -862,7 +862,7 @@ export default function WRMonitoringMap() {
             // the viewport marker filter.
             setMapZoom(prev => (prev === z ? prev : z))
             if (z >= TABLET_DOTS_ZOOM) setMapBounds(b)
-          }} />}
+          }} />
           <FitStoriesOnShow stories={stories} visible={storiesVisible} />
           <MapToolsLayer
             mode={toolMode}
