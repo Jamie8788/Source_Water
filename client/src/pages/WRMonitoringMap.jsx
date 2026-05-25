@@ -197,27 +197,15 @@ function FitStoriesOnShow({ stories, visible }) {
   return null
 }
 
-// "Low-power touch device" — the class of machine that chokes on 9,500
-// clustered markers: tablets AND Chromebooks (the original ≤1024px check
-// missed Chromebooks, which report ~1366px, so the map tuning never even
-// turned on for them — Elaine's device). Logic:
-//   1. Must be touch-capable. A plain mouse desktop/laptop never matches,
-//      so those are guaranteed untouched.
-//   2. AND it's genuinely low-spec: ≤4GB RAM, OR ≤4 CPU cores, OR a screen
-//      ≤1366px. A powerful wide touch laptop (16GB / 8 cores / 1920px)
-//      fails all three → treated as desktop.
-// deviceMemory/hardwareConcurrency are Chromium-only but Chromebooks +
-// Android tablets all run Chromium, so coverage is exactly where we need it.
-const IS_TABLET = (() => {
-  if (typeof window === 'undefined') return false
-  const coarse = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches
-  const touch = coarse || (navigator.maxTouchPoints || 0) > 1
-  if (!touch) return false
-  const lowMem = (navigator.deviceMemory || 8) <= 4
-  const fewCores = (navigator.hardwareConcurrency || 8) <= 4
-  const narrow = window.innerWidth <= 1366
-  return lowMem || fewCores || narrow
-})()
+// Tablet = a touch-PRIMARY device on a narrow screen. Both conditions must
+// hold, which deliberately excludes touch-enabled laptops/desktops: their
+// primary pointer is a trackpad/mouse ('fine'), and they're wider than
+// 1024px. So a 15" laptop never matches — the tablet-only map tuning below
+// can't change the desktop/laptop experience. Computed once at load.
+const IS_TABLET = typeof window !== 'undefined'
+  && typeof window.matchMedia === 'function'
+  && window.matchMedia('(pointer: coarse)').matches
+  && window.innerWidth <= 1024
 
 // Below this zoom a tablet shows the heatmap; at/above it, clickable dots.
 const TABLET_DOTS_ZOOM = 8
