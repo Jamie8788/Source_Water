@@ -204,15 +204,23 @@ export default function Landing() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row overflow-hidden" style={{ background: '#0f0c29' }}>
+    // overflow-x-hidden (not overflow-hidden) so the page can still scroll
+    // vertically on short screens (Chromebooks ~768px tall) — otherwise the
+    // signup form's submit button got clipped off the bottom.
+    <div className="min-h-screen flex flex-col lg:flex-row overflow-x-hidden" style={{ background: '#0f0c29' }}>
 
       {/* ── Left: Animated Hero ── */}
       <div className="flex-1 relative flex flex-col overflow-hidden" style={{ minHeight: '55vh' }}>
         <WaterCanvas />
 
-        {/* BIG centered mascot — floats over the hero, transparent PNG */}
+        {/* BIG centered mascot — floats over the hero, transparent PNG.
+            Only shown on wide monitors (2xl ≥1536px): on a Chromebook /
+            smaller laptop the hero panel is too narrow, so the 520px mascot
+            overlapped "Watersheds" (Elaine's screenshot). Hiding it below
+            2xl keeps the hero clean on those screens; big monitors are
+            unchanged. */}
         <div
-          className="hidden lg:block pointer-events-none"
+          className="hidden 2xl:block pointer-events-none"
           style={{
             position: 'absolute',
             right: -40,
@@ -237,7 +245,7 @@ export default function Landing() {
         `}</style>
 
         {/* Content over canvas */}
-        <div className="relative z-10 flex flex-col h-full p-8 lg:p-12">
+        <div className="relative z-10 flex flex-col h-full p-6 lg:p-8 2xl:p-12">
 
           {/* Logo */}
           <div className="flex items-center gap-3 mb-auto">
@@ -251,25 +259,28 @@ export default function Landing() {
             </div>
           </div>
 
-          {/* Hero text */}
-          <div className="py-10 max-w-xl">
+          {/* Hero text — sizes step UP at 2xl (≥1536, big monitors) and stay
+              compact at lg (Chromebooks / smaller laptops ~1366px) so the
+              whole hero fits a 768px-tall screen at 100% zoom without the
+              supervisor having to drop browser zoom to 75%. */}
+          <div className="py-6 2xl:py-10 max-w-xl">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold mb-4"
               style={{ background: 'rgba(99,102,241,0.2)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}>
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"/>
               <CMSField page="landing" block="badge" field="text" default="LIVE · Great Lakes Intelligence and Engagement Platform" tag="span"/>
             </div>
-            <h1 className="text-4xl lg:text-6xl font-black text-white leading-[1.05] mb-4" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+            <h1 className="text-4xl lg:text-5xl 2xl:text-6xl font-black text-white leading-[1.05] mb-4" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
               <CMSField page="landing" block="hero" field="title_line1" default="Protect our" tag="span"/><br/>
               <span style={{ background: 'linear-gradient(135deg,#818cf8,#14b8a6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                 <CMSField page="landing" block="hero" field="title_line2" default="Watersheds" tag="span"/>
               </span>
             </h1>
-            <p className="text-lg mb-8 max-w-md" style={{ color: '#94a3b8' }}>
+            <p className="text-base 2xl:text-lg mb-6 2xl:mb-8 max-w-md" style={{ color: '#94a3b8' }}>
               <CMSField page="landing" block="hero" field="subtitle" default="Real-time water quality data capability, AI insights, and community engagement with surface fresh water." tag="span" multiline/>
             </p>
 
             {/* Stats — real counts from /api/admin/public-stats */}
-            <div className="flex gap-8 mb-10">
+            <div className="flex gap-8 mb-6 2xl:mb-10">
               {[
                 { key: 'sites',   label: 'Sites' },
                 { key: 'samples', label: 'Samples' },
@@ -303,7 +314,7 @@ export default function Landing() {
 
       {/* ── Right: Auth Panel ── */}
       {/* Align panel to top — matches the SOURCE Water logo height in hero column so login is reachable without scrolling */}
-      <div className="w-full lg:w-[440px] flex-shrink-0 flex items-start justify-center p-8 pt-8 relative"
+      <div className="w-full lg:w-[400px] 2xl:w-[440px] flex-shrink-0 flex items-start justify-center p-6 lg:p-7 2xl:p-8 relative"
         style={{ background: 'rgba(15,12,41,0.95)', borderLeft: '1px solid rgba(99,102,241,0.2)' }}>
 
         <div className="w-full max-w-sm">
