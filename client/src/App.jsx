@@ -8,6 +8,7 @@ import { CMSProvider } from './context/CMSContext'
 import Layout from './components/layout/Layout'
 import ComingSoon from './components/ComingSoon'
 
+const Welcome    = lazy(() => import('./pages/Welcome'))
 const Landing    = lazy(() => import('./pages/Landing'))
 const Onboarding = lazy(() => import('./pages/Onboarding'))
 const Dashboard  = lazy(() => import('./pages/Dashboard'))
@@ -77,7 +78,10 @@ function AppRoutes() {
   return (
     <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-indigo-500 text-xl">Loading...</div>}>
       <Routes>
-        <Route path="/" element={user ? <Navigate to="/dashboard" replace /> : <Landing />} />
+        {/* Cinematic scroll-driven welcome is the front door; the sign-in
+            form (Landing) lives at /login. Signed-in users skip both. */}
+        <Route path="/" element={user ? <Navigate to="/dashboard" replace /> : <Welcome />} />
+        <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <Landing />} />
         <Route path="/onboarding" element={<Onboarding />} />
 
         {/* All protected pages share ONE persistent Layout instance */}
