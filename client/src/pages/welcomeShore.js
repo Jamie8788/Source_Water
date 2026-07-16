@@ -59,66 +59,106 @@ const HAIRC = ['#241812', '#4a3018', '#181210', '#c8c2b8', '#3a2416', '#8a5a30']
 
 /**
  * person2 — 100-unit-tall articulated figure (feet at origin), scaled by h.
- * o: { x, y, h, flip, skin, top, bottom, hair, hairStyle:
- *      'short'|'long'|'bun'|'cap'|'grey', stance: 'stand'|'crouch'|'sit',
- *      phase (walk cycle) , armL:{u,f}, armR:{u,f}, nod, shadow, lean }
+ *
+ * Arm convention (holds AFTER any flip, so +x is always "forward/facing"):
+ *   armR / armL = { u, f }
+ *     u = shoulder angle. 0 = arm hangs straight down. POSITIVE = raised
+ *         FORWARD (toward +x / the way the figure faces). Negative = back.
+ *     f = elbow bend. 0 = straight. Positive = forearm folds forward.
+ *   armR is the NEAR arm (drawn in front of the torso).
+ *   armL is the FAR arm (drawn behind the torso, shaded darker).
+ * If `walk` (phase) is set and an arm isn't given, it auto-counter-swings.
+ *
+ * o: { x, y, h, flip, skin, top, bottom, hair, hairStyle, stance, walk,
+ *      armL, armR, nod, shadow, lean }
  */
 function person2(ctx, o) {
   const s = (o.h || 100) / 100
+  const phase = o.walk ?? o.phase // back-compat with `phase`
   if (o.shadow !== false) castShadow(ctx, o.x, o.y, 16 * s)
   ctx.save()
-  ctx.translate(o.x, o.y - (o.phase != null ? Math.abs(Math.sin(o.phase)) * 2.4 * s : 0))
+  ctx.translate(o.x, o.y - (phase != null ? Math.abs(Math.sin(phase)) * 2.4 * s : 0))
   ctx.scale(o.flip ? -s : s, s)
   if (o.lean) ctx.rotate(o.lean)
   const skin = SKIN[(o.skin || 0) % SKIN.length]
   const top = TOPS[(o.top || 0) % TOPS.length]
   const bot = BOTTOMS[(o.bottom ?? o.top ?? 0) % BOTTOMS.length]
   const hairC = HAIRC[(o.hair || 0) % HAIRC.length]
+  const legDark = shade(bot, -22)
   const st = o.stance || 'stand'
   let hipY = -47, shY = -79
   if (st === 'crouch') { hipY = -28; shY = -56 }
   if (st === 'sit') { hipY = -24; shY = -58 }
+  const tw = 13 // half shoulder width
   ctx.lineCap = 'round'
 
-  // ═ legs ═
   const foot = (fx, fy) => {
     ctx.fillStyle = '#2c2620'
     ctx.beginPath(); ctx.ellipse(fx + 3.4, fy - 1.6, 6, 3, 0, 0, TAU); ctx.fill()
   }
-  if (o.phase != null) {
-    // walk cycle with knee articulation
+
+  // ── arm drawer: u forward-positive, near/far shading passed in ──
+  const drawArm = (sx, a, color) => {
+    const u = a?.u ?? 0.16, f = a?.f ?? 0.14
+    ctx.save(); ctx.translate(sx, shY + 4); ctx.rotate(-u) // -u ⇒ +u swings toward +x
+    ctx.strokeStyle = color; ctx.lineWidth = 7.5
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 15); ctx.stroke()
+    ctx.translate(0, 15); ctx.rotate(-f)
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 12); ctx.stroke()
+    ctx.strokeStyle = skin; ctx.lineWidth = 6.5
+    ctx.beginPath(); ctx.moveTo(0, 12); ctx.lineTo(0, 17); ctx.stroke()
+    ctx.restore()
+  }
+
+  // auto counter-swinging arms for walkers (near arm opposes far arm)
+  let armR = o.armR, armL = o.armL
+  if (phase != null) {
+    const amp = 0.5
+    if (!armR) armR = { u: Math.sin(phase + Math.PI) * amp, f: 0.16 }
+    if (!armL) armL = { u: Math.sin(phase) * amp, f: 0.16 }
+  }
+
+  // ═ legs ═
+  if (phase != null) {
+    // near leg (side 0) drawn after far leg (side 1) for correct depth
     for (const side of [1, 0]) {
-      const ph = o.phase + side * Math.PI
+      const ph = phase + side * Math.PI
       const swing = Math.sin(ph)
       const lift = Math.max(0, Math.sin(ph + Math.PI * 0.42))
       const kneeX = swing * 7, kneeY = hipY * 0.48 - lift * 3
       const footX = swing * 14, footY = -lift * 10
-      ctx.strokeStyle = side ? shade('#2a3040', -30) && shade((bot.startsWith('#') ? bot : '#2a3040'), -26) : bot
+      ctx.strokeStyle = side ? legDark : bot
       ctx.lineWidth = 9.5
       ctx.beginPath(); ctx.moveTo(0, hipY); ctx.quadraticCurveTo(kneeX, kneeY, footX, footY); ctx.stroke()
       foot(footX, footY)
     }
   } else if (st === 'crouch') {
-    ctx.strokeStyle = bot; ctx.lineWidth = 9.5
-    ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(10, -16); ctx.lineTo(6, 0); ctx.stroke()
-    ctx.strokeStyle = shade(bot.startsWith('#') ? bot : '#2a3040', -26)
+    ctx.strokeStyle = legDark; ctx.lineWidth = 9.5
     ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(-8, -14); ctx.lineTo(-10, 0); ctx.stroke()
-    foot(6, 0); foot(-10, 0)
+    foot(-10, 0)
+    ctx.strokeStyle = bot
+    ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(10, -16); ctx.lineTo(6, 0); ctx.stroke()
+    foot(6, 0)
   } else if (st === 'sit') {
-    ctx.strokeStyle = bot; ctx.lineWidth = 9.5
-    ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(13, -12); ctx.lineTo(12, 0); ctx.stroke()
+    ctx.strokeStyle = legDark; ctx.lineWidth = 9.5
     ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(8, -10); ctx.lineTo(6, 0); ctx.stroke()
-    foot(12, 0); foot(6, 0)
+    foot(6, 0)
+    ctx.strokeStyle = bot
+    ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(13, -12); ctx.lineTo(12, 0); ctx.stroke()
+    foot(12, 0)
   } else {
-    ctx.strokeStyle = bot; ctx.lineWidth = 9.5
+    ctx.strokeStyle = legDark; ctx.lineWidth = 9.5
     ctx.beginPath(); ctx.moveTo(-1, hipY); ctx.lineTo(-3.4, 0); ctx.stroke()
-    ctx.strokeStyle = shade(bot.startsWith('#') ? bot : '#2a3040', -26)
+    foot(-3.4, 0)
+    ctx.strokeStyle = bot
     ctx.beginPath(); ctx.moveTo(1, hipY); ctx.lineTo(4, 0); ctx.stroke()
-    foot(4, 0); foot(-3.4, 0)
+    foot(4, 0)
   }
 
+  // ═ FAR arm (behind torso) ═
+  drawArm(-(tw - 3), armL, shade(top, -30))
+
   // ═ torso — jacket with core shadow + warm rim light ═
-  const tw = 13 // half shoulder width
   ctx.fillStyle = top
   ctx.beginPath()
   ctx.moveTo(-tw + 2, shY)
@@ -127,31 +167,17 @@ function person2(ctx, o) {
   ctx.lineTo(-tw + 3.5, hipY + 2)
   ctx.quadraticCurveTo(-tw - 1.5, (shY + hipY) / 2, -tw + 2, shY)
   ctx.closePath(); ctx.fill()
-  // core shadow (left) + rim light (right, sun side)
   const sg = ctx.createLinearGradient(-tw, 0, tw, 0)
   sg.addColorStop(0, 'rgba(20,14,10,0.30)'); sg.addColorStop(0.55, 'rgba(20,14,10,0)')
   ctx.fillStyle = sg; ctx.fill()
-  ctx.strokeStyle = 'rgba(255,214,150,0.65)'; ctx.lineWidth = 1.6
+  ctx.strokeStyle = 'rgba(255,214,150,0.6)'; ctx.lineWidth = 1.6
   ctx.beginPath()
   ctx.moveTo(tw - 2.4, shY + 1)
   ctx.quadraticCurveTo(tw + 1, (shY + hipY) / 2, tw - 4, hipY)
   ctx.stroke()
 
-  // ═ arms (upper + forearm) ═
-  const arm = (side, a) => {
-    const sx = side * (tw - 3)
-    const u = (a?.u ?? 0.18) * side, f = (a?.f ?? 0.12) * side
-    ctx.save(); ctx.translate(sx, shY + 4); ctx.rotate(u)
-    ctx.strokeStyle = side > 0 ? top : shade(top.startsWith('#') ? top : '#3d6b8f', -28)
-    ctx.lineWidth = 7.5
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 15); ctx.stroke()
-    ctx.translate(0, 15); ctx.rotate(f)
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 12); ctx.stroke()
-    ctx.strokeStyle = skin; ctx.lineWidth = 6.5
-    ctx.beginPath(); ctx.moveTo(0, 12); ctx.lineTo(0, 17); ctx.stroke()
-    ctx.restore()
-  }
-  arm(-1, o.armL); arm(1, o.armR)
+  // ═ NEAR arm (in front of torso) ═
+  drawArm(tw - 3, armR, top)
 
   // ═ head + hair ═
   ctx.save()
@@ -546,14 +572,14 @@ export const shoreScene = {
       else if (rT < 7.4) inspect = Math.sin(((rT - 4.8) / 2.6) * Math.PI)
       person2(ctx, {
         x: -26, y: -5, h: 46, skin: 3, top: 7, bottom: 2, hairStyle: 'cap', hair: 2, shadow: false,
-        lean: -bend * 0.55,
-        armR: { u: -0.3 - bend * 1.3 - inspect * 1.5, f: -0.3 - bend * 0.5 },
-        armL: { u: 0.3 - bend * 0.9, f: 0.2 - bend * 0.4 },
+        lean: -bend * 0.2,
+        armR: { u: 0.4 + bend * 1.0 + inspect * 1.0, f: 0.3 + bend * 0.4 },
+        armL: { u: 0.4 + bend * 0.9 + inspect * 0.9, f: 0.3 + bend * 0.4 },
         nod: inspect * 2.4,
       })
       if (inspect > 0.15) { // lifted sample bottle catching the light
         ctx.fillStyle = `rgba(214,238,248,${(0.9 * inspect).toFixed(3)})`
-        ctx.fillRect(-40, -36 - inspect * 6, 5, 8)
+        ctx.fillRect(-16, -42 - inspect * 4, 4.5, 7)
       }
       if (bend === 1 && Math.sin(t * 5) > 0.4) { // hauling ripple at the winch line
         ctx.strokeStyle = 'rgba(250,252,255,0.35)'; ctx.lineWidth = 1.4
@@ -563,11 +589,11 @@ export const shoreScene = {
       const point2 = Math.max(0, Math.sin(t * 0.45) - 0.55) / 0.45
       person2(ctx, {
         x: 34, y: -5, h: 48, skin: 0, top: 6, bottom: 0, flip: true, hairStyle: 'bun', hair: 0, shadow: false,
-        armR: { u: -0.9 - point2 * 0.9, f: -0.6 + point2 * 0.4 },
-        armL: { u: -0.5, f: -0.9 },
+        armR: { u: 0.85 + point2 * 0.7, f: 0.7 - point2 * 0.5 },
+        armL: { u: 0.8, f: 0.72 },
         nod: t * 2,
       })
-      ctx.save(); ctx.translate(40, -26); ctx.rotate(0.15)
+      ctx.save(); ctx.translate(24, -30); ctx.rotate(-0.12)
       ctx.fillStyle = '#20262c'; ctx.fillRect(0, 0, 8, 5.6)
       ctx.fillStyle = 'rgba(125,220,240,0.9)'; ctx.fillRect(0.8, 0.8, 6.4, 4)
       ctx.restore()
@@ -808,8 +834,8 @@ export const shoreScene = {
       const reeling = fT >= 9.5 && fT < 11.5
       person2(ctx, {
         x: 1012, y: y1 - 1, h: 62, skin: 2, top: 4, bottom: 1, hairStyle: 'cap', hair: 4, shadow: false,
-        armR: { u: -0.9 + rodA * 0.5, f: -0.35 },
-        armL: reeling ? { u: -0.6 + Math.sin(t * 14) * 0.25, f: -0.9 + Math.cos(t * 14) * 0.3 } : { u: 0.5, f: 0.4 },
+        armR: { u: 1.0 - (rodA + 0.9) * 0.4, f: 0.3 },
+        armL: reeling ? { u: 0.6 + Math.sin(t * 14) * 0.25, f: 0.5 + Math.cos(t * 14) * 0.3 } : { u: 0.55, f: 0.45 },
       })
       // rod + tip position in world coords
       const rpx = 1022, rpy = y1 - 40
@@ -878,11 +904,11 @@ export const shoreScene = {
       const lift = dipT > 0.3 && dipT < 0.5 ? Math.sin((dipT - 0.3) / 0.2 * Math.PI) : 0
       person2(ctx, {
         x: 470, y: shoreY(470) + 26, h: 92, skin: 0, top: 7, bottom: 2, hairStyle: 'bun', hair: 0,
-        stance: 'crouch', armR: { u: -1.5 - dip * 0.5 + lift * 0.9, f: -0.4 - dip * 0.4 }, armL: { u: 0.6, f: 0.5 }, nod: lift * 3,
+        stance: 'crouch', armR: { u: 0.55 + dip * 0.9 + lift * 0.7, f: 0.3 + dip * 0.3 }, armL: { u: 0.5, f: 0.4 }, nod: lift * 3,
       })
       // sample jar in hand
       ctx.fillStyle = 'rgba(214,238,248,0.9)'
-      const jx = 486 + dip * -10 + lift * 6, jy = shoreY(470) - 20 + dip * 14 - lift * 26
+      const jx = 486 + lift * 4, jy = shoreY(470) - 16 + dip * 8 - lift * 24
       ctx.fillRect(jx, jy, 7, 10)
       ctx.strokeStyle = 'rgba(120,150,160,0.8)'; ctx.strokeRect(jx, jy, 7, 10)
       if (dip > 0.7) {
@@ -891,7 +917,7 @@ export const shoreScene = {
       }
       person2(ctx, {
         x: 540, y: shoreY(540) + 40, h: 104, skin: 3, top: 8, bottom: 0, hairStyle: 'short', hair: 2, flip: true,
-        armR: { u: -1.05 - Math.sin(t * 2.4) * 0.06, f: -0.9 }, armL: { u: 0.25, f: 0.15 }, nod: t * 1.2,
+        armR: { u: 1.0 + Math.sin(t * 2.4) * 0.05, f: 0.75 }, armL: { u: 0.9, f: 0.7 }, nod: t * 1.2,
       })
       ctx.save(); ctx.translate(519, shoreY(540) - 34); ctx.rotate(-0.16)
       ctx.fillStyle = '#20262c'; ctx.fillRect(0, 0, 13, 9)
@@ -915,8 +941,8 @@ export const shoreScene = {
       // kids skipping stones + guardian (left)
       const skT = (t + 2.4) % 8
       const windup = skT < 0.5 ? Math.sin(skT / 0.5 * Math.PI) : 0
-      person2(ctx, { x: 300, y: shoreY(300) + 42, h: 62, skin: 4, top: 0, bottom: 0, hairStyle: 'short', hair: 1, armR: { u: -0.7 - windup * 1.7, f: -0.5 - windup * 0.5 }, armL: { u: 0.3, f: 0.2 }, lean: -windup * 0.1 })
-      person2(ctx, { x: 258, y: shoreY(258) + 48, h: 96, skin: 1, top: 3, bottom: 3, hairStyle: 'long', hair: 4, armL: { u: 0.4, f: 0.3 }, armR: { u: -0.3, f: -0.2 }, nod: t * 0.8 })
+      person2(ctx, { x: 300, y: shoreY(300) + 42, h: 62, skin: 4, top: 0, bottom: 0, hairStyle: 'short', hair: 1, armR: { u: 0.3 - windup * 1.3, f: 0.25 - windup * 0.3 }, armL: { u: 0.2, f: 0.15 }, lean: windup * 0.08 })
+      person2(ctx, { x: 258, y: shoreY(258) + 48, h: 96, skin: 1, top: 3, bottom: 3, hairStyle: 'long', hair: 4, armR: { u: 0.2, f: 0.15 }, armL: { u: 0.35, f: 0.25 }, nod: t * 0.8 })
       if (skT > 0.5 && skT < 1.8) {
         const sp2 = (skT - 0.5) / 1.3
         const sx = 315 - sp2 * 250
@@ -940,8 +966,8 @@ export const shoreScene = {
       const wy = shoreY(wx) + 90
       const wph = t * 5.6
       if (wq > -0.1 && wq < 1.1) {
-        person2(ctx, { x: wx, y: wy, h: 100, skin: 2, top: 1, bottom: 0, hairStyle: 'short', hair: 1, flip: true, phase: wph, armL: { u: Math.sin(wph) * 0.4, f: 0.25 }, armR: { u: Math.sin(wph + Math.PI) * 0.4, f: 0.25 } })
-        person2(ctx, { x: wx + 34, y: wy + 6, h: 94, skin: 0, top: 5, bottom: 3, hairStyle: 'long', hair: 0, flip: true, phase: wph + 1.2, armL: { u: Math.sin(wph + 1.2) * 0.4, f: 0.25 }, armR: { u: Math.sin(wph + 1.2 + Math.PI) * 0.4, f: 0.25 } })
+        person2(ctx, { x: wx, y: wy, h: 100, skin: 2, top: 1, bottom: 0, hairStyle: 'short', hair: 1, flip: true, walk: wph })
+        person2(ctx, { x: wx + 34, y: wy + 6, h: 94, skin: 0, top: 5, bottom: 3, hairStyle: 'long', hair: 0, flip: true, walk: wph + 1.2 })
         // dog trotting ahead, tail up
         const dx2 = wx - 52
         castShadow(ctx, dx2, wy + 2, 12)
@@ -979,8 +1005,8 @@ export const shoreScene = {
       ctx.fillStyle = 'rgba(255,214,150,0.3)'; ctx.fillRect(-62, -12, 124, 2.6)
       ctx.restore()
       const talk = Math.sin(t * 0.5) > 0
-      person2(ctx, { x: logX - 30, y: logY - 8, h: 88, skin: 0, top: 2, bottom: 1, hairStyle: 'grey', stance: 'sit', armR: { u: talk ? -0.9 + Math.sin(t * 2.2) * 0.25 : -0.3, f: -0.5 }, nod: talk ? t * 2.2 : 0.4 })
-      person2(ctx, { x: logX + 34, y: logY - 8, h: 84, skin: 1, top: 9, bottom: 4, hairStyle: 'grey', stance: 'sit', flip: true, armR: { u: !talk ? -0.85 + Math.sin(t * 1.9) * 0.22 : -0.25, f: -0.45 }, nod: !talk ? t * 1.9 : 0.2 })
+      person2(ctx, { x: logX - 30, y: logY - 8, h: 88, skin: 0, top: 2, bottom: 1, hairStyle: 'grey', stance: 'sit', armR: { u: talk ? 0.7 + Math.sin(t * 2.2) * 0.25 : 0.3, f: 0.5 }, armL: { u: 0.25, f: 0.3 }, nod: talk ? t * 2.2 : 0.4 })
+      person2(ctx, { x: logX + 34, y: logY - 8, h: 84, skin: 1, top: 9, bottom: 4, hairStyle: 'grey', stance: 'sit', flip: true, armR: { u: !talk ? 0.7 + Math.sin(t * 1.9) * 0.22 : 0.25, f: 0.45 }, armL: { u: 0.25, f: 0.3 }, nod: !talk ? t * 1.9 : 0.2 })
 
       // youth launching a canoe (upper-left, half in water)
       const push = Math.sin(t * 1.15)
@@ -992,7 +1018,7 @@ export const shoreScene = {
       person2(ctx, { x: 208, y: shoreY(208) + 26, h: 84, skin: 4, top: 6, bottom: 0, hairStyle: 'short', hair: 5, lean: -0.22 + push * 0.02, armL: { u: 1.15, f: 0.5 }, armR: { u: 1.05, f: 0.55 } })
 
       // photographer kneeling on the foreground granite (left)
-      person2(ctx, { x: 210, y: 806, h: 118, skin: 1, top: 3, bottom: 2, hairStyle: 'cap', hair: 2, stance: 'crouch', armR: { u: -1.35, f: -1.05 }, armL: { u: -1.1, f: -1.2 }, nod: Math.sin(t * 0.4) })
+      person2(ctx, { x: 210, y: 806, h: 118, skin: 1, top: 3, bottom: 2, hairStyle: 'cap', hair: 2, stance: 'crouch', armR: { u: 1.3, f: 0.95 }, armL: { u: 1.15, f: 1.05 }, nod: Math.sin(t * 0.4) })
       ctx.save(); ctx.translate(228, 728); ctx.rotate(0.1 + Math.sin(t * 0.4) * 0.03)
       ctx.fillStyle = '#20262c'; ctx.fillRect(0, 0, 15, 10); ctx.fillRect(15, 2, 7, 6)
       ctx.fillStyle = 'rgba(160,210,240,0.8)'; ctx.beginPath(); ctx.arc(22.4, 5, 2.4, 0, TAU); ctx.fill()
@@ -1004,8 +1030,8 @@ export const shoreScene = {
         const fx = lerp(360, 1330, clamp(fq, 0, 1))
         const fy = shoreY(fx) + 150
         const fph = t * 5
-        person2(ctx, { x: fx, y: fy, h: 108, skin: 5, top: 9, bottom: 2, hairStyle: 'short', hair: 0, phase: fph, armR: { u: 0.42, f: 0.2 }, armL: { u: Math.sin(fph) * 0.35, f: 0.2 } })
-        person2(ctx, { x: fx + 40, y: fy + 2, h: 62, skin: 5, top: 8, bottom: 0, hairStyle: 'long', hair: 1, phase: fph + 0.9, armL: { u: -0.5, f: -0.25 }, armR: { u: Math.sin(fph + 0.9) * 0.4, f: 0.2 } })
+        person2(ctx, { x: fx, y: fy, h: 108, skin: 5, top: 9, bottom: 2, hairStyle: 'short', hair: 0, walk: fph, armR: { u: 0.5, f: 0.4 } })
+        person2(ctx, { x: fx + 40, y: fy + 2, h: 62, skin: 5, top: 8, bottom: 0, hairStyle: 'long', hair: 1, walk: fph + 0.9, armL: { u: -0.45, f: -0.15 } })
         ctx.strokeStyle = 'rgba(60,44,30,0.35)'; ctx.lineWidth = 2
         ctx.beginPath(); ctx.moveTo(fx + 12, fy - 52); ctx.quadraticCurveTo(fx + 26, fy - 38, fx + 32, fy - 36); ctx.stroke()
       }
