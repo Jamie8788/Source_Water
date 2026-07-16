@@ -15,6 +15,13 @@
 import { VW, VH, vGrad, glow, makeParticles, lerp, clamp } from './welcomeEngine'
 
 const TAU = Math.PI * 2
+
+// "Enter the platform" light trail: a spark travels from the CTA shoreline
+// to the monitoring buoy and pulses. Fired from the hero button.
+let trailT = -1
+export function fireLightTrail() { trailT = 0 }
+
+const ease2 = (q) => q * q * (3 - 2 * q)
 const HZ = 320 // horizon (eye-level camera → high horizon)
 const SUNX = 1150, SUNY = 262
 
@@ -530,8 +537,40 @@ export const shoreScene = {
       ctx.beginPath(); ctx.arc(24, -42, 2.4, 0, TAU); ctx.fill()
       ctx.strokeStyle = '#3a4650'; ctx.lineWidth = 1.6
       ctx.beginPath(); ctx.moveTo(-36, -4); ctx.lineTo(-36 + Math.sin(t * 0.8) * 3, 26); ctx.stroke()
-      person2(ctx, { x: -26, y: -5, h: 46, skin: 3, top: 7, bottom: 2, hairStyle: 'cap', hair: 2, shadow: false, armR: { u: -1.15 - Math.sin(t * 1.5) * 0.14, f: -0.5 }, armL: { u: 0.3, f: 0.2 } })
-      person2(ctx, { x: 34, y: -5, h: 48, skin: 0, top: 6, bottom: 0, flip: true, hairStyle: 'bun', hair: 0, shadow: false, armR: { u: -0.8 - Math.sin(t * 2) * 0.2, f: -0.6 }, nod: t * 2 })
+      // researcher 1: bends over the side, hauls the sample, stands to inspect
+      const rT = t % 9
+      let bend = 0, inspect = 0
+      if (rT < 1.4) bend = ease2(rT / 1.4)
+      else if (rT < 3.4) bend = 1
+      else if (rT < 4.8) bend = 1 - ease2((rT - 3.4) / 1.4)
+      else if (rT < 7.4) inspect = Math.sin(((rT - 4.8) / 2.6) * Math.PI)
+      person2(ctx, {
+        x: -26, y: -5, h: 46, skin: 3, top: 7, bottom: 2, hairStyle: 'cap', hair: 2, shadow: false,
+        lean: -bend * 0.55,
+        armR: { u: -0.3 - bend * 1.3 - inspect * 1.5, f: -0.3 - bend * 0.5 },
+        armL: { u: 0.3 - bend * 0.9, f: 0.2 - bend * 0.4 },
+        nod: inspect * 2.4,
+      })
+      if (inspect > 0.15) { // lifted sample bottle catching the light
+        ctx.fillStyle = `rgba(214,238,248,${(0.9 * inspect).toFixed(3)})`
+        ctx.fillRect(-40, -36 - inspect * 6, 5, 8)
+      }
+      if (bend === 1 && Math.sin(t * 5) > 0.4) { // hauling ripple at the winch line
+        ctx.strokeStyle = 'rgba(250,252,255,0.35)'; ctx.lineWidth = 1.4
+        ctx.beginPath(); ctx.ellipse(-34, 22, 8, 2.4, 0, 0, TAU); ctx.stroke()
+      }
+      // researcher 2: reads the tablet, periodically gestures toward the buoy
+      const point2 = Math.max(0, Math.sin(t * 0.45) - 0.55) / 0.45
+      person2(ctx, {
+        x: 34, y: -5, h: 48, skin: 0, top: 6, bottom: 0, flip: true, hairStyle: 'bun', hair: 0, shadow: false,
+        armR: { u: -0.9 - point2 * 0.9, f: -0.6 + point2 * 0.4 },
+        armL: { u: -0.5, f: -0.9 },
+        nod: t * 2,
+      })
+      ctx.save(); ctx.translate(40, -26); ctx.rotate(0.15)
+      ctx.fillStyle = '#20262c'; ctx.fillRect(0, 0, 8, 5.6)
+      ctx.fillStyle = 'rgba(125,220,240,0.9)'; ctx.fillRect(0.8, 0.8, 6.4, 4)
+      ctx.restore()
       ctx.restore()
 
       // ── monitoring buoy ──
@@ -753,18 +792,67 @@ export const shoreScene = {
         const dx = lerp(x1, x0, q), dy = lerp(y1, y0, q), half = lerp(15, 30, q)
         ctx.beginPath(); ctx.moveTo(dx - half, dy); ctx.lineTo(dx + half, dy); ctx.stroke()
       }
-      // fisher at the tip — rod arcs, line to a bobbing float
-      person2(ctx, { x: 1012, y: y1 - 1, h: 62, skin: 2, top: 4, bottom: 1, hairStyle: 'cap', hair: 4, shadow: false, armR: { u: -1.05 + Math.sin(t * 0.8) * 0.04, f: -0.35 }, armL: { u: 0.5, f: 0.4 } })
+      // ── fisher at the tip: full cast → splash → wait → twitch → reel loop ──
+      const fT = t % 13
+      const ease = (q) => q * q * (3 - 2 * q)
+      // rod angle through the phases
+      let rodA
+      if (fT < 1.2) rodA = lerp(-0.6, -1.55, ease(fT / 1.2)) // raise back
+      else if (fT < 1.6) rodA = lerp(-1.55, -0.3, ease((fT - 1.2) / 0.4)) // whip forward
+      else if (fT < 9.5) { // waiting, with two nibble twitches
+        rodA = -0.5 + Math.sin(t * 0.8) * 0.02
+        if ((fT > 6.4 && fT < 6.7) || (fT > 8 && fT < 8.3)) rodA -= 0.12 * Math.sin(((fT % 1) * 10) * Math.PI)
+      } else if (fT < 11.5) rodA = -0.55 + Math.sin(t * 7) * 0.05 // reeling pumps
+      else rodA = lerp(-0.55, -0.6, ease((fT - 11.5) / 1.5))
+      // arm follows the rod; off arm cranks the reel while reeling
+      const reeling = fT >= 9.5 && fT < 11.5
+      person2(ctx, {
+        x: 1012, y: y1 - 1, h: 62, skin: 2, top: 4, bottom: 1, hairStyle: 'cap', hair: 4, shadow: false,
+        armR: { u: -0.9 + rodA * 0.5, f: -0.35 },
+        armL: reeling ? { u: -0.6 + Math.sin(t * 14) * 0.25, f: -0.9 + Math.cos(t * 14) * 0.3 } : { u: 0.5, f: 0.4 },
+      })
+      // rod + tip position in world coords
+      const rpx = 1022, rpy = y1 - 40
       ctx.strokeStyle = '#6b4a26'; ctx.lineWidth = 2
-      ctx.save(); ctx.translate(1022, y1 - 40); ctx.rotate(-0.6 + Math.sin(t * 0.8) * 0.03)
+      ctx.save(); ctx.translate(rpx, rpy); ctx.rotate(rodA + 0.6)
       ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(24, -9, 42, -10); ctx.stroke()
-      ctx.strokeStyle = 'rgba(230,240,248,0.5)'; ctx.lineWidth = 1
-      ctx.beginPath(); ctx.moveTo(42, -10); ctx.quadraticCurveTo(44, 10, 40, 32); ctx.stroke()
       ctx.restore()
-      const bobY = y1 - 4 + Math.sin(t * 1.7) * 2.2
-      ctx.fillStyle = '#e0483a'; ctx.beginPath(); ctx.arc(1058, bobY, 2.4, 0, TAU); ctx.fill()
-      ctx.strokeStyle = 'rgba(240,248,255,0.3)'; ctx.lineWidth = 1.2
-      ctx.beginPath(); ctx.ellipse(1058, bobY + 3, 6 + Math.sin(t * 1.7) * 2, 1.7, 0, 0, TAU); ctx.stroke()
+      const ca = rodA + 0.6
+      const tipX = rpx + 42 * Math.cos(ca) + 10 * Math.sin(ca) // rotate (42,-10) by ca
+      const tipY = rpy + 42 * Math.sin(ca) - 10 * Math.cos(ca)
+      // bobber position through the phases
+      const landX = 1105, landY = y1 + 14
+      let bx2, by2, lineSag = 14
+      if (fT < 1.45) { bx2 = tipX + 2; by2 = tipY + 10; lineSag = 2 } // dangling
+      else if (fT < 1.9) { // flying out on an arc
+        const q = (fT - 1.45) / 0.45
+        bx2 = lerp(tipX, landX, q)
+        by2 = lerp(tipY, landY, q) - Math.sin(q * Math.PI) * 34
+        lineSag = 4
+      } else if (fT < 9.5) { bx2 = landX; by2 = landY + Math.sin(t * 1.7) * 2.2 } // floating
+      else if (fT < 11.5) { // reeled back in
+        const q = ease((fT - 9.5) / 2)
+        bx2 = lerp(landX, tipX + 2, q); by2 = lerp(landY, tipY + 12, q) + Math.sin(t * 9) * 1.4
+        lineSag = 8 * (1 - q) + 2
+      } else { bx2 = tipX + 2; by2 = tipY + 10; lineSag = 2 }
+      // line from rod tip to bobber (sagging)
+      ctx.strokeStyle = 'rgba(230,240,248,0.55)'; ctx.lineWidth = 1
+      ctx.beginPath(); ctx.moveTo(tipX, tipY)
+      ctx.quadraticCurveTo((tipX + bx2) / 2, Math.max(tipY, by2) + lineSag, bx2, by2)
+      ctx.stroke()
+      // bobber
+      ctx.fillStyle = '#e0483a'; ctx.beginPath(); ctx.arc(bx2, by2, 2.4, 0, TAU); ctx.fill()
+      // splash on landing + rest rings while floating
+      if (fT >= 1.9 && fT < 2.5) {
+        const q = (fT - 1.9) / 0.6
+        ctx.strokeStyle = `rgba(250,252,255,${(0.6 * (1 - q)).toFixed(3)})`; ctx.lineWidth = 1.8
+        ctx.beginPath(); ctx.ellipse(landX, landY + 3, 3 + q * 18, (3 + q * 18) * 0.3, 0, 0, TAU); ctx.stroke()
+        ctx.fillStyle = `rgba(250,252,255,${(0.6 * (1 - q)).toFixed(3)})`
+        for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(landX + k * 4 - 4, landY - 2 - q * 8, 1.3, 0, TAU); ctx.fill() }
+      } else if (fT >= 2.5 && fT < 9.5) {
+        ctx.strokeStyle = 'rgba(240,248,255,0.3)'; ctx.lineWidth = 1.2
+        ctx.beginPath(); ctx.ellipse(bx2, by2 + 3, 6 + Math.sin(t * 1.7) * 2, 1.7, 0, 0, TAU); ctx.stroke()
+      }
       // kid sitting on the edge, legs swinging; parent standing behind
       const swing = Math.sin(t * 2.2)
       ctx.save(); ctx.translate(1108, 686)
@@ -1022,6 +1110,35 @@ export const shoreScene = {
       ctx.strokeStyle = `rgba(250,252,255,${(0.4 * (1 - q)).toFixed(3)})`
       ctx.lineWidth = 1.7
       ctx.beginPath(); ctx.ellipse(r.x, r.y, 5 + q * 42, (5 + q * 42) * 0.3, 0, 0, TAU); ctx.stroke()
+    }
+
+    // ═══ "ENTER THE PLATFORM" LIGHT TRAIL → buoy pulse ═══
+    if (trailT >= 0) {
+      trailT += dt
+      const path = (q) => [
+        lerp(330, 640, q) + Math.sin(q * Math.PI) * -60,
+        lerp(760, 560, q) - Math.sin(q * Math.PI) * 90,
+      ]
+      ctx.save(); ctx.globalCompositeOperation = 'lighter'
+      if (trailT < 1.1) {
+        const q = ease2(clamp(trailT / 1.1, 0, 1))
+        // comet head + fading tail
+        for (let k = 0; k < 9; k++) {
+          const tq = clamp(q - k * 0.035, 0, 1)
+          const [px2, py2] = path(tq)
+          glow(ctx, px2, py2, 14 - k, `rgba(125,245,223,${(0.5 * (1 - k / 9)).toFixed(3)})`, 'rgba(125,245,223,0)')
+        }
+        const [hx2, hy2] = path(q)
+        ctx.fillStyle = '#d8fff6'
+        ctx.beginPath(); ctx.arc(hx2, hy2, 4, 0, TAU); ctx.fill()
+      } else if (trailT < 2.1) {
+        const q = (trailT - 1.1) / 1
+        glow(ctx, 640, 552, 30 + q * 70, `rgba(125,245,223,${(0.55 * (1 - q)).toFixed(3)})`, 'rgba(125,245,223,0)')
+        ctx.strokeStyle = `rgba(125,245,223,${(0.7 * (1 - q)).toFixed(3)})`
+        ctx.lineWidth = 2.4
+        ctx.beginPath(); ctx.ellipse(640, 564, 16 + q * 90, (16 + q * 90) * 0.3, 0, 0, TAU); ctx.stroke()
+      } else trailT = -1
+      ctx.restore()
     }
 
     // ═══ HOVER DATA PREVIEWS ═══

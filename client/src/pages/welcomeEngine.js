@@ -73,7 +73,10 @@ export function mountScene(canvas, scene, opts = {}) {
   const pointer = { x: -9999, y: -9999, moved: 0, inside: false }
   env.pointer = pointer
 
-  const reduced = () =>
+  // The landing scenes must always visibly move. The app's `sw-no-anim`
+  // toggle and the OS reduced-motion flag downgrade to a calmer, slower
+  // "gentle" mode instead of freezing the frame.
+  const gentle = () =>
     window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ||
     document.documentElement.classList.contains('sw-no-anim')
 
@@ -108,24 +111,25 @@ export function mountScene(canvas, scene, opts = {}) {
   host.addEventListener('pointermove', onMove, { passive: true })
   host.addEventListener('pointerleave', onLeave, { passive: true })
 
+  let tAcc = 0 // scene time accumulator (lets gentle mode slow the world)
   function frame(now) {
     if (!running) return
-    const dt = Math.min(0.05, (now - last) / 1000)
+    const ts = gentle() ? 0.4 : 1
+    const dt = Math.min(0.05, (now - last) / 1000) * ts
     last = now
-    const t = (now - t0) / 1000
+    tAcc += dt
+    env.gentle = ts < 1
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.setTransform(scale, 0, 0, scale, offX, offY)
-    // clip to the virtual frame edges are fine; overscan is hidden by cover
-    scene.draw(ctx, t, reduced() ? 0 : dt, state, env)
-    if (reduced()) { running = false; return } // one frozen frame
+    scene.draw(ctx, tAcc, dt, state, env)
     raf = requestAnimationFrame(frame)
   }
   raf = requestAnimationFrame(frame)
 
   function onVis() {
     if (document.hidden) { running = false; cancelAnimationFrame(raf) }
-    else if (!reduced()) { running = true; last = performance.now(); raf = requestAnimationFrame(frame) }
+    else { running = true; last = performance.now(); raf = requestAnimationFrame(frame) }
   }
   document.addEventListener('visibilitychange', onVis)
 

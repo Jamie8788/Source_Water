@@ -24,7 +24,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronDown, Droplets, Map as MapIcon, Users, Sparkles, BookOpen, BarChart3, ArrowRight } from 'lucide-react'
 import { mountScene } from './welcomeEngine'
-import { shoreScene } from './welcomeShore'
+import { shoreScene, fireLightTrail } from './welcomeShore'
 import { underScene } from './welcomeScenes'
 import { networkScene, turtleScene, nightScene } from './welcomeScenes2'
 
@@ -50,11 +50,26 @@ export default function Welcome() {
   const [scrolled, setScrolled] = useState(false)
 
   const goSignIn = useCallback(() => navigate('/login'), [navigate])
+  const journeyTimers = useRef([])
+
+  // hero CTA: light trail races to the buoy, then we enter the platform
+  const enterPlatform = useCallback(() => {
+    fireLightTrail()
+    setTimeout(() => navigate('/login'), 1150)
+  }, [navigate])
 
   const scrollTo = useCallback((idx) => {
     const el = containerRef.current?.querySelectorAll('.wv-section')?.[idx]
     el?.scrollIntoView({ behavior: 'smooth' })
   }, [])
+
+  // Guided journey: a controlled cinematic ride through every scene.
+  // Any manual wheel/touch/keys input hands control back to the user.
+  const guidedJourney = useCallback(() => {
+    journeyTimers.current.forEach(clearTimeout)
+    journeyTimers.current = [1, 2, 3, 4].map((idx, i) =>
+      setTimeout(() => scrollTo(idx), 400 + i * 3400))
+  }, [scrollTo])
 
   useEffect(() => {
     const root = containerRef.current
@@ -72,7 +87,17 @@ export default function Welcome() {
     sections.forEach(s => obs.observe(s))
     const onScroll = () => setScrolled(root.scrollTop > 40)
     root.addEventListener('scroll', onScroll, { passive: true })
-    return () => { obs.disconnect(); root.removeEventListener('scroll', onScroll) }
+    const cancelJourney = () => { journeyTimers.current.forEach(clearTimeout); journeyTimers.current = [] }
+    root.addEventListener('wheel', cancelJourney, { passive: true })
+    root.addEventListener('touchstart', cancelJourney, { passive: true })
+    window.addEventListener('keydown', cancelJourney)
+    return () => {
+      obs.disconnect(); root.removeEventListener('scroll', onScroll)
+      root.removeEventListener('wheel', cancelJourney)
+      root.removeEventListener('touchstart', cancelJourney)
+      window.removeEventListener('keydown', cancelJourney)
+      cancelJourney()
+    }
   }, [])
 
   return (
@@ -105,10 +130,10 @@ export default function Welcome() {
             Great Lakes — explained simply, shared openly, protected together.
           </p>
           <div className="wv-cta-row">
-            <button className="wv-cta wv-cta-primary" onClick={goSignIn}>
+            <button className="wv-cta wv-cta-primary" onClick={enterPlatform}>
               <Droplets size={17} /> Enter the platform
             </button>
-            <button className="wv-cta wv-cta-ghost" onClick={() => scrollTo(1)}>
+            <button className="wv-cta wv-cta-ghost" onClick={guidedJourney}>
               <Sparkles size={15} /> Guided journey
             </button>
           </div>
@@ -364,6 +389,33 @@ export default function Welcome() {
 
         /* ═══ 1 · SHORELINE ════════════════════════════════════ */
         .wv-shore { background: #f2c47c; }
+        /* cinematic load-in: slow camera push into the world */
+        .wv-shore .wv-canvas {
+          transform-origin: 50% 62%;
+          animation: wvCamPush 7s cubic-bezier(0.16, 0.6, 0.2, 1) both;
+        }
+        @keyframes wvCamPush {
+          from { transform: scale(1.075) translateY(-8px); opacity: 0; }
+          18%  { opacity: 1; }
+          to   { transform: scale(1) translateY(0); opacity: 1; }
+        }
+        /* staggered editorial reveal of the hero copy */
+        .wv-hero > * { opacity: 0; animation: wvReveal 0.95s cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+        .wv-hero .wv-kicker2 { animation-delay: 0.55s; }
+        .wv-hero .wv-title   { animation-delay: 0.8s; }
+        .wv-hero .wv-sub     { animation-delay: 1.15s; }
+        .wv-hero .wv-cta-row { animation-delay: 1.45s; }
+        .wv-title .wv-t-dark, .wv-title .wv-t-serif {
+          display: inline-block; opacity: 0;
+          animation: wvReveal 0.95s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+        }
+        .wv-title .wv-t-dark  { animation-delay: 0.85s; }
+        .wv-title .wv-t-serif { animation-delay: 1.05s; }
+        @keyframes wvReveal {
+          from { opacity: 0; transform: translateY(22px); filter: blur(3px); }
+          to   { opacity: 1; transform: translateY(0); filter: blur(0); }
+        }
+        .wv-cta:active { transform: translateY(0) scale(0.985); }
         .wv-hero {
           position: relative; z-index: 6;
           align-self: flex-start;
