@@ -88,7 +88,8 @@ function Cattail({ x, y, s = 1, delay = 0 }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Scene 1 — Golden hour at the lake: one living illustrated world
+// Scene 1 — Dusk at the lake: layered swells, a breaching fish, foam on sand
+// (Alto's-Odyssey-style composition: few big elements, done beautifully)
 // ─────────────────────────────────────────────────────────────────────────────
 function SceneDawn({ onScrollNext, onSignIn }) {
   return (
@@ -96,296 +97,196 @@ function SceneDawn({ onScrollNext, onSignIn }) {
       <svg className="wv-worldsvg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
         <defs>
           <linearGradient id="wvSky" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#2b3a5e" />
-            <stop offset="34%" stopColor="#7d6377" />
-            <stop offset="62%" stopColor="#d99a66" />
-            <stop offset="100%" stopColor="#f2c47c" />
+            <stop offset="0%" stopColor="#16344c" />
+            <stop offset="40%" stopColor="#2e6e83" />
+            <stop offset="72%" stopColor="#e89a5c" />
+            <stop offset="100%" stopColor="#ffd9a0" />
           </linearGradient>
           <radialGradient id="wvSunGlow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(255,236,180,0.95)" />
-            <stop offset="34%" stopColor="rgba(255,210,130,0.5)" />
-            <stop offset="100%" stopColor="rgba(255,200,120,0)" />
+            <stop offset="0%" stopColor="rgba(255,243,214,0.95)" />
+            <stop offset="38%" stopColor="rgba(255,214,150,0.5)" />
+            <stop offset="100%" stopColor="rgba(255,205,140,0)" />
           </radialGradient>
-          <linearGradient id="wvLakeGold" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#e8b878" />
-            <stop offset="22%" stopColor="#b99576" />
-            <stop offset="22%" stopColor="#b0906e" />
-            <stop offset="55%" stopColor="#6f8a9b" />
-            <stop offset="100%" stopColor="#31506a" />
+          <linearGradient id="wvSeaFar" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#f0bc80" />
+            <stop offset="30%" stopColor="#6cb3a4" />
+            <stop offset="100%" stopColor="#4fa397" />
           </linearGradient>
-          <linearGradient id="wvSunCol" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgba(255,222,140,0.85)" />
-            <stop offset="60%" stopColor="rgba(255,205,120,0.3)" />
-            <stop offset="100%" stopColor="rgba(255,205,120,0)" />
+          <linearGradient id="wvVign2" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="70%" stopColor="rgba(10,20,26,0)" />
+            <stop offset="100%" stopColor="rgba(8,18,24,0.35)" />
           </linearGradient>
-          <linearGradient id="wvMeadow" x1="0" y1="0" x2="0.35" y2="1">
-            <stop offset="0%" stopColor="#6d8a4d" />
-            <stop offset="55%" stopColor="#52713e" />
-            <stop offset="100%" stopColor="#3a5230" />
-          </linearGradient>
-          <radialGradient id="wvVign" cx="50%" cy="42%" r="75%">
-            <stop offset="62%" stopColor="rgba(30,20,10,0)" />
-            <stop offset="100%" stopColor="rgba(24,16,8,0.42)" />
+          <radialGradient id="wvVign" cx="50%" cy="42%" r="78%">
+            <stop offset="64%" stopColor="rgba(20,25,20,0)" />
+            <stop offset="100%" stopColor="rgba(10,18,22,0.4)" />
           </radialGradient>
         </defs>
 
-        {/* ── Sky ── */}
-        <rect width="1600" height="470" fill="url(#wvSky)" />
-        <circle cx="820" cy="255" r="200" fill="url(#wvSunGlow)" className="wv-sunbreath" />
-        <circle cx="820" cy="255" r="56" fill="#ffefc2" className="wv-sunbreath" />
+        {/* ── Sky, sun, soft clouds ── */}
+        <rect width="1600" height="450" fill="url(#wvSky)" />
+        <circle cx="1130" cy="290" r="210" fill="url(#wvSunGlow)" className="wv-sunbreath" />
+        <circle cx="1130" cy="290" r="64" fill="#fff3d6" className="wv-sunbreath" />
 
-        {/* Drifting haze bands */}
-        <ellipse className="wv-haze wv-haze-1" cx="700" cy="380" rx="720" ry="42" fill="rgba(244,198,122,0.28)" />
-        <ellipse className="wv-haze wv-haze-2" cx="1000" cy="300" rx="600" ry="30" fill="rgba(235,190,140,0.2)" />
+        <g className="wv-haze wv-haze-1" opacity="0.8">
+          <ellipse cx="380" cy="180" rx="200" ry="17" fill="rgba(255,235,205,0.35)" />
+          <ellipse cx="520" cy="196" rx="130" ry="12" fill="rgba(255,235,205,0.28)" />
+        </g>
+        <g className="wv-haze wv-haze-2" opacity="0.7">
+          <ellipse cx="1000" cy="120" rx="170" ry="13" fill="rgba(255,240,215,0.3)" />
+          <ellipse cx="1130" cy="132" rx="110" ry="10" fill="rgba(255,240,215,0.24)" />
+        </g>
 
-        {/* Bird flocks — grouped, flapping, crossing the sky */}
+        {/* One elegant flock */}
         <g className="wv-flock wv-flock-1">
-          {[[0, 0], [34, -12], [66, -4], [96, -16], [128, -8]].map(([dx, dy], i) => (
+          {[[0, 0], [34, -12], [66, -4], [96, -16]].map(([dx, dy], i) => (
             <path key={i} className="wv-flapwing" style={{ animationDelay: `${i * 0.13}s` }}
-              d={`M${dx} ${dy} q7 -8 15 0 q8 -8 15 0`} fill="none" stroke="#3a2e28" strokeWidth="2.6" strokeLinecap="round" />
-          ))}
-        </g>
-        <g className="wv-flock wv-flock-2">
-          {[[0, 0], [28, -10], [58, -2]].map(([dx, dy], i) => (
-            <path key={i} className="wv-flapwing" style={{ animationDelay: `${0.2 + i * 0.15}s` }}
-              d={`M${dx} ${dy} q6 -7 13 0 q7 -7 13 0`} fill="none" stroke="#3a2e28" strokeWidth="2.2" strokeLinecap="round" />
+              d={`M${dx} ${dy} q7 -8 15 0 q8 -8 15 0`} fill="none" stroke="#28333c" strokeWidth="2.6" strokeLinecap="round" />
           ))}
         </g>
 
-        {/* ── Distant ridges with pine fringes (atmospheric perspective) ── */}
-        <path d="M0 442 C180 420 340 428 520 438 C720 450 900 430 1080 436 C1280 444 1440 428 1600 438 L1600 470 L0 470 Z"
-          fill="#b98d63" opacity="0.75" />
-        <PineFringe y={444} from={20} to={1580} step={26} s={0.16} fill="#8f6c4c" />
-        <path d="M0 458 C240 442 420 452 640 458 C880 466 1060 448 1300 456 L1600 462 L1600 470 L0 470 Z"
-          fill="#8a664a" opacity="0.9" />
-        <PineFringe y={460} from={10} to={1590} step={20} s={0.2} fill="#6b4e3a" />
+        {/* Island with pines on the horizon + its reflection */}
+        <g>
+          <path d="M120 450 C160 428 250 422 310 432 C350 439 372 446 380 452 L120 452 Z" fill="#1d4450" />
+          <Pine x={196} y={438} s={0.62} fill="#16333d" />
+          <Pine x={238} y={434} s={0.82} fill="#16333d" />
+          <Pine x={286} y={438} s={0.56} fill="#16333d" />
+          <ellipse cx="250" cy="462" rx="120" ry="9" fill="rgba(22,51,61,0.28)" />
+        </g>
 
-        {/* ── The lake ── */}
-        <rect x="0" y="470" width="1600" height="430" fill="url(#wvLakeGold)" />
+        {/* Horizon light line */}
+        <rect x="0" y="448" width="1600" height="4" fill="rgba(255,226,170,0.75)" />
 
-        {/* Sun reflection column with shimmer + glints */}
-        <rect x="756" y="472" width="128" height="330" fill="url(#wvSunCol)" className="wv-suncol" />
-        {[500, 535, 572, 612, 655, 700].map((y, i) => (
-          <rect key={y} x={790 - i * 6} y={y} width={60 + i * 14} height="4" rx="2"
-            fill="rgba(255,228,150,0.55)" className="wv-glint2" style={{ animationDelay: `${i * 0.6}s` }} />
+        {/* ── The water: four rolling swell bands ── */}
+        <rect x="0" y="450" width="1600" height="330" fill="url(#wvSeaFar)" />
+
+        {/* Sun glitter path on the far water */}
+        {[468, 492, 518, 548, 582, 620].map((y, i) => (
+          <rect key={y} x={1096 - i * 9} y={y} width={70 + i * 18} height="4.4" rx="2.2"
+            fill="rgba(255,232,170,0.6)" className="wv-glint2" style={{ animationDelay: `${i * 0.55}s` }} />
         ))}
 
-        {/* Drifting wave lines */}
-        <g className="wv-waveline wv-wl-1" stroke="rgba(240,246,255,0.3)" strokeWidth="2.4" fill="none" strokeLinecap="round">
-          <path d="M60 520 q40 -6 80 0 M300 545 q50 -7 100 0 M580 512 q45 -6 90 0 M1050 530 q45 -6 90 0" />
-        </g>
-        <g className="wv-waveline wv-wl-2" stroke="rgba(230,240,250,0.24)" strokeWidth="2.6" fill="none" strokeLinecap="round">
-          <path d="M140 610 q50 -8 100 0 M430 640 q55 -8 110 0 M760 620 q50 -7 100 0 M1010 660 q45 -7 90 0" />
-        </g>
-        <g className="wv-waveline wv-wl-3" stroke="rgba(220,235,248,0.2)" strokeWidth="3" fill="none" strokeLinecap="round">
-          <path d="M80 730 q60 -9 120 0 M380 770 q65 -9 130 0 M700 740 q60 -8 120 0" />
-        </g>
-
-        {/* Expanding ripple rings */}
-        {[[260, 690], [560, 630], [960, 700]].map(([x, y], i) => (
-          <g key={i}>
-            <circle cx={x} cy={y} r="10" fill="none" stroke="rgba(240,248,255,0.4)" strokeWidth="2"
-              className="wv-ripple" style={{ animationDelay: `${i * 1.4}s` }} />
-            <circle cx={x} cy={y} r="10" fill="none" stroke="rgba(240,248,255,0.3)" strokeWidth="1.6"
-              className="wv-ripple" style={{ animationDelay: `${i * 1.4 + 1.1}s` }} />
+        <path className="wv-swell wv-s1" fill="#3f978e"
+          d="M-120 492 Q80 478 280 492 T680 492 T1080 492 T1480 492 T1880 492 L1880 900 L-120 900 Z" />
+        <path className="wv-swell wv-s2" fill="#2f7f80"
+          d="M-120 556 Q100 540 320 556 T760 556 T1200 556 T1640 556 T2080 556 L2080 900 L-120 900 Z" />
+        {/* Foam flecks riding the third swell */}
+        <g className="wv-swell wv-s3">
+          <path fill="#23636e"
+            d="M-120 636 Q120 618 360 636 T840 636 T1320 636 T1800 636 L1800 900 L-120 900 Z" />
+          <g stroke="rgba(240,250,252,0.5)" strokeWidth="3" fill="none" strokeLinecap="round">
+            <path d="M60 630 q28 -8 56 0 M420 626 q30 -8 60 0 M900 630 q26 -7 52 0 M1330 626 q28 -8 56 0" />
           </g>
-        ))}
+        </g>
+        <path className="wv-swell wv-s4" fill="#174b59"
+          d="M-120 716 Q140 698 400 716 T920 716 T1440 716 T1960 716 L1960 900 L-120 900 Z" />
 
-        {/* Distant sailboat drifting near the horizon */}
-        <g className="wv-sailboat">
-          <path d="M-16 0 L16 0 L11 7 L-11 7 Z" fill="#4a3a28" />
-          <path d="M0 0 L0 -26 L15 -5 Z" fill="#f4e9d0" />
-          <path d="M0 -26 L0 0 L-11 -4 Z" fill="#e6d6b4" />
+        {/* Buoy riding the mid swell */}
+        <g className="wv-buoy">
+          <ellipse cx="0" cy="14" rx="20" ry="4" fill="rgba(10,30,38,0.3)" />
+          <path d="M-11 10 L-7 -22 L7 -22 L11 10 Z" fill="#d94f30" stroke="#8f2f18" strokeWidth="2" />
+          <rect x="-8.4" y="-10" width="16.8" height="7" fill="#f4ead0" />
+          <circle cx="0" cy="-26" r="4" fill="#ffd166" className="wv-buoylight" />
+          <circle cx="0" cy="16" r="9" fill="none" stroke="rgba(240,250,255,0.35)" strokeWidth="2" className="wv-ripple" />
         </g>
 
-        {/* Loon swimming with a wake */}
-        <g className="wv-loon">
-          <path d="M-30 2 q10 3 24 2 M-38 5 q12 4 30 3" stroke="rgba(240,248,255,0.35)" strokeWidth="1.8" fill="none" strokeLinecap="round" />
-          <ellipse cx="0" cy="0" rx="14" ry="6" fill="#1d2a30" />
-          <path d="M10 -2 C14 -8 15 -13 13 -17 C17 -16 20 -13 20 -9" fill="none" stroke="#1d2a30" strokeWidth="4.4" strokeLinecap="round" />
-          <circle cx="17" cy="-14" r="3.4" fill="#1d2a30" />
-          <path d="M20 -14 L26 -12.6" stroke="#5d666b" strokeWidth="2.4" strokeLinecap="round" />
-          <path d="M-7 -2 q5 -3 11 -1" stroke="#e8f0f4" strokeWidth="1.6" fill="none" />
+        {/* Distant canoe silhouette gliding along the far swell */}
+        <g className="wv-farcanoe">
+          <path d="M-30 0 Q0 10 30 0 L24 6 Q0 14 -24 6 Z" fill="#12333f" />
+          <circle cx="-4" cy="-8" r="4.4" fill="#12333f" />
+          <path d="M-4 -4 L-4 2 M-4 -2 L8 6" stroke="#12333f" strokeWidth="2.8" strokeLinecap="round" />
         </g>
 
-        {/* Canoe with two paddlers, crossing the whole lake */}
-        <g className="wv-canoecross">
-          <g className="wv-canoerock2">
-            <ellipse className="wv-wakering" cx="-58" cy="26" rx="24" ry="4.6" fill="none" stroke="rgba(240,248,255,0.4)" strokeWidth="2" />
-            <ellipse className="wv-wakering wv-wr-2" cx="-74" cy="28" rx="15" ry="3.2" fill="none" stroke="rgba(240,248,255,0.3)" strokeWidth="1.7" />
-            <path d="M-64 12 Q0 34 64 12 L54 24 Q0 40 -54 24 Z" fill="#7a4520" stroke="#3a2410" strokeWidth="3" />
-            <path d="M-58 15 Q0 32 58 15" fill="none" stroke="#9a6132" strokeWidth="2.2" />
-            {/* bow paddler */}
-            <circle cx="-26" cy="-2" r="6.5" fill="#27324a" />
-            <path d="M-26 4 L-26 15" stroke="#27324a" strokeWidth="5" strokeLinecap="round" />
-            <g className="wv-paddleA">
-              <path d="M-26 8 L-44 22" stroke="#8a5a2b" strokeWidth="3.6" strokeLinecap="round" />
-              <ellipse cx="-47" cy="25" rx="4.6" ry="8" fill="#8a5a2b" transform="rotate(38 -47 25)" />
-            </g>
-            {/* stern paddler */}
-            <circle cx="24" cy="-2" r="6.5" fill="#3a2a20" />
-            <path d="M24 4 L24 15" stroke="#3a2a20" strokeWidth="5" strokeLinecap="round" />
-            <g className="wv-paddleB">
-              <path d="M24 8 L42 22" stroke="#8a5a2b" strokeWidth="3.6" strokeLinecap="round" />
-              <ellipse cx="45" cy="25" rx="4.6" ry="8" fill="#8a5a2b" transform="rotate(-38 45 25)" />
-            </g>
+        {/* ═══ THE BREACH — a great fish leaps, hangs, and crashes home ═══ */}
+        <g className="wv-breach">
+          <g transform="scale(1.15)">
+            {/* body */}
+            <path d="M95 0 C60 -34 -20 -40 -60 -22 C-80 -13 -92 -4 -95 4 C-80 14 -40 26 10 24 C50 22 80 14 95 0 Z" fill="#2e5d74" />
+            {/* belly */}
+            <path d="M-95 4 C-80 14 -40 26 10 24 C50 22 80 14 95 0 C70 8 20 16 -30 12 C-60 9 -84 6 -95 4 Z" fill="#d7e9ee" opacity="0.92" />
+            {/* tail */}
+            <path d="M-88 -4 L-130 -32 L-118 0 L-130 28 L-88 8 Z" fill="#24506a" />
+            {/* dorsal fin */}
+            <path d="M-12 -30 C-2 -46 20 -48 34 -38 L14 -22 Z" fill="#24506a" />
+            {/* pectoral fin */}
+            <path d="M22 12 C12 26 -2 32 -16 32 L4 14 Z" fill="#3a708a" />
+            {/* face */}
+            <circle cx="66" cy="-9" r="4.8" fill="#0e2430" />
+            <circle cx="67.6" cy="-10.6" r="1.6" fill="#e8f4f8" />
+            <path d="M52 4 C58 1 63 -3 66 -8" fill="none" stroke="#1d4258" strokeWidth="2.6" strokeLinecap="round" />
+            {/* spots */}
+            <circle cx="-20" cy="-14" r="3" fill="#1d4258" opacity="0.5" />
+            <circle cx="8" cy="-18" r="2.4" fill="#1d4258" opacity="0.5" />
+            <circle cx="-44" cy="-10" r="2.7" fill="#1d4258" opacity="0.5" />
+            {/* water streaming off the body */}
+            <path className="wv-streams" d="M-60 18 L-66 34 M-20 24 L-24 42 M20 22 L18 38" stroke="rgba(235,248,252,0.8)" strokeWidth="2.6" strokeLinecap="round" />
           </g>
         </g>
 
-        {/* Leaping fish */}
-        <g className="wv-fishleap">
-          <path d="M0 0 Q10 -12 24 -7 Q19 -2 24 3 Q10 8 0 0 Z" fill="#39647e" />
-          <path d="M24 -7 L33 -11 L30 -2 L33 6 L24 3" fill="#2e5468" />
-        </g>
-
-        {/* ── Left shore: shallows, cattails, heron, bear ── */}
-        <path d="M0 780 C120 786 260 812 420 852 C480 868 540 886 570 900 L0 900 Z" fill="#3e5a33" />
-        <path d="M0 792 C110 798 240 822 400 860 L0 874 Z" fill="rgba(70,100,58,0.55)" />
-        <Cattail x={64} y={806} s={1.15} delay={0} />
-        <Cattail x={92} y={816} s={0.9} delay={0.8} />
-        <Cattail x={508} y={886} s={1.2} delay={0.4} />
-        <GrassTuft x={150} y={824} s={1.3} delay={0.2} />
-        <GrassTuft x={300} y={846} s={1.1} delay={0.9} />
-        <GrassTuft x={460} y={874} s={1.4} delay={0.5} />
-
-        {/* Heron — stands in the shallows, dips its head */}
-        <g transform="translate(180 796)">
-          <path d="M0 0 L0 26 M6 0 L6 26" stroke="#5a636b" strokeWidth="2.6" strokeLinecap="round" />
-          <ellipse cx="4" cy="-10" rx="15" ry="10" fill="#7d8a94" />
-          <g className="wv-heronneck">
-            <path d="M14 -16 C22 -26 24 -38 20 -48" fill="none" stroke="#7d8a94" strokeWidth="5.4" strokeLinecap="round" />
-            <circle cx="19" cy="-50" r="4.6" fill="#7d8a94" />
-            <path d="M23 -50 L36 -47" stroke="#d9a13c" strokeWidth="2.8" strokeLinecap="round" />
-            <circle cx="20.5" cy="-51.5" r="1.3" fill="#1a2228" />
-          </g>
-          <ellipse cx="3" cy="28" rx="16" ry="3" fill="rgba(240,248,255,0.25)" />
-        </g>
-
-        {/* Bear at the water's edge, head bobbing for fish */}
-        <g transform="translate(408 842)">
-          <ellipse cx="0" cy="0" rx="30" ry="18" fill="#54382a" />
-          <path d="M-22 12 L-22 24 M-8 15 L-8 26 M8 15 L8 26 M20 12 L20 24" stroke="#3d2418 " strokeWidth="6" strokeLinecap="round" />
-          <g className="wv-bearhead">
-            <circle cx="32" cy="-10" r="13" fill="#5d4030" />
-            <circle cx="26" cy="-20" r="4" fill="#54382a" />
-            <circle cx="39" cy="-19" r="4" fill="#54382a" />
-            <ellipse cx="38" cy="-7" rx="5" ry="4" fill="#8a6a50" />
-            <circle cx="38" cy="-9" r="1.7" fill="#1a120c" />
-            <circle cx="30" cy="-13" r="1.7" fill="#1a120c" />
-          </g>
-          <circle cx="52" cy="12" r="7" fill="none" stroke="rgba(240,248,255,0.4)" strokeWidth="1.8" className="wv-ripple" style={{ animationDelay: '0.7s' }} />
-        </g>
-
-        {/* ── Foreground meadow (the living hillside, like the reference) ── */}
-        <polygon points="660,900 1600,438 1600,900" fill="url(#wvMeadow)" />
-        <path d="M660 900 L1600 438" stroke="#7a9a58" strokeWidth="5" opacity="0.5" fill="none" />
-
-        {/* Meadow texture: grass tufts + tiny flowers along the slope */}
-        {[[840, 850], [920, 812], [1010, 772], [1105, 726], [1200, 684], [1300, 636], [1395, 590], [1490, 545]].map(([x, y], i) => (
-          <GrassTuft key={i} x={x} y={y} s={1.1 + (i % 3) * 0.25} delay={i * 0.35} />
-        ))}
-        {[[880, 838], [1060, 752], [1255, 660], [1430, 574], [1530, 528]].map(([x, y], i) => (
-          <g key={i}>
-            <circle cx={x} cy={y} r="3" fill={['#e8b13c', '#c86a8a', '#e8e0a0'][i % 3]} />
-            <circle cx={x + 14} cy={y + 6} r="2.4" fill={['#c86a8a', '#e8e0a0', '#e8b13c'][i % 3]} />
-          </g>
-        ))}
-
-        {/* Kids dancing near the bottom of the slope + a dog */}
-        <Person x={852} y={862} s={0.92} shirt={3} skin={1} sway={0} />
-        <Person x={884} y={874} s={0.85} shirt={6} skin={0} sway={0.5} flip />
-        <Person x={918} y={886} s={0.95} shirt={1} skin={2} sway={0.9} />
-        <g transform="translate(960 884)">
-          <ellipse cx="0" cy="0" rx="12" ry="6.5" fill="#8a6a48" />
-          <circle cx="12" cy="-5" r="5.4" fill="#96754e" />
-          <path d="M14 -9 L16 -13 M9 -9 L10 -13" stroke="#6b4e30" strokeWidth="2.4" strokeLinecap="round" />
-          <path d="M-8 2 L-8 9 M-2 3 L-2 10 M4 3 L4 10 M9 2 L9 9" stroke="#6b4e30" strokeWidth="2.8" strokeLinecap="round" />
-          <path className="wv-dogtail" d="M-12 -3 C-17 -7 -19 -11 -18 -15" fill="none" stroke="#8a6a48" strokeWidth="3.4" strokeLinecap="round" />
-          <circle cx="14.5" cy="-6" r="1.2" fill="#1a120c" />
-        </g>
-
-        {/* Campfire circle — the heart of the meadow */}
-        <g transform="translate(1120 718)">
-          {/* glow */}
-          <circle cx="0" cy="-6" r="42" fill="rgba(255,150,60,0.16)" className="wv-fireglow" />
-          {/* logs */}
-          <path d="M-14 2 L14 -4 M-14 -4 L14 2" stroke="#4a2f18" strokeWidth="5" strokeLinecap="round" />
-          {/* flames */}
-          <path className="wv-flame wv-flame-1" d="M0 -2 C-7 -10 -6 -20 0 -28 C6 -20 7 -10 0 -2 Z" fill="#f59e3c" />
-          <path className="wv-flame wv-flame-2" d="M0 -4 C-4 -9 -3.6 -16 0 -21 C3.6 -16 4 -9 0 -4 Z" fill="#ffd166" />
-          {/* smoke */}
-          {[0, 1, 2].map(i => (
-            <circle key={i} className="wv-smoke" style={{ animationDelay: `${i * 1.5}s` }}
-              cx="2" cy="-30" r="5" fill="rgba(235,235,230,0.4)" />
+        {/* Splash cluster at the re-entry point */}
+        <g transform="translate(880 700)">
+          <ellipse className="wv-splashring" cx="0" cy="0" rx="26" ry="7" fill="none" stroke="rgba(240,250,252,0.85)" strokeWidth="4" />
+          <ellipse className="wv-splashring wv-sr2" cx="0" cy="0" rx="26" ry="7" fill="none" stroke="rgba(240,250,252,0.55)" strokeWidth="3" />
+          <path className="wv-spray wv-spray-l" d="M-6 0 C-16 -22 -22 -38 -20 -54" fill="none" stroke="rgba(245,252,255,0.9)" strokeWidth="5" strokeLinecap="round" />
+          <path className="wv-spray wv-spray-r" d="M6 0 C18 -20 26 -34 26 -50" fill="none" stroke="rgba(245,252,255,0.85)" strokeWidth="4.4" strokeLinecap="round" />
+          {[[-38, -64], [-18, -84], [6, -92], [28, -80], [44, -58], [-46, -38], [50, -34], [14, -70]].map(([dx, dy], i) => (
+            <circle key={i} className="wv-drop" r={3 + (i % 3)} fill="rgba(240,250,253,0.95)"
+              style={{ '--dx': `${dx}px`, '--dy': `${dy}px`, animationDelay: `${(i % 4) * 0.05}s` }} />
           ))}
-          {/* the circle of people */}
-          <Person x={-34} y={16} s={0.9} shirt={0} skin={0} variant="sit" sway={0.2} />
-          <Person x={-14} y={26} s={0.9} shirt={4} skin={1} variant="sit" sway={0.7} />
-          <Person x={16} y={26} s={0.9} shirt={2} skin={2} variant="sit" sway={1.1} flip />
-          {/* drummer with a beating arm */}
-          <g transform="translate(40 12)">
-            <Person x={0} y={0} s={0.95} shirt={5} skin={0} variant="sit" sway={0.4} flip>
-              <g className="wv-drumarm">
-                <path d="M-5 -9 L-14 -2" stroke={SKIN[0]} strokeWidth="3.2" strokeLinecap="round" />
-              </g>
-            </Person>
-            <ellipse cx="-16" cy="2" rx="7" ry="5" fill="#a8763e" stroke="#5d3a1c" strokeWidth="2" />
-          </g>
         </g>
+        {/* Exit ripple where it left the water */}
+        <ellipse className="wv-exitring" cx="600" cy="704" rx="20" ry="6" fill="none" stroke="rgba(240,250,252,0.7)" strokeWidth="3.4" />
 
-        {/* Standing pair — elder with staff + waving person */}
-        <g transform="translate(1268 630)">
-          <Person x={0} y={0} s={1.05} shirt={2} skin={2} sway={0.3}>
-            <path d="M8 -14 L8 6" stroke="#6b4423" strokeWidth="2.6" strokeLinecap="round" />
-          </Person>
-          <Person x={34} y={-8} s={1} shirt={1} skin={0} sway={0.8} flip>
-            <g className="wv-wavearm">
-              <path d="M-5 -12 L-13 -20" stroke={SKIN[0]} strokeWidth="3.2" strokeLinecap="round" />
-            </g>
-          </Person>
+        {/* ── The beach ── */}
+        <path d="M0 762 C300 748 640 756 960 772 C1220 786 1440 806 1600 826 L1600 900 L0 900 Z" fill="#c9a06b" />
+        {/* Foam edge washing in and out */}
+        <g className="wv-foam">
+          <path d="M0 764 C300 750 640 758 960 774 C1220 788 1440 808 1600 828"
+            fill="none" stroke="rgba(250,252,250,0.85)" strokeWidth="7" strokeLinecap="round" strokeDasharray="46 22" />
+          <path d="M0 772 C300 758 640 766 960 782 C1220 796 1440 815 1600 835"
+            fill="none" stroke="rgba(250,252,250,0.4)" strokeWidth="4" strokeLinecap="round" strokeDasharray="30 34" />
         </g>
+        <path d="M0 806 C320 792 700 800 1030 816 C1270 828 1460 846 1600 862 L1600 900 L0 900 Z" fill="#ecca92" />
 
-        {/* Deer pair — one grazes, fawn watches */}
-        <g transform="translate(1408 560)">
-          <ellipse cx="0" cy="0" rx="19" ry="11" fill="#8a5f3a" />
-          <path d="M-13 8 L-13 24 M-5 10 L-5 25 M6 10 L6 25 M13 8 L13 24" stroke="#6b4426" strokeWidth="3.6" strokeLinecap="round" />
-          <path d="M-17 -4 C-21 -6 -23 -9 -22 -12" fill="none" stroke="#8a5f3a" strokeWidth="3" strokeLinecap="round" />
-          <g className="wv-deerhead">
-            <path d="M16 -6 C22 -12 24 -18 24 -24" fill="none" stroke="#8a5f3a" strokeWidth="5.6" strokeLinecap="round" />
-            <ellipse cx="26" cy="-26" rx="7" ry="5" transform="rotate(24 26 -26)" fill="#96693f" />
-            <path d="M23 -31 L21 -38 M28 -31 L29 -38" stroke="#6b4426" strokeWidth="2.2" strokeLinecap="round" />
-            <circle cx="28.5" cy="-27" r="1.4" fill="#1a120c" />
-          </g>
-        </g>
-        <g transform="translate(1472 588) scale(0.62)">
-          <ellipse cx="0" cy="0" rx="19" ry="11" fill="#9a6c42" />
-          <path d="M-13 8 L-13 24 M-5 10 L-5 25 M6 10 L6 25 M13 8 L13 24" stroke="#75512e" strokeWidth="3.6" strokeLinecap="round" />
-          <path d="M16 -6 C20 -12 22 -16 22 -22" fill="none" stroke="#9a6c42" strokeWidth="5.4" strokeLinecap="round" />
-          <ellipse cx="24" cy="-24" rx="6.4" ry="4.6" transform="rotate(24 24 -24)" fill="#a87a4c" />
-          <circle cx="4" cy="-4" r="1.6" fill="#f0e0c8" /><circle cx="-6" cy="2" r="1.6" fill="#f0e0c8" />
-        </g>
-
-        {/* Wigwam near the top of the slope + small pines */}
-        <g transform="translate(1512 504)">
-          <path d="M-26 26 L0 -22 L26 26 Z" fill="#8a5a34" stroke="#4a2f18" strokeWidth="3" strokeLinejoin="round" />
-          <path d="M-8 26 L0 8 L8 26 Z" fill="#3a2410" />
-          <path d="M-14 -2 L14 -2 M-20 10 L20 10" stroke="#5d3a1c" strokeWidth="2" />
-        </g>
-        <Pine x={1568} y={492} s={0.8} fill="#2e4632" />
-        <Pine x={1348} y={606} s={0.6} fill="#33503a" />
-        <Pine x={1180} y={688} s={0.7} fill="#2e4632" />
-
-        {/* Fireflies drifting up the meadow */}
-        {[[900, 800], [1080, 740], [1240, 664], [1380, 596], [1500, 540], [1020, 800]].map(([x, y], i) => (
-          <circle key={i} cx={x} cy={y} r="2.6" fill="#ffe9a0"
-            className="wv-firefly" style={{ animationDelay: `${i * 1.2}s` }} />
+        {/* Beach details: stones, shells, driftwood + two silhouettes watching */}
+        {[[210, 848, 14, 5.5], [270, 862, 9, 4], [700, 852, 12, 5], [1060, 872, 15, 6], [500, 872, 8, 3.6]].map(([x, y, rx, ry], i) => (
+          <ellipse key={i} cx={x} cy={y} rx={rx} ry={ry} fill={['#9a8a70', '#8f8068', '#a29078', '#948468', '#8a7a62'][i]} />
         ))}
+        <g transform="translate(370 858)" opacity="0.85">
+          <path d="M0 0 L4 -8 M0 0 L8 -5 M0 0 L9 1" stroke="#d8b48a" strokeWidth="2" strokeLinecap="round" />
+        </g>
+        <g transform="translate(930 878)" opacity="0.85">
+          <path d="M0 0 L-4 -8 M0 0 L-8 -5 M0 0 L-9 1" stroke="#dcc09a" strokeWidth="2" strokeLinecap="round" />
+        </g>
 
-        {/* Warm vignette over everything */}
+        {/* Driftwood log with two figures — a researcher and a kid, watching */}
+        <g transform="translate(1220 838)">
+          <rect x="-70" y="-4" width="150" height="15" rx="7" fill="#7a5233" transform="rotate(-3)" />
+          <path d="M62 -6 L82 -20" stroke="#7a5233" strokeWidth="7" strokeLinecap="round" />
+          <g className="wv-npc-sway">
+            <path d="M-26 -6 L-30 8 M-18 -6 L-15 8" stroke="#12333f" strokeWidth="3.6" strokeLinecap="round" />
+            <rect x="-31" y="-26" width="17" height="22" rx="6" fill="#12333f" />
+            <circle cx="-22" cy="-33" r="6.6" fill="#12333f" />
+            <path d="M-14 -20 L-2 -28" stroke="#12333f" strokeWidth="3.4" strokeLinecap="round" />
+          </g>
+          <g className="wv-npc-sway" style={{ animationDelay: '0.8s' }}>
+            <path d="M8 -5 L5 7 M14 -5 L17 7" stroke="#12333f" strokeWidth="3" strokeLinecap="round" />
+            <rect x="4" y="-20" width="13" height="16" rx="5" fill="#12333f" />
+            <circle cx="10.5" cy="-25.5" r="5.2" fill="#12333f" />
+          </g>
+        </g>
+
+        {/* Dune grass */}
+        <GrassTuft x={120} y={886} s={1.6} delay={0} />
+        <GrassTuft x={160} y={876} s={1.2} delay={0.6} />
+        <GrassTuft x={1490} y={888} s={1.7} delay={0.3} />
+        <GrassTuft x={1540} y={880} s={1.3} delay={0.9} />
+
+        {/* Depth + vignette */}
+        <rect width="1600" height="900" fill="url(#wvVign2)" pointerEvents="none" />
         <rect width="1600" height="900" fill="url(#wvVign)" pointerEvents="none" />
       </svg>
 
-      {/* Hero copy — left-aligned over the water, like a title plate */}
+      {/* Hero copy — left title plate */}
       <div className="wv-hero">
         <div className="wv-kicker2">NIBI · WATER IS LIFE</div>
         <h1 className="wv-title">
@@ -562,21 +463,29 @@ function SceneTurtle({ onScrollNext }) {
             <rect x="0" y="392" width="560" height="16" fill="rgba(120,180,220,0.35)" />
             <path d="M0 396 C90 388 180 402 280 394 C380 386 470 402 560 394" fill="none" stroke="rgba(70,130,180,0.5)" strokeWidth="3" className="wv-waterline" />
             <ellipse cx="290" cy="404" rx="185" ry="12" fill="rgba(30,60,90,0.16)" />
+            {/* Ripples where the legs meet the water */}
+            <circle cx="202" cy="400" r="9" fill="none" stroke="rgba(70,130,180,0.45)" strokeWidth="2.2" className="wv-ripple" />
+            <circle cx="390" cy="402" r="9" fill="none" stroke="rgba(70,130,180,0.4)" strokeWidth="2" className="wv-ripple" style={{ animationDelay: '1.8s' }} />
 
             <g className="wv-turtle-bob">
               <path d="M452 372 C472 362 484 366 488 378 C484 388 468 392 452 388 Z"
                 fill="#5da35f" stroke="#17301f" strokeWidth="7" strokeLinejoin="round" />
-              <path d="M152 348 C120 336 96 308 86 276 C80 256 84 240 98 231 C114 221 134 226 144 243 C152 257 154 274 162 292 Z"
-                fill="#5da35f" stroke="#17301f" strokeWidth="8" strokeLinejoin="round" />
-              <path d="M62 252 C54 232 62 212 84 205 C106 198 126 208 132 226 C137 243 128 259 108 264 C88 269 70 266 62 252 Z"
-                fill="#6bb06a" stroke="#17301f" strokeWidth="8" strokeLinejoin="round" />
-              <path d="M118 268 C128 262 138 260 148 262 M108 288 C120 280 134 277 148 280"
-                fill="none" stroke="#2c5137" strokeWidth="4" strokeLinecap="round" />
-              <circle cx="88" cy="230" r="7.5" fill="#122417" />
-              <circle cx="90.5" cy="227.5" r="2.6" fill="#e9f5da" />
-              <rect className="wv-eyelid" x="78" y="221" width="21" height="18" rx="9" fill="#6bb06a" />
-              <path d="M74 216 C82 210 94 209 102 213" fill="none" stroke="#17301f" strokeWidth="3.5" strokeLinecap="round" />
-              <path d="M64 246 C72 252 82 254 92 252" fill="none" stroke="#17301f" strokeWidth="3.5" strokeLinecap="round" />
+              {/* Head + neck in one group so the turtle can slowly look
+                  around (rotation at the neck base) while still bobbing
+                  with the body. */}
+              <g className="wv-headgroup">
+                <path d="M152 348 C120 336 96 308 86 276 C80 256 84 240 98 231 C114 221 134 226 144 243 C152 257 154 274 162 292 Z"
+                  fill="#5da35f" stroke="#17301f" strokeWidth="8" strokeLinejoin="round" />
+                <path d="M62 252 C54 232 62 212 84 205 C106 198 126 208 132 226 C137 243 128 259 108 264 C88 269 70 266 62 252 Z"
+                  fill="#6bb06a" stroke="#17301f" strokeWidth="8" strokeLinejoin="round" />
+                <path d="M118 268 C128 262 138 260 148 262 M108 288 C120 280 134 277 148 280"
+                  fill="none" stroke="#2c5137" strokeWidth="4" strokeLinecap="round" />
+                <circle cx="88" cy="230" r="7.5" fill="#122417" />
+                <circle cx="90.5" cy="227.5" r="2.6" fill="#e9f5da" />
+                <rect className="wv-eyelid" x="78" y="221" width="21" height="18" rx="9" fill="#6bb06a" />
+                <path d="M74 216 C82 210 94 209 102 213" fill="none" stroke="#17301f" strokeWidth="3.5" strokeLinecap="round" />
+                <path d="M64 246 C72 252 82 254 92 252" fill="none" stroke="#17301f" strokeWidth="3.5" strokeLinecap="round" />
+              </g>
 
               <g>
                 <path d="M182 392 C176 424 182 448 198 456 C214 462 226 450 224 426 L220 394 Z"
@@ -640,17 +549,32 @@ function SceneTurtle({ onScrollNext }) {
                   fill="url(#wvRibbonFill)" stroke="#1d3a52" strokeWidth="7" />
                 <path className="wv-flow2" d="M170 404 C144 462 178 514 150 574 C136 610 148 652 136 698" fill="none" stroke="rgba(245,252,255,0.95)" strokeWidth="3.4" strokeLinecap="round" />
                 <path className="wv-flow2 wv-flow2-d2" d="M186 402 C162 460 194 514 168 576 C154 612 166 654 154 698" fill="none" stroke="rgba(245,252,255,0.7)" strokeWidth="2.6" strokeLinecap="round" />
+                <circle className="wv-ribdrop" r="4.4" fill="#eef8ff">
+                  <animateMotion dur="6.5s" repeatCount="indefinite" path="M170 404 C144 462 178 514 150 574 C136 610 148 652 136 698" />
+                </circle>
+                <circle className="wv-ribdrop" r="3" fill="#eef8ff" opacity="0.8">
+                  <animateMotion dur="6.5s" begin="3.2s" repeatCount="indefinite" path="M170 404 C144 462 178 514 150 574 C136 610 148 652 136 698" />
+                </circle>
               </g>
               <g className="wv-ribbon-sway wv-rs-2">
                 <path d="M258 404 C240 470 276 522 252 586 C240 620 252 660 240 702 L318 702 C330 660 318 622 332 586 C356 524 316 472 336 406 Z"
                   fill="url(#wvRibbonFill)" stroke="#1d3a52" strokeWidth="7" />
                 <path className="wv-flow2 wv-flow2-d3" d="M282 406 C264 472 298 524 276 588 C264 622 276 662 266 700" fill="none" stroke="rgba(245,252,255,0.95)" strokeWidth="3.6" strokeLinecap="round" />
                 <path className="wv-flow2" d="M306 406 C290 470 322 524 300 588 C288 622 300 662 292 700" fill="none" stroke="rgba(245,252,255,0.7)" strokeWidth="2.8" strokeLinecap="round" />
+                <circle className="wv-ribdrop" r="4.6" fill="#eef8ff">
+                  <animateMotion dur="7.4s" begin="1.1s" repeatCount="indefinite" path="M282 406 C264 472 298 524 276 588 C264 622 276 662 266 700" />
+                </circle>
+                <circle className="wv-ribdrop" r="3.2" fill="#eef8ff" opacity="0.8">
+                  <animateMotion dur="7.4s" begin="4.8s" repeatCount="indefinite" path="M306 406 C290 470 322 524 300 588 C288 622 300 662 292 700" />
+                </circle>
               </g>
               <g className="wv-ribbon-sway wv-rs-3">
                 <path d="M392 402 C420 464 388 516 420 578 C438 612 426 652 444 700 L378 700 C364 652 376 614 360 578 C334 518 372 464 348 404 Z"
                   fill="url(#wvRibbonFill)" stroke="#1d3a52" strokeWidth="7" />
                 <path className="wv-flow2 wv-flow2-d2" d="M372 404 C396 464 366 518 396 578 C412 612 402 654 414 698" fill="none" stroke="rgba(245,252,255,0.95)" strokeWidth="3.4" strokeLinecap="round" />
+                <circle className="wv-ribdrop" r="4.2" fill="#eef8ff">
+                  <animateMotion dur="6.9s" begin="2.3s" repeatCount="indefinite" path="M372 404 C396 464 366 518 396 578 C412 612 402 654 414 698" />
+                </circle>
               </g>
             </g>
 
@@ -802,39 +726,125 @@ function SceneUnderwater({ onScrollNext }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Scene 5 — Night water, aurora, shooting stars, silhouette canoe, final CTA
 // ─────────────────────────────────────────────────────────────────────────────
+function AuroraCurtain({ x, hue, cls }) {
+  // A curtain = several tall tapered blades sharing a gradient; the group
+  // sways as one and the blades shimmer individually.
+  const blades = [[0, 300, 46], [58, 380, 54], [124, 330, 44], [186, 410, 60], [258, 300, 42]]
+  return (
+    <g className={`wv-curtain ${cls}`} transform={`translate(${x} 40)`}>
+      {blades.map(([bx, h, w], i) => (
+        <path key={i} className="wv-blade" style={{ animationDelay: `${i * 0.7}s` }}
+          d={`M${bx} 0 L${bx + w} 0 L${bx + w * 0.72} ${h} L${bx + w * 0.28} ${h} Z`}
+          fill={`url(#${hue})`} />
+      ))}
+    </g>
+  )
+}
+
 function SceneNight({ onSignIn }) {
   return (
     <section className="wv-section wv-night" data-scene="night">
-      <div className="wv-stars" aria-hidden="true">
-        {Array.from({ length: 42 }).map((_, i) => (
-          <span key={i} style={{
-            left: `${(i * 37) % 100}%`, top: `${(i * 23) % 55}%`,
-            animationDelay: `${(i % 7) * 0.8}s`,
-            width: i % 5 === 0 ? 3 : 2, height: i % 5 === 0 ? 3 : 2,
-          }} />
+      <svg className="wv-worldsvg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <defs>
+          <linearGradient id="wvNSky" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#04070f" />
+            <stop offset="58%" stopColor="#0a1626" />
+            <stop offset="100%" stopColor="#13283e" />
+          </linearGradient>
+          <linearGradient id="wvNSea" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#0d2236" />
+            <stop offset="100%" stopColor="#04101c" />
+          </linearGradient>
+          <linearGradient id="wvAurG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgba(70,227,160,0.75)" />
+            <stop offset="100%" stopColor="rgba(70,227,160,0)" />
+          </linearGradient>
+          <linearGradient id="wvAurT" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgba(63,208,201,0.65)" />
+            <stop offset="100%" stopColor="rgba(63,208,201,0)" />
+          </linearGradient>
+          <linearGradient id="wvAurV" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgba(143,127,240,0.6)" />
+            <stop offset="100%" stopColor="rgba(143,127,240,0)" />
+          </linearGradient>
+          <radialGradient id="wvMoonGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="rgba(244,241,224,0.9)" />
+            <stop offset="40%" stopColor="rgba(240,235,200,0.28)" />
+            <stop offset="100%" stopColor="rgba(240,235,200,0)" />
+          </radialGradient>
+        </defs>
+
+        {/* Sky */}
+        <rect width="1600" height="620" fill="url(#wvNSky)" />
+
+        {/* Stars — three magnitudes, twinkling */}
+        {Array.from({ length: 64 }).map((_, i) => (
+          <circle key={i} className="wv-star" style={{ animationDelay: `${(i % 9) * 0.55}s` }}
+            cx={(i * 149) % 1600} cy={(i * 83) % 480}
+            r={i % 9 === 0 ? 2.2 : i % 4 === 0 ? 1.5 : 1} fill="#dbeafe" />
         ))}
-      </div>
-      {/* Shooting stars */}
-      <span className="wv-shooter wv-shooter-1" aria-hidden="true" />
-      <span className="wv-shooter wv-shooter-2" aria-hidden="true" />
 
-      <div className="wv-aurora" aria-hidden="true">
-        <span className="wv-aurora-1" /><span className="wv-aurora-2" /><span className="wv-aurora-3" />
-      </div>
-      <div className="wv-moon" aria-hidden="true" />
-      <div className="wv-moonpath" aria-hidden="true" />
+        {/* Aurora curtains — swaying blades with mirrored water reflections */}
+        <AuroraCurtain x={140} hue="wvAurG" cls="wv-c1" />
+        <AuroraCurtain x={560} hue="wvAurT" cls="wv-c2" />
+        <AuroraCurtain x={1020} hue="wvAurV" cls="wv-c3" />
 
-      {/* Silhouette canoe drifting across the moonpath */}
-      <div className="wv-nightcanoe" aria-hidden="true">
-        <svg viewBox="0 0 160 60" width="120">
-          <path d="M8 30 Q80 52 152 30 L142 40 Q80 58 18 40 Z" fill="#0a1522" />
-          <circle cx="82" cy="20" r="7" fill="#0a1522" />
-          <path d="M82 26 L82 38 M82 30 L64 22 M82 30 L100 40" stroke="#0a1522" strokeWidth="4" strokeLinecap="round" />
-        </svg>
-      </div>
+        {/* Moon with craters + halo */}
+        <circle cx="1240" cy="170" r="150" fill="url(#wvMoonGlow)" className="wv-sunbreath" />
+        <circle cx="1240" cy="170" r="56" fill="#f4f1e0" />
+        <circle cx="1222" cy="152" r="9" fill="#e2ddc4" />
+        <circle cx="1256" cy="184" r="12" fill="#e6e1c9" />
+        <circle cx="1232" cy="192" r="6" fill="#dfd9bf" />
 
-      <svg className="wv-night-wave" viewBox="0 0 1440 120" preserveAspectRatio="none" aria-hidden="true">
-        <path d="M0,60 C180,35 300,85 480,60 C660,38 780,82 960,60 C1140,38 1260,82 1440,60 L1440,120 L0,120 Z" fill="#050d1c" />
+        {/* Water */}
+        <rect x="0" y="620" width="1600" height="280" fill="url(#wvNSea)" />
+        <rect x="0" y="618" width="1600" height="3" fill="rgba(220,235,245,0.22)" />
+
+        {/* Aurora reflections — mirrored, dimmed, blurred */}
+        <g transform="translate(0 1280) scale(1 -1)" opacity="0.16" style={{ filter: 'blur(10px)' }}>
+          <AuroraCurtain x={140} hue="wvAurG" cls="wv-c1" />
+          <AuroraCurtain x={560} hue="wvAurT" cls="wv-c2" />
+          <AuroraCurtain x={1020} hue="wvAurV" cls="wv-c3" />
+        </g>
+
+        {/* Moon glitter trail on the water */}
+        {[648, 678, 712, 748, 790, 834].map((y, i) => (
+          <rect key={y} x={1212 - i * 8} y={y} width={56 + i * 16} height="4" rx="2"
+            fill="rgba(240,235,200,0.4)" className="wv-glint2" style={{ animationDelay: `${i * 0.5}s` }} />
+        ))}
+
+        {/* Loon-call rings drifting on the dark water */}
+        {[[380, 720], [820, 770]].map(([x, y], i) => (
+          <circle key={i} cx={x} cy={y} r="10" fill="none" stroke="rgba(200,225,240,0.3)" strokeWidth="2"
+            className="wv-ripple" style={{ animationDelay: `${i * 2.2}s` }} />
+        ))}
+
+        {/* Paddler silhouette crossing the glitter trail */}
+        <g className="wv-nightpaddler">
+          <path d="M-44 0 Q0 14 44 0 L36 9 Q0 20 -36 9 Z" fill="#050e18" />
+          <circle cx="-2" cy="-11" r="5.6" fill="#050e18" />
+          <path d="M-2 -6 L-2 4" stroke="#050e18" strokeWidth="4" strokeLinecap="round" />
+          <g className="wv-nightpaddle">
+            <path d="M-2 -2 L18 12" stroke="#050e18" strokeWidth="3.4" strokeLinecap="round" />
+            <ellipse cx="21" cy="15" rx="4" ry="7" fill="#050e18" transform="rotate(-36 21 15)" />
+          </g>
+          <path d="M-58 8 q14 4 28 3 M-70 12 q16 5 34 3" stroke="rgba(210,230,245,0.2)" strokeWidth="2" fill="none" strokeLinecap="round" />
+        </g>
+
+        {/* Pine shoreline silhouette, bottom left */}
+        <path d="M0 900 L0 830 C60 838 140 850 260 862 C400 876 520 888 600 900 Z" fill="#02090f" />
+        <Pine x={60} y={846} s={1.25} fill="#02090f" />
+        <Pine x={130} y={858} s={0.95} fill="#02090f" />
+        <Pine x={205} y={868} s={1.4} fill="#02090f" />
+        <Pine x={295} y={880} s={1.05} fill="#02090f" />
+
+        {/* Shooting stars */}
+        <g className="wv-shoot wv-shoot-1">
+          <rect x="0" y="0" width="110" height="2.4" rx="1.2" fill="url(#wvMoonGlow)" />
+        </g>
+        <g className="wv-shoot wv-shoot-2">
+          <rect x="0" y="0" width="90" height="2" rx="1" fill="url(#wvMoonGlow)" />
+        </g>
       </svg>
 
       <div className="wv-night-content">
@@ -1024,44 +1034,118 @@ export default function Welcome() {
           background: rgba(124,196,234,0.12); color: #a8d4f0; border: 1px solid rgba(124,196,234,0.3);
         }
 
-        /* ═══ SCENE 1 · THE LIVING WORLD ═══════════════════════ */
-        .wv-dawn { background: #f2c47c; }
+        /* ═══ SCENE 1 · DUSK AT THE LAKE ═══════════════════════ */
+        .wv-dawn { background: #174b59; }
         .wv-worldsvg { position: absolute; inset: 0; width: 100%; height: 100%; }
 
-        .wv-sunbreath { animation: wvSunBreath 7s ease-in-out infinite; transform-origin: 820px 255px; transform-box: view-box; }
+        .wv-sunbreath { animation: wvSunBreath 7s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
         @keyframes wvSunBreath { 0%,100% { opacity: 0.92; transform: scale(1); } 50% { opacity: 1; transform: scale(1.045); } }
 
-        .wv-haze { }
-        .wv-haze-1 { animation: wvHazeDrift 26s ease-in-out infinite alternate; }
-        .wv-haze-2 { animation: wvHazeDrift 34s ease-in-out infinite alternate-reverse; }
-        @keyframes wvHazeDrift { from { transform: translateX(-60px); } to { transform: translateX(70px); } }
+        .wv-haze-1 { animation: wvHazeDrift 30s ease-in-out infinite alternate; }
+        .wv-haze-2 { animation: wvHazeDrift 40s ease-in-out infinite alternate-reverse; }
+        @keyframes wvHazeDrift { from { transform: translateX(-70px); } to { transform: translateX(80px); } }
 
-        .wv-flock { transform: translateX(-220px); }
-        .wv-flock-1 { transform: translate(-220px, 110px); animation: wvFlockCross 52s linear infinite; }
-        .wv-flock-2 { transform: translate(-160px, 185px); animation: wvFlockCross 70s linear 18s infinite; }
+        .wv-flock-1 { animation: wvFlockCross 46s linear infinite; }
         @keyframes wvFlockCross {
-          from { transform: translate(-240px, var(--fy, 110px)); }
-          to   { transform: translate(1840px, var(--fy, 110px)); }
+          from { transform: translate(-240px, 130px); }
+          to   { transform: translate(1840px, 96px); }
         }
-        .wv-flock-1 { --fy: 110px; } .wv-flock-2 { --fy: 185px; }
         .wv-flapwing { transform-box: fill-box; transform-origin: center;
           animation: wvFlap2 0.62s ease-in-out infinite alternate; }
         @keyframes wvFlap2 { from { transform: scaleY(1); } to { transform: scaleY(0.25); } }
 
-        .wv-suncol { animation: wvSuncolShimmer 6s ease-in-out infinite alternate; transform-origin: 820px 472px; transform-box: view-box; }
-        @keyframes wvSuncolShimmer { from { opacity: 0.75; transform: scaleX(0.9); } to { opacity: 1; transform: scaleX(1.1); } }
         .wv-glint2 { transform-box: fill-box; transform-origin: center;
           animation: wvGlintPulse 4.4s ease-in-out infinite; }
         @keyframes wvGlintPulse {
-          0%,100% { opacity: 0.15; transform: scaleX(0.55); }
-          50% { opacity: 0.85; transform: scaleX(1.15); }
+          0%,100% { opacity: 0.12; transform: scaleX(0.55); }
+          50% { opacity: 0.8; transform: scaleX(1.15); }
         }
 
-        .wv-waveline { }
-        .wv-wl-1 { animation: wvWaveDrift 12s ease-in-out infinite alternate; }
-        .wv-wl-2 { animation: wvWaveDrift 15s ease-in-out infinite alternate-reverse; }
-        .wv-wl-3 { animation: wvWaveDrift 18s ease-in-out infinite alternate; }
-        @keyframes wvWaveDrift { from { transform: translateX(-34px); } to { transform: translateX(38px); } }
+        /* The four swells breathe sideways at different tempos — the
+           whole lake feels like it's slowly rolling. */
+        .wv-swell { will-change: transform; }
+        .wv-s1 { animation: wvSwellDrift 13s ease-in-out infinite alternate; }
+        .wv-s2 { animation: wvSwellDrift 10s ease-in-out infinite alternate-reverse; }
+        .wv-s3 { animation: wvSwellDrift 8s ease-in-out infinite alternate; }
+        .wv-s4 { animation: wvSwellDrift 6.5s ease-in-out infinite alternate-reverse; }
+        @keyframes wvSwellDrift {
+          from { transform: translate(-48px, 0); }
+          to   { transform: translate(44px, -7px); }
+        }
+
+        .wv-buoy { animation: wvBuoyRide 5.2s ease-in-out infinite alternate; transform-origin: center bottom; }
+        .wv-buoy { transform: translate(430px, 640px); }
+        @keyframes wvBuoyRide {
+          from { transform: translate(430px, 640px) rotate(-5deg); }
+          to   { transform: translate(430px, 630px) rotate(6deg); }
+        }
+        .wv-buoylight { animation: wvBuoyBlink 2.4s ease-in-out infinite; }
+        @keyframes wvBuoyBlink { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+        .wv-farcanoe { animation: wvFarCross 105s linear infinite; }
+        @keyframes wvFarCross {
+          from { transform: translate(1700px, 500px); }
+          to   { transform: translate(-140px, 500px); }
+        }
+
+        /* THE BREACH — 9s cycle: burst out, hang, crash, calm water */
+        .wv-breach { animation: wvBreachArc 9s ease-in-out infinite; will-change: transform, opacity; }
+        @keyframes wvBreachArc {
+          0%   { transform: translate(590px, 760px) rotate(-52deg); opacity: 0; }
+          4%   { transform: translate(612px, 700px) rotate(-46deg); opacity: 1; }
+          14%  { transform: translate(688px, 540px) rotate(-18deg); opacity: 1; }
+          22%  { transform: translate(752px, 500px) rotate(4deg);  opacity: 1; }
+          30%  { transform: translate(820px, 560px) rotate(30deg); opacity: 1; }
+          38%  { transform: translate(878px, 700px) rotate(54deg); opacity: 1; }
+          41%  { transform: translate(892px, 760px) rotate(58deg); opacity: 0; }
+          100% { transform: translate(892px, 780px) rotate(58deg); opacity: 0; }
+        }
+        .wv-streams { animation: wvStreams 9s ease-in-out infinite; }
+        @keyframes wvStreams {
+          0%, 6%, 42%, 100% { opacity: 0; }
+          14%, 32% { opacity: 0.85; }
+        }
+        /* Splash synced to the 38-41% re-entry window */
+        .wv-splashring { transform-box: fill-box; transform-origin: center;
+          animation: wvSplashRing 9s ease-out infinite; opacity: 0; }
+        .wv-sr2 { animation-delay: 0.35s; }
+        @keyframes wvSplashRing {
+          0%, 37% { transform: scale(0.2); opacity: 0; }
+          40% { opacity: 0.9; }
+          52% { transform: scale(3.2); opacity: 0; }
+          100% { transform: scale(3.2); opacity: 0; }
+        }
+        .wv-spray { transform-box: fill-box; transform-origin: center bottom;
+          animation: wvSpray 9s ease-out infinite; opacity: 0; }
+        @keyframes wvSpray {
+          0%, 37% { transform: scaleY(0.1); opacity: 0; }
+          41% { transform: scaleY(1.15); opacity: 0.95; }
+          50% { transform: scaleY(1.3) translateY(-8px); opacity: 0; }
+          100% { opacity: 0; }
+        }
+        .wv-drop { animation: wvDropFly 9s ease-out infinite; opacity: 0; }
+        @keyframes wvDropFly {
+          0%, 37% { transform: translate(0, 0); opacity: 0; }
+          40% { opacity: 1; }
+          46% { transform: translate(var(--dx, 20px), var(--dy, -60px)); opacity: 0.9; }
+          54% { transform: translate(calc(var(--dx, 20px) * 1.3), calc(var(--dy, -60px) * -0.3)); opacity: 0; }
+          100% { opacity: 0; }
+        }
+        .wv-exitring { transform-box: fill-box; transform-origin: center;
+          animation: wvExitRing 9s ease-out infinite; opacity: 0; }
+        @keyframes wvExitRing {
+          0% { transform: scale(0.3); opacity: 0; }
+          3% { opacity: 0.8; }
+          16% { transform: scale(3); opacity: 0; }
+          100% { opacity: 0; }
+        }
+
+        /* Foam washes up the sand and slides back, endlessly */
+        .wv-foam { animation: wvFoamWash 7s ease-in-out infinite alternate; }
+        @keyframes wvFoamWash {
+          from { transform: translateY(0); opacity: 0.55; }
+          to   { transform: translateY(-13px); opacity: 0.95; }
+        }
 
         .wv-ripple { transform-box: fill-box; transform-origin: center;
           animation: wvRippleGrow 4.4s ease-out infinite; }
@@ -1071,107 +1155,13 @@ export default function Welcome() {
           100% { transform: scale(3.4); opacity: 0; }
         }
 
-        .wv-sailboat { animation: wvSailDrift 95s linear infinite; }
-        @keyframes wvSailDrift {
-          from { transform: translate(1700px, 505px); }
-          to   { transform: translate(-160px, 505px); }
-        }
-
-        .wv-loon { animation: wvLoonSwim 120s linear infinite, wvLoonBob 5s ease-in-out infinite alternate; }
-        @keyframes wvLoonSwim { from { transform: translate(-80px, 655px); } to { transform: translate(1700px, 655px); } }
-        @keyframes wvLoonBob { from { margin-top: 0; } to { margin-top: 4px; } }
-
-        .wv-canoecross { animation: wvCanoeCross 78s linear infinite; }
-        @keyframes wvCanoeCross { from { transform: translate(-160px, 588px); } to { transform: translate(1780px, 588px); } }
-        .wv-canoerock2 { animation: wvCanoeRock2 4.4s ease-in-out infinite alternate; transform-origin: center bottom; }
-        @keyframes wvCanoeRock2 { from { transform: translateY(0) rotate(-1.6deg); } to { transform: translateY(7px) rotate(1.8deg); } }
-        .wv-paddleA { transform-box: fill-box; transform-origin: -26px 8px;
-          animation: wvPaddleStrokeA 1.9s ease-in-out infinite; }
-        .wv-paddleB { transform-box: fill-box; transform-origin: 24px 8px;
-          animation: wvPaddleStrokeA 1.9s ease-in-out 0.95s infinite; }
-        @keyframes wvPaddleStrokeA {
-          0%, 100% { transform: rotate(-16deg); }
-          46% { transform: rotate(22deg); }
-          62% { transform: rotate(17deg); }
-        }
-        .wv-wakering { transform-box: fill-box; transform-origin: center; }
-        .wv-wakering { animation: wvWake2 2.6s ease-out infinite; }
-        .wv-wr-2 { animation-delay: 0.9s; }
-        @keyframes wvWake2 { 0% { transform: scale(0.4); opacity: 0.75; } 100% { transform: scale(1.7); opacity: 0; } }
-
-        .wv-fishleap {
-          transform: translate(320px, 620px);
-          animation: wvFishLeap 12s ease-in-out infinite;
-          transform-origin: center bottom;
-        }
-        @keyframes wvFishLeap {
-          0%, 78%, 100% { transform: translate(320px, 620px) rotate(0deg); opacity: 0; }
-          82% { transform: translate(340px, 566px) rotate(-24deg); opacity: 1; }
-          86% { transform: translate(362px, 552px) rotate(6deg); opacity: 1; }
-          91% { transform: translate(386px, 618px) rotate(38deg); opacity: 0; }
-        }
-
         .wv-grass { transform-box: fill-box; transform-origin: bottom center;
           animation: wvGrassSway 4.6s ease-in-out infinite alternate; }
         @keyframes wvGrassSway { from { transform: rotate(-5deg); } to { transform: rotate(6deg); } }
-        .wv-cattail { transform-box: fill-box; transform-origin: bottom center;
-          animation: wvGrassSway 5.8s ease-in-out infinite alternate; }
 
         .wv-npc-sway { transform-box: fill-box; transform-origin: center bottom;
-          animation: wvNpcSway 3.8s ease-in-out infinite alternate; }
-        @keyframes wvNpcSway { from { transform: rotate(-2.4deg); } to { transform: rotate(2.6deg); } }
-        .wv-drumarm { transform-box: fill-box; transform-origin: right center;
-          animation: wvDrumBeat 0.62s ease-in-out infinite alternate; }
-        @keyframes wvDrumBeat { from { transform: rotate(-24deg); } to { transform: rotate(14deg); } }
-        .wv-wavearm { transform-box: fill-box; transform-origin: right bottom;
-          animation: wvWaveArm 1.4s ease-in-out infinite alternate; }
-        @keyframes wvWaveArm { from { transform: rotate(-22deg); } to { transform: rotate(16deg); } }
-        .wv-dogtail { transform-box: fill-box; transform-origin: bottom right;
-          animation: wvTailWag 0.5s ease-in-out infinite alternate; }
-        @keyframes wvTailWag { from { transform: rotate(-16deg); } to { transform: rotate(18deg); } }
-
-        .wv-fireglow { animation: wvFireGlow 2.6s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: center; }
-        @keyframes wvFireGlow { from { opacity: 0.12; transform: scale(0.92); } to { opacity: 0.24; transform: scale(1.1); } }
-        .wv-flame { transform-box: fill-box; transform-origin: center bottom; }
-        .wv-flame-1 { animation: wvFlicker 0.44s ease-in-out infinite alternate; }
-        .wv-flame-2 { animation: wvFlicker 0.36s ease-in-out 0.1s infinite alternate; }
-        @keyframes wvFlicker {
-          from { transform: scaleY(0.86) skewX(-3deg); }
-          to   { transform: scaleY(1.12) skewX(4deg); }
-        }
-        .wv-smoke { animation: wvSmokeRise 4.5s ease-out infinite; transform-box: fill-box; transform-origin: center; }
-        @keyframes wvSmokeRise {
-          0% { transform: translateY(0) scale(0.7); opacity: 0; }
-          14% { opacity: 0.5; }
-          100% { transform: translateY(-72px) translateX(10px) scale(1.9); opacity: 0; }
-        }
-
-        .wv-deerhead { transform-box: fill-box; transform-origin: left bottom;
-          animation: wvDeerGraze 7.5s ease-in-out infinite; }
-        @keyframes wvDeerGraze {
-          0%, 55%, 100% { transform: rotate(0deg); }
-          66%, 84% { transform: rotate(42deg); }
-        }
-        .wv-heronneck { transform-box: fill-box; transform-origin: left bottom;
-          animation: wvHeronDip 9s ease-in-out infinite; }
-        @keyframes wvHeronDip {
-          0%, 62%, 100% { transform: rotate(0deg); }
-          72%, 80% { transform: rotate(34deg); }
-        }
-        .wv-bearhead { transform-box: fill-box; transform-origin: left center;
-          animation: wvBearBob 5.4s ease-in-out infinite; }
-        @keyframes wvBearBob {
-          0%, 52%, 100% { transform: rotate(0deg); }
-          64%, 78% { transform: rotate(16deg); }
-        }
-
-        .wv-firefly { animation: wvFirefly 7s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
-        @keyframes wvFirefly {
-          0%, 100% { opacity: 0; transform: translate(0, 0); }
-          20% { opacity: 0.9; }
-          50% { opacity: 0.35; transform: translate(9px, -22px); }
-          75% { opacity: 0.85; transform: translate(-5px, -38px); }
-        }
+          animation: wvNpcSway 4.4s ease-in-out infinite alternate; }
+        @keyframes wvNpcSway { from { transform: rotate(-1.8deg); } to { transform: rotate(2deg); } }
 
         /* Hero copy — left plate like the reference */
         .wv-hero {
@@ -1183,14 +1173,14 @@ export default function Welcome() {
         }
         .wv-kicker2 {
           font-size: 12px; font-weight: 800; letter-spacing: 0.3em; text-transform: uppercase;
-          color: #4a3520; margin-bottom: 16px; text-shadow: 0 1px 10px rgba(255,235,190,0.6);
+          color: #ffd9a0; margin-bottom: 16px; text-shadow: 0 1px 12px rgba(10,25,35,0.7);
         }
         .wv-title {
           margin: 0 0 18px; line-height: 1.04; letter-spacing: -0.01em;
         }
         .wv-t-dark {
-          font-size: clamp(40px, 5.6vw, 68px); font-weight: 800; color: #2c2214;
-          text-shadow: 0 2px 18px rgba(255,240,200,0.4);
+          font-size: clamp(40px, 5.6vw, 68px); font-weight: 800; color: #f4efe4;
+          text-shadow: 0 3px 24px rgba(8,22,30,0.65);
         }
         .wv-t-serif {
           font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-weight: 600;
@@ -1249,6 +1239,15 @@ export default function Welcome() {
         .wv-carried { transform-box: fill-box; transform-origin: center bottom;
           animation: wvCarriedSway 8s ease-in-out infinite alternate; }
         @keyframes wvCarriedSway { from { transform: rotate(-1deg); } to { transform: rotate(1.2deg); } }
+        /* The turtle slowly looks up toward the sun and back */
+        .wv-headgroup { transform-box: view-box; transform-origin: 152px 344px;
+          animation: wvHeadLook 11s ease-in-out infinite; }
+        @keyframes wvHeadLook {
+          0%, 50%, 100% { transform: rotate(0deg); }
+          62%, 72% { transform: rotate(-4deg); }
+          84% { transform: rotate(1.6deg); }
+        }
+        .wv-ribdrop { filter: drop-shadow(0 0 3px rgba(235,250,255,0.9)); }
         .wv-shellflow { stroke-dasharray: 20 30; animation: wvFlowDash 5.5s linear infinite; }
         .wv-shellflow-d2 { animation-duration: 7s; }
         .wv-ribbon-sway { transform-box: fill-box; transform-origin: center top; }
@@ -1326,59 +1325,49 @@ export default function Welcome() {
         .wv-card h3 { margin: 0 0 8px; font-size: 17px; font-weight: 800; color: #fff; }
         .wv-card p { margin: 0; font-size: 13.5px; line-height: 1.65; color: #b6cee4; }
 
-        /* ═══ SCENE 5 · NIGHT ══════════════════════════════════ */
-        .wv-night { background: linear-gradient(180deg, #030814 0%, #071527 55%, #0a1e33 100%); }
-        .wv-stars { position: absolute; inset: 0; }
-        .wv-stars span { position: absolute; border-radius: 50%; background: #dbeafe;
-          animation: wvTwinkle 3.4s ease-in-out infinite; }
-        @keyframes wvTwinkle { 0%,100% { opacity: 0.25; } 50% { opacity: 1; } }
-        .wv-shooter {
-          position: absolute; width: 90px; height: 2px; border-radius: 2px;
-          background: linear-gradient(90deg, rgba(240,248,255,0.9), transparent);
-          transform: rotate(-28deg); opacity: 0;
+        /* ═══ SCENE 5 · AURORA NIGHT ═══════════════════════════ */
+        .wv-night { background: #04070f; }
+        .wv-star { animation: wvTwinkle 3.4s ease-in-out infinite; }
+        @keyframes wvTwinkle { 0%,100% { opacity: 0.2; } 50% { opacity: 1; } }
+
+        /* Aurora curtains sway as sheets; blades shimmer individually */
+        .wv-curtain { transform-box: view-box; will-change: transform; }
+        .wv-c1 { animation: wvCurtainSway 13s ease-in-out infinite alternate; }
+        .wv-c2 { animation: wvCurtainSway 17s ease-in-out infinite alternate-reverse; }
+        .wv-c3 { animation: wvCurtainSway 15s ease-in-out 4s infinite alternate; }
+        @keyframes wvCurtainSway {
+          from { transform: translateX(-30px) skewX(-4deg); }
+          to   { transform: translateX(34px) skewX(4deg); }
         }
-        .wv-shooter-1 { top: 12%; left: 20%; animation: wvShoot 9s ease-in 3s infinite; }
-        .wv-shooter-2 { top: 7%; left: 62%; animation: wvShoot 13s ease-in 8s infinite; }
-        @keyframes wvShoot {
-          0%, 92%, 100% { opacity: 0; transform: rotate(-28deg) translateX(0); }
-          93% { opacity: 1; }
-          97% { opacity: 0; transform: rotate(-28deg) translateX(240px); }
+        .wv-blade { transform-box: fill-box; transform-origin: center top;
+          animation: wvBladeGlow 5.5s ease-in-out infinite alternate;
+          filter: blur(7px); }
+        @keyframes wvBladeGlow {
+          from { opacity: 0.45; transform: scaleY(0.9); }
+          to   { opacity: 0.95; transform: scaleY(1.12); }
         }
-        .wv-aurora { position: absolute; inset: 0; overflow: hidden; }
-        .wv-aurora span { position: absolute; top: 4%; height: 46%; border-radius: 50%; filter: blur(46px); opacity: 0.5; }
-        .wv-aurora-1 { left: 6%; width: 34%; background: linear-gradient(180deg, #34d399, transparent);
-          animation: wvAurora 11s ease-in-out infinite alternate; }
-        .wv-aurora-2 { left: 36%; width: 30%; background: linear-gradient(180deg, #60a5fa, transparent);
-          animation: wvAurora 14s ease-in-out infinite alternate-reverse; }
-        .wv-aurora-3 { left: 62%; width: 32%; background: linear-gradient(180deg, #a78bfa, transparent);
-          animation: wvAurora 12.5s ease-in-out 3s infinite alternate; }
-        @keyframes wvAurora {
-          from { transform: translateX(-36px) skewX(-6deg) scaleY(1); opacity: 0.35; }
-          to   { transform: translateX(40px) skewX(5deg) scaleY(1.18); opacity: 0.62; }
+
+        .wv-nightpaddler { animation: wvNightPaddle 95s linear infinite; }
+        @keyframes wvNightPaddle {
+          from { transform: translate(-120px, 742px); }
+          to   { transform: translate(1740px, 742px); }
         }
-        .wv-moon {
-          position: absolute; right: 14%; top: 13%;
-          width: 74px; height: 74px; border-radius: 50%;
-          background: radial-gradient(circle at 38% 36%, #fdfbf3, #e5dfc8 68%, #cfc7a8);
-          box-shadow: 0 0 50px 14px rgba(240,235,200,0.3);
+        .wv-nightpaddle { transform-box: fill-box; transform-origin: left top;
+          animation: wvNightStroke 2.2s ease-in-out infinite; }
+        @keyframes wvNightStroke {
+          0%, 100% { transform: rotate(-12deg); }
+          48% { transform: rotate(18deg); }
         }
-        .wv-moonpath {
-          position: absolute; right: calc(14% + 8px); top: 30%; width: 58px; height: 46%;
-          background: linear-gradient(180deg, rgba(240,235,200,0.35), transparent 85%);
-          filter: blur(9px);
-          animation: wvMoonShimmer 5s ease-in-out infinite alternate;
+
+        .wv-shoot { opacity: 0; }
+        .wv-shoot-1 { animation: wvShoot2 11s ease-in 4s infinite; transform: translate(300px, 90px) rotate(-26deg); }
+        .wv-shoot-2 { animation: wvShoot2 15s ease-in 10s infinite; transform: translate(900px, 60px) rotate(-22deg); }
+        @keyframes wvShoot2 {
+          0%, 91%, 100% { opacity: 0; }
+          92% { opacity: 1; }
+          96% { opacity: 0; transform: translate(560px, 210px) rotate(-26deg); }
         }
-        @keyframes wvMoonShimmer { from { opacity: 0.5; transform: scaleX(0.85); } to { opacity: 0.9; transform: scaleX(1.12); } }
-        .wv-nightcanoe {
-          position: absolute; bottom: 16%; left: 0;
-          animation: wvNightCanoe 90s linear infinite;
-          opacity: 0.9;
-        }
-        @keyframes wvNightCanoe {
-          from { transform: translateX(-140px); }
-          to   { transform: translateX(105vw); }
-        }
-        .wv-night-wave { position: absolute; bottom: 0; left: 0; width: 100%; height: 110px; }
+
         .wv-night-content { position: relative; z-index: 5; text-align: center; padding: 0 22px; max-width: 620px; }
         .wv-night-content h2 { font-size: clamp(30px, 4.6vw, 52px); font-weight: 800; color: #f3f7fc; margin: 0 0 16px; }
         .wv-night-content p { font-size: 16.5px; line-height: 1.75; color: #b9cfe4; margin: 0 0 30px; }
