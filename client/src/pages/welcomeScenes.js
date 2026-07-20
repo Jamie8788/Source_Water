@@ -32,13 +32,14 @@ function fishShape(ctx, len, body, belly, wag) {
     ctx.quadraticCurveTo(0, len * 0.13, -len * 0.42, 2)
     ctx.fill()
   }
-  // tail
+  // forked caudal tail
   ctx.fillStyle = body
   ctx.beginPath()
-  ctx.moveTo(-len * 0.48, 0)
-  ctx.lineTo(-len * 0.68, wag - len * 0.14)
-  ctx.lineTo(-len * 0.62, wag)
-  ctx.lineTo(-len * 0.68, wag + len * 0.14)
+  ctx.moveTo(-len * 0.46, 0)
+  ctx.quadraticCurveTo(-len * 0.58, wag * 0.4, -len * 0.72, wag - len * 0.17)
+  ctx.quadraticCurveTo(-len * 0.6, wag * 0.5, -len * 0.62, wag)
+  ctx.quadraticCurveTo(-len * 0.6, wag * 0.5, -len * 0.72, wag + len * 0.17)
+  ctx.quadraticCurveTo(-len * 0.58, wag * 0.4, -len * 0.46, 0)
   ctx.closePath(); ctx.fill()
 }
 
@@ -52,7 +53,24 @@ const STATUS = {
 
 // small creature painters (origin at body centre, facing +x) ---------------
 function drawFish2(ctx, len, body, belly, wag, o = {}) {
+  // dorsal fin (behind head, on the back) + pectoral fin — drawn under body
+  ctx.fillStyle = body
+  ctx.beginPath()
+  ctx.moveTo(-len * 0.14, -len * 0.2)
+  ctx.quadraticCurveTo(len * 0.02, -len * 0.42, len * 0.16, -len * 0.19)
+  ctx.closePath(); ctx.fill()
   fishShape(ctx, len, body, belly, wag)
+  // pectoral fin (translucent), mid-body low
+  ctx.fillStyle = 'rgba(0,0,0,0.12)'
+  ctx.beginPath()
+  ctx.moveTo(len * 0.12, len * 0.06)
+  ctx.quadraticCurveTo(len * 0.02, len * 0.34, len * 0.24, len * 0.16)
+  ctx.closePath(); ctx.fill()
+  // darker back / lighter belly for volume
+  ctx.fillStyle = 'rgba(0,0,0,0.16)'
+  ctx.beginPath(); ctx.ellipse(-len * 0.02, -len * 0.08, len * 0.42, len * 0.11, 0, 0, TAU); ctx.fill()
+  ctx.fillStyle = 'rgba(255,255,255,0.12)'
+  ctx.beginPath(); ctx.ellipse(0, len * 0.1, len * 0.4, len * 0.07, 0, 0, TAU); ctx.fill()
   if (o.bars) { ctx.strokeStyle = o.bars; ctx.lineWidth = len * 0.03
     for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(i * len * 0.1, -len * 0.16); ctx.lineTo(i * len * 0.1 - wag * 0.1, len * 0.16); ctx.stroke() } }
   if (o.spots) { ctx.fillStyle = o.spots
@@ -356,16 +374,43 @@ export const underScene = {
       }
     }
 
-    // ROV body
-    ctx.save(); ctx.translate(rov.x, rov.y); ctx.scale(rov.face, 1); ctx.rotate(Math.sin(t * 1.5) * 0.03)
-    ctx.fillStyle = 'rgba(6,18,30,0.4)'; ctx.beginPath(); ctx.ellipse(0, 26, 34, 6, 0, 0, TAU); ctx.fill()
-    ctx.fillStyle = '#e0a63a'; ctx.strokeStyle = '#8a5a1c'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, 0, 30, 17, 0, 0, TAU); ctx.fill(); ctx.stroke()
-    ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.beginPath(); ctx.ellipse(-6, -6, 16, 7, -0.3, 0, TAU); ctx.fill()
-    ctx.fillStyle = '#c98a2a'; ctx.beginPath(); ctx.moveTo(-24, -4); ctx.lineTo(-38, -16); ctx.lineTo(-30, 2); ctx.closePath(); ctx.fill()
-    ctx.fillStyle = 'rgba(180,225,245,0.7)'; ctx.strokeStyle = '#8a5a1c'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(8, -4, 9, Math.PI * 1.05, Math.PI * 2.1); ctx.fill(); ctx.stroke()
-    ctx.fillStyle = '#3a4650'; ctx.beginPath(); ctx.arc(26, 2, 5, 0, TAU); ctx.fill()
-    ctx.fillStyle = '#eaf6ff'; ctx.beginPath(); ctx.arc(27, 2, 2.6, 0, TAU); ctx.fill()
-    ctx.strokeStyle = '#8a5a1c'; ctx.lineWidth = 2; ctx.save(); ctx.translate(-34, 6); ctx.rotate(rov.prop); for (let i = 0; i < 3; i++) { ctx.rotate(TAU / 3); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -7); ctx.stroke() } ctx.restore()
+    // ── ROV: a proper research submersible (elongated hull, conning tower,
+    //    portholes, tail fins + shrouded thruster, nose floodlight) ──
+    ctx.save(); ctx.translate(rov.x, rov.y); ctx.scale(rov.face, 1); ctx.rotate(Math.sin(t * 1.5) * 0.02)
+    ctx.fillStyle = 'rgba(6,18,30,0.4)'; ctx.beginPath(); ctx.ellipse(-2, 24, 40, 6, 0, 0, TAU); ctx.fill()
+    // tail fins (X-form) behind the hull
+    ctx.fillStyle = '#b7801f'; ctx.strokeStyle = '#7a4e16'; ctx.lineWidth = 1.4
+    ctx.beginPath(); ctx.moveTo(-38, -3); ctx.lineTo(-52, -14); ctx.lineTo(-46, -2); ctx.closePath(); ctx.fill(); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(-38, 3); ctx.lineTo(-52, 14); ctx.lineTo(-46, 2); ctx.closePath(); ctx.fill(); ctx.stroke()
+    // long torpedo hull
+    ctx.fillStyle = '#e2a838'; ctx.strokeStyle = '#8a5a1c'; ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(-44, 0)
+    ctx.quadraticCurveTo(-40, -13, -10, -14)
+    ctx.quadraticCurveTo(34, -14, 44, -4)
+    ctx.quadraticCurveTo(48, 0, 44, 4)
+    ctx.quadraticCurveTo(34, 14, -10, 14)
+    ctx.quadraticCurveTo(-40, 13, -44, 0)
+    ctx.closePath(); ctx.fill(); ctx.stroke()
+    // hull shading + waterline stripe
+    const hgd = ctx.createLinearGradient(0, -14, 0, 14)
+    hgd.addColorStop(0, 'rgba(255,255,255,0.28)'); hgd.addColorStop(0.55, 'rgba(120,80,20,0)'); hgd.addColorStop(1, 'rgba(60,36,8,0.3)')
+    ctx.fillStyle = hgd; ctx.fill()
+    ctx.strokeStyle = '#c23b2e'; ctx.lineWidth = 2
+    ctx.beginPath(); ctx.moveTo(-40, 6); ctx.quadraticCurveTo(0, 9, 42, 5); ctx.stroke()
+    // conning tower (sail) on top
+    ctx.fillStyle = '#d0982c'; ctx.strokeStyle = '#8a5a1c'; ctx.lineWidth = 1.6
+    ctx.beginPath(); ctx.moveTo(-8, -13); ctx.lineTo(-5, -26); ctx.lineTo(10, -26); ctx.lineTo(13, -13); ctx.closePath(); ctx.fill(); ctx.stroke()
+    ctx.strokeStyle = '#6a4412'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(2, -26); ctx.lineTo(2, -34); ctx.stroke() // periscope
+    ctx.fillStyle = '#7df5df'; ctx.beginPath(); ctx.arc(2, -35, 1.8, 0, TAU); ctx.fill()
+    // portholes
+    for (const px of [-14, 2, 18]) { ctx.fillStyle = '#0b2233'; ctx.beginPath(); ctx.arc(px, -2, 4, 0, TAU); ctx.fill(); ctx.fillStyle = 'rgba(150,210,240,0.8)'; ctx.beginPath(); ctx.arc(px, -2, 2.6, 0, TAU); ctx.fill(); ctx.strokeStyle = '#8a5a1c'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(px, -2, 4, 0, TAU); ctx.stroke() }
+    // nose floodlight housing
+    ctx.fillStyle = '#3a4650'; ctx.beginPath(); ctx.arc(44, 0, 5.5, 0, TAU); ctx.fill()
+    ctx.fillStyle = '#eaf6ff'; ctx.beginPath(); ctx.arc(45, 0, 3, 0, TAU); ctx.fill()
+    // shrouded stern thruster
+    ctx.strokeStyle = '#7a4e16'; ctx.lineWidth = 2.4; ctx.beginPath(); ctx.arc(-46, 0, 8, 0, TAU); ctx.stroke()
+    ctx.strokeStyle = '#c98a2a'; ctx.lineWidth = 2; ctx.save(); ctx.translate(-46, 0); ctx.rotate(rov.prop); for (let i = 0; i < 3; i++) { ctx.rotate(TAU / 3); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -6.5); ctx.stroke() } ctx.restore()
     ctx.restore()
     if (Math.random() < dt * 8) s.bubbles.push({ x: rov.x - 30 * rov.face, y: rov.y + 4, v: 40, r: 1.4 + Math.random() * 2, wob: Math.random() * TAU })
     if (s.bubbles.length > 50) s.bubbles.splice(0, s.bubbles.length - 50)

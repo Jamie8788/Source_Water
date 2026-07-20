@@ -97,31 +97,32 @@ export function drawPerson(ctx, o) {
 
   if (pose.type === 'walk') {
     const ph = pose.phase || 0
-    const mk = (p) => {
-      const swing = Math.sin(p) * 0.55
-      const lift = Math.max(0, Math.sin(p + Math.PI * 0.5))
-      const hipA = swing
-      const kneeBend = 0.15 + lift * 0.9
-      const hipX = 0
-      const knee = seg(hipX, hipY, hipA, 24)
-      const ankle = seg(knee[0], knee[1], hipA + kneeBend - lift * 0.3, 22 - lift * 2)
+    // natural stride: thigh swings ±0.34 rad; knee bends only during the
+    // rear→front swing so the foot lifts and clears — never hyperextends.
+    const mk = (p, hipX) => {
+      const thigh = Math.sin(p) * 0.34
+      const kneeBend = 0.18 + Math.max(0, Math.sin(p - 1.1)) * 0.72
+      const knee = seg(hipX, hipY, thigh, 23)
+      const ankle = seg(knee[0], knee[1], thigh + kneeBend, 21)
       return { hip: [hipX, hipY], knee, ankle }
     }
-    legs = [mk(ph + Math.PI), mk(ph)] // far leg first
+    legs = [mk(ph + Math.PI, -2.4), mk(ph, 2.4)] // far leg first
     torsoLean = 0.05
-    if (!armRA) armRA = { s: Math.sin(ph + Math.PI) * 0.5, e: 0.25 }
-    if (!armLA) armLA = { s: Math.sin(ph) * 0.5, e: 0.25 }
+    if (!armRA) armRA = { s: Math.sin(ph + Math.PI) * 0.42, e: 0.22 }
+    if (!armLA) armLA = { s: Math.sin(ph) * 0.42, e: 0.22 }
   } else if (pose.type === 'kneel') {
+    // squat/crouch: hips low, both feet planted, shins angled back under the
+    // body — reads clearly as crouching to sample (no broken joints).
     const k = pose.k ?? 1
-    // front leg planted, back knee to the ground
-    const frontKnee = seg(6, hipY, 0.5 * k, 24)
-    const frontAnkle = seg(frontKnee[0], frontKnee[1], -0.5 * k, 22)
-    const backKnee = seg(-4, hipY + 6 * k, -0.2, 24)
-    const backAnkle = seg(backKnee[0], backKnee[1], 1.5 * k, 22)
-    legs = [{ hip: [-4, hipY + 6 * k], knee: backKnee, ankle: backAnkle },
-            { hip: [6, hipY], knee: frontKnee, ankle: frontAnkle }]
-    hipDrop = 14 * k
-    torsoLean = 0.18 * k
+    const mk = (hipX, out) => {
+      const thigh = out * 0.5 * k
+      const knee = seg(hipX, hipY, thigh, 22)
+      const ankle = seg(knee[0], knee[1], -thigh * 0.55, 21)
+      return { hip: [hipX, hipY], knee, ankle }
+    }
+    legs = [mk(-4, -1), mk(4, 1)]
+    hipDrop = 20 * k
+    torsoLean = 0.16 * k
     if (!armRA) armRA = { s: 0.6, e: 0.3 }
     if (!armLA) armLA = { s: 0.5, e: 0.3 }
   } else if (pose.type === 'sit') {

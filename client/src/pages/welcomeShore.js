@@ -24,7 +24,7 @@ export function fireLightTrail() { trailT = 0 }
 
 const ease2 = (q) => q * q * (3 - 2 * q)
 const HZ = 320 // horizon (eye-level camera → high horizon)
-const SUNX = 1150, SUNY = 262
+const SUNX = 1150, SUNY = 232
 
 // diagonal waterline: upper-left water, lower-right beach
 const shoreY = (x) => 575 + Math.pow(clamp(x, 0, 1600) / 1600, 1.22) * 315 + Math.sin(x * 0.004) * 10
@@ -244,10 +244,13 @@ export const shoreScene = {
       glow(ctx, SUNX, SUNY, 190, 'rgba(255,196,120,0.20)', 'rgba(255,196,120,0)')
       glow(ctx, SUNX, SUNY, 90, 'rgba(255,220,160,0.36)', 'rgba(255,214,150,0)')
       ctx.restore()
-      ctx.fillStyle = 'rgba(255,238,204,0.96)'
-      ctx.beginPath(); ctx.arc(SUNX, SUNY, 30, 0, TAU); ctx.fill()
-      ctx.fillStyle = 'rgba(255,224,170,0.5)'
-      ctx.beginPath(); ctx.arc(SUNX, SUNY, 36, 0, TAU); ctx.fill()
+      // crisp warm sun disc with a thin bright rim
+      const sd = ctx.createRadialGradient(SUNX, SUNY - 6, 4, SUNX, SUNY, 32)
+      sd.addColorStop(0, '#fff6e0'); sd.addColorStop(0.7, '#ffe6ad'); sd.addColorStop(1, '#ffd085')
+      ctx.fillStyle = sd
+      ctx.beginPath(); ctx.arc(SUNX, SUNY, 31, 0, TAU); ctx.fill()
+      ctx.strokeStyle = 'rgba(255,246,220,0.7)'; ctx.lineWidth = 1.6
+      ctx.beginPath(); ctx.arc(SUNX, SUNY, 31, 0, TAU); ctx.stroke()
       // horizon haze bands
       ctx.save(); ctx.globalCompositeOperation = 'lighter'
       ctx.fillStyle = 'rgba(250,196,130,0.30)'
@@ -326,7 +329,7 @@ export const shoreScene = {
 
     // ═══ FAR SHORE (slightly defocused for atmospheric depth) ═══
     par(18, () => {
-      ctx.filter = 'blur(1.4px)'
+      ctx.filter = 'blur(0.7px)'
       // far ridge
       ctx.fillStyle = 'rgba(128,100,112,0.6)'
       ctx.beginPath(); ctx.moveTo(-40, HZ)
@@ -1017,10 +1020,10 @@ export const shoreScene = {
       // ── Water Rangers: field-notebook logger by the cooler ──
       const scrib = Math.sin(t * 7) * 0.08 * (Math.sin(t * 0.5) > -0.4 ? 1 : 0)
       person2(ctx, {
-        x: 770, y: shoreY(770) + 66, h: 96, skin: 0, top: 3, bottom: 4, hairStyle: 'bun', hair: 3, vest: true,
+        x: 770, y: Math.min(shoreY(770) + 44, 842), h: 96, skin: 0, top: 3, bottom: 4, hairStyle: 'bun', hair: 3, vest: true,
         armR: { u: 0.75 + scrib, f: 0.95 }, armL: { u: 0.55, f: 1.05 }, nod: t * 0.7,
       })
-      ctx.save(); ctx.translate(782, shoreY(770) + 66 - 52); ctx.rotate(-0.3)
+      ctx.save(); ctx.translate(782, Math.min(shoreY(770) + 44, 842) - 52); ctx.rotate(-0.3)
       ctx.fillStyle = '#f4efe2'; ctx.fillRect(0, 0, 10, 7.4)
       ctx.strokeStyle = '#b0a890'; ctx.lineWidth = 0.8
       ctx.beginPath(); ctx.moveTo(1.4, 2.2); ctx.lineTo(8.6, 2.2); ctx.moveTo(1.4, 4.2); ctx.lineTo(8.6, 4.2); ctx.stroke()
@@ -1053,11 +1056,11 @@ export const shoreScene = {
 
       // ── birdwatcher with binoculars tracking the gulls ──
       person2(ctx, {
-        x: 1015, y: shoreY(1015) + 128, h: 108, skin: 3, top: 4, bottom: 2, hairStyle: 'sun', hair: 1,
+        x: 1015, y: 812, h: 108, skin: 3, top: 4, bottom: 2, hairStyle: 'sun', hair: 1,
         armR: { u: 1.35 + Math.sin(t * 0.5) * 0.05, f: 1.15 }, armL: { u: 1.3, f: 1.2 },
         nod: Math.sin(t * 0.4) * 1.5,
       })
-      ctx.save(); ctx.translate(1027, shoreY(1015) + 128 - 76); ctx.rotate(Math.sin(t * 0.4) * 0.06)
+      ctx.save(); ctx.translate(1027, 812 - 76); ctx.rotate(Math.sin(t * 0.4) * 0.06)
       ctx.fillStyle = '#20262c'; ctx.fillRect(0, -2.4, 9, 5); ctx.fillRect(2, -4.4, 5, 2)
       ctx.fillStyle = 'rgba(150,200,230,0.7)'; ctx.beginPath(); ctx.arc(9.4, 0, 1.8, 0, TAU); ctx.fill()
       ctx.restore()
@@ -1087,7 +1090,7 @@ export const shoreScene = {
       // walkers + dog crossing the beach diagonally
       const wq = ((t * 0.024) % 1.3) - 0.12
       const wx = lerp(1500, 60, clamp(wq, 0, 1))
-      const wy = shoreY(wx) + 90
+      const wy = Math.min(shoreY(wx) + 56, 848)
       const wph = t * 4.2
       if (wq > -0.1 && wq < 1.1) {
         person2(ctx, { x: wx, y: wy, h: 100, skin: 2, top: 1, bottom: 0, hairStyle: 'short', hair: 1, flip: true, walk: wph })
@@ -1152,7 +1155,7 @@ export const shoreScene = {
       const fq = ((t * 0.02 + 0.5) % 1.4) - 0.2
       if (fq > -0.08 && fq < 1.08) {
         const fx = lerp(360, 1330, clamp(fq, 0, 1))
-        const fy = shoreY(fx) + 150
+        const fy = Math.min(shoreY(fx) + 76, 848)
         const fph = t * 2.35
         person2(ctx, { x: fx, y: fy, h: 108, skin: 5, top: 9, bottom: 2, hairStyle: 'short', hair: 0, walk: fph, armR: { u: 0.5, f: 0.4 } })
         person2(ctx, { x: fx + 40, y: fy + 2, h: 62, skin: 5, top: 8, bottom: 0, hairStyle: 'long', hair: 1, walk: t * 3.8 + 0.9, armL: { u: -0.45, f: -0.15 } })
@@ -1173,7 +1176,7 @@ export const shoreScene = {
 
     // ═══ FOREGROUND — granite, grasses, driftwood, canoe bow (defocused) ═══
     par(30, () => {
-      ctx.filter = 'blur(1.6px)' // shallow depth-of-field on the nearest layer
+      ctx.filter = 'blur(1.0px)' // shallow depth-of-field on the nearest layer
       // granite slab, bottom-left
       castShadow(ctx, 150, 886, 90)
       granite(ctx, 130, 900, 240, 130, 3)
