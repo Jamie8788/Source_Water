@@ -93,20 +93,40 @@ function person2(ctx, o) {
   ctx.lineCap = 'round'
 
   const foot = (fx, fy) => {
-    ctx.fillStyle = '#2c2620'
+    ctx.fillStyle = '#241f1a'
     ctx.beginPath(); ctx.ellipse(fx + 3.4, fy - 1.6, 6, 3, 0, 0, TAU); ctx.fill()
+    ctx.fillStyle = 'rgba(255,220,160,0.25)'
+    ctx.beginPath(); ctx.ellipse(fx + 2, fy - 2.4, 3, 1.1, 0, 0, TAU); ctx.fill()
+  }
+  const botHi = shade(bot, 26), legDarkHi = shade(legDark, 24)
+  // draws a leg segment with a sun-side highlight ridge
+  const legLine = (x0, y0, cx, cy, x1, y1, col, hi) => {
+    ctx.strokeStyle = col; ctx.lineWidth = 9.5
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(cx, cy, x1, y1); ctx.stroke()
+    ctx.strokeStyle = hi; ctx.lineWidth = 2.6
+    ctx.beginPath(); ctx.moveTo(x0 + 1.8, y0); ctx.quadraticCurveTo(cx + 1.8, cy, x1 + 1.8, y1); ctx.stroke()
   }
 
-  // ── arm drawer: u forward-positive, near/far shading passed in ──
+  // ── arm drawer: u forward-positive, near/far shading passed in.
+  //    Each segment gets a dark base + a thin sun-side highlight for volume. ──
+  const skinHi = shade(skin, 26)
   const drawArm = (sx, a, color) => {
     const u = a?.u ?? 0.16, f = a?.f ?? 0.14
+    const hi = shade(color, 30)
     ctx.save(); ctx.translate(sx, shY + 4); ctx.rotate(-u) // -u ⇒ +u swings toward +x
     ctx.strokeStyle = color; ctx.lineWidth = 7.5
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 15); ctx.stroke()
+    ctx.strokeStyle = hi; ctx.lineWidth = 2.4
+    ctx.beginPath(); ctx.moveTo(1.6, 1); ctx.lineTo(1.6, 14); ctx.stroke()
     ctx.translate(0, 15); ctx.rotate(-f)
+    ctx.strokeStyle = color; ctx.lineWidth = 7.5
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 12); ctx.stroke()
+    ctx.strokeStyle = hi; ctx.lineWidth = 2.2
+    ctx.beginPath(); ctx.moveTo(1.6, 1); ctx.lineTo(1.6, 11); ctx.stroke()
     ctx.strokeStyle = skin; ctx.lineWidth = 6.5
     ctx.beginPath(); ctx.moveTo(0, 12); ctx.lineTo(0, 17); ctx.stroke()
+    ctx.strokeStyle = skinHi; ctx.lineWidth = 2
+    ctx.beginPath(); ctx.moveTo(1.4, 12.5); ctx.lineTo(1.4, 16.5); ctx.stroke()
     ctx.restore()
   }
 
@@ -131,9 +151,7 @@ function person2(ctx, o) {
       const kneeY = hipY * 0.5 - lift * 3
       const footX = swing * 13
       const footY = -lift * 9
-      ctx.strokeStyle = side ? legDark : bot
-      ctx.lineWidth = 9.5
-      ctx.beginPath(); ctx.moveTo(0, hipY); ctx.quadraticCurveTo(kneeX, kneeY, footX, footY); ctx.stroke()
+      legLine(0, hipY, kneeX, kneeY, footX, footY, side ? legDark : bot, side ? legDarkHi : botHi)
       foot(footX, footY)
     }
   } else if (st === 'crouch') {
@@ -162,17 +180,19 @@ function person2(ctx, o) {
   // ═ FAR arm (behind torso) ═
   drawArm(-(tw - 3), armL, shade(top, -30))
 
-  // ═ torso — jacket with core shadow + warm rim light ═
-  ctx.fillStyle = top
+  // ═ torso — jacket: vertical form gradient + core shadow + warm rim light ═
   ctx.beginPath()
   ctx.moveTo(-tw + 2, shY)
   ctx.quadraticCurveTo(0, shY - 5, tw - 2, shY)
   ctx.quadraticCurveTo(tw + 1.5, (shY + hipY) / 2, tw - 3.5, hipY + 2)
   ctx.lineTo(-tw + 3.5, hipY + 2)
   ctx.quadraticCurveTo(-tw - 1.5, (shY + hipY) / 2, -tw + 2, shY)
-  ctx.closePath(); ctx.fill()
+  ctx.closePath()
+  const tg = ctx.createLinearGradient(0, shY, 0, hipY)
+  tg.addColorStop(0, shade(top, 22)); tg.addColorStop(0.5, top); tg.addColorStop(1, shade(top, -16))
+  ctx.fillStyle = tg; ctx.fill()
   const sg = ctx.createLinearGradient(-tw, 0, tw, 0)
-  sg.addColorStop(0, 'rgba(20,14,10,0.30)'); sg.addColorStop(0.55, 'rgba(20,14,10,0)')
+  sg.addColorStop(0, 'rgba(18,12,8,0.34)'); sg.addColorStop(0.55, 'rgba(18,12,8,0)')
   ctx.fillStyle = sg; ctx.fill()
   ctx.strokeStyle = 'rgba(255,214,150,0.6)'; ctx.lineWidth = 1.6
   ctx.beginPath()
@@ -187,11 +207,17 @@ function person2(ctx, o) {
   ctx.save()
   if (o.nod) ctx.rotate(Math.sin(o.nod) * 0.06)
   const hy = shY - 12
-  ctx.fillStyle = skin
+  // head with radial form shading (light from the upper sun side)
+  const hg = ctx.createRadialGradient(3, hy - 3, 1, 0, hy, 11)
+  hg.addColorStop(0, shade(skin, 28)); hg.addColorStop(0.6, skin); hg.addColorStop(1, shade(skin, -22))
+  ctx.fillStyle = hg
   ctx.beginPath(); ctx.arc(0, hy, 9.5, 0, TAU); ctx.fill()
-  // face shading toward sun
-  ctx.fillStyle = 'rgba(255,214,150,0.28)'
-  ctx.beginPath(); ctx.arc(2.4, hy - 1, 7, -0.8, 0.9); ctx.fill()
+  // warm sun bounce
+  ctx.fillStyle = 'rgba(255,214,150,0.22)'
+  ctx.beginPath(); ctx.arc(3, hy - 1.5, 6.5, -0.9, 0.8); ctx.fill()
+  // neck
+  ctx.fillStyle = shade(skin, -14)
+  ctx.fillRect(-2.6, hy + 6.5, 5.2, 4)
   const style = o.hairStyle || 'short'
   ctx.fillStyle = hairC
   if (style === 'short') {

@@ -66,6 +66,20 @@ export function mountScene(canvas, scene, opts = {}) {
   const env = { rnd, noise, W: vw, H: vh }
   const state = scene.setup ? scene.setup(env) : {}
 
+  // ── film grain tile (post-processing: kills the flat-vector cleanliness) ──
+  const grainSize = 128
+  const grainCanvas = document.createElement('canvas')
+  grainCanvas.width = grainCanvas.height = grainSize
+  const gctx = grainCanvas.getContext('2d')
+  const gimg = gctx.createImageData(grainSize, grainSize)
+  for (let i = 0; i < gimg.data.length; i += 4) {
+    const v = 90 + ((rnd() * 76) | 0)
+    gimg.data[i] = gimg.data[i + 1] = gimg.data[i + 2] = v
+    gimg.data[i + 3] = 255
+  }
+  gctx.putImageData(gimg, 0, 0)
+  const grainPattern = ctx.createPattern(grainCanvas, 'repeat')
+
   let raf = 0, running = true, last = performance.now(), t0 = last
   let scale = 1, offX = 0, offY = 0, dpr = 1
 
@@ -128,6 +142,16 @@ export function mountScene(canvas, scene, opts = {}) {
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.setTransform(scale, 0, 0, scale, offX, offY)
     scene.draw(ctx, tAcc, dt, state, env)
+
+    // ── post: film grain + soft grade vignette (device space) ──
+    ctx.setTransform(1, 0, 0, 1, (Math.random() * grainSize) | 0, (Math.random() * grainSize) | 0)
+    ctx.globalCompositeOperation = 'overlay'
+    ctx.globalAlpha = 0.05
+    ctx.fillStyle = grainPattern
+    ctx.fillRect(-grainSize, -grainSize, canvas.width + grainSize * 2, canvas.height + grainSize * 2)
+    ctx.globalAlpha = 1
+    ctx.globalCompositeOperation = 'source-over'
+
     raf = requestAnimationFrame(frame)
   }
   raf = requestAnimationFrame(frame)
