@@ -13,6 +13,7 @@
  * data previews.
  */
 import { VW, VH, vGrad, glow, makeParticles, lerp, clamp } from './welcomeEngine'
+import { drawPerson, WARDROBE, SKINS, HAIRS } from './welcomePeople'
 
 const TAU = Math.PI * 2
 
@@ -72,202 +73,34 @@ const HAIRC = ['#241812', '#4a3018', '#181210', '#c8c2b8', '#3a2416', '#8a5a30']
  * o: { x, y, h, flip, skin, top, bottom, hair, hairStyle, stance, walk,
  *      armL, armR, nod, shadow, lean }
  */
+// person2 — compatibility shim mapping the old rig's calls onto the new
+// illustrated figure painter (welcomePeople.drawPerson). Every existing
+// character + its animation upgrades to the detailed art with no call-site
+// changes.
 function person2(ctx, o) {
-  const s = (o.h || 100) / 100
-  const phase = o.walk ?? o.phase // back-compat with `phase`
-  if (o.shadow !== false) castShadow(ctx, o.x, o.y, 16 * s)
-  ctx.save()
-  ctx.translate(o.x, o.y - (phase != null ? Math.abs(Math.sin(phase)) * 2.4 * s : 0))
-  ctx.scale(o.flip ? -s : s, s)
-  if (o.lean) ctx.rotate(o.lean)
-  const skin = SKIN[(o.skin || 0) % SKIN.length]
-  const top = TOPS[(o.top || 0) % TOPS.length]
-  const bot = BOTTOMS[(o.bottom ?? o.top ?? 0) % BOTTOMS.length]
-  const hairC = HAIRC[(o.hair || 0) % HAIRC.length]
-  const legDark = shade(bot, -22)
-  const st = o.stance || 'stand'
-  let hipY = -47, shY = -79
-  if (st === 'crouch') { hipY = -28; shY = -56 }
-  if (st === 'sit') { hipY = -24; shY = -58 }
-  const tw = 13 // half shoulder width
-  ctx.lineCap = 'round'
-
-  const foot = (fx, fy) => {
-    ctx.fillStyle = '#241f1a'
-    ctx.beginPath(); ctx.ellipse(fx + 3.4, fy - 1.6, 6, 3, 0, 0, TAU); ctx.fill()
-    ctx.fillStyle = 'rgba(255,220,160,0.25)'
-    ctx.beginPath(); ctx.ellipse(fx + 2, fy - 2.4, 3, 1.1, 0, 0, TAU); ctx.fill()
-  }
-  const botHi = shade(bot, 26), legDarkHi = shade(legDark, 24)
-  // draws a leg segment with a sun-side highlight ridge
-  const legLine = (x0, y0, cx, cy, x1, y1, col, hi) => {
-    ctx.strokeStyle = col; ctx.lineWidth = 9.5
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(cx, cy, x1, y1); ctx.stroke()
-    ctx.strokeStyle = hi; ctx.lineWidth = 2.6
-    ctx.beginPath(); ctx.moveTo(x0 + 1.8, y0); ctx.quadraticCurveTo(cx + 1.8, cy, x1 + 1.8, y1); ctx.stroke()
-  }
-
-  // ── arm drawer: u forward-positive, near/far shading passed in.
-  //    Each segment gets a dark base + a thin sun-side highlight for volume. ──
-  const skinHi = shade(skin, 26)
-  const drawArm = (sx, a, color) => {
-    const u = a?.u ?? 0.16, f = a?.f ?? 0.14
-    const hi = shade(color, 30)
-    ctx.save(); ctx.translate(sx, shY + 4); ctx.rotate(-u) // -u ⇒ +u swings toward +x
-    ctx.strokeStyle = color; ctx.lineWidth = 7.5
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 15); ctx.stroke()
-    ctx.strokeStyle = hi; ctx.lineWidth = 2.4
-    ctx.beginPath(); ctx.moveTo(1.6, 1); ctx.lineTo(1.6, 14); ctx.stroke()
-    ctx.translate(0, 15); ctx.rotate(-f)
-    ctx.strokeStyle = color; ctx.lineWidth = 7.5
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 12); ctx.stroke()
-    ctx.strokeStyle = hi; ctx.lineWidth = 2.2
-    ctx.beginPath(); ctx.moveTo(1.6, 1); ctx.lineTo(1.6, 11); ctx.stroke()
-    ctx.strokeStyle = skin; ctx.lineWidth = 6.5
-    ctx.beginPath(); ctx.moveTo(0, 12); ctx.lineTo(0, 17); ctx.stroke()
-    ctx.strokeStyle = skinHi; ctx.lineWidth = 2
-    ctx.beginPath(); ctx.moveTo(1.4, 12.5); ctx.lineTo(1.4, 16.5); ctx.stroke()
-    ctx.restore()
-  }
-
-  // auto counter-swinging arms for walkers (near arm opposes far arm)
-  let armR = o.armR, armL = o.armL
-  if (phase != null) {
-    const amp = 0.5
-    if (!armR) armR = { u: Math.sin(phase + Math.PI) * amp, f: 0.16 }
-    if (!armL) armL = { u: Math.sin(phase) * amp, f: 0.16 }
-  }
-
-  // ═ legs ═
-  if (phase != null) {
-    ctx.rotate(0.045) // slight forward lean while walking
-    // near leg (side 0) drawn after far leg (side 1) for correct depth
-    for (const side of [1, 0]) {
-      const ph = phase + side * Math.PI
-      const swing = Math.sin(ph)
-      // foot lifts only during the swing phase, stays planted in stance
-      const lift = Math.pow(Math.max(0, Math.sin(ph + Math.PI * 0.5)), 1.6)
-      const kneeX = swing * 6.5 + lift * 4 // knee leads during swing
-      const kneeY = hipY * 0.5 - lift * 3
-      const footX = swing * 13
-      const footY = -lift * 9
-      legLine(0, hipY, kneeX, kneeY, footX, footY, side ? legDark : bot, side ? legDarkHi : botHi)
-      foot(footX, footY)
-    }
-  } else if (st === 'crouch') {
-    ctx.strokeStyle = legDark; ctx.lineWidth = 9.5
-    ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(-8, -14); ctx.lineTo(-10, 0); ctx.stroke()
-    foot(-10, 0)
-    ctx.strokeStyle = bot
-    ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(10, -16); ctx.lineTo(6, 0); ctx.stroke()
-    foot(6, 0)
-  } else if (st === 'sit') {
-    ctx.strokeStyle = legDark; ctx.lineWidth = 9.5
-    ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(8, -10); ctx.lineTo(6, 0); ctx.stroke()
-    foot(6, 0)
-    ctx.strokeStyle = bot
-    ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(13, -12); ctx.lineTo(12, 0); ctx.stroke()
-    foot(12, 0)
-  } else {
-    ctx.strokeStyle = legDark; ctx.lineWidth = 9.5
-    ctx.beginPath(); ctx.moveTo(-1, hipY); ctx.lineTo(-3.4, 0); ctx.stroke()
-    foot(-3.4, 0)
-    ctx.strokeStyle = bot
-    ctx.beginPath(); ctx.moveTo(1, hipY); ctx.lineTo(4, 0); ctx.stroke()
-    foot(4, 0)
-  }
-
-  // ═ FAR arm (behind torso) ═
-  drawArm(-(tw - 3), armL, shade(top, -30))
-
-  // ═ torso — jacket: vertical form gradient + core shadow + warm rim light ═
-  ctx.beginPath()
-  ctx.moveTo(-tw + 2, shY)
-  ctx.quadraticCurveTo(0, shY - 5, tw - 2, shY)
-  ctx.quadraticCurveTo(tw + 1.5, (shY + hipY) / 2, tw - 3.5, hipY + 2)
-  ctx.lineTo(-tw + 3.5, hipY + 2)
-  ctx.quadraticCurveTo(-tw - 1.5, (shY + hipY) / 2, -tw + 2, shY)
-  ctx.closePath()
-  const tg = ctx.createLinearGradient(0, shY, 0, hipY)
-  tg.addColorStop(0, shade(top, 22)); tg.addColorStop(0.5, top); tg.addColorStop(1, shade(top, -16))
-  ctx.fillStyle = tg; ctx.fill()
-  const sg = ctx.createLinearGradient(-tw, 0, tw, 0)
-  sg.addColorStop(0, 'rgba(18,12,8,0.34)'); sg.addColorStop(0.55, 'rgba(18,12,8,0)')
-  ctx.fillStyle = sg; ctx.fill()
-  ctx.strokeStyle = 'rgba(255,214,150,0.6)'; ctx.lineWidth = 1.6
-  ctx.beginPath()
-  ctx.moveTo(tw - 2.4, shY + 1)
-  ctx.quadraticCurveTo(tw + 1, (shY + hipY) / 2, tw - 4, hipY)
-  ctx.stroke()
-
-  // ═ hi-vis safety vest (Water Rangers field gear) ═
-  if (o.vest) {
-    ctx.save()
-    ctx.beginPath()
-    ctx.moveTo(-tw + 3, shY + 2)
-    ctx.quadraticCurveTo(0, shY - 2, tw - 3, shY + 2)
-    ctx.quadraticCurveTo(tw - 1, (shY + hipY) / 2, tw - 4.5, hipY + 1)
-    ctx.lineTo(-tw + 4.5, hipY + 1)
-    ctx.quadraticCurveTo(-tw + 1, (shY + hipY) / 2, -tw + 3, shY + 2)
-    ctx.closePath()
-    const vg = ctx.createLinearGradient(0, shY, 0, hipY)
-    vg.addColorStop(0, '#f2c43a'); vg.addColorStop(1, '#e0a020')
-    ctx.fillStyle = vg; ctx.fill()
-    // front zip gap
-    ctx.strokeStyle = 'rgba(120,80,10,0.5)'; ctx.lineWidth = 1
-    ctx.beginPath(); ctx.moveTo(0, shY + 2); ctx.lineTo(0, hipY); ctx.stroke()
-    // reflective bands
-    ctx.strokeStyle = 'rgba(220,235,240,0.9)'; ctx.lineWidth = 2.2
-    ctx.beginPath(); ctx.moveTo(-tw + 4, shY + 9); ctx.lineTo(tw - 4, shY + 9); ctx.stroke()
-    ctx.strokeStyle = 'rgba(160,190,200,0.7)'; ctx.lineWidth = 1.4
-    ctx.beginPath(); ctx.moveTo(-tw + 4, shY + 12.5); ctx.lineTo(tw - 4, shY + 12.5); ctx.stroke()
-    ctx.restore()
-  }
-
-  // ═ NEAR arm (in front of torso) ═
-  drawArm(tw - 3, armR, top)
-
-  // ═ head + hair ═
-  ctx.save()
-  if (o.nod) ctx.rotate(Math.sin(o.nod) * 0.06)
-  const hy = shY - 12
-  // head with radial form shading (light from the upper sun side)
-  const hg = ctx.createRadialGradient(3, hy - 3, 1, 0, hy, 11)
-  hg.addColorStop(0, shade(skin, 28)); hg.addColorStop(0.6, skin); hg.addColorStop(1, shade(skin, -22))
-  ctx.fillStyle = hg
-  ctx.beginPath(); ctx.arc(0, hy, 9.5, 0, TAU); ctx.fill()
-  // warm sun bounce
-  ctx.fillStyle = 'rgba(255,214,150,0.22)'
-  ctx.beginPath(); ctx.arc(3, hy - 1.5, 6.5, -0.9, 0.8); ctx.fill()
-  // neck
-  ctx.fillStyle = shade(skin, -14)
-  ctx.fillRect(-2.6, hy + 6.5, 5.2, 4)
-  const style = o.hairStyle || 'short'
-  ctx.fillStyle = hairC
-  if (style === 'short') {
-    ctx.beginPath(); ctx.arc(0, hy - 1.6, 9.2, Math.PI * 0.96, TAU * 0.98); ctx.fill()
-  } else if (style === 'long') {
-    ctx.beginPath(); ctx.arc(0, hy - 1.6, 9.4, Math.PI * 0.92, TAU); ctx.fill()
-    ctx.beginPath(); ctx.roundRect(-9.4, hy - 2, 5, 20, 2.4); ctx.fill()
-  } else if (style === 'bun') {
-    ctx.beginPath(); ctx.arc(0, hy - 1.6, 9.2, Math.PI * 0.96, TAU * 0.98); ctx.fill()
-    ctx.beginPath(); ctx.arc(-8.4, hy - 6, 4.4, 0, TAU); ctx.fill()
-  } else if (style === 'cap') {
-    ctx.beginPath(); ctx.arc(0, hy - 2, 9.6, Math.PI, TAU); ctx.fill()
-    ctx.beginPath(); ctx.roundRect(0, hy - 6.4, 13, 3.2, 1.6); ctx.fill()
-  } else if (style === 'grey') {
-    ctx.fillStyle = '#cfc9bd'
-    ctx.beginPath(); ctx.arc(0, hy - 1.6, 9.2, Math.PI * 0.9, TAU); ctx.fill()
-  } else if (style === 'sun') {
-    ctx.fillStyle = '#241812'
-    ctx.beginPath(); ctx.arc(0, hy - 1.6, 9, Math.PI, TAU); ctx.fill()
-    ctx.fillStyle = '#d9c184' // wide-brim sun hat
-    ctx.beginPath(); ctx.ellipse(0, hy - 5.5, 15, 4.4, 0, 0, TAU); ctx.fill()
-    ctx.fillStyle = '#c2a86a'
-    ctx.beginPath(); ctx.ellipse(0, hy - 8.5, 7.5, 5, 0, Math.PI, TAU); ctx.fill()
-  }
-  ctx.restore()
-  ctx.restore()
+  const wd = WARDROBE[(o.top || 0) % WARDROBE.length]
+  const skin = SKINS[(o.skin || 0) % SKINS.length]
+  const hair = HAIRS[(o.hair || 0) % HAIRS.length]
+  let hairStyle = o.hairStyle || 'short'
+  let hat = 'none'
+  if (hairStyle === 'cap') { hat = 'cap'; hairStyle = 'short' }
+  else if (hairStyle === 'sun') { hat = 'sun'; hairStyle = 'braid' }
+  else if (hairStyle === 'toque') { hat = 'toque'; hairStyle = 'short' }
+  const phase = o.walk ?? o.phase
+  let pose
+  if (phase != null) pose = { type: 'walk', phase }
+  else if (o.stance === 'crouch') pose = { type: 'kneel', k: 1 }
+  else if (o.stance === 'sit') pose = { type: 'sit' }
+  else pose = { type: 'stand' }
+  const mapArm = (a) => (a ? { s: a.u ?? 0.14, e: a.f ?? 0.15 } : undefined)
+  drawPerson(ctx, {
+    x: o.x, y: o.y, h: o.h || 100, flip: o.flip,
+    skin, hair, hairStyle, hat, vest: o.vest,
+    jacket: wd.jacket, pants: wd.pants, shirt: wd.shirt,
+    pose, armL: mapArm(o.armL), armR: mapArm(o.armR),
+    headTurn: o.nod != null ? Math.sin(o.nod) * 0.3 : 0,
+    t: 0,
+  })
 }
 
 // ── boats & props ──────────────────────────────────────────────────────────
