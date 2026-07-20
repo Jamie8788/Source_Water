@@ -22,7 +22,7 @@
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronDown, Droplets, Map as MapIcon, Users, Sparkles, BookOpen, BarChart3, ArrowRight, Volume2, VolumeX } from 'lucide-react'
+import { ChevronDown, Droplets, Map as MapIcon, Users, Sparkles, ArrowRight, Volume2, VolumeX } from 'lucide-react'
 import { mountScene } from './welcomeEngine'
 import { shoreScene, fireLightTrail } from './welcomeShore'
 import { underScene } from './welcomeScenes'
@@ -155,37 +155,19 @@ export default function Welcome() {
         </button>
       </section>
 
-      {/* ═══ 2 · BENEATH THE SURFACE ═══ */}
+      {/* ═══ 2 · BENEATH THE SURFACE — pilotable bioindicator ecosystem ═══ */}
       <section className="wv-section wv-under" data-scene="under">
         <CanvasScene scene={underScene} seed={11} className="wv-canvas" />
-        <div className="wv-scene-inner wv-under-inner">
-          <div className="wv-info wv-info-center">
-            <div className="wv-kicker">01 · Beneath the surface</div>
-            <h2>Every number, explained like a neighbour would.</h2>
-            <p>
-              Move your cursor to pilot the research sub — its headlight reveals
-              the lakebed. Click the glowing points to meet the gear a Water
-              Ranger uses to keep this lake healthy.
-            </p>
-            <p className="wv-taphint"><Sparkles size={13} /> Pilot the sub · click the glowing kit to learn each tool</p>
-          </div>
-          <div className="wv-card-grid">
-            <div className="wv-card">
-              <BarChart3 size={22} />
-              <h3>Dashboard</h3>
-              <p>Today's snapshot — active alerts, sampled stations, your community's activity, all live.</p>
-            </div>
-            <div className="wv-card">
-              <Sparkles size={22} />
-              <h3>Ask Water AI</h3>
-              <p>Chat with Nibi about any parameter, any reading, any watershed — grounded in real data.</p>
-            </div>
-            <div className="wv-card">
-              <BookOpen size={22} />
-              <h3>Learn &amp; play</h3>
-              <p>Quizzes, watershed games, curated resources, and a dataset analyzer you can question.</p>
-            </div>
-          </div>
+        {/* compact corner panel — everything else lives in the canvas bubbles */}
+        <div className="wv-under-panel">
+          <div className="wv-kicker">01 · Beneath the surface</div>
+          <h2>A living lake reads back.</h2>
+          <p>
+            Every creature here is a bioindicator — its presence, or absence,
+            tells you what the water is really doing. Pilot the research sub and
+            click any animal to hear what it reveals.
+          </p>
+          <p className="wv-taphint"><Sparkles size={13} /> Move to pilot · click any creature to learn its story</p>
         </div>
         <button className="wv-scroll-hint" onClick={() => scrollTo(2)} aria-label="Scroll to next section">
           <ChevronDown size={20} />
@@ -482,37 +464,30 @@ export default function Welcome() {
 
         /* ═══ 2 · UNDERWATER ═══════════════════════════════════ */
         .wv-under { background: #0d3a5c; }
-        /* text pinned to the top; middle + lakebed stay open to pilot the sub.
-           pointer-events pass through to the canvas except on the cards. */
-        .wv-under { justify-content: flex-start; }
-        .wv-under-inner { flex-direction: column; gap: 22px; margin-top: 8vh; pointer-events: none; }
-        .wv-under-inner .wv-card { pointer-events: auto; }
-        .wv-under .wv-info-center h2, .wv-under .wv-info-center p { text-shadow: 0 2px 18px rgba(3,16,28,0.85); }
-        .wv-under .wv-info-center {
-          max-width: 660px;
-          padding: 22px 32px; border-radius: 26px;
-          background: radial-gradient(closest-side, rgba(4,15,27,0.7), rgba(4,15,27,0));
+        /* scene 2 is the canvas; a small glass panel sits top-left, the rest
+           of the frame is open water you pilot the sub through. */
+        .wv-under { justify-content: flex-start; align-items: flex-start; }
+        .wv-under-panel {
+          position: relative; z-index: 4; pointer-events: none;
+          margin: 12vh 0 0 5vw; max-width: 400px;
+          padding: 22px 26px; border-radius: 20px;
+          background: rgba(4,14,26,0.62);
+          border: 1px solid rgba(124,196,234,0.22);
+          backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+          box-shadow: 0 16px 50px rgba(2,8,18,0.45);
+          opacity: 0; transform: translateY(20px);
+          animation: wvReveal 0.9s cubic-bezier(0.2,0.7,0.2,1) 0.2s forwards;
         }
+        .wv-under-panel h2 { margin: 8px 0 12px; font-size: clamp(22px, 2.6vw, 30px); font-weight: 800; color: #eef6fd; line-height: 1.14; }
+        .wv-under-panel p { margin: 0 0 12px; font-size: 14.5px; line-height: 1.65; color: #c3d8ec; }
         .wv-taphint {
           display: inline-flex; align-items: center; gap: 7px;
-          margin-top: 4px; padding: 8px 16px; border-radius: 999px;
-          font-size: 13px !important; font-weight: 700; color: #7df5df !important;
+          margin: 2px 0 0 !important; padding: 8px 15px; border-radius: 999px;
+          font-size: 12.5px !important; font-weight: 700; color: #7df5df !important;
           background: rgba(10,32,44,0.6); border: 1px solid rgba(125,245,223,0.3);
           animation: wvHintPulse 2.6s ease-in-out infinite;
         }
         @keyframes wvHintPulse { 0%,100% { border-color: rgba(125,245,223,0.3); } 50% { border-color: rgba(125,245,223,0.7); } }
-        .wv-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; width: min(960px, 90vw); }
-        .wv-card {
-          padding: 26px 24px; border-radius: 18px;
-          background: rgba(4,15,27,0.82); border: 1px solid rgba(150,210,250,0.3);
-          backdrop-filter: blur(10px);
-          box-shadow: 0 12px 40px rgba(2,10,18,0.5);
-          transition: transform 0.25s ease, background 0.25s ease, border-color 0.25s ease;
-        }
-        .wv-card:hover { transform: translateY(-6px); background: rgba(8,24,40,0.9); border-color: rgba(150,210,250,0.55); }
-        .wv-card svg { color: #7cc4ea; margin-bottom: 12px; }
-        .wv-card h3 { margin: 0 0 8px; font-size: 17.5px; font-weight: 800; color: #ffffff; }
-        .wv-card p { margin: 0; font-size: 14px; line-height: 1.7; color: #cfe2f4; }
 
         /* ═══ 3 · NETWORK ══════════════════════════════════════ */
         .wv-network { background: #0a1e35; }
