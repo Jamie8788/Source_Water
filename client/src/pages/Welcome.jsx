@@ -163,11 +163,11 @@ export default function Welcome() {
             <div className="wv-kicker">01 · Beneath the surface</div>
             <h2>Every number, explained like a neighbour would.</h2>
             <p>
-              Behind the beauty is a serious toolkit — but everything comes
-              with a plain-English explanation, so a first-time volunteer and
-              a PhD researcher can read the same page.
+              Move your cursor to pilot the research sub — its headlight reveals
+              the lakebed. Click the glowing points to meet the gear a Water
+              Ranger uses to keep this lake healthy.
             </p>
-            <p className="wv-taphint"><Sparkles size={13} /> Click the glowing points to explore the lake's story</p>
+            <p className="wv-taphint"><Sparkles size={13} /> Pilot the sub · click the glowing kit to learn each tool</p>
           </div>
           <div className="wv-card-grid">
             <div className="wv-card">
@@ -443,16 +443,18 @@ export default function Welcome() {
         .wv-hero {
           position: relative; z-index: 6;
           align-self: flex-start;
-          margin: 14vh 0 0 6vw;
+          /* sit higher, over the open water — keeps the whole beach + its
+             community activity visible below the copy */
+          margin: 9vh 0 0 6vw;
           max-width: 640px; padding: 0 18px 0 0;
           text-align: left;
         }
         /* soft local scrim for readability — no hard box */
         .wv-hero::before {
           content: "";
-          position: absolute; inset: -60px -80px -50px -70px;
-          background: radial-gradient(ellipse at 38% 42%, rgba(30,20,8,0.34), rgba(30,20,8,0) 70%);
-          filter: blur(10px);
+          position: absolute; inset: -70px -140px -60px -90px;
+          background: radial-gradient(ellipse at 40% 46%, rgba(24,16,6,0.46), rgba(24,16,6,0) 72%);
+          filter: blur(14px);
           z-index: -1; pointer-events: none;
         }
         .wv-kicker2 {
@@ -480,11 +482,16 @@ export default function Welcome() {
 
         /* ═══ 2 · UNDERWATER ═══════════════════════════════════ */
         .wv-under { background: #0d3a5c; }
-        .wv-under-inner { flex-direction: column; gap: 34px; }
-        .wv-under .wv-info-center h2, .wv-under .wv-info-center p { text-shadow: 0 2px 18px rgba(3,16,28,0.8); }
+        /* text pinned to the top; middle + lakebed stay open to pilot the sub.
+           pointer-events pass through to the canvas except on the cards. */
+        .wv-under { justify-content: flex-start; }
+        .wv-under-inner { flex-direction: column; gap: 22px; margin-top: 8vh; pointer-events: none; }
+        .wv-under-inner .wv-card { pointer-events: auto; }
+        .wv-under .wv-info-center h2, .wv-under .wv-info-center p { text-shadow: 0 2px 18px rgba(3,16,28,0.85); }
         .wv-under .wv-info-center {
-          padding: 22px 30px; border-radius: 26px;
-          background: radial-gradient(closest-side, rgba(4,15,27,0.62), rgba(4,15,27,0));
+          max-width: 660px;
+          padding: 22px 32px; border-radius: 26px;
+          background: radial-gradient(closest-side, rgba(4,15,27,0.7), rgba(4,15,27,0));
         }
         .wv-taphint {
           display: inline-flex; align-items: center; gap: 7px;
