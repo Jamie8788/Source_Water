@@ -108,8 +108,13 @@ export function mountScene(canvas, scene, opts = {}) {
     pointer.inside = true
   }
   function onLeave() { pointer.inside = false; pointer.x = -9999; pointer.y = -9999 }
+  function onDown(e) {
+    onMove(e)
+    pointer.click = { x: pointer.x, y: pointer.y } // scene consumes + clears
+  }
   host.addEventListener('pointermove', onMove, { passive: true })
   host.addEventListener('pointerleave', onLeave, { passive: true })
+  host.addEventListener('pointerdown', onDown, { passive: true })
 
   let tAcc = 0 // scene time accumulator (lets gentle mode slow the world)
   function frame(now) {
@@ -140,6 +145,7 @@ export function mountScene(canvas, scene, opts = {}) {
     document.removeEventListener('visibilitychange', onVis)
     host.removeEventListener('pointermove', onMove)
     host.removeEventListener('pointerleave', onLeave)
+    host.removeEventListener('pointerdown', onDown)
   }
 }
 

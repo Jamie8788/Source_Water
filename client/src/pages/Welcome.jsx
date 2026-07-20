@@ -22,11 +22,12 @@
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronDown, Droplets, Map as MapIcon, Users, Sparkles, BookOpen, BarChart3, ArrowRight } from 'lucide-react'
+import { ChevronDown, Droplets, Map as MapIcon, Users, Sparkles, BookOpen, BarChart3, ArrowRight, Volume2, VolumeX } from 'lucide-react'
 import { mountScene } from './welcomeEngine'
 import { shoreScene, fireLightTrail } from './welcomeShore'
 import { underScene } from './welcomeScenes'
 import { networkScene, turtleScene, nightScene } from './welcomeScenes2'
+import { toggleSound } from './welcomeSound'
 
 const SECTIONS = ['shore', 'under', 'network', 'turtle', 'night']
 
@@ -48,6 +49,7 @@ export default function Welcome() {
   const containerRef = useRef(null)
   const [active, setActive] = useState(0)
   const [scrolled, setScrolled] = useState(false)
+  const [sound, setSound] = useState(false)
 
   const goSignIn = useCallback(() => navigate('/login'), [navigate])
   const journeyTimers = useRef([])
@@ -110,6 +112,15 @@ export default function Welcome() {
         <button className="wv-cta wv-cta-small" onClick={goSignIn}>Sign in</button>
       </div>
 
+      <button
+        className="wv-sound"
+        onClick={() => setSound(toggleSound())}
+        aria-label={sound ? 'Turn ambient sound off' : 'Turn ambient sound on'}
+        title={sound ? 'Sound off' : 'Waves & gulls'}
+      >
+        {sound ? <Volume2 size={17} /> : <VolumeX size={17} />}
+      </button>
+
       <nav className="wv-dots" aria-label="Scene navigation">
         {SECTIONS.map((sc, i) => (
           <button key={sc} className={i === active ? 'on' : ''} onClick={() => scrollTo(i)} aria-label={`Go to scene ${i + 1}`} />
@@ -156,6 +167,7 @@ export default function Welcome() {
               with a plain-English explanation, so a first-time volunteer and
               a PhD researcher can read the same page.
             </p>
+            <p className="wv-taphint"><Sparkles size={13} /> Click the glowing points to explore the lake's story</p>
           </div>
           <div className="wv-card-grid">
             <div className="wv-card">
@@ -261,7 +273,9 @@ export default function Welcome() {
         .wv-root {
           height: 100vh; height: 100dvh;
           overflow-y: auto; overflow-x: hidden;
-          scroll-snap-type: y mandatory;
+          /* proximity (not mandatory) so tall sections on short screens can
+             still be scrolled through instead of getting cut off */
+          scroll-snap-type: y proximity;
           scroll-behavior: smooth;
           background: #06121f;
           font-family: "DM Sans", system-ui, sans-serif;
@@ -270,7 +284,6 @@ export default function Welcome() {
           position: relative;
           min-height: 100vh; min-height: 100dvh;
           scroll-snap-align: start;
-          scroll-snap-stop: always;
           overflow: hidden;
           display: flex; flex-direction: column;
           align-items: center; justify-content: center;
@@ -314,6 +327,17 @@ export default function Welcome() {
         }
         .wv-dots button.on { background: #ffd98a; border-color: #ffd98a; transform: scale(1.35); }
         .wv-dots button:focus-visible { outline: 2px solid #7cc4ea; outline-offset: 3px; }
+        .wv-sound {
+          position: fixed; left: 18px; bottom: 18px; z-index: 60;
+          width: 42px; height: 42px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          color: #e8f2fc; cursor: pointer;
+          background: rgba(6,16,28,0.55); border: 1px solid rgba(150,210,250,0.3);
+          backdrop-filter: blur(10px);
+          transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+        .wv-sound:hover { transform: scale(1.08); border-color: rgba(150,210,250,0.6); }
+        .wv-sound:focus-visible { outline: 2px solid #7cc4ea; outline-offset: 3px; }
 
         /* ── Buttons ───────────────────────────────────────────── */
         .wv-cta {
@@ -458,17 +482,30 @@ export default function Welcome() {
         .wv-under { background: #0d3a5c; }
         .wv-under-inner { flex-direction: column; gap: 34px; }
         .wv-under .wv-info-center h2, .wv-under .wv-info-center p { text-shadow: 0 2px 18px rgba(3,16,28,0.8); }
+        .wv-under .wv-info-center {
+          padding: 22px 30px; border-radius: 26px;
+          background: radial-gradient(closest-side, rgba(4,15,27,0.62), rgba(4,15,27,0));
+        }
+        .wv-taphint {
+          display: inline-flex; align-items: center; gap: 7px;
+          margin-top: 4px; padding: 8px 16px; border-radius: 999px;
+          font-size: 13px !important; font-weight: 700; color: #7df5df !important;
+          background: rgba(10,32,44,0.6); border: 1px solid rgba(125,245,223,0.3);
+          animation: wvHintPulse 2.6s ease-in-out infinite;
+        }
+        @keyframes wvHintPulse { 0%,100% { border-color: rgba(125,245,223,0.3); } 50% { border-color: rgba(125,245,223,0.7); } }
         .wv-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; width: min(960px, 90vw); }
         .wv-card {
-          padding: 26px 24px; border-radius: 18px; color: #dcecfa;
-          background: rgba(6,20,34,0.5); border: 1px solid rgba(150,210,250,0.22);
+          padding: 26px 24px; border-radius: 18px;
+          background: rgba(4,15,27,0.82); border: 1px solid rgba(150,210,250,0.3);
           backdrop-filter: blur(10px);
+          box-shadow: 0 12px 40px rgba(2,10,18,0.5);
           transition: transform 0.25s ease, background 0.25s ease, border-color 0.25s ease;
         }
-        .wv-card:hover { transform: translateY(-6px); background: rgba(10,30,48,0.62); border-color: rgba(150,210,250,0.45); }
+        .wv-card:hover { transform: translateY(-6px); background: rgba(8,24,40,0.9); border-color: rgba(150,210,250,0.55); }
         .wv-card svg { color: #7cc4ea; margin-bottom: 12px; }
-        .wv-card h3 { margin: 0 0 8px; font-size: 17px; font-weight: 800; color: #fff; }
-        .wv-card p { margin: 0; font-size: 13.5px; line-height: 1.65; color: #b6cee4; }
+        .wv-card h3 { margin: 0 0 8px; font-size: 17.5px; font-weight: 800; color: #ffffff; }
+        .wv-card p { margin: 0; font-size: 14px; line-height: 1.7; color: #cfe2f4; }
 
         /* ═══ 3 · NETWORK ══════════════════════════════════════ */
         .wv-network { background: #0a1e35; }

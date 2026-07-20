@@ -41,6 +41,26 @@ function fishShape(ctx, len, body, belly, wag) {
 
 const READINGS = ['pH 7.8', 'DO 9.2 mg/L', '12.4 °C', 'clarity 4.1 m', 'NTU 3.2']
 
+// clickable story hotspots — pollution, habitat, and why we monitor
+const HOTSPOTS = [
+  {
+    x: 96, y: 566, r: 60, title: 'ROAD-SALT OUTFALL',
+    lines: ['Winter runoff carries chloride from salted', 'roads into the lake. It stresses fish and', 'insects — and lingers for years. Volunteers', 'track it with simple test strips.'],
+  },
+  {
+    x: 1180, y: 768, r: 70, title: 'WHY WE MONITOR HERE',
+    lines: ['This sensor logs temperature, conductivity', 'and dissolved oxygen every 15 minutes —', 'published as open data anyone can use.'],
+  },
+  {
+    x: 455, y: 770, r: 60, title: 'NATIVE PLANT BED',
+    lines: ['Pondweed and wild celery shelter young', 'perch — and feed migrating ducks each fall.'],
+  },
+  {
+    x: 955, y: 802, r: 60, title: 'DRIFTWOOD REEF',
+    lines: ['Sunken wood is prime habitat.', 'Smallmouth bass nest here every June.'],
+  },
+]
+
 export const underScene = {
   setup({ rnd }) {
     return {
@@ -51,6 +71,8 @@ export const underScene = {
       chips: [],
       chipT: 0,
       rippleSeed: rnd() * 100,
+      sel: null,
+      plume: makeParticles(16, () => ({ life: rnd() })),
     }
   },
   draw(ctx, t, dt, s, env) {
@@ -137,6 +159,31 @@ export const underScene = {
         ctx.bezierCurveTo(bx + 6, 830 - bh * 0.3, bx + 16 + sway * 0.4, 830 - bh * 0.55, bx + 10 + sway * 0.8, 830 - bh * 0.8)
         ctx.stroke()
       }
+
+      // ═ road-salt outfall pipe (left wall) + drifting chloride plume ═
+      ctx.fillStyle = '#46525a'
+      ctx.beginPath(); ctx.roundRect(-20, 548, 100, 38, 6); ctx.fill()
+      ctx.fillStyle = '#333d44'
+      ctx.beginPath(); ctx.ellipse(80, 567, 7, 17, 0, 0, TAU); ctx.fill()
+      ctx.fillStyle = '#1c2429'
+      ctx.beginPath(); ctx.ellipse(80, 567, 4.4, 13, 0, 0, TAU); ctx.fill()
+      ctx.strokeStyle = 'rgba(150,215,250,0.18)'; ctx.lineWidth = 2
+      ctx.beginPath(); ctx.moveTo(-16, 552); ctx.lineTo(74, 552); ctx.stroke()
+      // plume particles drifting out, sinking, dissolving
+      for (const pp of s.plume) {
+        pp.life += dt * 0.16
+        if (pp.life > 1) pp.life -= 1
+        const q = pp.life
+        const px2 = 84 + q * 260 + Math.sin(q * 9) * 14
+        const py2 = 567 + q * 120 + Math.sin(q * 13) * 10
+        ctx.fillStyle = `rgba(196,214,206,${(0.22 * (1 - q)).toFixed(3)})`
+        ctx.beginPath(); ctx.arc(px2, py2, 4 + q * 16, 0, TAU); ctx.fill()
+      }
+      // faint discoloured haze settling below the outfall
+      const hz2 = ctx.createRadialGradient(190, 680, 10, 190, 680, 190)
+      hz2.addColorStop(0, 'rgba(170,190,178,0.10)'); hz2.addColorStop(1, 'rgba(170,190,178,0)')
+      ctx.fillStyle = hz2
+      ctx.beginPath(); ctx.arc(190, 680, 190, 0, TAU); ctx.fill()
 
       // ═ sensor station on the bed ═
       const sx = 1180
@@ -228,7 +275,7 @@ export const underScene = {
       const dir = Math.sin(t * 0.11) > 0 ? 1 : -1
       for (const f of s.school) {
         const fx = ((t * 90 * dir + f.off * dir) % (VW + 260) + (VW + 260)) % (VW + 260) - 130
-        const fy = 300 + f.lane * 42 + Math.sin(fx * 0.012 + f.ph) * 26
+        const fy = 486 + f.lane * 38 + Math.sin(fx * 0.012 + f.ph) * 24
         const wag = Math.sin(t * 9 + f.ph) * 5
         ctx.save(); ctx.translate(fx, fy); ctx.scale(dir, 1)
         fishShape(ctx, 34, 'rgba(168,205,228,0.75)', 'rgba(220,238,250,0.5)', wag)
@@ -251,7 +298,7 @@ export const underScene = {
 
       // lake trout higher in the column with spots
       const trx = VW - ((t * 42) % (VW + 360)) + 180
-      ctx.save(); ctx.translate(trx, 470 + Math.sin(t * 1.1) * 14); ctx.scale(-1, 1)
+      ctx.save(); ctx.translate(trx, 560 + Math.sin(t * 1.1) * 14); ctx.scale(-1, 1)
       fishShape(ctx, 92, '#5e7484', '#aebfc9', Math.sin(t * 6) * 7)
       ctx.fillStyle = 'rgba(220,232,240,0.55)'
       for (let k = 0; k < 8; k++) {
@@ -262,7 +309,7 @@ export const underScene = {
 
       // painted turtle swimming, flippers stroking
       const tux = ((t * 34 + 700) % (VW + 400)) - 200
-      ctx.save(); ctx.translate(tux, 210 + Math.sin(t * 1.3) * 10)
+      ctx.save(); ctx.translate(tux, 112 + Math.sin(t * 1.3) * 9)
       const st = Math.sin(t * 3.2)
       ctx.fillStyle = '#3e6a4c'
       for (const [lx2, ly2, dirL] of [[-16, -12, -1], [-16, 12, 1], [16, -14, -1], [16, 14, 1]]) {
@@ -299,5 +346,55 @@ export const underScene = {
     const vg = ctx.createRadialGradient(VW / 2, VH * 0.4, VH * 0.4, VW / 2, VH * 0.45, VH)
     vg.addColorStop(0, 'rgba(2,10,20,0)'); vg.addColorStop(1, 'rgba(2,10,20,0.5)')
     ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH)
+
+    // ═ interactive hotspots: click a glowing point to learn the story ═
+    if (p.click) {
+      const c = p.click
+      p.click = null
+      let hit = null
+      for (const h of HOTSPOTS) {
+        if ((c.x - h.x) ** 2 + (c.y - h.y) ** 2 < h.r * h.r) { hit = h; break }
+      }
+      s.sel = hit && s.sel !== hit ? hit : null
+    }
+    for (const h of HOTSPOTS) {
+      const pu = 0.6 + 0.4 * Math.sin(t * 2.4 + h.x)
+      const active = s.sel === h
+      ctx.strokeStyle = `rgba(125,245,223,${(active ? 0.9 : 0.45 * pu).toFixed(3)})`
+      ctx.lineWidth = 2
+      ctx.beginPath(); ctx.arc(h.x, h.y, 13 + (active ? 2 : pu * 3), 0, TAU); ctx.stroke()
+      ctx.fillStyle = `rgba(125,245,223,${(active ? 1 : 0.75).toFixed(3)})`
+      ctx.fillRect(h.x - 5, h.y - 1.2, 10, 2.4)
+      if (!active) ctx.fillRect(h.x - 1.2, h.y - 5, 2.4, 10) // "+" collapses to "−"
+      const rq = ((t + h.y * 0.01) % 2.6) / 2.6
+      ctx.strokeStyle = `rgba(125,245,223,${(0.4 * (1 - rq)).toFixed(3)})`
+      ctx.beginPath(); ctx.arc(h.x, h.y, 13 + rq * 30, 0, TAU); ctx.stroke()
+    }
+    if (s.sel) {
+      const h = s.sel
+      ctx.save()
+      ctx.font = '600 19px "DM Sans", system-ui, sans-serif'
+      let w = ctx.measureText(h.title).width
+      for (const l of h.lines) w = Math.max(w, ctx.measureText(l).width)
+      w += 44
+      const lh = 27
+      const ch = 30 + (h.lines.length + 1) * lh
+      const cx = clamp(h.x + 30, 24, VW - w - 24)
+      const cy = clamp(h.y - ch - 24, 20, VH - ch - 20)
+      ctx.fillStyle = 'rgba(5,17,29,0.9)'
+      ctx.strokeStyle = 'rgba(125,245,223,0.55)'; ctx.lineWidth = 1.6
+      ctx.beginPath(); ctx.roundRect(cx, cy, w, ch, 14); ctx.fill(); ctx.stroke()
+      // pointer stem toward the hotspot
+      ctx.beginPath()
+      ctx.moveTo(clamp(h.x, cx + 24, cx + w - 24), cy + ch)
+      ctx.lineTo(h.x, h.y - 16)
+      ctx.strokeStyle = 'rgba(125,245,223,0.35)'; ctx.stroke()
+      ctx.fillStyle = '#7df5df'
+      ctx.fillText(h.title, cx + 22, cy + 32)
+      ctx.fillStyle = '#e6f2fc'
+      ctx.font = '400 18px "DM Sans", system-ui, sans-serif'
+      h.lines.forEach((l, i) => ctx.fillText(l, cx + 22, cy + 32 + (i + 1) * lh))
+      ctx.restore()
+    }
   },
 }

@@ -120,13 +120,17 @@ function person2(ctx, o) {
 
   // ═ legs ═
   if (phase != null) {
+    ctx.rotate(0.045) // slight forward lean while walking
     // near leg (side 0) drawn after far leg (side 1) for correct depth
     for (const side of [1, 0]) {
       const ph = phase + side * Math.PI
       const swing = Math.sin(ph)
-      const lift = Math.max(0, Math.sin(ph + Math.PI * 0.42))
-      const kneeX = swing * 7, kneeY = hipY * 0.48 - lift * 3
-      const footX = swing * 14, footY = -lift * 10
+      // foot lifts only during the swing phase, stays planted in stance
+      const lift = Math.pow(Math.max(0, Math.sin(ph + Math.PI * 0.5)), 1.6)
+      const kneeX = swing * 6.5 + lift * 4 // knee leads during swing
+      const kneeY = hipY * 0.5 - lift * 3
+      const footX = swing * 13
+      const footY = -lift * 9
       ctx.strokeStyle = side ? legDark : bot
       ctx.lineWidth = 9.5
       ctx.beginPath(); ctx.moveTo(0, hipY); ctx.quadraticCurveTo(kneeX, kneeY, footX, footY); ctx.stroke()
@@ -394,10 +398,21 @@ export const shoreScene = {
         ctx.moveTo(bx - 9, by); ctx.quadraticCurveTo(bx - 3, by - f, bx, by)
         ctx.quadraticCurveTo(bx + 3, by - f, bx + 9, by); ctx.stroke()
       }
+      // gulls: two wheeling flocks + two crossing the whole sky
       for (let i = 0; i < 3; i++) {
         const a = t * 0.3 + i * 2.1
-        gull(ctx, 1080 + Math.cos(a) * 120, 260 + Math.sin(a * 1.3) * 40, 0.8, t * 6 + i * 2)
+        gull(ctx, 1080 + Math.cos(a) * 130, 255 + Math.sin(a * 1.3) * 42, 0.85, t * 6 + i * 2)
       }
+      for (let i = 0; i < 2; i++) {
+        const a = t * 0.24 + i * 2.8
+        gull(ctx, 420 + Math.cos(a) * 100, 200 + Math.sin(a * 1.5) * 30, 0.7, t * 5.4 + i * 1.7)
+      }
+      const cg1 = ((t * 46) % (VW + 300)) - 150
+      gull(ctx, cg1, 168 + Math.sin(t * 1.8) * 10, 1.05, t * 7)
+      const cg2 = VW - (((t + 6) * 38) % (VW + 300)) + 150
+      ctx.save(); ctx.translate(cg2, 232 + Math.sin(t * 1.5) * 8); ctx.scale(-1, 1)
+      gull(ctx, 0, 0, 0.9, t * 6.4 + 2)
+      ctx.restore()
     })
 
     // ═══ FAR SHORE ═══
@@ -552,15 +567,40 @@ export const shoreScene = {
       ctx.scale(0.8, 0.8)
       // hull reflection + shadow in water
       ctx.fillStyle = 'rgba(14,36,50,0.30)'
-      ctx.beginPath(); ctx.ellipse(0, 17, 62, 8, 0, 0, TAU); ctx.fill()
-      ctx.fillStyle = '#dde2e6'; ctx.strokeStyle = '#5b6770'; ctx.lineWidth = 2.4
-      ctx.beginPath(); ctx.moveTo(-56, -6); ctx.lineTo(56, -6); ctx.lineTo(44, 13); ctx.lineTo(-48, 13); ctx.closePath(); ctx.fill(); ctx.stroke()
-      ctx.fillStyle = '#3d6b8f'; ctx.fillRect(-56, -6, 112, 5)
-      ctx.fillStyle = 'rgba(255,214,150,0.4)'; ctx.fillRect(-56, -7.4, 112, 1.8)
-      ctx.fillStyle = '#aab4bc'; ctx.fillRect(8, -22, 18, 16)
-      ctx.strokeStyle = '#5b6770'; ctx.beginPath(); ctx.moveTo(24, -22); ctx.lineTo(24, -40); ctx.stroke()
+      ctx.beginPath(); ctx.ellipse(-2, 16, 66, 8, 0, 0, TAU); ctx.fill()
+      // aluminum research skiff — pointed bow (left), transom + outboard (right)
+      ctx.fillStyle = '#d9dee3'; ctx.strokeStyle = '#5b6770'; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'
+      ctx.beginPath()
+      ctx.moveTo(-68, 2)
+      ctx.quadraticCurveTo(-60, -8, -38, -10)
+      ctx.lineTo(52, -10)
+      ctx.lineTo(52, 10)
+      ctx.lineTo(-42, 10)
+      ctx.quadraticCurveTo(-58, 9, -68, 2)
+      ctx.closePath(); ctx.fill(); ctx.stroke()
+      // hull shading + red waterline stripe + lit gunwale
+      const hgd = ctx.createLinearGradient(0, -10, 0, 10)
+      hgd.addColorStop(0, 'rgba(255,255,255,0.35)'); hgd.addColorStop(0.6, 'rgba(90,110,125,0)'); hgd.addColorStop(1, 'rgba(40,56,66,0.35)')
+      ctx.fillStyle = hgd; ctx.fill()
+      ctx.fillStyle = '#bd4a3c'
+      ctx.beginPath()
+      ctx.moveTo(-60, 4); ctx.lineTo(52, 4); ctx.lineTo(52, 7); ctx.lineTo(-56, 7); ctx.closePath(); ctx.fill()
+      ctx.strokeStyle = 'rgba(255,214,150,0.55)'; ctx.lineWidth = 1.6
+      ctx.beginPath(); ctx.moveTo(-38, -10); ctx.lineTo(52, -10); ctx.stroke()
+      // console + antenna + running light
+      ctx.fillStyle = '#aab4bc'; ctx.fillRect(4, -24, 17, 15)
+      ctx.fillStyle = '#3a4650'; ctx.fillRect(4, -24, 17, 3.4)
+      ctx.strokeStyle = '#5b6770'; ctx.lineWidth = 2
+      ctx.beginPath(); ctx.moveTo(19, -24); ctx.lineTo(19, -42); ctx.stroke()
       ctx.fillStyle = Math.sin(t * 4) > 0 ? '#5eead4' : '#2b6b60'
-      ctx.beginPath(); ctx.arc(24, -42, 2.4, 0, TAU); ctx.fill()
+      ctx.beginPath(); ctx.arc(19, -44, 2.4, 0, TAU); ctx.fill()
+      // outboard motor on the transom
+      ctx.fillStyle = '#3a4650'
+      ctx.beginPath(); ctx.roundRect(52, -16, 10, 11, 2.5); ctx.fill()
+      ctx.fillRect(55.5, -5, 3.4, 16)
+      ctx.strokeStyle = 'rgba(240,248,255,0.3)'; ctx.lineWidth = 1.4
+      ctx.beginPath(); ctx.ellipse(60, 13, 7 + Math.sin(t * 2.2) * 1.5, 2, 0, 0, TAU); ctx.stroke()
+      // anchor + sonde winch line
       ctx.strokeStyle = '#3a4650'; ctx.lineWidth = 1.6
       ctx.beginPath(); ctx.moveTo(-36, -4); ctx.lineTo(-36 + Math.sin(t * 0.8) * 3, 26); ctx.stroke()
       // researcher 1: bends over the side, hauls the sample, stands to inspect
@@ -571,15 +611,15 @@ export const shoreScene = {
       else if (rT < 4.8) bend = 1 - ease2((rT - 3.4) / 1.4)
       else if (rT < 7.4) inspect = Math.sin(((rT - 4.8) / 2.6) * Math.PI)
       person2(ctx, {
-        x: -26, y: -5, h: 46, skin: 3, top: 7, bottom: 2, hairStyle: 'cap', hair: 2, shadow: false,
-        lean: -bend * 0.2,
-        armR: { u: 0.4 + bend * 1.0 + inspect * 1.0, f: 0.3 + bend * 0.4 },
-        armL: { u: 0.4 + bend * 0.9 + inspect * 0.9, f: 0.3 + bend * 0.4 },
+        x: -26, y: -9, h: 46, skin: 3, top: 7, bottom: 2, hairStyle: 'cap', hair: 2, shadow: false,
+        lean: -bend * 0.3,
+        armR: { u: 0.2 + bend * 1.1 + inspect * 1.05, f: 0.35 + bend * 0.3 },
+        armL: { u: 0.15 + bend * 1.0 + inspect * 0.5, f: 0.3 + bend * 0.3 },
         nod: inspect * 2.4,
       })
       if (inspect > 0.15) { // lifted sample bottle catching the light
         ctx.fillStyle = `rgba(214,238,248,${(0.9 * inspect).toFixed(3)})`
-        ctx.fillRect(-16, -42 - inspect * 4, 4.5, 7)
+        ctx.fillRect(-16, -46 - inspect * 4, 4.5, 7)
       }
       if (bend === 1 && Math.sin(t * 5) > 0.4) { // hauling ripple at the winch line
         ctx.strokeStyle = 'rgba(250,252,255,0.35)'; ctx.lineWidth = 1.4
@@ -588,12 +628,12 @@ export const shoreScene = {
       // researcher 2: reads the tablet, periodically gestures toward the buoy
       const point2 = Math.max(0, Math.sin(t * 0.45) - 0.55) / 0.45
       person2(ctx, {
-        x: 34, y: -5, h: 48, skin: 0, top: 6, bottom: 0, flip: true, hairStyle: 'bun', hair: 0, shadow: false,
-        armR: { u: 0.85 + point2 * 0.7, f: 0.7 - point2 * 0.5 },
-        armL: { u: 0.8, f: 0.72 },
+        x: 34, y: -9, h: 48, skin: 0, top: 6, bottom: 0, flip: true, hairStyle: 'bun', hair: 0, shadow: false,
+        armR: { u: 0.35 + point2 * 0.95, f: 0.95 - point2 * 0.75 },
+        armL: { u: 0.3, f: 0.9 },
         nod: t * 2,
       })
-      ctx.save(); ctx.translate(24, -30); ctx.rotate(-0.12)
+      ctx.save(); ctx.translate(23, -33); ctx.rotate(-0.12)
       ctx.fillStyle = '#20262c'; ctx.fillRect(0, 0, 8, 5.6)
       ctx.fillStyle = 'rgba(125,220,240,0.9)'; ctx.fillRect(0.8, 0.8, 6.4, 4)
       ctx.restore()
@@ -711,6 +751,23 @@ export const shoreScene = {
         ctx.restore()
         ctx.strokeStyle = 'rgba(240,248,255,0.24)'; ctx.lineWidth = 1.4
         ctx.beginPath(); ctx.ellipse(d.x, dy + 5, 12, 2.6, 0, 0, TAU); ctx.stroke()
+      }
+
+      // incoming swell lines rolling toward the beach and breaking
+      for (let b = 0; b < 3; b++) {
+        const cycle = ((t * 26 + b * 46) % 130)
+        const off = 130 - cycle // distance above the foam line, shrinking
+        const build = 1 - off / 130
+        const a = 0.05 + build * 0.16
+        ctx.strokeStyle = `rgba(250,252,255,${a.toFixed(3)})`
+        ctx.lineWidth = 1.6 + build * 2.6
+        ctx.lineCap = 'round'
+        ctx.beginPath()
+        for (let x = -40; x <= VW + 40; x += 30) {
+          const y = shoreY(x) - off + Math.sin(x * 0.012 + t * 1.1 + b * 2) * 4
+          if (x === -40) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+        }
+        ctx.stroke()
       }
 
       // ── sand body ──
@@ -888,6 +945,53 @@ export const shoreScene = {
       ctx.beginPath(); ctx.moveTo(7, -8); ctx.lineTo(10 - swing * 2, 8); ctx.stroke()
       ctx.restore()
       person2(ctx, { x: 1136, y: 710, h: 68, skin: 1, top: 1, bottom: 2, hairStyle: 'long', hair: 1, shadow: false, armL: { u: 0.3 + Math.sin(t * 0.9) * 0.05, f: 0.2 }, nod: t * 0.9 + 2 })
+      // ── Water Rangers: throw-bucket sampler mid-dock ──
+      const tbT = (t + 3) % 9
+      const handX = 1178, handY = 718
+      let armThrow = 0.5, bkx = handX + 6, bky = handY + 6, ropeSag = 6
+      const landBX = 1080, landBY = 742
+      if (tbT < 0.7) { // windup, bucket swinging back
+        armThrow = 0.5 - ease2(tbT / 0.7) * 1.1
+        bkx = handX + 10 + armThrow * 10; bky = handY + 10
+      } else if (tbT < 1.0) { // throw
+        const q = ease2((tbT - 0.7) / 0.3)
+        armThrow = lerp(-0.6, 1.35, q)
+        bkx = lerp(handX, landBX, q); bky = lerp(handY, landBY, q) - Math.sin(q * Math.PI) * 42
+        ropeSag = 3
+      } else if (tbT < 4.5) { // bucket filling in the water
+        armThrow = 1.0
+        bkx = landBX; bky = landBY + Math.sin(t * 1.9) * 2 + Math.min(6, (tbT - 1) * 5)
+        ropeSag = 18
+      } else if (tbT < 6.5) { // hauling it back
+        const q = ease2((tbT - 4.5) / 2)
+        armThrow = 1.0 - q * 0.5 + Math.sin(t * 8) * 0.08
+        bkx = lerp(landBX, handX + 4, q); bky = lerp(landBY + 5, handY + 8, q)
+        ropeSag = lerp(14, 4, q)
+      } else { // inspecting the sample
+        armThrow = 0.85; bkx = handX + 8; bky = handY - 2
+        ropeSag = 2
+      }
+      person2(ctx, {
+        x: 1170, y: 752, h: 60, skin: 4, top: 8, bottom: 3, hairStyle: 'short', hair: 5, shadow: false,
+        armR: { u: armThrow, f: 0.25 }, armL: { u: 0.3, f: 0.3 },
+        lean: (armThrow - 0.5) * 0.1,
+      })
+      // rope + bucket
+      ctx.strokeStyle = 'rgba(232,220,190,0.8)'; ctx.lineWidth = 1.4
+      ctx.beginPath(); ctx.moveTo(handX, handY)
+      ctx.quadraticCurveTo((handX + bkx) / 2, Math.max(handY, bky) + ropeSag, bkx, bky)
+      ctx.stroke()
+      ctx.fillStyle = '#d8dde2'; ctx.strokeStyle = '#5b6770'; ctx.lineWidth = 1.2
+      ctx.beginPath(); ctx.moveTo(bkx - 4.4, bky - 5); ctx.lineTo(bkx + 4.4, bky - 5); ctx.lineTo(bkx + 3.4, bky + 3); ctx.lineTo(bkx - 3.4, bky + 3); ctx.closePath(); ctx.fill(); ctx.stroke()
+      if (tbT >= 1.0 && tbT < 1.5) { // splash
+        const q = (tbT - 1.0) / 0.5
+        ctx.strokeStyle = `rgba(250,252,255,${(0.6 * (1 - q)).toFixed(3)})`; ctx.lineWidth = 1.8
+        ctx.beginPath(); ctx.ellipse(landBX, landBY + 2, 4 + q * 20, (4 + q * 20) * 0.3, 0, 0, TAU); ctx.stroke()
+      } else if (tbT >= 1.5 && tbT < 4.5) {
+        ctx.strokeStyle = 'rgba(240,248,255,0.25)'; ctx.lineWidth = 1.3
+        ctx.beginPath(); ctx.ellipse(bkx, bky + 3, 8 + Math.sin(t * 1.9) * 2, 2.2, 0, 0, TAU); ctx.stroke()
+      }
+
       // moored canoe rocking beside the dock
       ctx.save(); ctx.translate(1270, 806 + Math.sin(t * 1.4) * 2.2); ctx.rotate(Math.sin(t * 1.4) * 0.024)
       canoeSide(ctx, 46, '#3d6b8f', '#1d3a52')
@@ -938,6 +1042,69 @@ export const shoreScene = {
       ctx.beginPath(); ctx.arc(stX, stY - 55, 2.2, 0, TAU); ctx.fill()
       castShadow(ctx, stX, stY, 10)
 
+      // ── Water Rangers: chloride test-strip volunteer (hi-vis) ──
+      // loop: dip strip → wait → hold it up against the chart bottle
+      const tsT = (t + 4) % 12
+      let tsDip = 0, tsHold = 0
+      if (tsT < 1) tsDip = Math.sin(tsT * Math.PI)
+      else if (tsT > 4 && tsT < 9) tsHold = Math.min(1, (tsT - 4) * 2, (9 - tsT) * 2)
+      person2(ctx, {
+        x: 700, y: shoreY(700) + 30, h: 88, skin: 2, top: 8, bottom: 2, hairStyle: 'long', hair: 2,
+        stance: 'crouch',
+        armR: { u: 0.6 + tsDip * 0.8 + tsHold * 1.3, f: 0.3 + tsHold * 0.5 },
+        armL: { u: 0.45 + tsHold * 0.5, f: 0.4 },
+        nod: tsHold * 2.6,
+      })
+      // the strip (tiny white slip) + chart bottle in the other hand
+      ctx.save()
+      const tsx = 700 + 16 + tsHold * 4, tsy = shoreY(700) - 8 - tsHold * 42 + tsDip * 16
+      ctx.translate(tsx, tsy); ctx.rotate(-0.25 + tsHold * 0.15)
+      ctx.fillStyle = '#f2f4f0'; ctx.fillRect(0, 0, 2.6, 11)
+      ctx.fillStyle = tsT > 3 ? '#5a4a7a' : '#d8d4c8' // strip develops colour
+      ctx.fillRect(0, 0, 2.6, 3.4)
+      ctx.restore()
+      if (tsHold > 0.5) { // chart bottle raised beside it
+        ctx.fillStyle = '#e8ecef'
+        ctx.fillRect(688, shoreY(700) - 52, 6, 10)
+        ctx.fillStyle = '#3d6b8f'; ctx.fillRect(688, shoreY(700) - 52, 6, 2.6)
+      }
+      if (tsDip > 0.5) {
+        ctx.strokeStyle = 'rgba(250,252,255,0.45)'; ctx.lineWidth = 1.4
+        ctx.beginPath(); ctx.ellipse(716, shoreY(700) - 2, 9 * tsDip, 2.6 * tsDip, 0, 0, TAU); ctx.stroke()
+      }
+
+      // ── Water Rangers: reacher-stick sampler on the left rocks ──
+      const rsT = (t + 7) % 10
+      const reach = rsT < 3 ? Math.min(1, rsT, 3 - rsT) : 0
+      person2(ctx, {
+        x: 148, y: shoreY(148) + 34, h: 90, skin: 5, top: 6, bottom: 1, hairStyle: 'cap', hair: 0,
+        lean: -0.1 - reach * 0.12,
+        armR: { u: 0.9 + reach * 0.5, f: 0.15 }, armL: { u: 0.7 + reach * 0.4, f: 0.2 },
+      })
+      ctx.save()
+      ctx.translate(160, shoreY(148) - 26); ctx.rotate(0.82 + reach * 0.18)
+      ctx.strokeStyle = '#b8b4ac'; ctx.lineWidth = 3
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(58 + reach * 14, 0); ctx.stroke()
+      ctx.fillStyle = 'rgba(214,238,248,0.85)'
+      ctx.fillRect(56 + reach * 14, -3, 8, 7) // sample cup on the tip
+      ctx.restore()
+      if (reach > 0.9) {
+        ctx.strokeStyle = 'rgba(250,252,255,0.4)'; ctx.lineWidth = 1.4
+        ctx.beginPath(); ctx.ellipse(205, shoreY(190) - 4, 10, 3, 0, 0, TAU); ctx.stroke()
+      }
+
+      // ── Water Rangers: field-notebook logger by the cooler ──
+      const scrib = Math.sin(t * 7) * 0.08 * (Math.sin(t * 0.5) > -0.4 ? 1 : 0)
+      person2(ctx, {
+        x: 770, y: shoreY(770) + 66, h: 96, skin: 0, top: 3, bottom: 4, hairStyle: 'bun', hair: 3,
+        armR: { u: 0.75 + scrib, f: 0.95 }, armL: { u: 0.55, f: 1.05 }, nod: t * 0.7,
+      })
+      ctx.save(); ctx.translate(782, shoreY(770) + 66 - 52); ctx.rotate(-0.3)
+      ctx.fillStyle = '#f4efe2'; ctx.fillRect(0, 0, 10, 7.4)
+      ctx.strokeStyle = '#b0a890'; ctx.lineWidth = 0.8
+      ctx.beginPath(); ctx.moveTo(1.4, 2.2); ctx.lineTo(8.6, 2.2); ctx.moveTo(1.4, 4.2); ctx.lineTo(8.6, 4.2); ctx.stroke()
+      ctx.restore()
+
       // kids skipping stones + guardian (left)
       const skT = (t + 2.4) % 8
       const windup = skT < 0.5 ? Math.sin(skT / 0.5 * Math.PI) : 0
@@ -964,7 +1131,7 @@ export const shoreScene = {
       const wq = ((t * 0.024) % 1.3) - 0.12
       const wx = lerp(1500, 60, clamp(wq, 0, 1))
       const wy = shoreY(wx) + 90
-      const wph = t * 5.6
+      const wph = t * 4.2
       if (wq > -0.1 && wq < 1.1) {
         person2(ctx, { x: wx, y: wy, h: 100, skin: 2, top: 1, bottom: 0, hairStyle: 'short', hair: 1, flip: true, walk: wph })
         person2(ctx, { x: wx + 34, y: wy + 6, h: 94, skin: 0, top: 5, bottom: 3, hairStyle: 'long', hair: 0, flip: true, walk: wph + 1.2 })
@@ -1029,9 +1196,9 @@ export const shoreScene = {
       if (fq > -0.08 && fq < 1.08) {
         const fx = lerp(360, 1330, clamp(fq, 0, 1))
         const fy = shoreY(fx) + 150
-        const fph = t * 5
+        const fph = t * 2.35
         person2(ctx, { x: fx, y: fy, h: 108, skin: 5, top: 9, bottom: 2, hairStyle: 'short', hair: 0, walk: fph, armR: { u: 0.5, f: 0.4 } })
-        person2(ctx, { x: fx + 40, y: fy + 2, h: 62, skin: 5, top: 8, bottom: 0, hairStyle: 'long', hair: 1, walk: fph + 0.9, armL: { u: -0.45, f: -0.15 } })
+        person2(ctx, { x: fx + 40, y: fy + 2, h: 62, skin: 5, top: 8, bottom: 0, hairStyle: 'long', hair: 1, walk: t * 3.8 + 0.9, armL: { u: -0.45, f: -0.15 } })
         ctx.strokeStyle = 'rgba(60,44,30,0.35)'; ctx.lineWidth = 2
         ctx.beginPath(); ctx.moveTo(fx + 12, fy - 52); ctx.quadraticCurveTo(fx + 26, fy - 38, fx + 32, fy - 36); ctx.stroke()
       }
