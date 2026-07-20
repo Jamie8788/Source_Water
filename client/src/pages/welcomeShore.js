@@ -200,6 +200,30 @@ function person2(ctx, o) {
   ctx.quadraticCurveTo(tw + 1, (shY + hipY) / 2, tw - 4, hipY)
   ctx.stroke()
 
+  // ═ hi-vis safety vest (Water Rangers field gear) ═
+  if (o.vest) {
+    ctx.save()
+    ctx.beginPath()
+    ctx.moveTo(-tw + 3, shY + 2)
+    ctx.quadraticCurveTo(0, shY - 2, tw - 3, shY + 2)
+    ctx.quadraticCurveTo(tw - 1, (shY + hipY) / 2, tw - 4.5, hipY + 1)
+    ctx.lineTo(-tw + 4.5, hipY + 1)
+    ctx.quadraticCurveTo(-tw + 1, (shY + hipY) / 2, -tw + 3, shY + 2)
+    ctx.closePath()
+    const vg = ctx.createLinearGradient(0, shY, 0, hipY)
+    vg.addColorStop(0, '#f2c43a'); vg.addColorStop(1, '#e0a020')
+    ctx.fillStyle = vg; ctx.fill()
+    // front zip gap
+    ctx.strokeStyle = 'rgba(120,80,10,0.5)'; ctx.lineWidth = 1
+    ctx.beginPath(); ctx.moveTo(0, shY + 2); ctx.lineTo(0, hipY); ctx.stroke()
+    // reflective bands
+    ctx.strokeStyle = 'rgba(220,235,240,0.9)'; ctx.lineWidth = 2.2
+    ctx.beginPath(); ctx.moveTo(-tw + 4, shY + 9); ctx.lineTo(tw - 4, shY + 9); ctx.stroke()
+    ctx.strokeStyle = 'rgba(160,190,200,0.7)'; ctx.lineWidth = 1.4
+    ctx.beginPath(); ctx.moveTo(-tw + 4, shY + 12.5); ctx.lineTo(tw - 4, shY + 12.5); ctx.stroke()
+    ctx.restore()
+  }
+
   // ═ NEAR arm (in front of torso) ═
   drawArm(tw - 3, armR, top)
 
@@ -234,6 +258,13 @@ function person2(ctx, o) {
   } else if (style === 'grey') {
     ctx.fillStyle = '#cfc9bd'
     ctx.beginPath(); ctx.arc(0, hy - 1.6, 9.2, Math.PI * 0.9, TAU); ctx.fill()
+  } else if (style === 'sun') {
+    ctx.fillStyle = '#241812'
+    ctx.beginPath(); ctx.arc(0, hy - 1.6, 9, Math.PI, TAU); ctx.fill()
+    ctx.fillStyle = '#d9c184' // wide-brim sun hat
+    ctx.beginPath(); ctx.ellipse(0, hy - 5.5, 15, 4.4, 0, 0, TAU); ctx.fill()
+    ctx.fillStyle = '#c2a86a'
+    ctx.beginPath(); ctx.ellipse(0, hy - 8.5, 7.5, 5, 0, Math.PI, TAU); ctx.fill()
   }
   ctx.restore()
   ctx.restore()
@@ -391,6 +422,25 @@ export const shoreScene = {
       ctx.fillStyle = 'rgba(244,186,128,0.20)'
       ctx.beginPath(); ctx.ellipse(700, HZ - 20, 900, 20, 0, 0, TAU); ctx.fill()
       ctx.restore()
+
+      // ── soft volumetric god-rays fanning down from the sun (blurred, not hard triangles) ──
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      ctx.filter = 'blur(9px)'
+      ctx.translate(SUNX, SUNY)
+      for (let i = 0; i < 7; i++) {
+        const a = -0.9 + i * 0.26 + Math.sin(t * 0.18 + i) * 0.03
+        const sway = Math.sin(t * 0.4 + i * 1.3) * 0.05
+        ctx.save(); ctx.rotate(a + sway)
+        const g = ctx.createLinearGradient(0, 0, 0, 620)
+        g.addColorStop(0, `rgba(255,232,180,${(0.05 + 0.02 * Math.sin(t * 0.5 + i)).toFixed(3)})`)
+        g.addColorStop(1, 'rgba(255,232,180,0)')
+        ctx.fillStyle = g
+        ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(-44, 620); ctx.lineTo(44, 620); ctx.lineTo(8, 0); ctx.closePath(); ctx.fill()
+        ctx.restore()
+      }
+      ctx.filter = 'none'
+      ctx.restore()
     })
 
     // stratus clouds — dark tops, warm lit undersides
@@ -441,8 +491,9 @@ export const shoreScene = {
       ctx.restore()
     })
 
-    // ═══ FAR SHORE ═══
+    // ═══ FAR SHORE (slightly defocused for atmospheric depth) ═══
     par(18, () => {
+      ctx.filter = 'blur(1.4px)'
       // far ridge
       ctx.fillStyle = 'rgba(128,100,112,0.6)'
       ctx.beginPath(); ctx.moveTo(-40, HZ)
@@ -491,6 +542,17 @@ export const shoreScene = {
       [0, '#e8b788'], [0.09, '#c39a80'], [0.2, '#8d8b88'], [0.36, '#5c7d92'], [0.55, '#3d7290'], [0.78, '#2f7d94'], [1, '#37918f'],
     ])
     ctx.fillRect(0, HZ, VW, VH - HZ)
+
+    // soft cloud shadows drifting across the water beneath each cloud
+    ctx.save()
+    ctx.filter = 'blur(16px)'
+    for (const c of s.clouds) {
+      const shx = c.x - s.par.x * 6, shy = HZ + 50 + (c.y / 240) * 70
+      ctx.fillStyle = 'rgba(18,38,56,0.09)'
+      ctx.beginPath(); ctx.ellipse(shx, shy, c.r * 1.15, c.r * 0.16, 0, 0, TAU); ctx.fill()
+    }
+    ctx.filter = 'none'
+    ctx.restore()
 
     par(8, () => {
       // mirror bloom under the sun — soft elliptical, no hard edges
@@ -637,7 +699,7 @@ export const shoreScene = {
       else if (rT < 4.8) bend = 1 - ease2((rT - 3.4) / 1.4)
       else if (rT < 7.4) inspect = Math.sin(((rT - 4.8) / 2.6) * Math.PI)
       person2(ctx, {
-        x: -26, y: -9, h: 46, skin: 3, top: 7, bottom: 2, hairStyle: 'cap', hair: 2, shadow: false,
+        x: -26, y: -9, h: 46, skin: 3, top: 7, bottom: 2, hairStyle: 'cap', hair: 2, vest: true, shadow: false,
         lean: -bend * 0.3,
         armR: { u: 0.2 + bend * 1.1 + inspect * 1.05, f: 0.35 + bend * 0.3 },
         armL: { u: 0.15 + bend * 1.0 + inspect * 0.5, f: 0.3 + bend * 0.3 },
@@ -654,7 +716,7 @@ export const shoreScene = {
       // researcher 2: reads the tablet, periodically gestures toward the buoy
       const point2 = Math.max(0, Math.sin(t * 0.45) - 0.55) / 0.45
       person2(ctx, {
-        x: 34, y: -9, h: 48, skin: 0, top: 6, bottom: 0, flip: true, hairStyle: 'bun', hair: 0, shadow: false,
+        x: 34, y: -9, h: 48, skin: 0, top: 6, bottom: 0, flip: true, hairStyle: 'bun', hair: 0, vest: true, shadow: false,
         armR: { u: 0.35 + point2 * 0.95, f: 0.95 - point2 * 0.75 },
         armL: { u: 0.3, f: 0.9 },
         nod: t * 2,
@@ -1033,7 +1095,7 @@ export const shoreScene = {
       const dip = dipT < 0.22 ? Math.sin(dipT / 0.22 * Math.PI) : 0
       const lift = dipT > 0.3 && dipT < 0.5 ? Math.sin((dipT - 0.3) / 0.2 * Math.PI) : 0
       person2(ctx, {
-        x: 470, y: shoreY(470) + 26, h: 92, skin: 0, top: 7, bottom: 2, hairStyle: 'bun', hair: 0,
+        x: 470, y: shoreY(470) + 26, h: 92, skin: 0, top: 7, bottom: 2, hairStyle: 'bun', hair: 0, vest: true,
         stance: 'crouch', armR: { u: 0.55 + dip * 0.9 + lift * 0.7, f: 0.3 + dip * 0.3 }, armL: { u: 0.5, f: 0.4 }, nod: lift * 3,
       })
       // sample jar in hand
@@ -1046,7 +1108,7 @@ export const shoreScene = {
         ctx.beginPath(); ctx.ellipse(jx + 3, shoreY(470) - 4, 12 * dip, 3.4 * dip, 0, 0, TAU); ctx.stroke()
       }
       person2(ctx, {
-        x: 540, y: shoreY(540) + 40, h: 104, skin: 3, top: 8, bottom: 0, hairStyle: 'short', hair: 2, flip: true,
+        x: 540, y: shoreY(540) + 40, h: 104, skin: 3, top: 8, bottom: 0, hairStyle: 'short', hair: 2, flip: true, vest: true,
         armR: { u: 1.0 + Math.sin(t * 2.4) * 0.05, f: 0.75 }, armL: { u: 0.9, f: 0.7 }, nod: t * 1.2,
       })
       ctx.save(); ctx.translate(519, shoreY(540) - 34); ctx.rotate(-0.16)
@@ -1075,7 +1137,7 @@ export const shoreScene = {
       if (tsT < 1) tsDip = Math.sin(tsT * Math.PI)
       else if (tsT > 4 && tsT < 9) tsHold = Math.min(1, (tsT - 4) * 2, (9 - tsT) * 2)
       person2(ctx, {
-        x: 700, y: shoreY(700) + 30, h: 88, skin: 2, top: 8, bottom: 2, hairStyle: 'long', hair: 2,
+        x: 700, y: shoreY(700) + 30, h: 88, skin: 2, top: 8, bottom: 2, hairStyle: 'long', hair: 2, vest: true,
         stance: 'crouch',
         armR: { u: 0.6 + tsDip * 0.8 + tsHold * 1.3, f: 0.3 + tsHold * 0.5 },
         armL: { u: 0.45 + tsHold * 0.5, f: 0.4 },
@@ -1103,7 +1165,7 @@ export const shoreScene = {
       const rsT = (t + 7) % 10
       const reach = rsT < 3 ? Math.min(1, rsT, 3 - rsT) : 0
       person2(ctx, {
-        x: 148, y: shoreY(148) + 34, h: 90, skin: 5, top: 6, bottom: 1, hairStyle: 'cap', hair: 0,
+        x: 148, y: shoreY(148) + 34, h: 90, skin: 5, top: 6, bottom: 1, hairStyle: 'cap', hair: 0, vest: true,
         lean: -0.1 - reach * 0.12,
         armR: { u: 0.9 + reach * 0.5, f: 0.15 }, armL: { u: 0.7 + reach * 0.4, f: 0.2 },
       })
@@ -1122,13 +1184,49 @@ export const shoreScene = {
       // ── Water Rangers: field-notebook logger by the cooler ──
       const scrib = Math.sin(t * 7) * 0.08 * (Math.sin(t * 0.5) > -0.4 ? 1 : 0)
       person2(ctx, {
-        x: 770, y: shoreY(770) + 66, h: 96, skin: 0, top: 3, bottom: 4, hairStyle: 'bun', hair: 3,
+        x: 770, y: shoreY(770) + 66, h: 96, skin: 0, top: 3, bottom: 4, hairStyle: 'bun', hair: 3, vest: true,
         armR: { u: 0.75 + scrib, f: 0.95 }, armL: { u: 0.55, f: 1.05 }, nod: t * 0.7,
       })
       ctx.save(); ctx.translate(782, shoreY(770) + 66 - 52); ctx.rotate(-0.3)
       ctx.fillStyle = '#f4efe2'; ctx.fillRect(0, 0, 10, 7.4)
       ctx.strokeStyle = '#b0a890'; ctx.lineWidth = 0.8
       ctx.beginPath(); ctx.moveTo(1.4, 2.2); ctx.lineTo(8.6, 2.2); ctx.moveTo(1.4, 4.2); ctx.lineTo(8.6, 4.2); ctx.stroke()
+      ctx.restore()
+
+      // ── Water Rangers: conductivity-meter reader (the winter-kit tool) ──
+      // kneels, dips the probe on a cord, watches the handheld display
+      const cmT = (t + 1) % 8
+      const cmDip = cmT < 1.2 ? Math.sin(cmT / 1.2 * Math.PI) * 0.5 + 0.5 : 1
+      const cmRead = cmT > 2 ? 1 : 0
+      person2(ctx, {
+        x: 360, y: shoreY(360) + 22, h: 86, skin: 1, top: 6, bottom: 2, hairStyle: 'cap', hair: 4, vest: true,
+        stance: 'crouch',
+        armR: { u: 0.5 + cmRead * 0.9, f: 0.4 + cmRead * 0.6 },
+        armL: { u: 0.7 + cmDip * 0.2, f: 0.3 },
+        nod: cmRead ? t * 1.6 : 0.4,
+      })
+      // probe cord from hand into the water + handheld with a live number
+      ctx.strokeStyle = '#3a4650'; ctx.lineWidth = 1.4
+      const pcx = 344, pcy = shoreY(360) - 4
+      ctx.beginPath(); ctx.moveTo(pcx, pcy); ctx.lineTo(pcx - 8, shoreY(344) - 2 + cmDip * 6); ctx.stroke()
+      ctx.fillStyle = '#2b6b60'; ctx.fillRect(pcx - 10, shoreY(344) - 2 + cmDip * 6, 3, 8)
+      if (cmRead) {
+        ctx.save(); ctx.translate(372, shoreY(360) - 30); ctx.rotate(-0.15)
+        ctx.fillStyle = '#20262c'; ctx.fillRect(0, 0, 12, 9)
+        ctx.fillStyle = '#7df5df'; ctx.font = '700 5px "DM Sans", system-ui'
+        ctx.fillText(((312 + Math.sin(t) * 6) | 0) + '', 1.5, 6)
+        ctx.restore()
+      }
+
+      // ── birdwatcher with binoculars tracking the gulls ──
+      person2(ctx, {
+        x: 1015, y: shoreY(1015) + 128, h: 108, skin: 3, top: 4, bottom: 2, hairStyle: 'sun', hair: 1,
+        armR: { u: 1.35 + Math.sin(t * 0.5) * 0.05, f: 1.15 }, armL: { u: 1.3, f: 1.2 },
+        nod: Math.sin(t * 0.4) * 1.5,
+      })
+      ctx.save(); ctx.translate(1027, shoreY(1015) + 128 - 76); ctx.rotate(Math.sin(t * 0.4) * 0.06)
+      ctx.fillStyle = '#20262c'; ctx.fillRect(0, -2.4, 9, 5); ctx.fillRect(2, -4.4, 5, 2)
+      ctx.fillStyle = 'rgba(150,200,230,0.7)'; ctx.beginPath(); ctx.arc(9.4, 0, 1.8, 0, TAU); ctx.fill()
       ctx.restore()
 
       // kids skipping stones + guardian (left)
@@ -1240,8 +1338,9 @@ export const shoreScene = {
       ctx.fillStyle = '#5d7a4e'; ctx.beginPath(); ctx.arc(111 + th, shoreY(96) - 15, 3.2, 0, TAU); ctx.fill()
     })
 
-    // ═══ FOREGROUND — granite, grasses, driftwood, canoe bow ═══
+    // ═══ FOREGROUND — granite, grasses, driftwood, canoe bow (defocused) ═══
     par(30, () => {
+      ctx.filter = 'blur(1.6px)' // shallow depth-of-field on the nearest layer
       // granite slab, bottom-left
       castShadow(ctx, 150, 886, 90)
       granite(ctx, 130, 900, 240, 130, 3)

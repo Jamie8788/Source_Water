@@ -82,6 +82,7 @@ export function mountScene(canvas, scene, opts = {}) {
 
   let raf = 0, running = true, last = performance.now(), t0 = last
   let scale = 1, offX = 0, offY = 0, dpr = 1
+  let grade = null, gradeW = 0, gradeH = 0
 
   // pointer in VIRTUAL coordinates (for parallax, ripples, hover previews)
   const pointer = { x: -9999, y: -9999, moved: 0, inside: false }
@@ -143,12 +144,32 @@ export function mountScene(canvas, scene, opts = {}) {
     ctx.setTransform(scale, 0, 0, scale, offX, offY)
     scene.draw(ctx, tAcc, dt, state, env)
 
-    // ── post: film grain + soft grade vignette (device space) ──
+    // ── post FX (device space): cinematic grade + film grain ──
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    const cw = canvas.width, ch = canvas.height
+    // contrast/vignette: brighten centre, sink edges (premium framing)
+    if (!grade) {
+      grade = ctx.createRadialGradient(cw / 2, ch * 0.44, ch * 0.28, cw / 2, ch * 0.5, ch * 0.92)
+      grade.addColorStop(0, 'rgba(255,246,232,0.10)')
+      grade.addColorStop(0.55, 'rgba(255,246,232,0)')
+      grade.addColorStop(1, 'rgba(6,12,22,0.34)')
+      gradeW = cw; gradeH = ch
+    } else if (gradeW !== cw || gradeH !== ch) {
+      grade = ctx.createRadialGradient(cw / 2, ch * 0.44, ch * 0.28, cw / 2, ch * 0.5, ch * 0.92)
+      grade.addColorStop(0, 'rgba(255,246,232,0.10)')
+      grade.addColorStop(0.55, 'rgba(255,246,232,0)')
+      grade.addColorStop(1, 'rgba(6,12,22,0.34)')
+      gradeW = cw; gradeH = ch
+    }
+    ctx.globalCompositeOperation = 'soft-light'
+    ctx.fillStyle = grade
+    ctx.fillRect(0, 0, cw, ch)
+    // film grain
     ctx.setTransform(1, 0, 0, 1, (Math.random() * grainSize) | 0, (Math.random() * grainSize) | 0)
     ctx.globalCompositeOperation = 'overlay'
-    ctx.globalAlpha = 0.05
+    ctx.globalAlpha = 0.045
     ctx.fillStyle = grainPattern
-    ctx.fillRect(-grainSize, -grainSize, canvas.width + grainSize * 2, canvas.height + grainSize * 2)
+    ctx.fillRect(-grainSize, -grainSize, cw + grainSize * 2, ch + grainSize * 2)
     ctx.globalAlpha = 1
     ctx.globalCompositeOperation = 'source-over'
 
