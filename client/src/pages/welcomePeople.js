@@ -159,8 +159,8 @@ export function drawPerson(ctx, o) {
   // ── FAR leg (index 0) ──
   const drawLeg = (L, far) => {
     const pcol = far ? shade(pants, -20) : pants
-    limb(L.hip[0], L.hip[1] + hipDrop, L.knee[0], L.knee[1] + hipDrop, 5.4, 4.6, pcol)
-    limb(L.knee[0], L.knee[1] + hipDrop, L.ankle[0], L.ankle[1] + hipDrop, 4.6, 3.6, pcol)
+    limb(L.hip[0], L.hip[1] + hipDrop, L.knee[0], L.knee[1] + hipDrop, 4.8, 4.0, pcol)
+    limb(L.knee[0], L.knee[1] + hipDrop, L.ankle[0], L.ankle[1] + hipDrop, 4.0, 3.0, pcol)
     // shoe
     const shoeCol = far ? '#2a2018' : '#332619'
     ctx.save()
@@ -176,13 +176,13 @@ export function drawPerson(ctx, o) {
   // far arm (behind torso)
   const drawArm = (A, far) => {
     const jc = far ? shade(jacket, -26) : jacket
-    const sx = far ? -11 : 11
+    const sx = far ? -10 : 10
     const elbow = seg(sx, shByAdj + 3, A.s, 16)
     const wrist = seg(elbow[0], elbow[1], A.s + A.e, 14)
-    limb(sx, shByAdj + 3, elbow[0], elbow[1], 4.6, 3.8, jc)
+    limb(sx, shByAdj + 3, elbow[0], elbow[1], 3.8, 3.1, jc)
     // cuff + hand
-    limb(elbow[0], elbow[1], wrist[0], wrist[1], 3.8, 3.2, jc)
-    ball(wrist[0], wrist[1], 3.4, skin)
+    limb(elbow[0], elbow[1], wrist[0], wrist[1], 3.1, 2.7, jc)
+    ball(wrist[0], wrist[1], 2.9, skin)
     return wrist
   }
   drawArm(armLA, true)
@@ -240,13 +240,15 @@ export function drawPerson(ctx, o) {
   ctx.beginPath(); ctx.moveTo(X(-3), Y(shByAdj - 2)); ctx.lineTo(X(-2.4), Y(shByAdj - 8)); ctx.lineTo(X(2.4 + hx), Y(shByAdj - 8)); ctx.lineTo(X(3), Y(shByAdj - 2)); ctx.closePath(); ctx.fill()
   // head
   const headX = X(hx), headY = Y(hcy)
-  const hg = ctx.createRadialGradient(headX + W(3), headY - W(3), W(1), headX, headY, W(9.5))
+  const hg = ctx.createRadialGradient(headX + W(3), headY - W(3), W(1), headX, headY, W(8.8))
   hg.addColorStop(0, shade(skin, 24)); hg.addColorStop(0.65, skin); hg.addColorStop(1, shade(skin, -26))
   ctx.fillStyle = hg
-  ctx.beginPath(); ctx.ellipse(headX, headY, W(8.2), W(9.4), 0, 0, TAU); ctx.fill()
+  ctx.beginPath(); ctx.ellipse(headX, headY, W(7.5), W(8.7), 0, 0, TAU); ctx.fill()
+  // jaw taper (chin)
+  ctx.beginPath(); ctx.moveTo(X(hx - 5.5), Y(hcy + 4)); ctx.quadraticCurveTo(X(hx + 1), Y(hcy + 10), X(hx + 6), Y(hcy + 3.5)); ctx.quadraticCurveTo(X(hx + 3), Y(hcy + 8), X(hx - 2), Y(hcy + 8)); ctx.quadraticCurveTo(X(hx - 4.5), Y(hcy + 7), X(hx - 5.5), Y(hcy + 4)); ctx.closePath(); ctx.fillStyle = hg; ctx.fill()
   // ear (back side)
   ctx.fillStyle = shade(skin, -6)
-  ctx.beginPath(); ctx.ellipse(X(hx - 7.5), Y(hcy + 0.5), W(2), W(2.8), 0, 0, TAU); ctx.fill()
+  ctx.beginPath(); ctx.ellipse(X(hx - 6.8), Y(hcy + 0.5), W(1.8), W(2.5), 0, 0, TAU); ctx.fill()
   // hair
   drawHair(ctx, o.hairStyle || 'short', hair, X, Y, W, hx, hcy, F)
   // face features (brow + eyes), facing +x
