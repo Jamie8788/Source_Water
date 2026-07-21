@@ -59,8 +59,9 @@ export function drawPerson(ctx, o) {
   const breath = Math.sin(t * 1.6 + cx) * 0.4 // subtle idle
 
   // local→screen
+  let bobY = 0 // set by the walk pose; lifts the whole figure per stride
   const X = (lx) => cx + F * lx * s
-  const Y = (ly) => cy + ly * s
+  const Y = (ly) => cy - bobY + ly * s
   const W = (w) => w * s
 
   // volumetric cylinder-shaded limb between local points, round caps
@@ -93,23 +94,24 @@ export function drawPerson(ctx, o) {
   const hipDX = 4
   let legs // [{hip,knee,ankle,angles}]
   let armLA = o.armL, armRA = o.armR
-  let torsoLean = 0, hipDrop = 0
+  let torsoLean = 0, hipDrop = 0, walkBob = 0
 
   if (pose.type === 'walk') {
     const ph = pose.phase || 0
-    // natural stride: thigh swings ±0.34 rad; knee bends only during the
-    // rear→front swing so the foot lifts and clears — never hyperextends.
+    // gentle natural stride: modest thigh swing, a little knee bend that
+    // peaks mid-swing so the foot clears — never a sharp hyperflexed angle.
     const mk = (p, hipX) => {
-      const thigh = Math.sin(p) * 0.34
-      const kneeBend = 0.18 + Math.max(0, Math.sin(p - 1.1)) * 0.72
+      const thigh = Math.sin(p) * 0.28
+      const kneeBend = 0.1 + Math.max(0, Math.sin(p - 1.2)) * 0.4
       const knee = seg(hipX, hipY, thigh, 23)
       const ankle = seg(knee[0], knee[1], thigh + kneeBend, 21)
       return { hip: [hipX, hipY], knee, ankle }
     }
     legs = [mk(ph + Math.PI, -2.4), mk(ph, 2.4)] // far leg first
-    torsoLean = 0.05
-    if (!armRA) armRA = { s: Math.sin(ph + Math.PI) * 0.42, e: 0.22 }
-    if (!armLA) armLA = { s: Math.sin(ph) * 0.42, e: 0.22 }
+    torsoLean = 0.04
+    walkBob = Math.abs(Math.sin(ph)) * 2.2 // body rises/falls with the stride
+    if (!armRA) armRA = { s: Math.sin(ph + Math.PI) * 0.36, e: 0.2 }
+    if (!armLA) armLA = { s: Math.sin(ph) * 0.36, e: 0.2 }
   } else if (pose.type === 'kneel') {
     // squat/crouch: hips low, both feet planted, shins angled back under the
     // body — reads clearly as crouching to sample (no broken joints).
@@ -146,6 +148,7 @@ export function drawPerson(ctx, o) {
     if (!armLA) armLA = { s: 0.1, e: 0.16 }
   }
 
+  bobY = walkBob * s
   const shByAdj = shY + hipDrop
   const hipYAdj = hipY + hipDrop
 

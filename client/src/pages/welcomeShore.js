@@ -259,23 +259,22 @@ export const shoreScene = {
       ctx.beginPath(); ctx.ellipse(700, HZ - 20, 900, 20, 0, 0, TAU); ctx.fill()
       ctx.restore()
 
-      // ── soft volumetric god-rays fanning down from the sun (blurred, not hard triangles) ──
+      // ── soft god-rays fanning from the sun (wide soft-edged gradient wedges,
+      //    no blur filter — cheap) ──
       ctx.save()
       ctx.globalCompositeOperation = 'lighter'
-      ctx.filter = 'blur(9px)'
       ctx.translate(SUNX, SUNY)
-      for (let i = 0; i < 7; i++) {
-        const a = -0.9 + i * 0.26 + Math.sin(t * 0.18 + i) * 0.03
-        const sway = Math.sin(t * 0.4 + i * 1.3) * 0.05
-        ctx.save(); ctx.rotate(a + sway)
-        const g = ctx.createLinearGradient(0, 0, 0, 620)
-        g.addColorStop(0, `rgba(255,232,180,${(0.05 + 0.02 * Math.sin(t * 0.5 + i)).toFixed(3)})`)
+      for (let i = 0; i < 6; i++) {
+        const a = -0.85 + i * 0.3 + Math.sin(t * 0.4 + i * 1.3) * 0.05
+        ctx.save(); ctx.rotate(a)
+        const g = ctx.createLinearGradient(0, 0, 0, 640)
+        g.addColorStop(0, `rgba(255,232,180,${(0.045 + 0.02 * Math.sin(t * 0.5 + i)).toFixed(3)})`)
         g.addColorStop(1, 'rgba(255,232,180,0)')
         ctx.fillStyle = g
-        ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(-44, 620); ctx.lineTo(44, 620); ctx.lineTo(8, 0); ctx.closePath(); ctx.fill()
+        // triangular wedge with soft feathered sides via a couple of steps
+        ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(-60, 640); ctx.lineTo(60, 640); ctx.lineTo(4, 0); ctx.closePath(); ctx.fill()
         ctx.restore()
       }
-      ctx.filter = 'none'
       ctx.restore()
     })
 
@@ -329,7 +328,6 @@ export const shoreScene = {
 
     // ═══ FAR SHORE (slightly defocused for atmospheric depth) ═══
     par(18, () => {
-      ctx.filter = 'blur(0.7px)'
       // far ridge
       ctx.fillStyle = 'rgba(128,100,112,0.6)'
       ctx.beginPath(); ctx.moveTo(-40, HZ)
@@ -379,16 +377,17 @@ export const shoreScene = {
     ])
     ctx.fillRect(0, HZ, VW, VH - HZ)
 
-    // soft cloud shadows drifting across the water beneath each cloud
-    ctx.save()
-    ctx.filter = 'blur(16px)'
+    // soft cloud shadows on the water — radial-gradient ellipses (soft edge,
+    // no blur filter)
     for (const c of s.clouds) {
       const shx = c.x - s.par.x * 6, shy = HZ + 50 + (c.y / 240) * 70
-      ctx.fillStyle = 'rgba(18,38,56,0.09)'
-      ctx.beginPath(); ctx.ellipse(shx, shy, c.r * 1.15, c.r * 0.16, 0, 0, TAU); ctx.fill()
+      const rw = c.r * 1.15, rh = c.r * 0.18
+      const g = ctx.createRadialGradient(shx, shy, 0, shx, shy, rw)
+      g.addColorStop(0, 'rgba(16,36,54,0.10)'); g.addColorStop(0.7, 'rgba(16,36,54,0.05)'); g.addColorStop(1, 'rgba(16,36,54,0)')
+      ctx.save(); ctx.translate(shx, shy); ctx.scale(1, rh / rw)
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, rw, 0, TAU); ctx.fill()
+      ctx.restore()
     }
-    ctx.filter = 'none'
-    ctx.restore()
 
     par(8, () => {
       // mirror bloom under the sun — soft elliptical, no hard edges
@@ -1176,7 +1175,6 @@ export const shoreScene = {
 
     // ═══ FOREGROUND — granite, grasses, driftwood, canoe bow (defocused) ═══
     par(30, () => {
-      ctx.filter = 'blur(1.0px)' // shallow depth-of-field on the nearest layer
       // granite slab, bottom-left
       castShadow(ctx, 150, 886, 90)
       granite(ctx, 130, 900, 240, 130, 3)

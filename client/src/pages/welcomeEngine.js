@@ -112,6 +112,19 @@ export function mountScene(canvas, scene, opts = {}) {
   const ro = new ResizeObserver(resize)
   ro.observe(canvas)
 
+  // Only animate while the canvas is actually on screen — otherwise all five
+  // scenes render every frame and the page crawls.
+  let onScreen = true
+  const io = new IntersectionObserver((es) => {
+    onScreen = es[0].isIntersecting
+    if (onScreen && !running && !document.hidden) {
+      running = true; last = performance.now(); raf = requestAnimationFrame(frame)
+    } else if (!onScreen && running) {
+      running = false; cancelAnimationFrame(raf)
+    }
+  }, { threshold: 0.01 })
+  io.observe(canvas)
+
   // pointer listeners on the section that hosts the canvas, so overlays
   // (hero text, buttons) don't block the living world underneath
   const host = opts.pointerHost || canvas.parentElement || canvas
@@ -179,7 +192,7 @@ export function mountScene(canvas, scene, opts = {}) {
 
   function onVis() {
     if (document.hidden) { running = false; cancelAnimationFrame(raf) }
-    else { running = true; last = performance.now(); raf = requestAnimationFrame(frame) }
+    else if (onScreen && !running) { running = true; last = performance.now(); raf = requestAnimationFrame(frame) }
   }
   document.addEventListener('visibilitychange', onVis)
 
@@ -187,6 +200,7 @@ export function mountScene(canvas, scene, opts = {}) {
     running = false
     cancelAnimationFrame(raf)
     ro.disconnect()
+    io.disconnect()
     document.removeEventListener('visibilitychange', onVis)
     host.removeEventListener('pointermove', onMove)
     host.removeEventListener('pointerleave', onLeave)
