@@ -1151,6 +1151,49 @@ export const shoreScene = {
       ctx.fillStyle = 'rgba(214,238,248,0.9)'; ctx.fillRect(btX + 12, btY - 30 + dipB * 22, 5, 8)
       wadeWater(btX, btY)
 
+      // ── aerial-survey drone + ground pilot ──
+      const droneX = 360 + ((t * 40) % 720), droneY = 152 + Math.sin(t * 1.6) * 8
+      ctx.save(); ctx.translate(droneX, droneY)
+      ctx.fillStyle = 'rgba(125,245,223,0.10)'; ctx.beginPath(); ctx.moveTo(-3, 7); ctx.lineTo(-18, 78); ctx.lineTo(18, 78); ctx.lineTo(3, 7); ctx.closePath(); ctx.fill() // survey scan
+      ctx.strokeStyle = '#2a3138'; ctx.lineWidth = 2
+      ctx.beginPath(); ctx.moveTo(-11, -4); ctx.lineTo(11, 4); ctx.moveTo(-11, 4); ctx.lineTo(11, -4); ctx.stroke()
+      ctx.strokeStyle = 'rgba(185,205,215,0.5)'; ctx.lineWidth = 1
+      for (const [rx, ry] of [[-11, -4], [11, 4], [-11, 4], [11, -4]]) { ctx.beginPath(); ctx.ellipse(rx, ry, 6, 1.6, 0, 0, TAU); ctx.stroke() }
+      ctx.fillStyle = '#3a4650'; ctx.beginPath(); ctx.roundRect(-6, -4, 12, 8, 2); ctx.fill()
+      ctx.fillStyle = '#20262c'; ctx.beginPath(); ctx.arc(0, 6, 2.2, 0, TAU); ctx.fill()
+      ctx.fillStyle = (t % 1) < 0.5 ? '#ff6b6b' : '#3a2020'; ctx.beginPath(); ctx.arc(6, -4, 1.2, 0, TAU); ctx.fill()
+      ctx.restore()
+      person2(ctx, { x: 92, y: 848, h: 112, skin: 2, top: 1, bottom: 2, hairStyle: 'cap', hair: 0, vest: true, armR: { u: 1.15, f: 1.0 }, armL: { u: 1.1, f: 1.05 }, nod: Math.sin(t * 0.5) * 0.6 })
+      ctx.save(); ctx.translate(92 + 12, 848 - 58)
+      ctx.fillStyle = '#20262c'; ctx.beginPath(); ctx.roundRect(-6, 0, 12, 6, 1.5); ctx.fill()
+      ctx.fillStyle = '#3a4650'; ctx.beginPath(); ctx.arc(-3, 3, 1.3, 0, TAU); ctx.arc(3, 3, 1.3, 0, TAU); ctx.fill()
+      ctx.strokeStyle = '#20262c'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(-5, -4); ctx.moveTo(4, 0); ctx.lineTo(5, -4); ctx.stroke()
+      ctx.restore()
+
+      // ── shoreline transect: two researchers stretch a measuring tape ──
+      const trA = 560, trB = 780, trY = 852
+      person2(ctx, { x: trA, y: trY, h: 108, skin: 4, top: 3, bottom: 2, hairStyle: 'long', hair: 1, vest: true, armR: { u: 0.9, f: 0.6 }, armL: { u: 0.5, f: 0.4 }, nod: 0.5 })
+      person2(ctx, { x: trB, y: trY + 4, h: 104, skin: 0, top: 6, bottom: 0, hairStyle: 'cap', hair: 0, vest: true, flip: true, armR: { u: 0.85, f: 0.5 }, armL: { u: 0.5, f: 0.4 }, nod: t * 0.5 })
+      ctx.strokeStyle = '#f2c832'; ctx.lineWidth = 1.6
+      ctx.beginPath(); ctx.moveTo(trA + 14, trY - 40); ctx.lineTo(trB - 14, trY + 4 - 40); ctx.stroke()
+      ctx.fillStyle = '#c0402e'; ctx.beginPath(); ctx.arc(trA + 15, trY - 40, 3.4, 0, TAU); ctx.fill() // tape reel
+      ctx.strokeStyle = '#e8e2d2'; ctx.lineWidth = 1
+      for (let i = 1; i < 4; i++) { const fx = trA + (trB - trA) * i / 4; ctx.beginPath(); ctx.moveTo(fx, trY + 4); ctx.lineTo(fx, trY - 6); ctx.stroke(); ctx.fillStyle = '#c0402e'; ctx.fillRect(fx, trY - 7, 3, 2) }
+
+      // ── eDNA / bacteria sample sealed into a sample bag ──
+      const edX = 1258, edY = 850, seal = Math.sin(t * 2) * 0.1
+      person2(ctx, { x: edX, y: edY, h: 104, skin: 1, top: 4, bottom: 2, hairStyle: 'bun', hair: 2, vest: true, armR: { u: 0.95 + seal, f: 1.0 }, armL: { u: 0.85 - seal, f: 1.05 }, nod: 0.6 })
+      ctx.save(); ctx.translate(edX + 11, edY - 52)
+      ctx.fillStyle = 'rgba(222,236,240,0.9)'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(8, 0); ctx.lineTo(7, 12); ctx.lineTo(1, 12); ctx.closePath(); ctx.fill()
+      ctx.fillStyle = 'rgba(150,200,180,0.6)'; ctx.fillRect(1.5, 6, 5, 5)
+      ctx.fillStyle = '#c0a040'; ctx.fillRect(0, -1.5, 8, 2)
+      ctx.restore()
+
+      // ── a researcher trains a volunteer (points out to the water) ──
+      const tgX = 300, tgY = 856, pointA = Math.sin(t * 0.7)
+      person2(ctx, { x: tgX, y: tgY, h: 110, skin: 3, top: 1, bottom: 2, hairStyle: 'short', hair: 0, vest: true, armR: { u: 1.2 + pointA * 0.3, f: 0.2 }, armL: { u: 0.5, f: 0.4 }, nod: t * 1.1 })
+      person2(ctx, { x: tgX + 34, y: tgY + 4, h: 94, skin: 4, top: 8, bottom: 0, hairStyle: 'long', hair: 4, flip: true, armR: { u: 0.4, f: 0.5 }, armL: { u: 0.35, f: 0.5 }, nod: Math.sin(t * 0.8) * 0.8 })
+
       // kids skipping stones + guardian (left)
       const skT = (t + 2.4) % 8
       const windup = skT < 0.5 ? Math.sin(skT / 0.5 * Math.PI) : 0
