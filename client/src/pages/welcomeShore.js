@@ -1106,6 +1106,51 @@ export const shoreScene = {
       ctx.fillText('DO 9.4 mg/L   clarity 4.1 m', -21, -8)
       ctx.restore()
 
+      // helper: a researcher standing ankle-deep, water lapping their shins
+      const wadeWater = (wx, wy) => {
+        ctx.fillStyle = 'rgba(88,138,150,0.34)'
+        ctx.beginPath(); ctx.ellipse(wx, wy + 2, 20, 6, 0, 0, TAU); ctx.fill()
+        ctx.strokeStyle = 'rgba(240,248,255,0.4)'; ctx.lineWidth = 1.4
+        ctx.beginPath(); ctx.ellipse(wx, wy + 2, 23 + Math.sin(t * 2 + wx) * 3, 7, 0, 0, TAU); ctx.stroke()
+      }
+
+      // ── wading benthic kick-net sampler (invertebrate survey) ──
+      const netX = 806, netY = shoreY(806) - 4
+      const sweep = Math.sin(t * 1.3) * 0.35
+      person2(ctx, { x: netX, y: netY, h: 106, skin: 1, top: 6, bottom: 2, hairStyle: 'cap', hair: 0, vest: true, armR: { u: 1.05 + sweep, f: 0.45 }, armL: { u: 0.8 - sweep * 0.4, f: 0.45 }, nod: 0.35 })
+      ctx.save(); ctx.translate(netX + 16, netY - 42); ctx.rotate(1.0 + sweep)
+      ctx.strokeStyle = '#b8b4ac'; ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(42, 0); ctx.stroke()
+      ctx.strokeStyle = '#3a4650'; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.arc(48, 0, 7, 0, TAU); ctx.stroke()
+      ctx.fillStyle = 'rgba(110,115,105,0.45)'; ctx.beginPath(); ctx.moveTo(41, 0); ctx.quadraticCurveTo(50, 16, 55, 2); ctx.closePath(); ctx.fill()
+      ctx.restore()
+      wadeWater(netX, netY)
+
+      // ── wading flow / depth-probe reading on a wading rod ──
+      const flowX = 900, flowY = shoreY(900) - 4
+      person2(ctx, { x: flowX, y: flowY, h: 102, skin: 3, top: 1, bottom: 2, hairStyle: 'bun', hair: 1, vest: true, armR: { u: 0.85, f: 0.5 }, armL: { u: 0.6, f: 0.35 }, nod: t * 0.5 })
+      ctx.strokeStyle = '#ccccc4'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(flowX + 12, flowY - 40); ctx.lineTo(flowX + 17, flowY + 4); ctx.stroke()
+      ctx.fillStyle = '#3a4650'; ctx.beginPath(); ctx.arc(flowX + 17, flowY + 2, 2.4, 0, TAU); ctx.fill() // probe head
+      ctx.fillStyle = '#20262c'; ctx.fillRect(flowX + 5, flowY - 50, 8, 6) // handheld meter
+      ctx.fillStyle = (t % 1.4) < 0.9 ? '#7df5df' : '#2b6b60'; ctx.fillRect(flowX + 6, flowY - 49, 6, 3.4)
+      wadeWater(flowX, flowY)
+
+      // ── turbidity tube reading (looks straight down the column) ──
+      const tuX = 1096, tuY = shoreY(1096) + 16
+      person2(ctx, { x: tuX, y: tuY, h: 104, skin: 4, top: 3, bottom: 0, hairStyle: 'short', hair: 4, vest: true, armR: { u: 1.25, f: 1.35 }, armL: { u: 1.15, f: 1.35 }, nod: 0.6 })
+      ctx.save(); ctx.translate(tuX + 9, tuY - 74)
+      ctx.fillStyle = 'rgba(150,200,210,0.35)'; ctx.fillRect(0, 0, 5, 42)
+      ctx.fillStyle = 'rgba(112,158,150,0.55)'; ctx.fillRect(0, 28, 5, 14) // turbid sample settles at the base
+      ctx.strokeStyle = 'rgba(222,236,240,0.75)'; ctx.lineWidth = 0.9; ctx.strokeRect(0, 0, 5, 42)
+      for (let m = 1; m < 5; m++) { ctx.strokeStyle = 'rgba(200,60,46,0.6)'; ctx.beginPath(); ctx.moveTo(0, m * 8); ctx.lineTo(1.6, m * 8); ctx.stroke() }
+      ctx.restore()
+
+      // ── wading water-sample bottle fill (rinses + fills below the surface) ──
+      const btX = 745, btY = shoreY(745) - 4
+      const dipB = (Math.sin(t * 0.9) * 0.5 + 0.5)
+      person2(ctx, { x: btX, y: btY, h: 100, skin: 5, top: 4, bottom: 2, hairStyle: 'long', hair: 3, vest: true, armR: { u: 1.0 + dipB * 0.4, f: 0.6 + dipB * 0.3 }, armL: { u: 0.6, f: 0.4 }, nod: 0.4 })
+      ctx.fillStyle = 'rgba(214,238,248,0.9)'; ctx.fillRect(btX + 12, btY - 30 + dipB * 22, 5, 8)
+      wadeWater(btX, btY)
+
       // kids skipping stones + guardian (left)
       const skT = (t + 2.4) % 8
       const windup = skT < 0.5 ? Math.sin(skT / 0.5 * Math.PI) : 0
