@@ -931,7 +931,7 @@ export const shoreScene = {
       const lift = dipT > 0.3 && dipT < 0.5 ? Math.sin((dipT - 0.3) / 0.2 * Math.PI) : 0
       person2(ctx, {
         x: 470, y: shoreY(470) + 26, h: 92, skin: 0, top: 7, bottom: 2, hairStyle: 'bun', hair: 0, vest: true,
-        stance: 'crouch', armR: { u: 0.55 + dip * 0.9 + lift * 0.7, f: 0.3 + dip * 0.3 }, armL: { u: 0.5, f: 0.4 }, nod: lift * 3,
+        armR: { u: 0.9 + dip * 0.7 + lift * 0.5, f: 0.5 + dip * 0.4 }, armL: { u: 0.6, f: 0.5 }, nod: lift * 3,
       })
       // sample jar in hand
       ctx.fillStyle = 'rgba(214,238,248,0.9)'
@@ -973,7 +973,6 @@ export const shoreScene = {
       else if (tsT > 4 && tsT < 9) tsHold = Math.min(1, (tsT - 4) * 2, (9 - tsT) * 2)
       person2(ctx, {
         x: 700, y: shoreY(700) + 30, h: 88, skin: 2, top: 8, bottom: 2, hairStyle: 'long', hair: 2, vest: true,
-        stance: 'crouch',
         armR: { u: 0.6 + tsDip * 0.8 + tsHold * 1.3, f: 0.3 + tsHold * 0.5 },
         armL: { u: 0.45 + tsHold * 0.5, f: 0.4 },
         nod: tsHold * 2.6,
@@ -1035,7 +1034,6 @@ export const shoreScene = {
       const cmRead = cmT > 2 ? 1 : 0
       person2(ctx, {
         x: 360, y: shoreY(360) + 22, h: 86, skin: 1, top: 6, bottom: 2, hairStyle: 'cap', hair: 4, vest: true,
-        stance: 'crouch',
         armR: { u: 0.5 + cmRead * 0.9, f: 0.4 + cmRead * 0.6 },
         armL: { u: 0.7 + cmDip * 0.2, f: 0.3 },
         nod: cmRead ? t * 1.6 : 0.4,
@@ -1062,6 +1060,50 @@ export const shoreScene = {
       ctx.save(); ctx.translate(1027, 812 - 76); ctx.rotate(Math.sin(t * 0.4) * 0.06)
       ctx.fillStyle = '#20262c'; ctx.fillRect(0, -2.4, 9, 5); ctx.fillRect(2, -4.4, 5, 2)
       ctx.fillStyle = 'rgba(150,200,230,0.7)'; ctx.beginPath(); ctx.arc(9.4, 0, 1.8, 0, TAU); ctx.fill()
+      ctx.restore()
+
+      // ── Water Rangers: Secchi-disk water-clarity reading (standing) ──
+      // lowers a marked line with a black/white disk and reads the depth it fades
+      const secD = (Math.sin(t * 0.5) * 0.5 + 0.5) // 0..1 lowering cycle
+      const secW = shoreY(958) - 10 // waterline near the reader
+      const secBot = secW + 8 + secD * 26
+      person2(ctx, {
+        x: 958, y: shoreY(958) + 18, h: 106, skin: 2, top: 1, bottom: 2, hairStyle: 'cap', hair: 0, vest: true,
+        armR: { u: 0.85, f: 0.35 }, armL: { u: 0.6, f: 0.4 }, nod: 0.55,
+      })
+      ctx.strokeStyle = '#e8dcc0'; ctx.lineWidth = 1.4
+      ctx.beginPath(); ctx.moveTo(970, shoreY(958) - 20); ctx.lineTo(970, secBot); ctx.stroke()
+      ctx.strokeStyle = '#c0402e'; ctx.lineWidth = 1.4 // depth marks on the line
+      for (let d = 0; d < 5; d++) { const my = shoreY(958) - 12 + d * 8; if (my < secBot - 3) { ctx.beginPath(); ctx.moveTo(967, my); ctx.lineTo(973, my); ctx.stroke() } }
+      ctx.save(); ctx.translate(970, secBot) // black/white quartered disk
+      ctx.fillStyle = '#f4f4ee'; ctx.beginPath(); ctx.arc(0, 0, 6, 0, TAU); ctx.fill()
+      ctx.fillStyle = '#20242a'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, 6, -Math.PI / 2, 0); ctx.closePath(); ctx.fill()
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, 6, Math.PI / 2, Math.PI); ctx.closePath(); ctx.fill()
+      ctx.strokeStyle = '#8a8f94'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.arc(0, 0, 6, 0, TAU); ctx.stroke()
+      ctx.restore()
+
+      // ── Water Rangers: dissolved-oxygen vial held up to compare colour ──
+      person2(ctx, {
+        x: 620, y: shoreY(620) + 20, h: 100, skin: 4, top: 3, bottom: 0, hairStyle: 'long', hair: 1, vest: true,
+        armR: { u: 1.5 + Math.sin(t * 0.8) * 0.05, f: 1.15 }, armL: { u: 0.95, f: 0.95 }, nod: t * 0.6,
+      })
+      ctx.save(); ctx.translate(634, shoreY(620) - 42)
+      ctx.fillStyle = 'rgba(120,205,180,0.9)'; ctx.fillRect(0, 1, 4, 9) // sample colour
+      ctx.fillStyle = 'rgba(230,240,240,0.8)'; ctx.fillRect(0, -1.5, 4, 2.5) // cap
+      ctx.strokeStyle = '#aebec4'; ctx.lineWidth = 0.8; ctx.strokeRect(0, -1.5, 4, 11.5)
+      ctx.restore()
+
+      // ── interpretive site marker with live readings (how a site reports) ──
+      ctx.save(); ctx.translate(548, shoreY(548) + 26)
+      ctx.fillStyle = '#5d4326'; ctx.fillRect(-1.6, -2, 3.2, 30)
+      ctx.fillStyle = '#16242e'; ctx.strokeStyle = 'rgba(124,196,234,0.7)'; ctx.lineWidth = 1.4
+      ctx.beginPath(); ctx.roundRect(-26, -34, 52, 30, 4); ctx.fill(); ctx.stroke()
+      ctx.fillStyle = '#7cc4ea'; ctx.font = '700 7px "DM Sans", system-ui'; ctx.fillText('SITE · ER-14', -21, -25)
+      const liveOn = (t % 2) < 1.4
+      ctx.fillStyle = liveOn ? '#7df5df' : '#2b6b60'; ctx.beginPath(); ctx.arc(20, -28, 1.8, 0, TAU); ctx.fill()
+      ctx.fillStyle = '#dceaf6'; ctx.font = '6px "DM Sans", system-ui'
+      ctx.fillText('pH 7.9   ' + (17 + (Math.sin(t) * 1.4)).toFixed(1) + '°C', -21, -16)
+      ctx.fillText('DO 9.4 mg/L   clarity 4.1 m', -21, -8)
       ctx.restore()
 
       // kids skipping stones + guardian (left)
@@ -1144,7 +1186,7 @@ export const shoreScene = {
       person2(ctx, { x: 208, y: shoreY(208) + 26, h: 84, skin: 4, top: 6, bottom: 0, hairStyle: 'short', hair: 5, lean: -0.22 + push * 0.02, armL: { u: 1.15, f: 0.5 }, armR: { u: 1.05, f: 0.55 } })
 
       // photographer kneeling on the foreground granite (left)
-      person2(ctx, { x: 210, y: 806, h: 118, skin: 1, top: 3, bottom: 2, hairStyle: 'cap', hair: 2, stance: 'crouch', armR: { u: 1.3, f: 0.95 }, armL: { u: 1.15, f: 1.05 }, nod: Math.sin(t * 0.4) })
+      person2(ctx, { x: 210, y: 806, h: 118, skin: 1, top: 3, bottom: 2, hairStyle: 'cap', hair: 2, armR: { u: 1.35, f: 0.95 }, armL: { u: 1.2, f: 1.05 }, nod: Math.sin(t * 0.4) })
       ctx.save(); ctx.translate(228, 728); ctx.rotate(0.1 + Math.sin(t * 0.4) * 0.03)
       ctx.fillStyle = '#20262c'; ctx.fillRect(0, 0, 15, 10); ctx.fillRect(15, 2, 7, 6)
       ctx.fillStyle = 'rgba(160,210,240,0.8)'; ctx.beginPath(); ctx.arc(22.4, 5, 2.4, 0, TAU); ctx.fill()
