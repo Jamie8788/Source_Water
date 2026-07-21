@@ -965,68 +965,6 @@ export const shoreScene = {
       ctx.beginPath(); ctx.arc(stX, stY - 55, 2.2, 0, TAU); ctx.fill()
       castShadow(ctx, stX, stY, 10)
 
-      // ── Water Rangers: chloride test-strip volunteer (hi-vis) ──
-      // loop: dip strip → wait → hold it up against the chart bottle
-      const tsT = (t + 4) % 12
-      let tsDip = 0, tsHold = 0
-      if (tsT < 1) tsDip = Math.sin(tsT * Math.PI)
-      else if (tsT > 4 && tsT < 9) tsHold = Math.min(1, (tsT - 4) * 2, (9 - tsT) * 2)
-      person2(ctx, {
-        x: 700, y: shoreY(700) + 30, h: 88, skin: 2, top: 8, bottom: 2, hairStyle: 'long', hair: 2, vest: true,
-        armR: { u: 0.6 + tsDip * 0.8 + tsHold * 1.3, f: 0.3 + tsHold * 0.5 },
-        armL: { u: 0.45 + tsHold * 0.5, f: 0.4 },
-        nod: tsHold * 2.6,
-      })
-      // the strip (tiny white slip) + chart bottle in the other hand
-      ctx.save()
-      const tsx = 700 + 16 + tsHold * 4, tsy = shoreY(700) - 8 - tsHold * 42 + tsDip * 16
-      ctx.translate(tsx, tsy); ctx.rotate(-0.25 + tsHold * 0.15)
-      ctx.fillStyle = '#f2f4f0'; ctx.fillRect(0, 0, 2.6, 11)
-      ctx.fillStyle = tsT > 3 ? '#5a4a7a' : '#d8d4c8' // strip develops colour
-      ctx.fillRect(0, 0, 2.6, 3.4)
-      ctx.restore()
-      if (tsHold > 0.5) { // chart bottle raised beside it
-        ctx.fillStyle = '#e8ecef'
-        ctx.fillRect(688, shoreY(700) - 52, 6, 10)
-        ctx.fillStyle = '#3d6b8f'; ctx.fillRect(688, shoreY(700) - 52, 6, 2.6)
-      }
-      if (tsDip > 0.5) {
-        ctx.strokeStyle = 'rgba(250,252,255,0.45)'; ctx.lineWidth = 1.4
-        ctx.beginPath(); ctx.ellipse(716, shoreY(700) - 2, 9 * tsDip, 2.6 * tsDip, 0, 0, TAU); ctx.stroke()
-      }
-
-      // ── Water Rangers: reacher-stick sampler on the left rocks ──
-      const rsT = (t + 7) % 10
-      const reach = rsT < 3 ? Math.min(1, rsT, 3 - rsT) : 0
-      person2(ctx, {
-        x: 148, y: shoreY(148) + 34, h: 90, skin: 5, top: 6, bottom: 1, hairStyle: 'cap', hair: 0, vest: true,
-        lean: -0.1 - reach * 0.12,
-        armR: { u: 0.9 + reach * 0.5, f: 0.15 }, armL: { u: 0.7 + reach * 0.4, f: 0.2 },
-      })
-      ctx.save()
-      ctx.translate(160, shoreY(148) - 26); ctx.rotate(0.82 + reach * 0.18)
-      ctx.strokeStyle = '#b8b4ac'; ctx.lineWidth = 3
-      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(58 + reach * 14, 0); ctx.stroke()
-      ctx.fillStyle = 'rgba(214,238,248,0.85)'
-      ctx.fillRect(56 + reach * 14, -3, 8, 7) // sample cup on the tip
-      ctx.restore()
-      if (reach > 0.9) {
-        ctx.strokeStyle = 'rgba(250,252,255,0.4)'; ctx.lineWidth = 1.4
-        ctx.beginPath(); ctx.ellipse(205, shoreY(190) - 4, 10, 3, 0, 0, TAU); ctx.stroke()
-      }
-
-      // ── Water Rangers: field-notebook logger by the cooler ──
-      const scrib = Math.sin(t * 7) * 0.08 * (Math.sin(t * 0.5) > -0.4 ? 1 : 0)
-      person2(ctx, {
-        x: 770, y: Math.min(shoreY(770) + 44, 842), h: 96, skin: 0, top: 3, bottom: 4, hairStyle: 'bun', hair: 3, vest: true,
-        armR: { u: 0.75 + scrib, f: 0.95 }, armL: { u: 0.55, f: 1.05 }, nod: t * 0.7,
-      })
-      ctx.save(); ctx.translate(782, Math.min(shoreY(770) + 44, 842) - 52); ctx.rotate(-0.3)
-      ctx.fillStyle = '#f4efe2'; ctx.fillRect(0, 0, 10, 7.4)
-      ctx.strokeStyle = '#b0a890'; ctx.lineWidth = 0.8
-      ctx.beginPath(); ctx.moveTo(1.4, 2.2); ctx.lineTo(8.6, 2.2); ctx.moveTo(1.4, 4.2); ctx.lineTo(8.6, 4.2); ctx.stroke()
-      ctx.restore()
-
       // ── Water Rangers: conductivity-meter reader (the winter-kit tool) ──
       // kneels, dips the probe on a cord, watches the handheld display
       const cmT = (t + 1) % 8
@@ -1125,15 +1063,6 @@ export const shoreScene = {
       ctx.restore()
       wadeWater(netX, netY)
 
-      // ── wading flow / depth-probe reading on a wading rod ──
-      const flowX = 900, flowY = shoreY(900) - 4
-      person2(ctx, { x: flowX, y: flowY, h: 102, skin: 3, top: 1, bottom: 2, hairStyle: 'bun', hair: 1, vest: true, armR: { u: 0.85, f: 0.5 }, armL: { u: 0.6, f: 0.35 }, nod: t * 0.5 })
-      ctx.strokeStyle = '#ccccc4'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(flowX + 12, flowY - 40); ctx.lineTo(flowX + 17, flowY + 4); ctx.stroke()
-      ctx.fillStyle = '#3a4650'; ctx.beginPath(); ctx.arc(flowX + 17, flowY + 2, 2.4, 0, TAU); ctx.fill() // probe head
-      ctx.fillStyle = '#20262c'; ctx.fillRect(flowX + 5, flowY - 50, 8, 6) // handheld meter
-      ctx.fillStyle = (t % 1.4) < 0.9 ? '#7df5df' : '#2b6b60'; ctx.fillRect(flowX + 6, flowY - 49, 6, 3.4)
-      wadeWater(flowX, flowY)
-
       // ── turbidity tube reading (looks straight down the column) ──
       const tuX = 1096, tuY = shoreY(1096) + 16
       person2(ctx, { x: tuX, y: tuY, h: 104, skin: 4, top: 3, bottom: 0, hairStyle: 'short', hair: 4, vest: true, armR: { u: 1.25, f: 1.35 }, armL: { u: 1.15, f: 1.35 }, nod: 0.6 })
@@ -1143,13 +1072,6 @@ export const shoreScene = {
       ctx.strokeStyle = 'rgba(222,236,240,0.75)'; ctx.lineWidth = 0.9; ctx.strokeRect(0, 0, 5, 42)
       for (let m = 1; m < 5; m++) { ctx.strokeStyle = 'rgba(200,60,46,0.6)'; ctx.beginPath(); ctx.moveTo(0, m * 8); ctx.lineTo(1.6, m * 8); ctx.stroke() }
       ctx.restore()
-
-      // ── wading water-sample bottle fill (rinses + fills below the surface) ──
-      const btX = 745, btY = shoreY(745) - 4
-      const dipB = (Math.sin(t * 0.9) * 0.5 + 0.5)
-      person2(ctx, { x: btX, y: btY, h: 100, skin: 5, top: 4, bottom: 2, hairStyle: 'long', hair: 3, vest: true, armR: { u: 1.0 + dipB * 0.4, f: 0.6 + dipB * 0.3 }, armL: { u: 0.6, f: 0.4 }, nod: 0.4 })
-      ctx.fillStyle = 'rgba(214,238,248,0.9)'; ctx.fillRect(btX + 12, btY - 30 + dipB * 22, 5, 8)
-      wadeWater(btX, btY)
 
       // ── aerial-survey drone + ground pilot ──
       const droneX = 360 + ((t * 40) % 720), droneY = 152 + Math.sin(t * 1.6) * 8
