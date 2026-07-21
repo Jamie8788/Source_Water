@@ -86,6 +86,25 @@ export function drawPerson(ctx, o) {
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.fill()
   }
 
+  // ── one continuous, smoothly-bowed leg (NO hard knee joint) ──
+  const curvedLeg = (lax, lay, lbx, lby, wa, wb, col, bow) => {
+    const ax = X(lax), ay = Y(lay), bx = X(lbx), by = Y(lby)
+    const WA = W(wa), WB = W(wb), WM = W((wa + wb) / 2)
+    const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1
+    const nx = -dy / len, ny = dx / len
+    const cxp = (ax + bx) / 2 + nx * W(bow) * F, cyp = (ay + by) / 2 + ny * W(bow) * F
+    ctx.beginPath()
+    ctx.arc(ax, ay, WA, Math.atan2(-ny, -nx), Math.atan2(ny, nx))
+    ctx.quadraticCurveTo(cxp + nx * WM, cyp + ny * WM, bx + nx * WB, by + ny * WB)
+    ctx.arc(bx, by, WB, Math.atan2(ny, nx), Math.atan2(-ny, -nx))
+    ctx.quadraticCurveTo(cxp - nx * WM, cyp - ny * WM, ax - nx * WA, ay - ny * WA)
+    ctx.closePath()
+    const mx = (ax + bx) / 2, ww = (WA + WB) * 1.4
+    const g = ctx.createLinearGradient(mx - ww, ay, mx + ww, ay)
+    g.addColorStop(0, shade(col, -30)); g.addColorStop(0.5, col); g.addColorStop(1, shade(col, 20))
+    ctx.fillStyle = g; ctx.fill()
+  }
+
   // ── forward kinematics ──
   const seg = (x, y, a, l) => [x + Math.sin(a) * l, y + Math.cos(a) * l]
 
@@ -98,20 +117,21 @@ export function drawPerson(ctx, o) {
 
   if (pose.type === 'walk') {
     const ph = pose.phase || 0
-    // gentle natural stride: modest thigh swing, a little knee bend that
-    // peaks mid-swing so the foot clears — never a sharp hyperflexed angle.
+    // pendulum walk: each leg is ONE smooth limb swinging from the hip; a
+    // small forward bow reads as a soft knee, never a mechanical joint.
+    const LEGLEN = 46
     const mk = (p, hipX) => {
-      const thigh = Math.sin(p) * 0.28
-      const kneeBend = 0.1 + Math.max(0, Math.sin(p - 1.2)) * 0.4
-      const knee = seg(hipX, hipY, thigh, 23)
-      const ankle = seg(knee[0], knee[1], thigh + kneeBend, 21)
-      return { hip: [hipX, hipY], knee, ankle }
+      const thigh = Math.sin(p) * 0.3
+      const lift = Math.max(0, Math.sin(p - 0.5)) * 4 // foot clears on fore-swing
+      const ax = hipX + Math.sin(thigh) * LEGLEN
+      const ay = hipY + Math.cos(thigh) * LEGLEN - lift
+      return { hip: [hipX, hipY], ankle: [ax, ay], bow: 2 + Math.max(0, thigh) * 8 }
     }
-    legs = [mk(ph + Math.PI, -2.4), mk(ph, 2.4)] // far leg first
+    legs = [mk(ph + Math.PI, -2.6), mk(ph, 2.6)] // far leg first
     torsoLean = 0.04
-    walkBob = Math.abs(Math.sin(ph)) * 2.2 // body rises/falls with the stride
-    if (!armRA) armRA = { s: Math.sin(ph + Math.PI) * 0.36, e: 0.2 }
-    if (!armLA) armLA = { s: Math.sin(ph) * 0.36, e: 0.2 }
+    walkBob = Math.abs(Math.sin(ph)) * 2.0
+    if (!armRA) armRA = { s: Math.sin(ph + Math.PI) * 0.34, e: 0.18 }
+    if (!armLA) armLA = { s: Math.sin(ph) * 0.34, e: 0.18 }
   } else if (pose.type === 'kneel') {
     // squat/crouch: hips low, both feet planted, shins angled back under the
     // body — reads clearly as crouching to sample (no broken joints).
@@ -137,13 +157,9 @@ export function drawPerson(ctx, o) {
     hipDrop = 20
     if (!armRA) armRA = { s: 0.3, e: 0.4 }
     if (!armLA) armLA = { s: 0.25, e: 0.4 }
-  } else { // stand
-    const mk = (dx, sw) => {
-      const knee = seg(dx, hipY, sw, 24)
-      const ankle = seg(knee[0], knee[1], sw * 0.5, 22)
-      return { hip: [dx, hipY], knee, ankle }
-    }
-    legs = [mk(-hipDX, -0.06), mk(hipDX, 0.06)]
+  } else { // stand — single straight pendulum legs, slight stance
+    const mk = (dx, sw) => ({ hip: [dx, hipY], ankle: [dx + Math.sin(sw) * 46, hipY + Math.cos(sw) * 46], bow: 1.5 })
+    legs = [mk(-hipDX, -0.05), mk(hipDX, 0.05)]
     if (!armRA) armRA = { s: 0.12 + breath * 0.02, e: 0.16 }
     if (!armLA) armLA = { s: 0.1, e: 0.16 }
   }
@@ -163,8 +179,12 @@ export function drawPerson(ctx, o) {
   // ── FAR leg (index 0) ──
   const drawLeg = (L, far) => {
     const pcol = far ? shade(pants, -20) : pants
-    limb(L.hip[0], L.hip[1] + hipDrop, L.knee[0], L.knee[1] + hipDrop, 4.8, 4.0, pcol)
-    limb(L.knee[0], L.knee[1] + hipDrop, L.ankle[0], L.ankle[1] + hipDrop, 4.0, 3.0, pcol)
+    if (L.knee) { // bent leg only for sit / crouch (stationary poses)
+      limb(L.hip[0], L.hip[1] + hipDrop, L.knee[0], L.knee[1] + hipDrop, 4.8, 4.0, pcol)
+      limb(L.knee[0], L.knee[1] + hipDrop, L.ankle[0], L.ankle[1] + hipDrop, 4.0, 3.0, pcol)
+    } else { // single smooth pendulum leg (walk / stand) — no joint
+      curvedLeg(L.hip[0], L.hip[1] + hipDrop, L.ankle[0], L.ankle[1] + hipDrop, 5.0, 3.3, pcol, L.bow || 0)
+    }
     // shoe
     const shoeCol = far ? '#2a2018' : '#332619'
     ctx.save()
