@@ -93,13 +93,14 @@ function person2(ctx, o) {
   else if (o.stance === 'sit') pose = { type: 'sit' }
   else pose = { type: 'stand' }
   const mapArm = (a) => (a ? { s: a.u ?? 0.14, e: a.f ?? 0.15 } : undefined)
-  drawPerson(ctx, {
+  return drawPerson(ctx, {
     x: o.x, y: o.y, h: o.h || 100, flip: o.flip,
     skin, hair, hairStyle, hat, vest: o.vest,
     jacket: wd.jacket, pants: wd.pants, shirt: wd.shirt,
     pose, armL: mapArm(o.armL), armR: mapArm(o.armR),
     headTurn: o.nod != null ? Math.sin(o.nod) * 0.3 : 0,
-    t: 0,
+    // real clock so every figure idles (breathes/sways) instead of freezing
+    t: performance.now() / 1000,
   })
 }
 
@@ -550,15 +551,16 @@ export const shoreScene = {
       }
       // researcher 2: reads the tablet, periodically gestures toward the buoy
       const point2 = Math.max(0, Math.sin(t * 0.45) - 0.55) / 0.45
-      person2(ctx, {
+      const r2 = person2(ctx, {
         x: 34, y: -9, h: 48, skin: 0, top: 6, bottom: 0, flip: true, hairStyle: 'bun', hair: 0, vest: true, shadow: false,
         armR: { u: 0.35 + point2 * 0.95, f: 0.95 - point2 * 0.75 },
         armL: { u: 0.3, f: 0.9 },
         nod: t * 2,
       })
-      ctx.save(); ctx.translate(23, -33); ctx.rotate(-0.12)
-      ctx.fillStyle = '#20262c'; ctx.fillRect(0, 0, 8, 5.6)
-      ctx.fillStyle = 'rgba(125,220,240,0.9)'; ctx.fillRect(0.8, 0.8, 6.4, 4)
+      // tablet held IN the hand (position comes from the rig, not a guess)
+      ctx.save(); ctx.translate(r2.nearWrist.x, r2.nearWrist.y); ctx.rotate(-0.25)
+      ctx.fillStyle = '#20262c'; ctx.fillRect(-5, -3.4, 10, 6.6)
+      ctx.fillStyle = 'rgba(125,220,240,0.9)'; ctx.fillRect(-4.2, -2.6, 8.4, 5)
       ctx.restore()
       ctx.restore()
 
@@ -942,13 +944,14 @@ export const shoreScene = {
         ctx.strokeStyle = 'rgba(250,252,255,0.55)'; ctx.lineWidth = 1.6
         ctx.beginPath(); ctx.ellipse(jx + 3, shoreY(470) - 4, 12 * dip, 3.4 * dip, 0, 0, TAU); ctx.stroke()
       }
-      person2(ctx, {
+      const tabR = person2(ctx, {
         x: 540, y: shoreY(540) + 40, h: 104, skin: 3, top: 8, bottom: 0, hairStyle: 'short', hair: 2, flip: true, vest: true,
         armR: { u: 1.0 + Math.sin(t * 2.4) * 0.05, f: 0.75 }, armL: { u: 0.9, f: 0.7 }, nod: t * 1.2,
       })
-      ctx.save(); ctx.translate(519, shoreY(540) - 34); ctx.rotate(-0.16)
-      ctx.fillStyle = '#20262c'; ctx.fillRect(0, 0, 13, 9)
-      ctx.fillStyle = 'rgba(125,220,240,0.95)'; ctx.fillRect(1.2, 1.2, 10.6, 6.6)
+      // tablet held in the hand, tilted to read
+      ctx.save(); ctx.translate(tabR.nearWrist.x, tabR.nearWrist.y); ctx.rotate(-0.3)
+      ctx.fillStyle = '#20262c'; ctx.fillRect(-7, -5, 14, 10)
+      ctx.fillStyle = 'rgba(125,220,240,0.95)'; ctx.fillRect(-6, -4, 12, 8)
       ctx.restore()
       // cooler + sensor tripod station
       ctx.fillStyle = '#e8ecef'; ctx.fillRect(583, shoreY(583) + 34, 26, 15)
@@ -1021,14 +1024,14 @@ export const shoreScene = {
       ctx.restore()
 
       // ── Water Rangers: dissolved-oxygen vial held up to compare colour ──
-      person2(ctx, {
+      const doR = person2(ctx, {
         x: 620, y: shoreY(620) + 20, h: 100, skin: 4, top: 3, bottom: 0, hairStyle: 'long', hair: 1, vest: true,
         armR: { u: 1.5 + Math.sin(t * 0.8) * 0.05, f: 1.15 }, armL: { u: 0.95, f: 0.95 }, nod: t * 0.6,
       })
-      ctx.save(); ctx.translate(634, shoreY(620) - 42)
-      ctx.fillStyle = 'rgba(120,205,180,0.9)'; ctx.fillRect(0, 1, 4, 9) // sample colour
-      ctx.fillStyle = 'rgba(230,240,240,0.8)'; ctx.fillRect(0, -1.5, 4, 2.5) // cap
-      ctx.strokeStyle = '#aebec4'; ctx.lineWidth = 0.8; ctx.strokeRect(0, -1.5, 4, 11.5)
+      ctx.save(); ctx.translate(doR.nearWrist.x, doR.nearWrist.y - 4)
+      ctx.fillStyle = 'rgba(120,205,180,0.9)'; ctx.fillRect(-2, 1, 4, 9) // sample colour
+      ctx.fillStyle = 'rgba(230,240,240,0.8)'; ctx.fillRect(-2, -1.5, 4, 2.5) // cap
+      ctx.strokeStyle = '#aebec4'; ctx.lineWidth = 0.8; ctx.strokeRect(-2, -1.5, 4, 11.5)
       ctx.restore()
 
       // ── interpretive site marker with live readings (how a site reports) ──
@@ -1140,8 +1143,8 @@ export const shoreScene = {
 
       // walkers + dog crossing the beach diagonally
       const wq = ((t * 0.024) % 1.3) - 0.12
-      const wx = lerp(1500, 60, clamp(wq, 0, 1))
-      const wy = Math.min(shoreY(wx) + 56, 848)
+      const wx = lerp(1120, 70, clamp(wq, 0, 1))
+      const wy = shoreY(wx) + 54 // always on sand, below the waterline
       const wph = t * 4.2
       if (wq > -0.1 && wq < 1.1) {
         person2(ctx, { x: wx, y: wy, h: 100, skin: 2, top: 1, bottom: 0, hairStyle: 'short', hair: 1, flip: true, walk: wph })
@@ -1205,8 +1208,8 @@ export const shoreScene = {
       // family strolling mid-beach (parent + child holding hands)
       const fq = ((t * 0.02 + 0.5) % 1.4) - 0.2
       if (fq > -0.08 && fq < 1.08) {
-        const fx = lerp(360, 1330, clamp(fq, 0, 1))
-        const fy = Math.min(shoreY(fx) + 76, 848)
+        const fx = lerp(300, 1060, clamp(fq, 0, 1))
+        const fy = shoreY(fx) + 68 // always on sand, below the waterline
         const fph = t * 2.35
         person2(ctx, { x: fx, y: fy, h: 108, skin: 5, top: 9, bottom: 2, hairStyle: 'short', hair: 0, walk: fph, armR: { u: 0.5, f: 0.4 } })
         person2(ctx, { x: fx + 40, y: fy + 2, h: 62, skin: 5, top: 8, bottom: 0, hairStyle: 'long', hair: 1, walk: t * 3.8 + 0.9, armL: { u: -0.45, f: -0.15 } })

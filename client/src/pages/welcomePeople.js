@@ -56,7 +56,14 @@ export function drawPerson(ctx, o) {
   const pants = o.pants || WARDROBE[0].pants
   const shirt = o.shirt || WARDROBE[0].shirt
   const pose = o.pose || { type: 'stand' }
-  const breath = Math.sin(t * 1.6 + cx) * 0.4 // subtle idle
+  // ── idle life: every figure breathes, shifts weight and glances around,
+  //    each on its own phase so the crowd never looks frozen or synchronised ──
+  const ph0 = cx * 0.037 + cy * 0.021
+  const breath = Math.sin(t * 1.6 + ph0) * 0.4
+  const idleBreath = Math.sin(t * 1.15 + ph0) * 0.7      // chest rise/fall
+  const idleSway = Math.sin(t * 0.62 + ph0 * 1.7) * 0.022 // weight shift
+  const idleGlance = Math.sin(t * 0.37 + ph0 * 2.3)       // looks around
+  const idleArm = Math.sin(t * 0.83 + ph0 * 1.3) * 0.07   // hands never dead-still
 
   // local→screen
   let bobY = 0 // set by the walk pose; lifts the whole figure per stride
@@ -160,11 +167,12 @@ export function drawPerson(ctx, o) {
   } else { // stand — single straight pendulum legs, slight stance
     const mk = (dx, sw) => ({ hip: [dx, hipY], ankle: [dx + Math.sin(sw) * 46, hipY + Math.cos(sw) * 46], bow: 1.5 })
     legs = [mk(-hipDX, -0.05), mk(hipDX, 0.05)]
-    if (!armRA) armRA = { s: 0.12 + breath * 0.02, e: 0.16 }
-    if (!armLA) armLA = { s: 0.1, e: 0.16 }
+    if (!armRA) armRA = { s: 0.12 + breath * 0.02 + idleArm, e: 0.16 }
+    if (!armLA) armLA = { s: 0.1 - idleArm * 0.8, e: 0.16 }
   }
 
-  bobY = walkBob * s
+  bobY = walkBob * s + (pose.type === 'walk' ? 0 : idleBreath * s * 0.4)
+  if (pose.type !== 'walk') torsoLean += idleSway
   const shByAdj = shY + hipDrop
   const hipYAdj = hipY + hipDrop
 
@@ -256,7 +264,7 @@ export function drawPerson(ctx, o) {
   const nearWrist = drawArm(armRA, false)
 
   // ── NECK + HEAD ──
-  const ht = (o.headTurn || 0)
+  const ht = (o.headTurn || 0) + idleGlance * 0.5
   const hx = ht * 2
   const hcy = shByAdj - 13
   // neck
