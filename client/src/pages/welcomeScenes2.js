@@ -200,10 +200,10 @@ export const directionsScene = {
     ctx.fillStyle = 'rgba(232,244,252,0.92)'
     ctx.font = '700 13px "DM Sans", system-ui, sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText('NIBI', CX, CY + 74)
+    ctx.fillText('WATER', CX, CY + 74)
     ctx.font = '400 11.5px "DM Sans", system-ui, sans-serif'
     ctx.fillStyle = 'rgba(170,200,224,0.85)'
-    ctx.fillText('water at the centre', CX, CY + 90)
+    ctx.fillText('at the centre of the year', CX, CY + 90)
     ctx.textAlign = 'left'
 
     // ── click to open a direction ──
@@ -224,7 +224,8 @@ export const directionsScene = {
       s.selT = Math.min(1, s.selT + dt * 4)
       const D = s.sel
       ctx.save(); ctx.globalAlpha = s.selT
-      const cx = 88, cy = 236, w = 470
+      // anchored lower-left: clears the DOM intro panel (top-left) and the wheel
+      const cx = 70, cy = 566, w = 470
       ctx.font = '400 17px "DM Sans", system-ui, sans-serif'
       const h = 268
       ctx.fillStyle = 'rgba(5,17,29,0.92)'

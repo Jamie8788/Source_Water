@@ -155,13 +155,14 @@ export function drawPerson(ctx, o) {
     if (!armRA) armRA = { s: 0.6, e: 0.3 }
     if (!armLA) armLA = { s: 0.5, e: 0.3 }
   } else if (pose.type === 'sit') {
-    const thighA = 1.15, shinA = -0.15
-    const kneeF = seg(0, hipY, thighA, 22)
-    const ankF = seg(kneeF[0], kneeF[1], shinA, 22)
-    const kneeB = seg(-2, hipY, thighA - 0.12, 22)
-    const ankB = seg(kneeB[0], kneeB[1], shinA - 0.1, 22)
-    legs = [{ hip: [-2, hipY], knee: kneeB, ankle: ankB }, { hip: [0, hipY], knee: kneeF, ankle: ankF }]
-    hipDrop = 20
+    // seated on a surface at o.y: the pelvis rests ON the seat, thighs run
+    // forward, shins drop so the feet hang to the ground BELOW the seat.
+    const kneeF = seg(0, hipY, 1.15, 20)
+    const ankF = seg(kneeF[0], kneeF[1], 0.16, 26)
+    const kneeB = seg(-3, hipY, 1.05, 20)
+    const ankB = seg(kneeB[0], kneeB[1], 0.12, 26)
+    legs = [{ hip: [-3, hipY], knee: kneeB, ankle: ankB }, { hip: [0, hipY], knee: kneeF, ankle: ankF }]
+    hipDrop = 46 // lower the pelvis onto the origin so the butt sits on the seat
     if (!armRA) armRA = { s: 0.3, e: 0.4 }
     if (!armLA) armLA = { s: 0.25, e: 0.4 }
   } else { // stand — single straight pendulum legs, slight stance
@@ -177,12 +178,16 @@ export function drawPerson(ctx, o) {
   const hipYAdj = hipY + hipDrop
 
   // ── cast shadow (soft, long, to the shadow side) ──
-  ctx.save()
-  ctx.fillStyle = 'rgba(60,40,20,0.22)'
-  ctx.beginPath()
-  ctx.ellipse(X(-6), Y(1), W(20), W(4.5), 0, 0, TAU)
-  ctx.fill()
-  ctx.restore()
+  // seated figures anchor at the seat, not the ground, so a ground shadow
+  // under the pelvis would read as floating — callers add their own.
+  if (pose.type !== 'sit') {
+    ctx.save()
+    ctx.fillStyle = 'rgba(60,40,20,0.22)'
+    ctx.beginPath()
+    ctx.ellipse(X(-6), Y(1), W(20), W(4.5), 0, 0, TAU)
+    ctx.fill()
+    ctx.restore()
+  }
 
   // ── FAR leg (index 0) ──
   const drawLeg = (L, far) => {
