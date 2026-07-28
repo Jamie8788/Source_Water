@@ -5,192 +5,309 @@
 import { VW, VH, vGrad, glow, makeParticles, lerp, clamp } from './welcomeEngine'
 
 const TAU = Math.PI * 2
-
 // ───────────────────────────────────────────────────────────────────────────
-// SCENE 3 · The data network — the lakes become a living constellation
+// SCENE 3 · The Four Directions — the seasonal round of caring for water
 // ───────────────────────────────────────────────────────────────────────────
-// The five lakes, authored in a 900×560 space (drawn scaled+centred).
-const LAKE_PATHS = [
-  'M95 178 C110 132 190 92 292 78 C372 68 442 88 470 118 C498 146 486 170 448 178 C398 188 348 176 306 190 C252 208 168 214 122 200 C100 192 88 186 95 178 Z',
-  'M298 238 C284 232 274 250 272 288 C270 334 274 394 288 430 C296 452 316 458 326 438 C338 412 334 350 328 302 C324 268 314 246 298 238 Z',
-  'M388 240 C420 204 468 192 504 206 C518 180 556 170 582 186 C606 202 598 232 576 244 C586 274 576 308 548 328 C512 352 458 344 434 312 C416 288 400 264 388 240 Z',
-  'M528 392 C566 366 644 352 702 362 C730 368 736 384 712 396 C666 418 590 424 548 412 C526 406 518 398 528 392 Z',
-  'M706 302 C734 282 792 274 832 286 C858 294 858 310 832 320 C792 332 734 328 710 316 C698 310 698 307 706 302 Z',
+// A living medicine-wheel: four quadrants, each a season with its own colour,
+// weather and monitoring work. The wheel turns, each season's world breathes
+// its own particles, and clicking a direction opens what the water asks of us
+// then. Grounded in Anishinaabe teaching of the four directions and framed
+// around the year-round citizen-science monitoring cycle.
+const DIRECTIONS = [
+  {
+    id: 'east', dir: 'WAABANONG · EAST', season: 'Spring — Zeegwun',
+    colour: '#f0c74a', a0: -Math.PI / 2, // quadrant start angle
+    teaching: 'New light. Beginnings, and the first water to move.',
+    work: [
+      'Spring melt carries winter’s road salt to the lake —',
+      'the biggest chloride spike of the year.',
+      'Rangers test after every thaw and heavy rain.',
+    ],
+    stat: 'Peak melt · chloride watch',
+  },
+  {
+    id: 'south', dir: 'ZHAAWANONG · SOUTH', season: 'Summer — Niibin',
+    colour: '#d95b3e',
+    teaching: 'Growth and warmth. The season of tending what lives.',
+    work: [
+      'Warm, still water holds less oxygen and feeds algae.',
+      'Weekly temperature, oxygen and clarity readings',
+      'catch a bloom before it closes a beach.',
+    ],
+    stat: 'Weekly testing · bloom watch',
+  },
+  {
+    id: 'west', dir: 'EPINGISHIMOG · WEST', season: 'Autumn — Dagwaagin',
+    colour: '#2e3440',
+    teaching: 'Reflection. We look back at what the year has shown.',
+    work: [
+      'Storms stir the lakebed and wash the shore.',
+      'Turbidity and flow readings after each storm',
+      'show what the watershed is carrying down.',
+    ],
+    stat: 'Storm response · turbidity',
+  },
+  {
+    id: 'north', dir: 'GIIWEDINONG · NORTH', season: 'Winter — Biboon',
+    colour: '#e8eef2',
+    teaching: 'Rest and endurance. The water keeps its quiet work.',
+    work: [
+      'Under the ice the lake is still alive — and still salted.',
+      'The Winter Testkit reads chloride and conductivity',
+      'right through the cold months.',
+    ],
+    stat: 'Year-round · winter kit',
+  },
 ]
-const LAND_PATH = 'M40 60 C220 12 560 6 760 46 C860 66 890 140 878 240 C868 330 880 420 830 480 C740 540 520 552 340 540 C200 530 90 500 58 420 C30 340 26 220 40 60 Z'
 
-const SITES = [
-  [180, 150], [265, 112], [350, 140], [425, 152], [230, 168], [312, 96],
-  [296, 300], [306, 392], [318, 344],
-  [452, 262], [512, 236], [566, 206], [488, 300], [532, 296],
-  [590, 392], [664, 380], [624, 398],
-  [742, 300], [808, 292], [776, 312],
-]
-const LABELS = [
-  ['Superior', 230, 146, 21], ['Huron', 448, 286, 17], ['Erie', 596, 390, 15], ['Ontario', 746, 306, 14],
-]
-
-export const networkScene = {
+export const directionsScene = {
   setup({ rnd }) {
     return {
-      par: { x: 0, y: 0 },
-      paths: LAKE_PATHS.map(d => new Path2D(d)),
-      land: new Path2D(LAND_PATH),
-      links: [], linkT: 0,
-      stars: makeParticles(70, () => ({ x: rnd() * VW, y: rnd() * VH, r: 0.7 + rnd() * 1.3, ph: rnd() * TAU, sp: 0.5 + rnd() })),
-      readT: 0, read: null,
+      rot: 0, sel: null, selT: 0, hover: null,
+      // per-season ambient particles (petals, heat shimmer, leaves, snow)
+      parts: makeParticles(150, (i) => ({
+        q: i % 4, a: rnd() * TAU, r: 0.25 + rnd() * 0.85,
+        sp: 0.2 + rnd() * 0.7, ph: rnd() * TAU, sz: 0.6 + rnd() * 1.9,
+      })),
+      stars: makeParticles(70, () => ({ x: rnd() * VW, y: rnd() * VH, r: 0.6 + rnd() * 1.2, ph: rnd() * TAU })),
+      ripples: makeParticles(4, (i) => ({ ph: i / 4 })),
     }
   },
+
   draw(ctx, t, dt, s, env) {
     const p = env.pointer
-    const tx = p.inside ? clamp((p.x - VW / 2) / (VW / 2), -1, 1) : 0
-    const ty = p.inside ? clamp((p.y - VH / 2) / (VH / 2), -1, 1) : 0
-    s.par.x = lerp(s.par.x, tx, Math.min(1, dt * 2.5))
-    s.par.y = lerp(s.par.y, ty, Math.min(1, dt * 2.5))
+    const CX = 1010, CY = 452, R = 268
 
-    // deep-night backdrop with a faint drifting star field
-    const bg = ctx.createRadialGradient(VW / 2, VH * 0.2, 60, VW / 2, VH * 0.45, VH)
-    bg.addColorStop(0, '#123458'); bg.addColorStop(0.55, '#0a1e35'); bg.addColorStop(1, '#050f1e')
+    // ── night-water backdrop ──
+    const bg = ctx.createRadialGradient(CX, CY, 40, CX, CY, 900)
+    bg.addColorStop(0, '#0d2b46'); bg.addColorStop(0.5, '#0a1e35'); bg.addColorStop(1, '#050f1d')
     ctx.fillStyle = bg; ctx.fillRect(0, 0, VW, VH)
     for (const st of s.stars) {
-      const a = 0.12 + 0.24 * Math.max(0, Math.sin(t * st.sp + st.ph))
-      ctx.fillStyle = `rgba(190,220,250,${a.toFixed(3)})`
+      ctx.fillStyle = `rgba(190,220,250,${(0.1 + 0.22 * Math.max(0, Math.sin(t * 0.7 + st.ph))).toFixed(3)})`
       ctx.beginPath(); ctx.arc(st.x, st.y, st.r, 0, TAU); ctx.fill()
     }
 
-    // map transform: 900×560 authored space → centred, slightly tilted by pointer
-    const SC = 1.32
-    const ox = (VW - 900 * SC) / 2 - s.par.x * 20
-    const oy = (VH - 560 * SC) / 2 - s.par.y * 14
-    ctx.save()
-    ctx.translate(ox, oy); ctx.scale(SC, SC)
+    s.rot += dt * 0.045 // the wheel turns with the year
 
-    // land
-    ctx.fillStyle = 'rgba(13,34,56,0.9)'
-    ctx.fill(s.land)
-    ctx.strokeStyle = 'rgba(70,130,180,0.18)'; ctx.lineWidth = 1.4
-    ctx.stroke(s.land)
-
-    // lakes — breathing glow water
-    const lg = ctx.createLinearGradient(0, 0, 900, 560)
-    lg.addColorStop(0, '#3d8bc4'); lg.addColorStop(1, '#1c5586')
-    for (const [i, path] of s.paths.entries()) {
-      ctx.save()
-      ctx.shadowColor = 'rgba(70,170,230,0.55)'
-      ctx.shadowBlur = 18 + Math.sin(t * 0.9 + i) * 7
-      ctx.fillStyle = lg
-      ctx.globalAlpha = 0.92 + Math.sin(t * 0.9 + i) * 0.07
-      ctx.fill(path)
-      ctx.restore()
-      ctx.strokeStyle = 'rgba(150,220,255,0.35)'
-      ctx.lineWidth = 1.6
-      ctx.stroke(path)
-    }
-    // flowing current hints inside the lakes
-    ctx.save()
-    ctx.setLineDash([10, 26]); ctx.lineDashOffset = -t * 26
-    ctx.strokeStyle = 'rgba(180,225,255,0.4)'; ctx.lineWidth = 2.2; ctx.lineCap = 'round'
-    ctx.beginPath()
-    ctx.moveTo(140, 168); ctx.bezierCurveTo(220, 138, 330, 122, 430, 140)
-    ctx.moveTo(286, 290); ctx.bezierCurveTo(290, 330, 292, 380, 302, 416)
-    ctx.moveTo(420, 272); ctx.bezierCurveTo(460, 250, 520, 240, 560, 250)
-    ctx.moveTo(552, 398); ctx.bezierCurveTo(610, 382, 668, 376, 700, 380)
-    ctx.moveTo(718, 306); ctx.bezierCurveTo(760, 296, 800, 296, 824, 302)
-    ctx.stroke()
-    ctx.restore()
-
-    // connective rivers
-    ctx.save()
-    ctx.setLineDash([8, 12]); ctx.lineDashOffset = -t * 40
-    ctx.strokeStyle = 'rgba(94,234,212,0.75)'; ctx.lineWidth = 3; ctx.lineCap = 'round'
-    ctx.beginPath()
-    ctx.moveTo(462, 160); ctx.bezierCurveTo(486, 178, 498, 196, 500, 216)
-    ctx.moveTo(540, 330); ctx.bezierCurveTo(548, 352, 546, 372, 552, 394)
-    ctx.moveTo(710, 388); ctx.bezierCurveTo(726, 372, 726, 340, 716, 320)
-    ctx.stroke()
-    ctx.restore()
-
-    // ── network links: arcs light up between random pairs of sites ──
-    s.linkT += dt
-    if (s.linkT > 0.9) {
-      s.linkT = 0
-      const a = SITES[(Math.random() * SITES.length) | 0]
-      let b = SITES[(Math.random() * SITES.length) | 0]
-      if (b === a) b = SITES[(SITES.indexOf(a) + 5) % SITES.length]
-      s.links.push({ a, b, life: 0 })
-      if (s.links.length > 7) s.links.shift()
-    }
-    for (const L of s.links) {
-      L.life += dt
-      const q = clamp(L.life / 2.6, 0, 1)
-      const fade = q < 0.2 ? q / 0.2 : q > 0.75 ? (1 - q) / 0.25 : 1
-      const mx = (L.a[0] + L.b[0]) / 2, my = (L.a[1] + L.b[1]) / 2 - 70
-      ctx.strokeStyle = `rgba(94,234,212,${(0.4 * fade).toFixed(3)})`
-      ctx.lineWidth = 1.6
-      ctx.beginPath(); ctx.moveTo(L.a[0], L.a[1]); ctx.quadraticCurveTo(mx, my, L.b[0], L.b[1]); ctx.stroke()
-      // packet
-      const pq = clamp(q * 1.5, 0, 1)
-      const px2 = lerp(lerp(L.a[0], mx, pq), lerp(mx, L.b[0], pq), pq)
-      const py2 = lerp(lerp(L.a[1], my, pq), lerp(my, L.b[1], pq), pq)
-      ctx.fillStyle = `rgba(160,245,228,${fade.toFixed(3)})`
-      ctx.beginPath(); ctx.arc(px2, py2, 3, 0, TAU); ctx.fill()
-      glow(ctx, px2, py2, 10, `rgba(94,234,212,${(0.5 * fade).toFixed(3)})`, 'rgba(94,234,212,0)')
-    }
-
-    // monitoring sites — pulsing beacons
-    for (const [i, [sx2, sy2]] of SITES.entries()) {
-      const pu = 0.7 + 0.3 * Math.sin(t * 2 + i * 0.7)
-      ctx.fillStyle = `rgba(94,234,212,${pu.toFixed(3)})`
-      ctx.beginPath(); ctx.arc(sx2, sy2, 4, 0, TAU); ctx.fill()
-      const ringQ = ((t + i * 0.31) % 2.8) / 2.8
-      ctx.strokeStyle = `rgba(94,234,212,${(0.55 * (1 - ringQ)).toFixed(3)})`
-      ctx.lineWidth = 1.8
-      ctx.beginPath(); ctx.arc(sx2, sy2, 4 + ringQ * 22, 0, TAU); ctx.stroke()
-    }
-
-    // Baawaating star marker
-    glow(ctx, 470, 138, 22, 'rgba(255,214,110,0.7)', 'rgba(255,214,110,0)')
-    ctx.fillStyle = '#ffd66e'
-    ctx.beginPath(); ctx.arc(470, 138, 4.4, 0, TAU); ctx.fill()
-    ctx.font = '700 12px "DM Sans", system-ui, sans-serif'
-    ctx.fillStyle = '#ffe4a0'
-    ctx.fillText('Baawaating', 452, 122)
-
-    // lake labels
-    ctx.fillStyle = '#9fc6e8'
-    for (const [name, lx, ly, size] of LABELS) {
-      ctx.font = `italic ${size}px Georgia, serif`
-      ctx.fillText(name, lx, ly)
-    }
-    ctx.save()
-    ctx.translate(316, 330); ctx.rotate(Math.PI * 0.44)
-    ctx.font = 'italic 14px Georgia, serif'
-    ctx.fillText('Michigan', 0, 0)
-    ctx.restore()
-
-    // occasional live reading chip near a random site
-    s.readT += dt
-    if (s.readT > 3.4) {
-      s.readT = 0
-      const site = SITES[(Math.random() * SITES.length) | 0]
-      const vals = ['pH 7.6', 'DO 8.9 mg/L', '11.8 °C', 'clarity 3.4 m', 'pH 8.1', '17.2 °C']
-      s.read = { x: site[0], y: site[1], txt: vals[(Math.random() * vals.length) | 0], life: 0 }
-    }
-    if (s.read) {
-      s.read.life += dt
-      const a = s.read.life < 0.3 ? s.read.life / 0.3 : Math.max(0, 1 - (s.read.life - 2) / 1)
-      if (a > 0) {
-        ctx.font = '700 13px "DM Sans", system-ui, sans-serif'
-        const w = ctx.measureText(s.read.txt).width + 20
-        ctx.fillStyle = `rgba(8,24,38,${(0.8 * a).toFixed(3)})`
-        ctx.strokeStyle = `rgba(94,234,212,${(0.5 * a).toFixed(3)})`
-        ctx.beginPath(); ctx.roundRect(s.read.x + 10, s.read.y - 34, w, 24, 7); ctx.fill(); ctx.stroke()
-        ctx.fillStyle = `rgba(170,242,228,${a.toFixed(3)})`
-        ctx.fillText(s.read.txt, s.read.x + 20, s.read.y - 17)
+    // which quadrant is the pointer over?
+    let hoverQ = null
+    if (p.inside) {
+      const dx = p.x - CX, dy = p.y - CY, d = Math.hypot(dx, dy)
+      if (d < R * 1.06) {
+        let a = Math.atan2(dy, dx) - s.rot + Math.PI / 2
+        a = ((a % TAU) + TAU) % TAU
+        hoverQ = Math.floor(a / (TAU / 4)) % 4
       }
     }
+    s.hover = hoverQ
+
+    // ── expanding water rings under the wheel ──
+    for (const rp of s.ripples) {
+      rp.ph += dt * 0.12; if (rp.ph > 1) rp.ph -= 1
+      const rr = R * (0.55 + rp.ph * 0.85)
+      ctx.strokeStyle = `rgba(125,200,235,${(0.16 * (1 - rp.ph)).toFixed(3)})`
+      ctx.lineWidth = 1.6
+      ctx.beginPath(); ctx.arc(CX, CY, rr, 0, TAU); ctx.stroke()
+    }
+
+    // ── seasonal particle worlds, each drifting in its own quadrant ──
+    for (const pt of s.parts) {
+      pt.ph += dt * pt.sp
+      const D = DIRECTIONS[pt.q]
+      const qa = s.rot - Math.PI / 2 + pt.q * (TAU / 4)
+      const spread = (TAU / 4) * (0.12 + (pt.a % 1) * 0.76)
+      const ang = qa + spread
+      const active = s.sel === D || hoverQ === pt.q
+      let rad = R * (pt.r + 0.06)
+      let px, py, alpha = active ? 0.55 : 0.25
+      if (pt.q === 0) {        // EAST — rising sparks of new light
+        rad += Math.sin(pt.ph) * 14
+        px = CX + Math.cos(ang) * rad; py = CY + Math.sin(ang) * rad - (pt.ph % 3) * 12
+      } else if (pt.q === 1) { // SOUTH — warm shimmer drifting up
+        px = CX + Math.cos(ang) * rad + Math.sin(pt.ph * 2) * 8
+        py = CY + Math.sin(ang) * rad - (pt.ph % 4) * 9
+      } else if (pt.q === 2) { // WEST — leaves falling and turning
+        px = CX + Math.cos(ang) * rad + Math.sin(pt.ph * 1.4) * 16
+        py = CY + Math.sin(ang) * rad + (pt.ph % 4) * 11
+      } else {                 // NORTH — slow snow
+        px = CX + Math.cos(ang) * rad + Math.sin(pt.ph * 0.8) * 12
+        py = CY + Math.sin(ang) * rad + (pt.ph % 5) * 7
+      }
+      ctx.fillStyle = D.colour === '#2e3440'
+        ? `rgba(198,150,86,${alpha.toFixed(3)})`   // autumn leaves read warm
+        : `rgba(${hexRgb(D.colour)},${alpha.toFixed(3)})`
+      if (pt.q === 2) { // leaf shape
+        ctx.save(); ctx.translate(px, py); ctx.rotate(pt.ph)
+        ctx.beginPath(); ctx.ellipse(0, 0, pt.sz * 2.4, pt.sz, 0, 0, TAU); ctx.fill(); ctx.restore()
+      } else {
+        ctx.beginPath(); ctx.arc(px, py, pt.sz, 0, TAU); ctx.fill()
+      }
+    }
+
+    // ── the wheel ──
+    ctx.save()
+    ctx.translate(CX, CY); ctx.rotate(s.rot)
+    for (let q = 0; q < 4; q++) {
+      const D = DIRECTIONS[q]
+      const a0 = -Math.PI / 2 + q * (TAU / 4), a1 = a0 + TAU / 4
+      const active = s.sel === D || hoverQ === q
+      // quadrant fill
+      const g = ctx.createRadialGradient(0, 0, R * 0.22, 0, 0, R)
+      g.addColorStop(0, `rgba(${hexRgb(D.colour)},${active ? 0.5 : 0.26})`)
+      g.addColorStop(1, `rgba(${hexRgb(D.colour)},${active ? 0.2 : 0.07})`)
+      ctx.fillStyle = g
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, R, a0, a1); ctx.closePath(); ctx.fill()
+      // outer arc
+      ctx.strokeStyle = `rgba(${hexRgb(D.colour)},${active ? 0.95 : 0.55})`
+      ctx.lineWidth = active ? 5 : 3
+      ctx.beginPath(); ctx.arc(0, 0, R, a0 + 0.02, a1 - 0.02); ctx.stroke()
+      // season glyph on the rim
+      const am = (a0 + a1) / 2
+      ctx.save()
+      ctx.translate(Math.cos(am) * (R * 0.72), Math.sin(am) * (R * 0.72))
+      ctx.rotate(-s.rot)
+      drawSeasonGlyph(ctx, q, t, active)
+      ctx.restore()
+    }
+    // spokes + hub
+    ctx.strokeStyle = 'rgba(226,238,248,0.5)'; ctx.lineWidth = 2.4
+    ctx.beginPath()
+    ctx.moveTo(0, -R); ctx.lineTo(0, R); ctx.moveTo(-R, 0); ctx.lineTo(R, 0); ctx.stroke()
+    ctx.strokeStyle = 'rgba(226,238,248,0.35)'; ctx.lineWidth = 1.6
+    ctx.beginPath(); ctx.arc(0, 0, R * 0.5, 0, TAU); ctx.stroke()
     ctx.restore()
+
+    // ── hub: a living drop of water ──
+    const pulse = 1 + Math.sin(t * 1.4) * 0.05
+    glow(ctx, CX, CY, 92 * pulse, 'rgba(125,200,235,0.30)', 'rgba(125,200,235,0)')
+    ctx.save(); ctx.translate(CX, CY); ctx.scale(pulse, pulse)
+    const dg = ctx.createRadialGradient(-8, -14, 3, 0, 0, 42)
+    dg.addColorStop(0, '#bfe9ff'); dg.addColorStop(0.55, '#5ab4e0'); dg.addColorStop(1, '#1d6d9c')
+    ctx.fillStyle = dg
+    ctx.beginPath()
+    ctx.moveTo(0, -44)
+    ctx.bezierCurveTo(26, -14, 34, 6, 34, 14)
+    ctx.arc(0, 14, 34, 0, Math.PI)
+    ctx.bezierCurveTo(-34, 6, -26, -14, 0, -44)
+    ctx.closePath(); ctx.fill()
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'
+    ctx.beginPath(); ctx.ellipse(-11, -6, 7, 11, -0.4, 0, TAU); ctx.fill()
+    // ripple inside the drop
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.4
+    const ir = ((t * 0.5) % 1)
+    ctx.beginPath(); ctx.arc(0, 12, 6 + ir * 22, 0, TAU); ctx.stroke()
+    ctx.restore()
+    ctx.fillStyle = 'rgba(232,244,252,0.92)'
+    ctx.font = '700 13px "DM Sans", system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('NIBI', CX, CY + 74)
+    ctx.font = '400 11.5px "DM Sans", system-ui, sans-serif'
+    ctx.fillStyle = 'rgba(170,200,224,0.85)'
+    ctx.fillText('water at the centre', CX, CY + 90)
+    ctx.textAlign = 'left'
+
+    // ── click to open a direction ──
+    if (p.click) {
+      const c = p.click; p.click = null
+      const dx = c.x - CX, dy = c.y - CY, d = Math.hypot(dx, dy)
+      if (d < R * 1.06) {
+        let a = Math.atan2(dy, dx) - s.rot + Math.PI / 2
+        a = ((a % TAU) + TAU) % TAU
+        const q = Math.floor(a / (TAU / 4)) % 4
+        s.sel = s.sel === DIRECTIONS[q] ? null : DIRECTIONS[q]
+        s.selT = 0
+      } else s.sel = null
+    }
+
+    // ── the teaching card ──
+    if (s.sel) {
+      s.selT = Math.min(1, s.selT + dt * 4)
+      const D = s.sel
+      ctx.save(); ctx.globalAlpha = s.selT
+      const cx = 88, cy = 236, w = 470
+      ctx.font = '400 17px "DM Sans", system-ui, sans-serif'
+      const h = 268
+      ctx.fillStyle = 'rgba(5,17,29,0.92)'
+      ctx.strokeStyle = `rgba(${hexRgb(D.colour)},0.75)`; ctx.lineWidth = 1.8
+      ctx.beginPath(); ctx.roundRect(cx, cy, w, h, 18); ctx.fill(); ctx.stroke()
+      // colour bar
+      ctx.fillStyle = D.colour
+      ctx.beginPath(); ctx.roundRect(cx, cy, 7, h, 18); ctx.fill()
+      ctx.fillStyle = `rgba(${hexRgb(D.colour)},0.95)`
+      ctx.font = '700 13px "DM Sans", system-ui, sans-serif'
+      ctx.fillText(D.dir, cx + 30, cy + 40)
+      ctx.fillStyle = '#f2f8fe'; ctx.font = '700 27px "DM Sans", system-ui, sans-serif'
+      ctx.fillText(D.season, cx + 30, cy + 76)
+      ctx.fillStyle = '#b9cfe2'; ctx.font = 'italic 17px Georgia, serif'
+      ctx.fillText(D.teaching, cx + 30, cy + 108)
+      ctx.fillStyle = '#dceaf6'; ctx.font = '400 16px "DM Sans", system-ui, sans-serif'
+      D.work.forEach((l, i) => ctx.fillText(l, cx + 30, cy + 146 + i * 25))
+      // stat chip
+      ctx.font = '700 12.5px "DM Sans", system-ui, sans-serif'
+      const sw = ctx.measureText(D.stat).width + 24
+      ctx.fillStyle = `rgba(${hexRgb(D.colour)},0.2)`
+      ctx.strokeStyle = `rgba(${hexRgb(D.colour)},0.8)`; ctx.lineWidth = 1
+      ctx.beginPath(); ctx.roundRect(cx + 30, cy + h - 52, sw, 26, 13); ctx.fill(); ctx.stroke()
+      ctx.fillStyle = D.colour === '#2e3440' ? '#c8d2dc' : D.colour
+      ctx.fillText(D.stat, cx + 42, cy + h - 34)
+      ctx.restore()
+    }
+
+    // vignette
+    const vg = ctx.createRadialGradient(CX, CY, R * 0.9, CX, CY, VH * 1.1)
+    vg.addColorStop(0, 'rgba(2,10,20,0)'); vg.addColorStop(1, 'rgba(2,10,20,0.5)')
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH)
   },
+}
+
+function hexRgb(hex) {
+  const n = parseInt(hex.slice(1), 16)
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`
+}
+
+// little animated emblem for each season, drawn on the wheel rim
+function drawSeasonGlyph(ctx, q, t, active) {
+  const A = active ? 1 : 0.7
+  ctx.save()
+  if (q === 0) { // EAST — sunrise over water
+    ctx.fillStyle = `rgba(240,199,74,${A})`
+    ctx.beginPath(); ctx.arc(0, -2, 11 + Math.sin(t * 1.5) * 0.8, Math.PI, TAU); ctx.fill()
+    ctx.strokeStyle = `rgba(240,199,74,${A * 0.85})`; ctx.lineWidth = 2
+    for (let i = 0; i < 5; i++) {
+      const a = Math.PI + 0.16 + i * 0.68
+      ctx.beginPath()
+      ctx.moveTo(Math.cos(a) * 14, -2 + Math.sin(a) * 14)
+      ctx.lineTo(Math.cos(a) * (19 + Math.sin(t * 2 + i) * 2), -2 + Math.sin(a) * (19 + Math.sin(t * 2 + i) * 2))
+      ctx.stroke()
+    }
+    ctx.strokeStyle = `rgba(240,199,74,${A})`; ctx.lineWidth = 2.4
+    ctx.beginPath(); ctx.moveTo(-16, 4); ctx.lineTo(16, 4); ctx.stroke()
+  } else if (q === 1) { // SOUTH — growing stem
+    ctx.strokeStyle = `rgba(217,91,62,${A})`; ctx.lineWidth = 2.6; ctx.lineCap = 'round'
+    const sway = Math.sin(t * 1.2) * 3
+    ctx.beginPath(); ctx.moveTo(0, 14); ctx.quadraticCurveTo(sway, 0, sway * 0.5, -14); ctx.stroke()
+    ctx.fillStyle = `rgba(217,91,62,${A})`
+    ctx.beginPath(); ctx.ellipse(-7 + sway * 0.4, -2, 7, 4, -0.6, 0, TAU); ctx.fill()
+    ctx.beginPath(); ctx.ellipse(7 + sway * 0.4, -8, 7, 4, 0.6, 0, TAU); ctx.fill()
+  } else if (q === 2) { // WEST — storm cloud + rain
+    ctx.fillStyle = `rgba(190,200,214,${A})`
+    ctx.beginPath(); ctx.arc(-6, -4, 8, 0, TAU); ctx.arc(5, -4, 10, 0, TAU); ctx.arc(-1, -10, 8, 0, TAU); ctx.fill()
+    ctx.strokeStyle = `rgba(150,190,220,${A})`; ctx.lineWidth = 2; ctx.lineCap = 'round'
+    for (let i = 0; i < 3; i++) {
+      const off = ((t * 22 + i * 9) % 18)
+      ctx.beginPath(); ctx.moveTo(-8 + i * 8, 4 + off * 0.5); ctx.lineTo(-10 + i * 8, 10 + off * 0.5); ctx.stroke()
+    }
+  } else { // NORTH — snowflake / ice star
+    ctx.strokeStyle = `rgba(232,238,242,${A})`; ctx.lineWidth = 2.2; ctx.lineCap = 'round'
+    ctx.save(); ctx.rotate(t * 0.3)
+    for (let i = 0; i < 6; i++) {
+      ctx.rotate(TAU / 6)
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -13); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(4, -11); ctx.moveTo(0, -8); ctx.lineTo(-4, -11); ctx.stroke()
+    }
+    ctx.restore()
+  }
+  ctx.restore()
 }
 
 // ───────────────────────────────────────────────────────────────────────────

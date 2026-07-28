@@ -26,7 +26,7 @@ import { ChevronDown, Droplets, Map as MapIcon, Users, Sparkles, ArrowRight, Vol
 import { mountScene } from './welcomeEngine'
 import { shoreScene, fireLightTrail } from './welcomeShore'
 import { underScene } from './welcomeScenes'
-import { networkScene, turtleScene, nightScene } from './welcomeScenes2'
+import { directionsScene, turtleScene, nightScene } from './welcomeScenes2'
 import { toggleSound } from './welcomeSound'
 
 const SECTIONS = ['shore', 'under', 'network', 'turtle', 'night']
@@ -174,25 +174,18 @@ export default function Welcome() {
         </button>
       </section>
 
-      {/* ═══ 3 · THE DATA NETWORK ═══ */}
-      <section className="wv-section wv-network" data-scene="network">
-        <CanvasScene scene={networkScene} seed={3} className="wv-canvas" />
-        <div className="wv-net-info">
-          <div className="wv-glass">
-            <div className="wv-kicker">02 · The Site Map</div>
-            <h2>Five lakes.<br />One in five drops of the world's fresh surface water.</h2>
-            <p>
-              Our Site Map plots <strong>9,400+ real monitoring stations</strong> from
-              the Water Rangers citizen-science network — pH, oxygen, temperature,
-              clarity — refreshed live. Compare any two sites, watch trends,
-              or drop a community story right onto the water you love.
-            </p>
-            <div className="wv-stat-row">
-              <div><strong>9,400+</strong><span>monitoring sites</span></div>
-              <div><strong>5</strong><span>Great Lakes</span></div>
-              <div><strong>Live</strong><span>community readings</span></div>
-            </div>
-          </div>
+      {/* ═══ 3 · THE FOUR DIRECTIONS · THE SEASONAL ROUND ═══ */}
+      <section className="wv-section wv-network" data-scene="directions">
+        <CanvasScene scene={directionsScene} seed={3} className="wv-canvas" />
+        <div className="wv-dir-info">
+          <div className="wv-kicker">02 · The Seasonal Round</div>
+          <h2>Four directions.<br />One year of caring for water.</h2>
+          <p>
+            The water asks something different of us each season — the spring
+            melt, the summer bloom, the autumn storms, the long work under
+            winter ice. Turn with the wheel and see what each direction carries.
+          </p>
+          <p className="wv-taphint"><Sparkles size={13} /> Click a direction to hear its teaching</p>
         </div>
         <button className="wv-scroll-hint" onClick={() => scrollTo(3)} aria-label="Scroll to next section">
           <ChevronDown size={20} />
@@ -370,12 +363,12 @@ export default function Welcome() {
         .wv-info p, .wv-glass p { font-size: 15.5px; line-height: 1.75; color: #c3d8ec; margin: 0 0 14px; }
         .wv-info strong, .wv-glass strong { color: #fff; }
 
-        .wv-section .wv-info, .wv-section .wv-card-grid, .wv-section .wv-net-info,
+        .wv-section .wv-info, .wv-section .wv-card-grid, .wv-section .wv-dir-info,
         .wv-section .wv-turtle-art, .wv-section .wv-night-content {
           opacity: 0; transform: translateY(34px);
           transition: opacity 0.9s cubic-bezier(0.2,0.8,0.2,1), transform 0.9s cubic-bezier(0.2,0.8,0.2,1);
         }
-        .wv-section.wv-in .wv-info, .wv-section.wv-in .wv-card-grid, .wv-section.wv-in .wv-net-info,
+        .wv-section.wv-in .wv-info, .wv-section.wv-in .wv-card-grid, .wv-section.wv-in .wv-dir-info,
         .wv-section.wv-in .wv-turtle-art, .wv-section.wv-in .wv-night-content {
           opacity: 1; transform: translateY(0);
         }
@@ -489,23 +482,20 @@ export default function Welcome() {
         }
         @keyframes wvHintPulse { 0%,100% { border-color: rgba(125,245,223,0.3); } 50% { border-color: rgba(125,245,223,0.7); } }
 
-        /* ═══ 3 · NETWORK ══════════════════════════════════════ */
-        .wv-network { background: #0a1e35; }
-        .wv-net-info {
-          position: relative; z-index: 4;
-          align-self: flex-start; margin-left: 5vw;
-          width: min(480px, 88vw);
-        }
-        .wv-glass {
-          padding: 34px 34px 30px;
-          border-radius: 22px;
-          background: rgba(5,14,26,0.55);
+        /* ═══ 3 · FOUR DIRECTIONS ══════════════════════════════ */
+        .wv-network { background: #071628; justify-content: flex-start; align-items: flex-start; }
+        .wv-dir-info {
+          position: relative; z-index: 4; pointer-events: none;
+          margin: 16vh 0 0 5vw; max-width: 400px;
+          padding: 24px 28px; border-radius: 20px;
+          background: rgba(4,14,26,0.6);
           border: 1px solid rgba(124,196,234,0.2);
-          backdrop-filter: blur(14px);
-          -webkit-backdrop-filter: blur(14px);
-          box-shadow: 0 18px 60px rgba(2,8,18,0.5);
+          backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+          box-shadow: 0 16px 50px rgba(2,8,18,0.45);
           color: #e8f2fc;
         }
+        .wv-dir-info h2 { margin: 8px 0 12px; font-size: clamp(22px, 2.7vw, 32px); font-weight: 800; line-height: 1.14; color: #eef6fd; }
+        .wv-dir-info p { margin: 0 0 12px; font-size: 14.5px; line-height: 1.65; color: #c3d8ec; }
 
         /* ═══ 4 · TURTLE ISLAND ════════════════════════════════ */
         .wv-turtle { background: linear-gradient(180deg, #f7efe0 0%, #efe0c8 42%, #d5e7f0 74%, #b3d5e8 100%); }
@@ -533,8 +523,7 @@ export default function Welcome() {
           .wv-info h2 { font-size: 24px; }
           .wv-turtle-art { max-width: 74vw; }
           .wv-hero { margin: 11vh 0 0 6vw; max-width: 88vw; }
-          .wv-net-info { align-self: center; margin: 0; }
-          .wv-glass { padding: 26px 22px; }
+          .wv-dir-info { margin: 10vh auto 0; }
         }
 
         /* ── Reduced motion — the engine freezes to one frame ──── */
@@ -544,7 +533,7 @@ export default function Welcome() {
             animation-iteration-count: 1 !important;
             transition-duration: 0.001s !important;
           }
-          .wv-section .wv-info, .wv-section .wv-card-grid, .wv-section .wv-net-info,
+          .wv-section .wv-info, .wv-section .wv-card-grid, .wv-section .wv-dir-info,
           .wv-section .wv-turtle-art, .wv-section .wv-night-content { opacity: 1; transform: none; }
         }
       `}</style>
