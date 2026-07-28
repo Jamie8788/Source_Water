@@ -600,6 +600,73 @@ export const shoreScene = {
         ctx.strokeStyle = 'rgba(240,248,255,0.25)'; ctx.lineWidth = 1.4
         ctx.beginPath(); ctx.moveTo(ox - 46, 563); ctx.quadraticCurveTo(ox - 22, 566, ox, 561); ctx.stroke()
       }
+
+      // ── a loose school of fish cruising just under the open-water surface ──
+      for (let i = 0; i < 6; i++) {
+        const speed = 24 + (i % 3) * 11
+        const dir = i % 2 ? 1 : -1
+        const span = VW + 220
+        const march = (t * speed + i * 353) % span
+        const fx = dir > 0 ? march - 110 : VW + 110 - march
+        const fy = 448 + ((i * 29) % 78) + Math.sin(t * 0.8 + i) * 6
+        const sz = 0.66 + (i % 3) * 0.2
+        const wag = Math.sin(t * 7 + i * 1.3)
+        ctx.save(); ctx.translate(fx, fy); ctx.scale(dir * sz, sz)
+        ctx.fillStyle = 'rgba(38,60,62,0.5)' // body (a shadow just below the surface)
+        ctx.beginPath(); ctx.ellipse(0, 0, 15, 4.4, 0, 0, TAU); ctx.fill()
+        ctx.beginPath(); ctx.moveTo(-13, 0); ctx.lineTo(-22, wag * 5 - 5); ctx.lineTo(-22, wag * 5 + 5); ctx.closePath(); ctx.fill() // tail
+        ctx.fillStyle = 'rgba(58,88,86,0.55)' // dorsal fin
+        ctx.beginPath(); ctx.moveTo(1, -3.6); ctx.lineTo(8, -9); ctx.lineTo(9, -3.8); ctx.closePath(); ctx.fill()
+        ctx.fillStyle = 'rgba(206,230,224,0.26)' // back sheen
+        ctx.beginPath(); ctx.ellipse(3, -1.4, 7, 1.4, 0, 0, TAU); ctx.fill()
+        ctx.fillStyle = 'rgba(12,20,22,0.6)'; ctx.beginPath(); ctx.arc(10, -1, 1.1, 0, TAU); ctx.fill() // eye
+        ctx.restore()
+        ctx.strokeStyle = 'rgba(230,242,238,0.10)'; ctx.lineWidth = 1.2 // surface trace overhead
+        ctx.beginPath(); ctx.ellipse(fx, fy - 3, 16 * sz, 4, 0, 0, TAU); ctx.stroke()
+      }
+
+      // ── a retriever swimming out for a thrown stick and paddling back ──
+      const eio = (q) => q * q * (3 - 2 * q)
+      const cyc = (t % 17) / 17
+      const stickX = 726, shoreX = 372, dogY = 556 + Math.sin(t * 1.6) * 1.8
+      let dogX, faceOut, carrying
+      if (cyc < 0.44) { dogX = lerp(shoreX, stickX, eio(cyc / 0.44)); faceOut = true; carrying = false } // swim out
+      else if (cyc < 0.52) { dogX = stickX; faceOut = true; carrying = false } // reach + grab
+      else { dogX = lerp(stickX, shoreX, eio((cyc - 0.52) / 0.48)); faceOut = false; carrying = true } // swim home
+      const paddle = Math.sin(t * 10)
+      // the floating target stick, until it is picked up
+      if (!carrying) {
+        ctx.save(); ctx.translate(stickX, 556 + Math.sin(t * 1.9) * 1.4); ctx.rotate(0.12 + Math.sin(t * 1.3) * 0.05)
+        ctx.strokeStyle = '#6b4a26'; ctx.lineWidth = 2.6; ctx.lineCap = 'round'
+        ctx.beginPath(); ctx.moveTo(-11, 0); ctx.lineTo(11, 0); ctx.stroke()
+        ctx.strokeStyle = 'rgba(240,248,255,0.22)'; ctx.lineWidth = 1.2
+        ctx.beginPath(); ctx.ellipse(0, 2, 15, 3.4, 0, 0, TAU); ctx.stroke()
+        ctx.restore()
+      }
+      ctx.save(); ctx.translate(dogX, dogY); ctx.scale(faceOut ? -1 : 1, 1) // canonical facing = left (toward shore)
+      ctx.strokeStyle = 'rgba(235,245,242,0.22)'; ctx.lineWidth = 1.5 // trailing V-wake
+      ctx.beginPath(); ctx.moveTo(10, 1); ctx.lineTo(58, -11 + Math.sin(t * 2) * 2); ctx.moveTo(10, 4); ctx.lineTo(58, 19 + Math.sin(t * 2 + 1) * 2); ctx.stroke()
+      ctx.fillStyle = '#c98b39' // submerged back
+      ctx.beginPath(); ctx.ellipse(-1, 1, 20, 6.2, 0, 0, TAU); ctx.fill()
+      ctx.fillStyle = 'rgba(96,140,150,0.45)' // waterline hides the lower body
+      ctx.beginPath(); ctx.ellipse(-1, 7, 25, 6, 0, 0, TAU); ctx.fill()
+      ctx.fillStyle = '#cf933f' // raised neck + head at the front-left
+      ctx.beginPath(); ctx.moveTo(-13, 2); ctx.quadraticCurveTo(-21, -9, -23, -13); ctx.lineTo(-16, -13); ctx.quadraticCurveTo(-11, -5, -9, 2); ctx.closePath(); ctx.fill()
+      ctx.beginPath(); ctx.ellipse(-24, -14, 7, 6, -0.2, 0, TAU); ctx.fill() // head
+      ctx.beginPath(); ctx.ellipse(-31, -12.5, 4.6, 3, -0.1, 0, TAU); ctx.fill() // snout
+      ctx.fillStyle = '#9f6926' // floppy ear
+      ctx.beginPath(); ctx.moveTo(-21, -18); ctx.quadraticCurveTo(-17, -13, -18, -7); ctx.quadraticCurveTo(-24, -12, -23, -18); ctx.closePath(); ctx.fill()
+      ctx.fillStyle = '#2a1c10'; ctx.beginPath(); ctx.arc(-35, -12.5, 1.5, 0, TAU); ctx.fill() // nose
+      ctx.fillStyle = '#1a120a'; ctx.beginPath(); ctx.arc(-25, -15, 1.1, 0, TAU); ctx.fill() // eye
+      if (carrying) { // the fetched stick clamped in the jaws
+        ctx.strokeStyle = '#6b4a26'; ctx.lineWidth = 2.6; ctx.lineCap = 'round'
+        ctx.beginPath(); ctx.moveTo(-40, -10); ctx.lineTo(-24, -13.5); ctx.stroke()
+      }
+      if (paddle > 0.35) { // paddling splash at the chest
+        ctx.strokeStyle = 'rgba(245,250,255,0.4)'; ctx.lineWidth = 1.4
+        ctx.beginPath(); ctx.ellipse(-13, 8, 5 + paddle * 3, 2.2, 0, 0, TAU); ctx.stroke()
+      }
+      ctx.restore()
     })
 
     // ═══ SHALLOWS → FOAM → WET SAND → BEACH ═══
