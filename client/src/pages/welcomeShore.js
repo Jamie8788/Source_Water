@@ -29,6 +29,29 @@ const SUNX = 1150, SUNY = 232
 // diagonal waterline: upper-left water, lower-right beach
 const shoreY = (x) => 575 + Math.pow(clamp(x, 0, 1600) / 1600, 1.22) * 315 + Math.sin(x * 0.004) * 10
 
+// ── interactive "touch points": one marker per real monitoring activity, so
+// the scene doubles as a training/learning tool. `sy` (+ optional `off`)
+// anchors a point to the waterline via shoreY; otherwise `y` is absolute.
+// Content is grounded in Water Rangers field protocols.
+const TOUCHPOINTS = [
+  { n: 1, sy: 958, off: -32, title: 'WATER CLARITY · SECCHI DISK', lines: ['Lower the black-and-white disk until it', 'disappears — that depth is the clarity reading.', 'Cloudy water can mean algae or sediment.'] },
+  { n: 2, sy: 620, off: -46, title: 'DISSOLVED OXYGEN', lines: ['Snap a glass ampoule and match its colour', 'to the chart. Oxygen is what fish breathe —', 'low readings warn of pollution or warming.'] },
+  { n: 3, sy: 360, off: -30, title: 'CONDUCTIVITY', lines: ['A probe reads the dissolved salts in the water.', 'A high number flags road-salt or chloride', 'runoff washing into the lake.'] },
+  { n: 4, sy: 1096, off: -46, title: 'TURBIDITY TUBE', lines: ['Sight down a clear column of sample water to', 'see how much sediment clouds it — a fast', 'field measure of murkiness.'] },
+  { n: 5, sy: 806, off: -34, title: 'BENTHIC KICK-NET', lines: ['Sweep a net through the streambed and count', 'the insects. Mayflies and stoneflies mean', 'clean water; their absence is a warning.'] },
+  { n: 6, x: 640, y: 552, title: 'MONITORING BUOY · LIVE', lines: ['pH 7.9 · 18.2 °C · DO 9.4 mg/L', 'A moored sensor logs the lake around the', 'clock and streams it to the open network.'] },
+  { n: 7, x: 845, y: 505, title: 'RESEARCH SONDE', lines: ['The crew lowers a multi-probe sonde from', 'surface to bottom, profiling temperature,', 'oxygen and clarity down the water column.'] },
+  { n: 8, sy: 548, off: -30, title: 'SHORE DATA STATION', lines: ['Readings upload here to the open SOURCE', 'Water network — every site public, every', 'number shared.'] },
+  { n: 9, x: 1170, y: 742, title: 'DOCK GRAB SAMPLE', lines: ['A weighted bucket is cast from the dock to', 'reach open water beyond wading depth,', 'then hauled up for testing.'] },
+  { n: 10, x: 96, y: 812, title: 'AERIAL DRONE SURVEY', lines: ['A pilot flies a mapping drone along the', 'shore to spot algae blooms and erosion', 'from above — aerial view meets ground truth.'] },
+  { n: 11, x: 670, y: 812, title: 'SHORELINE TRANSECT', lines: ['Two volunteers stretch a measuring tape so', 'samples land on the same points every visit —', 'consistency makes the trend trustworthy.'] },
+  { n: 12, x: 1258, y: 806, title: 'eDNA / BACTERIA SAMPLE', lines: ['Water is sealed into a sterile bag to test', 'for E. coli or traces of species DNA —', 'life the eye never sees.'] },
+  { n: 13, x: 318, y: 808, title: 'TRAINING A VOLUNTEER', lines: ['An experienced ranger walks a newcomer', 'through the method. No science degree', 'needed — anyone can be trained.'] },
+  { n: 14, x: 430, y: 478, title: 'COMMON LOON', lines: ['Gavia immer — a clean-water indicator.', 'Loons nest only where the fish and', 'water stay healthy.'] },
+  { n: 15, x: 1012, y: 604, title: 'ANGLER CATCH LOG', lines: ['Anglers record what they catch and where.', 'Citizen catch data helps track fish', 'populations across the lakes.'] },
+]
+const tpPos = (tp) => ({ x: tp.x != null ? tp.x : tp.sy, y: tp.y != null ? tp.y : shoreY(tp.sy) + (tp.off || 0) })
+
 // ── tiny colour utils ──────────────────────────────────────────────────────
 function shade(hex, amt) {
   const n = parseInt(hex.slice(1), 16)
@@ -222,6 +245,7 @@ export const shoreScene = {
       dragonflies: makeParticles(2, (i) => ({ x: 300 + i * 800, y: 780, ph: rnd() * TAU })),
       geesePh: rnd() * 40,
       sandPuffs: [],
+      active: null, // pinned touch-point index (click to keep its card open)
     }
   },
 
@@ -1416,24 +1440,52 @@ export const shoreScene = {
       ctx.restore()
     }
 
-    // ═══ HOVER DATA PREVIEWS ═══
+    // ═══ INTERACTIVE TOUCH POINTS — learn every monitoring method ═══
+    // Persistent numbered markers make the scene explorable; hover shows a
+    // card, a click pins it open (works on touch screens too).
+    const HITR = 34
+    // consume a click: pin the nearest marker, or clear when clicking away
+    if (p.click) {
+      let hit = null, best = HITR * HITR * 1.7
+      TOUCHPOINTS.forEach((tp, i) => {
+        const q = tpPos(tp); const d2 = (p.click.x - q.x) ** 2 + (p.click.y - q.y) ** 2
+        if (d2 < best) { best = d2; hit = i }
+      })
+      s.active = s.active === hit ? null : hit
+      p.click = null
+    }
+    // hovered marker (transient preview)
+    let hover = null
     if (p.inside) {
-      const targets = [
-        { x: 640, y: 552, r: 46, lines: ['MONITORING BUOY · LIVE', 'pH 7.9 · 18.2 °C · DO 9.4 mg/L', 'Water Rangers site · updated 4 min ago'] },
-        { x: 845, y: 505, r: 60, lines: ['RESEARCH CREW', 'Lowering a sonde — temperature,', 'oxygen and clarity, top to bottom.'] },
-        { x: 505, y: shoreY(505), r: 60, lines: ['SHORELINE SAMPLING', 'Volunteers collect jars for the', 'community lab. Anyone can learn how.'] },
-        { x: 660, y: shoreY(660) + 30, r: 44, lines: ['SHORE STATION', 'Uploading readings to the open', 'SOURCE Water network.'] },
-        { x: 430, y: 478, r: 40, lines: ['COMMON LOON', 'Gavia immer — a clean-water', 'indicator species.'] },
-      ]
-      for (const tg of targets) {
-        const d2 = (p.x - tg.x) ** 2 + (p.y - tg.y) ** 2
-        if (d2 < tg.r * tg.r) {
-          ctx.strokeStyle = 'rgba(125,245,223,0.6)'; ctx.lineWidth = 1.6
-          ctx.beginPath(); ctx.arc(tg.x, tg.y, tg.r * 0.66 + Math.sin(t * 3) * 2, 0, TAU); ctx.stroke()
-          glassCard(ctx, tg.x + 26, tg.y - 20, tg.lines)
-          break
-        }
-      }
+      let best = HITR * HITR
+      TOUCHPOINTS.forEach((tp, i) => {
+        const q = tpPos(tp); const d2 = (p.x - q.x) ** 2 + (p.y - q.y) ** 2
+        if (d2 < best) { best = d2; hover = i }
+      })
+    }
+    // draw the markers
+    TOUCHPOINTS.forEach((tp, i) => {
+      const q = tpPos(tp)
+      const on = i === s.active || i === hover
+      const pulse = 0.5 + 0.5 * Math.sin(t * 2.4 + tp.n)
+      ctx.save(); ctx.globalCompositeOperation = 'lighter'
+      glow(ctx, q.x, q.y, (on ? 20 : 12) + pulse * 4, `rgba(125,245,223,${on ? 0.5 : 0.28})`, 'rgba(125,245,223,0)')
+      ctx.restore()
+      ctx.strokeStyle = `rgba(125,245,223,${on ? 0.95 : 0.6})`; ctx.lineWidth = on ? 2 : 1.4
+      ctx.beginPath(); ctx.arc(q.x, q.y, on ? 12 : 9 + pulse * 1.2, 0, TAU); ctx.stroke()
+      ctx.fillStyle = on ? 'rgba(125,245,223,0.9)' : 'rgba(8,26,32,0.7)'
+      ctx.beginPath(); ctx.arc(q.x, q.y, on ? 12 : 9, 0, TAU); ctx.fill()
+      ctx.fillStyle = on ? '#06222b' : '#bff4ea'
+      ctx.font = '700 11px "DM Sans", system-ui, sans-serif'
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText(tp.n, q.x, q.y + 0.5)
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
+    })
+    // draw the open card (pinned wins over hover) last, so it sits on top
+    const show = s.active != null ? s.active : hover
+    if (show != null) {
+      const tp = TOUCHPOINTS[show], q = tpPos(tp)
+      glassCard(ctx, q.x + 24, q.y - 16, [tp.title, ...tp.lines])
     }
 
     // ═══ GRADE: warm bloom near sun path + cool vignette ═══

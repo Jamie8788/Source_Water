@@ -131,7 +131,7 @@ export default function Welcome() {
       <section className="wv-section wv-shore" data-scene="shore">
         <CanvasScene scene={shoreScene} seed={7} className="wv-canvas" />
         <div className="wv-hero">
-          <div className="wv-kicker2">NIBI · WATER IS LIFE</div>
+          <div className="wv-kicker2">GREAT LAKES · LIVING SHORELINE</div>
           <h1 className="wv-title">
             <span className="wv-t-dark">Where water</span><br />
             <span className="wv-t-serif">meets community.</span>
@@ -148,6 +148,9 @@ export default function Welcome() {
               <Sparkles size={15} /> Guided journey
             </button>
           </div>
+          <p className="wv-taphint wv-hero-hint">
+            <Sparkles size={13} /> Tap any numbered marker in the scene to learn how that reading is taken
+          </p>
         </div>
         <button className="wv-scroll-hint" onClick={() => scrollTo(1)} aria-label="Scroll to next section">
           <span>Scroll to discover</span>
@@ -481,6 +484,7 @@ export default function Welcome() {
           animation: wvHintPulse 2.6s ease-in-out infinite;
         }
         @keyframes wvHintPulse { 0%,100% { border-color: rgba(125,245,223,0.3); } 50% { border-color: rgba(125,245,223,0.7); } }
+        .wv-hero-hint { margin-top: 20px !important; }
 
         /* ═══ 3 · FOUR DIRECTIONS ══════════════════════════════ */
         .wv-network { background: #071628; justify-content: flex-start; align-items: flex-start; }
