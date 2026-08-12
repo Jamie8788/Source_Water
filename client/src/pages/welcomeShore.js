@@ -34,21 +34,114 @@ const shoreY = (x) => 575 + Math.pow(clamp(x, 0, 1600) / 1600, 1.22) * 315 + Mat
 // anchors a point to the waterline via shoreY; otherwise `y` is absolute.
 // Content is grounded in Water Rangers field protocols.
 const TOUCHPOINTS = [
-  { n: 1, sy: 958, off: -32, title: 'WATER CLARITY · SECCHI DISK', lines: ['Lower the black-and-white disk until it', 'disappears — that depth is the clarity reading.', 'Cloudy water can mean algae or sediment.'] },
-  { n: 2, sy: 620, off: -46, title: 'DISSOLVED OXYGEN', lines: ['Snap a glass ampoule and match its colour', 'to the chart. Oxygen is what fish breathe —', 'low readings warn of pollution or warming.'] },
-  { n: 3, sy: 360, off: -30, title: 'CONDUCTIVITY', lines: ['A probe reads the dissolved salts in the water.', 'A high number flags road-salt or chloride', 'runoff washing into the lake.'] },
-  { n: 4, sy: 1096, off: -46, title: 'TURBIDITY TUBE', lines: ['Sight down a clear column of sample water to', 'see how much sediment clouds it — a fast', 'field measure of murkiness.'] },
-  { n: 5, sy: 806, off: -34, title: 'BENTHIC KICK-NET', lines: ['Sweep a net through the streambed and count', 'the insects. Mayflies and stoneflies mean', 'clean water; their absence is a warning.'] },
-  { n: 6, x: 640, y: 552, title: 'MONITORING BUOY · LIVE', lines: ['pH 7.9 · 18.2 °C · DO 9.4 mg/L', 'A moored sensor logs the lake around the', 'clock and streams it to the open network.'] },
-  { n: 7, x: 845, y: 505, title: 'RESEARCH SONDE', lines: ['The crew lowers a multi-probe sonde from', 'surface to bottom, profiling temperature,', 'oxygen and clarity down the water column.'] },
-  { n: 8, sy: 548, off: -30, title: 'SHORE DATA STATION', lines: ['Readings upload here to the open SOURCE', 'Water network — every site public, every', 'number shared.'] },
-  { n: 9, x: 1170, y: 742, title: 'DOCK GRAB SAMPLE', lines: ['A weighted bucket is cast from the dock to', 'reach open water beyond wading depth,', 'then hauled up for testing.'] },
-  { n: 10, x: 96, y: 812, title: 'AERIAL DRONE SURVEY', lines: ['A pilot flies a mapping drone along the', 'shore to spot algae blooms and erosion', 'from above — aerial view meets ground truth.'] },
-  { n: 11, x: 670, y: 812, title: 'SHORELINE TRANSECT', lines: ['Two volunteers stretch a measuring tape so', 'samples land on the same points every visit —', 'consistency makes the trend trustworthy.'] },
-  { n: 12, x: 1258, y: 806, title: 'eDNA / BACTERIA SAMPLE', lines: ['Water is sealed into a sterile bag to test', 'for E. coli or traces of species DNA —', 'life the eye never sees.'] },
-  { n: 13, x: 318, y: 808, title: 'TRAINING A VOLUNTEER', lines: ['An experienced ranger walks a newcomer', 'through the method. No science degree', 'needed — anyone can be trained.'] },
-  { n: 14, x: 430, y: 478, title: 'COMMON LOON', lines: ['Gavia immer — a clean-water indicator.', 'Loons nest only where the fish and', 'water stay healthy.'] },
-  { n: 15, x: 1012, y: 604, title: 'ANGLER CATCH LOG', lines: ['Anglers record what they catch and where.', 'Citizen catch data helps track fish', 'populations across the lakes.'] },
+  { n: 1, sy: 958, off: -32, title: 'WATER CLARITY · SECCHI DISK', lines: [
+    'What: how far light reaches into the water.',
+    'How: lower the black-&-white disk on a marked line',
+    'until it disappears — read the depth off the line.',
+    'Why: falling clarity signals an algae bloom or storm',
+    'runoff. No training needed but a steady hand.'] },
+  { n: 2, sy: 620, off: -46, title: 'DISSOLVED OXYGEN', lines: [
+    'What: the oxygen fish and insects breathe.',
+    'How: snap a sealed glass ampoule under water and',
+    'match its colour against the reference chart.',
+    'Why: low oxygen warns of pollution, warm water or',
+    'rotting algae. (Adults handle the glass.)'] },
+  { n: 3, sy: 360, off: -30, title: 'CONDUCTIVITY', lines: [
+    'What: dissolved salts/minerals in the water.',
+    'How: dip the calibrated probe, read the meter.',
+    'Why: a spike flags road-salt or chloride runoff —',
+    'one of the biggest threats to urban creeks.'] },
+  { n: 4, sy: 1096, off: -46, title: 'TURBIDITY TUBE', lines: [
+    'What: how muddy/cloudy the water is.',
+    'How: fill the clear tube and sight straight down',
+    'until the pattern at the bottom fades from view.',
+    'Why: sediment smothers fish eggs and weed beds.'] },
+  { n: 5, sy: 806, off: -34, title: 'BENTHIC KICK-NET', lines: [
+    'What: the streambed insect community.',
+    'How: disturb the bottom and catch what drifts',
+    'into the net; sort and count the critters.',
+    'Why: mayflies & stoneflies = clean water; only',
+    'worms & leeches = trouble. A living test kit.'] },
+  { n: 6, x: 640, y: 552, title: 'MONITORING BUOY · LIVE', lines: [
+    'A moored sensor station logging 24/7.',
+    'pH 7.9 · 18.2 °C · DO 9.4 mg/L right now.',
+    'It streams every reading to the open network so',
+    'anyone can watch the lake between site visits.'] },
+  { n: 7, x: 845, y: 505, title: 'RESEARCH SONDE', lines: [
+    'A multi-probe instrument on a cable.',
+    'The crew lowers it from surface to bottom,',
+    'profiling temperature, oxygen and clarity at',
+    'every depth — the lake in cross-section.'] },
+  { n: 8, sy: 548, off: -30, title: 'SHORE DATA STATION', lines: [
+    'Where the day\'s readings get logged.',
+    'Every value uploads to the open SOURCE Water',
+    'network — public site, public numbers, so a',
+    'community can hold decisions to account.'] },
+  { n: 9, x: 1170, y: 742, title: 'DOCK GRAB SAMPLE', lines: [
+    'Sampling open water without a boat.',
+    'A weighted bucket is cast from the dock past',
+    'wading depth, then hauled up to fill bottles.',
+    'Rinse three times before you keep the sample.'] },
+  { n: 10, x: 96, y: 812, title: 'AERIAL DRONE SURVEY', lines: [
+    'The big-picture view of the shoreline.',
+    'A mapping drone flies transects to spot algae',
+    'blooms, erosion and outfalls from above —',
+    'aerial imagery ground-truthed by the field crew.'] },
+  { n: 11, x: 670, y: 812, title: 'SHORELINE TRANSECT', lines: [
+    'How you make results comparable over years.',
+    'A measuring tape fixes the exact sample points',
+    'so every visit repeats the same spots.',
+    'Consistency is what turns data into a trend.'] },
+  { n: 12, x: 1258, y: 806, title: 'eDNA / BACTERIA SAMPLE', lines: [
+    'Detecting life you can\'t see.',
+    'Water is sealed in a sterile bag and lab-tested',
+    'for E. coli (is it safe to swim?) or the DNA',
+    'traces of fish and invasive species.'] },
+  { n: 13, x: 318, y: 808, title: 'BECOME A VOLUNTEER', lines: [
+    'This is how everyone here started.',
+    'An experienced ranger walks a newcomer through',
+    'each test hands-on. No science degree required —',
+    'a half-day of training and you\'re monitoring.'] },
+  { n: 14, x: 430, y: 478, title: 'COMMON LOON', lines: [
+    'Gavia immer — a clean-water indicator.',
+    'Loons need clear water to hunt fish by sight and',
+    'quiet, undeveloped shores to nest. Where they',
+    'thrive, the lake is doing well.'] },
+  { n: 15, x: 1012, y: 604, title: 'ANGLER CATCH LOG', lines: [
+    'Citizen science with a rod.',
+    'Anglers record species, size and location.',
+    'Catch logs track fish populations and flag',
+    'contaminant advisories across the lakes.'] },
+  { n: 16, x: 210, y: 806, title: 'WILDLIFE PHOTO LOG', lines: [
+    'A camera is a monitoring tool too.',
+    'Dated, geotagged photos of shoreline, ice,',
+    'blooms and wildlife build a visual record',
+    'that catches slow changes numbers miss.'] },
+  { n: 17, x: 1015, y: 812, title: 'SHORELINE BIRD COUNT', lines: [
+    'Birds read the whole food web.',
+    'A simple count of loons, gulls, herons and',
+    'ducks over time reveals whether the fish and',
+    'insects they eat are still there.'] },
+  { n: 18, x: 880, y: 832, title: 'COMMUNITY KNOWLEDGE', lines: [
+    'The longest dataset on this lake.',
+    'Elders hold decades of first-hand memory —',
+    'when the ice came, where the fish spawned.',
+    'Two-eyed seeing pairs it with the instruments.'] },
+  { n: 19, sy: 466, off: -22, title: 'AQUATIC PLANTS', lines: [
+    'Weed beds are a living gauge.',
+    'Healthy native plants shelter fish fry and',
+    'oxygenate the water; a sudden algae takeover',
+    'or bare bottom both signal a problem.'] },
+  { n: 20, x: 724, y: 796, title: 'CANADA GEESE', lines: [
+    'Branta canadensis — abundant, and telling.',
+    'Big resident flocks can spike bacteria and',
+    'nutrients at popular beaches, so counts feed',
+    'straight into water-safety decisions.'] },
+  { n: 21, sy: 96, off: -14, title: 'PAINTED TURTLE', lines: [
+    'Chrysemys picta, basking on a rock.',
+    'Turtles need clean water, basking logs and',
+    'insect prey. They\'re slow to recover, so their',
+    'presence signals a shoreline left intact.'] },
 ]
 const tpPos = (tp) => ({ x: tp.x != null ? tp.x : tp.sy, y: tp.y != null ? tp.y : shoreY(tp.sy) + (tp.off || 0) })
 
@@ -649,28 +742,76 @@ export const shoreScene = {
         ctx.beginPath(); ctx.moveTo(ox - 46, 563); ctx.quadraticCurveTo(ox - 22, 566, ox, 561); ctx.stroke()
       }
 
-      // ── a loose school of fish cruising just under the open-water surface ──
-      for (let i = 0; i < 6; i++) {
-        const speed = 24 + (i % 3) * 11
+      // ── a loose school under the open water: bodies FLEX as they swim and
+      //    the deeper fish (nearer the horizon) fade into the water ──
+      for (let i = 0; i < 9; i++) {
+        const speed = 20 + (i % 4) * 9
         const dir = i % 2 ? 1 : -1
-        const span = VW + 220
-        const march = (t * speed + i * 353) % span
-        const fx = dir > 0 ? march - 110 : VW + 110 - march
-        const fy = 448 + ((i * 29) % 78) + Math.sin(t * 0.8 + i) * 6
-        const sz = 0.66 + (i % 3) * 0.2
-        const wag = Math.sin(t * 7 + i * 1.3)
+        const span = VW + 240
+        const march = (t * speed + i * 271) % span
+        const fx = dir > 0 ? march - 120 : VW + 120 - march
+        const lane = 442 + ((i * 37) % 92)
+        const fy = lane + Math.sin(t * 0.7 + i) * 5
+        const sz = 0.6 + (i % 3) * 0.22
+        const depth = clamp((fy - 442) / 92, 0, 1) // 0 = deep/far, 1 = shallow/near
+        const A = 0.2 + depth * 0.52 // deeper → fainter (occluded by water)
+        const ty = Math.sin(t * 6 + i * 1.3) * 6 // tail swing
         ctx.save(); ctx.translate(fx, fy); ctx.scale(dir * sz, sz)
-        ctx.fillStyle = 'rgba(38,60,62,0.5)' // body (a shadow just below the surface)
-        ctx.beginPath(); ctx.ellipse(0, 0, 15, 4.4, 0, 0, TAU); ctx.fill()
-        ctx.beginPath(); ctx.moveTo(-13, 0); ctx.lineTo(-22, wag * 5 - 5); ctx.lineTo(-22, wag * 5 + 5); ctx.closePath(); ctx.fill() // tail
-        ctx.fillStyle = 'rgba(58,88,86,0.55)' // dorsal fin
-        ctx.beginPath(); ctx.moveTo(1, -3.6); ctx.lineTo(8, -9); ctx.lineTo(9, -3.8); ctx.closePath(); ctx.fill()
-        ctx.fillStyle = 'rgba(206,230,224,0.26)' // back sheen
-        ctx.beginPath(); ctx.ellipse(3, -1.4, 7, 1.4, 0, 0, TAU); ctx.fill()
-        ctx.fillStyle = 'rgba(12,20,22,0.6)'; ctx.beginPath(); ctx.arc(10, -1, 1.1, 0, TAU); ctx.fill() // eye
+        // flexing lens body from nose (+x) to tail base (−x, swung by ty)
+        ctx.fillStyle = `rgba(44,66,66,${A.toFixed(3)})`
+        ctx.beginPath(); ctx.moveTo(15, 0)
+        ctx.quadraticCurveTo(0, -4.6, -12, ty)
+        ctx.quadraticCurveTo(0, 4.6, 15, 0); ctx.closePath(); ctx.fill()
+        // forked tail at the swung base
+        ctx.beginPath(); ctx.moveTo(-12, ty); ctx.lineTo(-22, ty - 5); ctx.lineTo(-18, ty); ctx.lineTo(-22, ty + 5); ctx.closePath(); ctx.fill()
+        // dorsal fin, back sheen, eye
+        ctx.fillStyle = `rgba(60,90,88,${(A * 0.9).toFixed(3)})`
+        ctx.beginPath(); ctx.moveTo(0, -3.4); ctx.lineTo(7, -8); ctx.lineTo(8, -3.6); ctx.closePath(); ctx.fill()
+        ctx.fillStyle = `rgba(210,232,226,${(A * 0.5).toFixed(3)})`
+        ctx.beginPath(); ctx.ellipse(4, -1.2, 6, 1.2, 0, 0, TAU); ctx.fill()
+        ctx.fillStyle = `rgba(10,18,20,${A.toFixed(3)})`; ctx.beginPath(); ctx.arc(10, -0.8, 1, 0, TAU); ctx.fill()
         ctx.restore()
-        ctx.strokeStyle = 'rgba(230,242,238,0.10)'; ctx.lineWidth = 1.2 // surface trace overhead
-        ctx.beginPath(); ctx.ellipse(fx, fy - 3, 16 * sz, 4, 0, 0, TAU); ctx.stroke()
+        if (depth > 0.55) { // only near-surface fish leave a trace overhead
+          ctx.strokeStyle = `rgba(230,242,238,${(0.08 * depth).toFixed(3)})`; ctx.lineWidth = 1.1
+          ctx.beginPath(); ctx.ellipse(fx, fy - 3, 15 * sz, 3.5, 0, 0, TAU); ctx.stroke()
+        }
+      }
+
+      // ── LAKE STURGEON — the ancient giant of the Great Lakes. It cruises
+      //    deep and slow as a big shadow, then every so often its ridged back
+      //    rolls up and breaks the surface with a wake. (A real freshwater
+      //    showpiece — no ocean animals here.)
+      {
+        const period = 48, st = (t % period) / period // one very slow pass
+        const sx = VW + 160 - st * (VW + 320)           // drifts right → left
+        const roll = Math.max(0, Math.sin((st - 0.5) * Math.PI * 2)) // surfaces mid-pass
+        const baseY = 516, sy = baseY - roll * 24
+        const A = 0.26 + roll * 0.44                     // a shadow, clearer on the roll
+        const wag = Math.sin(t * 2.0) * 5
+        ctx.save(); ctx.translate(sx, sy); ctx.scale(-1, 1); ctx.rotate(-roll * 0.05)
+        ctx.fillStyle = `rgba(60,72,66,${A.toFixed(3)})`
+        ctx.beginPath() // long tapered body, pointed snout at +x
+        ctx.moveTo(56, 0)
+        ctx.quadraticCurveTo(12, -12, -34, -4)
+        ctx.quadraticCurveTo(12, 12, 56, 0)
+        ctx.closePath(); ctx.fill()
+        ctx.beginPath() // heterocercal (shark-like) tail, long upper lobe
+        ctx.moveTo(-34, -4); ctx.lineTo(-60, -16 + wag); ctx.lineTo(-45, -1)
+        ctx.lineTo(-53, 9 + wag * 0.5); ctx.lineTo(-34, 2); ctx.closePath(); ctx.fill()
+        ctx.fillStyle = `rgba(46,58,52,${A.toFixed(3)})` // dorsal scute ridge
+        for (let k = 0; k < 6; k++) { const px = 40 - k * 12; ctx.beginPath(); ctx.moveTo(px, -7); ctx.lineTo(px - 4, -3); ctx.lineTo(px + 4, -3); ctx.closePath(); ctx.fill() }
+        ctx.beginPath(); ctx.moveTo(-22, -5); ctx.lineTo(-30, -15); ctx.lineTo(-14, -6); ctx.closePath(); ctx.fill() // dorsal fin
+        ctx.beginPath(); ctx.moveTo(20, 4); ctx.lineTo(8, 15); ctx.lineTo(26, 7); ctx.closePath(); ctx.fill() // pectoral fin
+        ctx.strokeStyle = `rgba(52,62,58,${A.toFixed(3)})`; ctx.lineWidth = 1 // barbels under the snout
+        ctx.beginPath(); ctx.moveTo(48, 4); ctx.lineTo(56, 9); ctx.moveTo(44, 5); ctx.lineTo(51, 10); ctx.stroke()
+        ctx.fillStyle = `rgba(16,22,20,${A.toFixed(3)})`; ctx.beginPath(); ctx.arc(38, -2, 1.5, 0, TAU); ctx.fill() // eye
+        ctx.restore()
+        if (roll > 0.28) { // surface wake + a ridge poking through when it rolls
+          ctx.strokeStyle = `rgba(240,248,255,${(0.26 * roll).toFixed(3)})`; ctx.lineWidth = 1.6
+          ctx.beginPath(); ctx.ellipse(sx, baseY - 18, 64 * roll, 8 * roll, 0, 0, TAU); ctx.stroke()
+          ctx.fillStyle = `rgba(74,88,80,${(0.5 * roll).toFixed(3)})`
+          ctx.beginPath(); ctx.moveTo(sx + 20, baseY - 20); ctx.lineTo(sx - 4, baseY - 20 - 22 * roll); ctx.lineTo(sx - 26, baseY - 20); ctx.closePath(); ctx.fill()
+        }
       }
 
       // (removed the small in-water "swimming dog" — at this distance it read
@@ -1287,7 +1428,8 @@ export const shoreScene = {
       ctx.restore()
       ctx.strokeStyle = 'rgba(240,248,255,0.35)'; ctx.lineWidth = 1.6
       ctx.beginPath(); ctx.ellipse(118, shoreY(150) + 6, 24 + push * 4, 5, 0, 0, TAU); ctx.stroke()
-      person2(ctx, { x: 208, y: shoreY(208) + 26, h: 84, skin: 4, top: 6, bottom: 0, hairStyle: 'short', hair: 5, lean: -0.22 + push * 0.02, armL: { u: 1.15, f: 0.5 }, armR: { u: 1.05, f: 0.55 } })
+      // (removed the lone canoe-launcher figure to thin the crowd — the beached
+      //  canoe stays as scenery)
 
       // photographer kneeling on the foreground granite (left)
       person2(ctx, { x: 210, y: 806, h: 118, skin: 1, top: 3, bottom: 2, hairStyle: 'cap', hair: 2, armR: { u: 1.35, f: 0.95 }, armL: { u: 1.2, f: 1.05 }, nod: Math.sin(t * 0.4) })
@@ -1339,9 +1481,10 @@ export const shoreScene = {
 
     // ═══ FOREGROUND — granite, grasses, driftwood, canoe bow (defocused) ═══
     par(30, () => {
-      // granite slab, bottom-left
-      castShadow(ctx, 150, 886, 90)
-      granite(ctx, 130, 900, 240, 130, 3)
+      // granite slab, tucked into the very bottom-left corner so it frames the
+      // shot without cutting off the legs of the researchers standing behind it
+      castShadow(ctx, 132, 922, 78)
+      granite(ctx, 108, 946, 188, 92, 3)
       grassBlades(ctx, 268, 898, 9, 92, t, true)
       grassBlades(ctx, 40, 892, 7, 70, t, true)
       // driftwood, bottom-centre
