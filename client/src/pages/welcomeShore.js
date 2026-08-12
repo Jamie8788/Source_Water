@@ -673,48 +673,8 @@ export const shoreScene = {
         ctx.beginPath(); ctx.ellipse(fx, fy - 3, 16 * sz, 4, 0, 0, TAU); ctx.stroke()
       }
 
-      // ── a retriever swimming out for a thrown stick and paddling back ──
-      const eio = (q) => q * q * (3 - 2 * q)
-      const cyc = (t % 17) / 17
-      const stickX = 726, shoreX = 372, dogY = 556 + Math.sin(t * 1.6) * 1.8
-      let dogX, faceOut, carrying
-      if (cyc < 0.44) { dogX = lerp(shoreX, stickX, eio(cyc / 0.44)); faceOut = true; carrying = false } // swim out
-      else if (cyc < 0.52) { dogX = stickX; faceOut = true; carrying = false } // reach + grab
-      else { dogX = lerp(stickX, shoreX, eio((cyc - 0.52) / 0.48)); faceOut = false; carrying = true } // swim home
-      const paddle = Math.sin(t * 10)
-      // the floating target stick, until it is picked up
-      if (!carrying) {
-        ctx.save(); ctx.translate(stickX, 556 + Math.sin(t * 1.9) * 1.4); ctx.rotate(0.12 + Math.sin(t * 1.3) * 0.05)
-        ctx.strokeStyle = '#6b4a26'; ctx.lineWidth = 2.6; ctx.lineCap = 'round'
-        ctx.beginPath(); ctx.moveTo(-11, 0); ctx.lineTo(11, 0); ctx.stroke()
-        ctx.strokeStyle = 'rgba(240,248,255,0.22)'; ctx.lineWidth = 1.2
-        ctx.beginPath(); ctx.ellipse(0, 2, 15, 3.4, 0, 0, TAU); ctx.stroke()
-        ctx.restore()
-      }
-      ctx.save(); ctx.translate(dogX, dogY); ctx.scale(faceOut ? -1 : 1, 1) // canonical facing = left (toward shore)
-      ctx.strokeStyle = 'rgba(235,245,242,0.22)'; ctx.lineWidth = 1.5 // trailing V-wake
-      ctx.beginPath(); ctx.moveTo(10, 1); ctx.lineTo(58, -11 + Math.sin(t * 2) * 2); ctx.moveTo(10, 4); ctx.lineTo(58, 19 + Math.sin(t * 2 + 1) * 2); ctx.stroke()
-      ctx.fillStyle = '#c98b39' // submerged back
-      ctx.beginPath(); ctx.ellipse(-1, 1, 20, 6.2, 0, 0, TAU); ctx.fill()
-      ctx.fillStyle = 'rgba(96,140,150,0.45)' // waterline hides the lower body
-      ctx.beginPath(); ctx.ellipse(-1, 7, 25, 6, 0, 0, TAU); ctx.fill()
-      ctx.fillStyle = '#cf933f' // raised neck + head at the front-left
-      ctx.beginPath(); ctx.moveTo(-13, 2); ctx.quadraticCurveTo(-21, -9, -23, -13); ctx.lineTo(-16, -13); ctx.quadraticCurveTo(-11, -5, -9, 2); ctx.closePath(); ctx.fill()
-      ctx.beginPath(); ctx.ellipse(-24, -14, 7, 6, -0.2, 0, TAU); ctx.fill() // head
-      ctx.beginPath(); ctx.ellipse(-31, -12.5, 4.6, 3, -0.1, 0, TAU); ctx.fill() // snout
-      ctx.fillStyle = '#9f6926' // floppy ear
-      ctx.beginPath(); ctx.moveTo(-21, -18); ctx.quadraticCurveTo(-17, -13, -18, -7); ctx.quadraticCurveTo(-24, -12, -23, -18); ctx.closePath(); ctx.fill()
-      ctx.fillStyle = '#2a1c10'; ctx.beginPath(); ctx.arc(-35, -12.5, 1.5, 0, TAU); ctx.fill() // nose
-      ctx.fillStyle = '#1a120a'; ctx.beginPath(); ctx.arc(-25, -15, 1.1, 0, TAU); ctx.fill() // eye
-      if (carrying) { // the fetched stick clamped in the jaws
-        ctx.strokeStyle = '#6b4a26'; ctx.lineWidth = 2.6; ctx.lineCap = 'round'
-        ctx.beginPath(); ctx.moveTo(-40, -10); ctx.lineTo(-24, -13.5); ctx.stroke()
-      }
-      if (paddle > 0.35) { // paddling splash at the chest
-        ctx.strokeStyle = 'rgba(245,250,255,0.4)'; ctx.lineWidth = 1.4
-        ctx.beginPath(); ctx.ellipse(-13, 8, 5 + paddle * 3, 2.2, 0, 0, TAU); ctx.stroke()
-      }
-      ctx.restore()
+      // (removed the small in-water "swimming dog" — at this distance it read
+      //  as a duck. The dog on land, walked on a leash, stays.)
     })
 
     // ═══ SHALLOWS → FOAM → WET SAND → BEACH ═══
@@ -736,6 +696,21 @@ export const shoreScene = {
         ctx.beginPath(); ctx.ellipse(px2 + wob, py2, 8 + (i % 4) * 3.4, 3.4 + (i % 3), 0, 0, TAU); ctx.fill()
         ctx.fillStyle = 'rgba(255,226,170,0.14)'
         ctx.beginPath(); ctx.ellipse(px2 + wob - 2, py2 - 1.6, 4 + (i % 3) * 2, 1.6, 0, 0, TAU); ctx.fill()
+      }
+      // aquatic plants + algae mats on the sandy bottom — a living lake grows
+      // weed beds (bioindicators); they sway gently with the surface
+      for (let i = 0; i < 7; i++) {
+        const ax = 110 + i * 208 + Math.sin(i * 1.7) * 34
+        const ay = shoreY(ax) - 22 - (i % 3) * 16
+        ctx.fillStyle = `rgba(66,104,60,${(0.14 + (i % 2) * 0.06).toFixed(3)})` // algae mat
+        ctx.beginPath(); ctx.ellipse(ax, ay + 2, 20 + (i % 3) * 9, 6 + (i % 2) * 2.5, 0.08, 0, TAU); ctx.fill()
+        ctx.strokeStyle = 'rgba(80,128,74,0.5)'; ctx.lineWidth = 2; ctx.lineCap = 'round' // swaying fronds
+        for (let b = 0; b < 4; b++) {
+          const bx = ax - 13 + b * 9
+          const sway = Math.sin(t * 1.3 + i + b * 0.8) * 4
+          ctx.beginPath(); ctx.moveTo(bx, ay + 3)
+          ctx.quadraticCurveTo(bx + sway, ay - 9, bx + sway * 1.7, ay - 19 - (b % 2) * 6); ctx.stroke()
+        }
       }
       // caustic shimmer — faint drifting light cells hugging the waterline
       ctx.save(); ctx.globalCompositeOperation = 'lighter'
@@ -1302,8 +1277,8 @@ export const shoreScene = {
       ctx.fillStyle = 'rgba(255,214,150,0.3)'; ctx.fillRect(-62, -12, 124, 2.6)
       ctx.restore()
       const talk = Math.sin(t * 0.5) > 0
-      person2(ctx, { x: logX - 30, y: logY - 9, h: 88, skin: 0, top: 2, bottom: 1, hairStyle: 'grey', stance: 'sit', armR: { u: talk ? 0.7 + Math.sin(t * 2.2) * 0.25 : 0.3, f: 0.5 }, armL: { u: 0.25, f: 0.3 }, nod: talk ? t * 2.2 : 0.4 })
-      person2(ctx, { x: logX + 34, y: logY - 9, h: 84, skin: 1, top: 9, bottom: 4, hairStyle: 'grey', stance: 'sit', flip: true, armR: { u: !talk ? 0.7 + Math.sin(t * 1.9) * 0.22 : 0.25, f: 0.45 }, armL: { u: 0.25, f: 0.3 }, nod: !talk ? t * 1.9 : 0.2 })
+      person2(ctx, { x: logX - 30, y: logY - 9, h: 88, skin: 0, top: 2, bottom: 1, hairStyle: 'grey', stance: 'sit', armR: { u: talk ? 0.7 + Math.sin(t * 2.2) * 0.25 : 0.32, f: 0.5 }, armL: { u: 0.42, f: 0.62 }, nod: talk ? t * 2.2 : 0.4 })
+      person2(ctx, { x: logX + 34, y: logY - 9, h: 84, skin: 1, top: 9, bottom: 4, hairStyle: 'grey', stance: 'sit', flip: true, armR: { u: !talk ? 0.7 + Math.sin(t * 1.9) * 0.22 : 0.32, f: 0.45 }, armL: { u: 0.42, f: 0.62 }, nod: !talk ? t * 1.9 : 0.2 })
 
       // youth launching a canoe (upper-left, half in water)
       const push = Math.sin(t * 1.15)
@@ -1321,17 +1296,35 @@ export const shoreScene = {
       ctx.fillStyle = 'rgba(160,210,240,0.8)'; ctx.beginPath(); ctx.arc(22.4, 5, 2.4, 0, TAU); ctx.fill()
       ctx.restore()
 
-      // family strolling mid-beach (parent + child holding hands)
-      const fq = ((t * 0.02 + 0.5) % 1.4) - 0.2
-      if (fq > -0.08 && fq < 1.08) {
-        const fx = lerp(300, 1060, clamp(fq, 0, 1))
-        const fy = shoreY(fx) + 68 // always on sand, below the waterline
-        const fph = t * 2.35
-        person2(ctx, { x: fx, y: fy, h: 108, skin: 5, top: 9, bottom: 2, hairStyle: 'short', hair: 0, walk: fph, armR: { u: 0.5, f: 0.4 } })
-        person2(ctx, { x: fx + 40, y: fy + 2, h: 62, skin: 5, top: 8, bottom: 0, hairStyle: 'long', hair: 1, walk: t * 3.8 + 0.9, armL: { u: -0.45, f: -0.15 } })
-        ctx.strokeStyle = 'rgba(60,44,30,0.35)'; ctx.lineWidth = 2
-        ctx.beginPath(); ctx.moveTo(fx + 12, fy - 52); ctx.quadraticCurveTo(fx + 26, fy - 38, fx + 32, fy - 36); ctx.stroke()
+      // (removed the mid-beach strolling family — its path cut through the
+      //  standing researchers and the figures overlapped/merged.)
+
+      // ── a small gaggle of Canada geese loafing on the open wet sand ──
+      const goose = (gx, gy, sc, ph, graze) => {
+        ctx.save(); ctx.translate(gx, gy); ctx.scale(sc, sc)
+        const bob = Math.sin(t * 2 + ph) * 1.2
+        ctx.fillStyle = 'rgba(60,44,26,0.22)' // ground shadow
+        ctx.beginPath(); ctx.ellipse(0, 15, 16, 3, 0, 0, TAU); ctx.fill()
+        ctx.fillStyle = '#8b8175' // body
+        ctx.beginPath(); ctx.ellipse(0, 0, 15, 8.5, 0, 0, TAU); ctx.fill()
+        ctx.fillStyle = '#6f665b' // folded wing
+        ctx.beginPath(); ctx.ellipse(2, -0.5, 12, 6, 0, 0, TAU); ctx.fill()
+        ctx.fillStyle = '#efe9dc' // pale tail/rump
+        ctx.beginPath(); ctx.moveTo(-14, -3); ctx.lineTo(-21, -5); ctx.lineTo(-13, 3); ctx.closePath(); ctx.fill()
+        const hy = (graze ? 9 : -14) + bob, hx = 13 // black neck + head; grazing dips it
+        ctx.strokeStyle = '#191919'; ctx.lineWidth = 3.6; ctx.lineCap = 'round'
+        ctx.beginPath(); ctx.moveTo(9, -4); ctx.quadraticCurveTo(hx + 2, hy * 0.4, hx, hy); ctx.stroke()
+        ctx.fillStyle = '#191919'; ctx.beginPath(); ctx.ellipse(hx + 1, hy, 3.4, 3, 0, 0, TAU); ctx.fill()
+        ctx.fillStyle = '#f2efe8'; ctx.beginPath(); ctx.ellipse(hx + 2, hy + 0.4, 1.5, 2.4, 0, 0, TAU); ctx.fill() // white cheek
+        ctx.fillStyle = '#141416'; ctx.beginPath(); ctx.moveTo(hx + 3.5, hy - 1); ctx.lineTo(hx + 7.5, hy + 0.2); ctx.lineTo(hx + 3.5, hy + 1.6); ctx.closePath(); ctx.fill() // bill
+        ctx.strokeStyle = '#3a2a18'; ctx.lineWidth = 1.5 // legs
+        ctx.beginPath(); ctx.moveTo(-2, 8); ctx.lineTo(-2, 15); ctx.moveTo(4, 8); ctx.lineTo(4, 15); ctx.stroke()
+        ctx.restore()
       }
+      const gz = (i) => ((t * 0.4 + i * 2.3) % 5) < 2 // slow, staggered grazing
+      goose(686, 792, 1.0, 0.0, gz(0))
+      goose(724, 800, 0.92, 1.7, gz(1))
+      goose(760, 788, 0.86, 3.1, gz(2))
 
       // turtle sunning on a shoreline rock (left shallows)
       ctx.fillStyle = '#71695f'
