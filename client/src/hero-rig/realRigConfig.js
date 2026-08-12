@@ -13,4 +13,4 @@
  * hero-rig/ folder and the three `USE_REAL_RIG_NPCS` guards in welcomeShore.js
  * and Welcome.jsx).
  */
-export const USE_REAL_RIG_NPCS = false
+export const USE_REAL_RIG_NPCS = true
