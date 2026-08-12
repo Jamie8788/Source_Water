@@ -20,7 +20,7 @@
  *
  * Route: "/" for signed-out visitors. Sign-in lives at /login.
  */
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronDown, Droplets, Map as MapIcon, Users, Sparkles, ArrowRight, Volume2, VolumeX } from 'lucide-react'
 import { mountScene } from './welcomeEngine'
@@ -28,6 +28,11 @@ import { shoreScene, fireLightTrail } from './welcomeShore'
 import { underScene } from './welcomeScenes'
 import { directionsScene, turtleScene, nightScene } from './welcomeScenes2'
 import { toggleSound } from './welcomeSound'
+// DEV-ONLY reversible experiment: real skeletal-rig NPCs inside the SAME hero.
+// Lazy-loaded and only when the flag is on, so three.js never touches the
+// landing bundle in the default (flag-off) build.
+import { USE_REAL_RIG_NPCS } from '../hero-rig/realRigConfig'
+const RealRigNpcs = USE_REAL_RIG_NPCS ? lazy(() => import('../hero-rig/RealRigNpcs')) : null
 
 const SECTIONS = ['shore', 'under', 'network', 'turtle', 'night']
 
@@ -130,6 +135,9 @@ export default function Welcome() {
       {/* ═══ 1 · GOLDEN-HOUR SHORELINE ═══ */}
       <section className="wv-section wv-shore" data-scene="shore">
         <CanvasScene scene={shoreScene} seed={7} className="wv-canvas" />
+        {USE_REAL_RIG_NPCS && RealRigNpcs && (
+          <Suspense fallback={null}><RealRigNpcs className="wv-canvas" /></Suspense>
+        )}
         <div className="wv-hero">
           <div className="wv-kicker2">GREAT LAKES · LIVING SHORELINE</div>
           <h1 className="wv-title">

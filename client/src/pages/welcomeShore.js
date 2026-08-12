@@ -14,6 +14,11 @@
  */
 import { VW, VH, vGrad, glow, makeParticles, lerp, clamp } from './welcomeEngine'
 import { drawPerson, WARDROBE, SKINS, HAIRS } from './welcomePeople'
+// DEV-ONLY experiment flag (default false). When true, three test NPCs —
+// the shoreline walker, the dock fisher and the DO-vial researcher — are
+// SKIPPED here so the isolated real-rig (three.js) overlay draws them
+// instead, for a same-scene motion comparison. Everything else is untouched.
+import { USE_REAL_RIG_NPCS } from '../hero-rig/realRigConfig'
 
 const TAU = Math.PI * 2
 
@@ -893,6 +898,7 @@ export const shoreScene = {
         ctx.beginPath(); ctx.moveTo(dx - half, dy); ctx.lineTo(dx + half, dy); ctx.stroke()
       }
       // ── fisher at the tip: full cast → splash → wait → twitch → reel loop ──
+      if (!USE_REAL_RIG_NPCS) { // [real-rig experiment] replaced by rigged NPC when flag on
       const fT = t % 13
       const ease = (q) => q * q * (3 - 2 * q)
       // rod angle through the phases
@@ -953,6 +959,7 @@ export const shoreScene = {
         ctx.strokeStyle = 'rgba(240,248,255,0.3)'; ctx.lineWidth = 1.2
         ctx.beginPath(); ctx.ellipse(bx2, by2 + 3, 6 + Math.sin(t * 1.7) * 2, 1.7, 0, 0, TAU); ctx.stroke()
       }
+      } // end [real-rig experiment] fisher
       // kid sitting on the dock edge, legs dangling over the water
       ctx.save(); ctx.translate(1108, 683)
       person2(ctx, { x: 0, y: 0, h: 46, skin: 4, top: 8, bottom: 0, hairStyle: 'short', hair: 1, stance: 'sit', shadow: false, nod: t * 1.4 })
@@ -1114,6 +1121,7 @@ export const shoreScene = {
       ctx.restore()
 
       // ── Water Rangers: dissolved-oxygen vial held up to compare colour ──
+      if (!USE_REAL_RIG_NPCS) { // [real-rig experiment] replaced by rigged NPC when flag on
       const doR = person2(ctx, {
         x: 620, y: shoreY(620) + 20, h: 100, skin: 4, top: 3, bottom: 0, hairStyle: 'long', hair: 1, vest: true,
         armR: { u: 1.5 + Math.sin(t * 0.8) * 0.05, f: 1.15 }, armL: { u: 0.95, f: 0.95 }, nod: t * 0.6,
@@ -1123,6 +1131,7 @@ export const shoreScene = {
       ctx.fillStyle = 'rgba(230,240,240,0.8)'; ctx.fillRect(-2, -1.5, 4, 2.5) // cap
       ctx.strokeStyle = '#aebec4'; ctx.lineWidth = 0.8; ctx.strokeRect(-2, -1.5, 4, 11.5)
       ctx.restore()
+      } // end [real-rig experiment] DO researcher
 
       // ── interpretive site marker with live readings (how a site reports) ──
       ctx.save(); ctx.translate(548, shoreY(548) + 26)
@@ -1299,7 +1308,7 @@ export const shoreScene = {
 
       // family strolling mid-beach (parent + child holding hands)
       const fq = ((t * 0.02 + 0.5) % 1.4) - 0.2
-      if (fq > -0.08 && fq < 1.08) {
+      if (!USE_REAL_RIG_NPCS && fq > -0.08 && fq < 1.08) {
         const fx = lerp(300, 1060, clamp(fq, 0, 1))
         const fy = shoreY(fx) + 68 // always on sand, below the waterline
         const fph = t * 2.35
