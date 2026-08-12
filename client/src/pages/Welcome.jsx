@@ -149,7 +149,7 @@ export default function Welcome() {
             </button>
           </div>
           <p className="wv-taphint wv-hero-hint">
-            <Sparkles size={13} /> Tap any numbered marker in the scene to learn how that reading is taken
+            <Sparkles size={13} /> Hover or tap the glowing points in the scene to learn how each reading is taken
           </p>
         </div>
         <button className="wv-scroll-hint" onClick={() => scrollTo(1)} aria-label="Scroll to next section">

@@ -264,24 +264,27 @@ export const shoreScene = {
     ctx.fillRect(0, -40, VW, HZ + 80)
 
     par(5, () => {
-      // hazy environmental sun — small disc, layered bloom, no rays
+      // hazy environmental sun — small disc, gentle bloom, kept below clipping
       ctx.save(); ctx.globalCompositeOperation = 'lighter'
-      glow(ctx, SUNX, SUNY, 190, 'rgba(255,196,120,0.20)', 'rgba(255,196,120,0)')
-      glow(ctx, SUNX, SUNY, 90, 'rgba(255,220,160,0.36)', 'rgba(255,214,150,0)')
+      glow(ctx, SUNX, SUNY, 150, 'rgba(255,196,120,0.12)', 'rgba(255,196,120,0)')
+      glow(ctx, SUNX, SUNY, 74, 'rgba(255,220,160,0.22)', 'rgba(255,214,150,0)')
       ctx.restore()
-      // crisp warm sun disc with a thin bright rim
-      const sd = ctx.createRadialGradient(SUNX, SUNY - 6, 4, SUNX, SUNY, 32)
-      sd.addColorStop(0, '#fff6e0'); sd.addColorStop(0.7, '#ffe6ad'); sd.addColorStop(1, '#ffd085')
+      // small warm sun disc, partly veiled by haze (soft rim, no white-hot core)
+      const sd = ctx.createRadialGradient(SUNX, SUNY - 5, 3, SUNX, SUNY, 26)
+      sd.addColorStop(0, '#ffe9c2'); sd.addColorStop(0.7, '#ffd79a'); sd.addColorStop(1, '#f6bf7e')
       ctx.fillStyle = sd
-      ctx.beginPath(); ctx.arc(SUNX, SUNY, 31, 0, TAU); ctx.fill()
-      ctx.strokeStyle = 'rgba(255,246,220,0.7)'; ctx.lineWidth = 1.6
-      ctx.beginPath(); ctx.arc(SUNX, SUNY, 31, 0, TAU); ctx.stroke()
-      // horizon haze bands
+      ctx.beginPath(); ctx.arc(SUNX, SUNY, 24, 0, TAU); ctx.fill()
+      // a thin haze band drifting across the sun's face keeps it from blowing out
+      ctx.save(); ctx.globalCompositeOperation = 'source-over'
+      ctx.fillStyle = 'rgba(210,150,120,0.16)'
+      ctx.beginPath(); ctx.ellipse(SUNX, SUNY + 4 + Math.sin(t * 0.2) * 2, 30, 7, 0, 0, TAU); ctx.fill()
+      ctx.restore()
+      // horizon haze bands (soft, low — no bright smear)
       ctx.save(); ctx.globalCompositeOperation = 'lighter'
-      ctx.fillStyle = 'rgba(250,196,130,0.30)'
-      ctx.beginPath(); ctx.ellipse(SUNX - 60, HZ - 8, 560, 26, 0, 0, TAU); ctx.fill()
-      ctx.fillStyle = 'rgba(244,186,128,0.20)'
-      ctx.beginPath(); ctx.ellipse(700, HZ - 20, 900, 20, 0, 0, TAU); ctx.fill()
+      ctx.fillStyle = 'rgba(250,196,130,0.16)'
+      ctx.beginPath(); ctx.ellipse(SUNX - 60, HZ - 8, 520, 20, 0, 0, TAU); ctx.fill()
+      ctx.fillStyle = 'rgba(244,186,128,0.10)'
+      ctx.beginPath(); ctx.ellipse(700, HZ - 20, 820, 16, 0, 0, TAU); ctx.fill()
       ctx.restore()
 
       // ── soft god-rays fanning from the sun (wide soft-edged gradient wedges,
@@ -293,7 +296,7 @@ export const shoreScene = {
         const a = -0.85 + i * 0.3 + Math.sin(t * 0.4 + i * 1.3) * 0.05
         ctx.save(); ctx.rotate(a)
         const g = ctx.createLinearGradient(0, 0, 0, 640)
-        g.addColorStop(0, `rgba(255,232,180,${(0.045 + 0.02 * Math.sin(t * 0.5 + i)).toFixed(3)})`)
+        g.addColorStop(0, `rgba(255,232,180,${(0.022 + 0.012 * Math.sin(t * 0.5 + i)).toFixed(3)})`)
         g.addColorStop(1, 'rgba(255,232,180,0)')
         ctx.fillStyle = g
         // triangular wedge with soft feathered sides via a couple of steps
@@ -303,22 +306,33 @@ export const shoreScene = {
       ctx.restore()
     })
 
-    // stratus clouds — dark tops, warm lit undersides
+    // clouds — billowy clusters of soft puffs (not flat ovals): cooler tops,
+    // a warm sun-lit underside, irregular silhouettes, slow independent drift.
     par(10, () => {
-      for (const c of s.clouds) {
-        c.x += c.v * dt; if (c.x - c.r > VW + 260) c.x = -c.r - 260
-        const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, c.r)
-        g.addColorStop(0, c.warm ? 'rgba(120,96,116,0.5)' : 'rgba(96,84,116,0.44)')
-        g.addColorStop(1, 'rgba(100,86,116,0)')
-        ctx.fillStyle = g
-        ctx.beginPath(); ctx.ellipse(c.x, c.y, c.r, c.r * c.sq, 0, 0, TAU); ctx.fill()
-        ctx.beginPath(); ctx.ellipse(c.x + c.r * 0.5, c.y + 6, c.r * 0.68, c.r * c.sq * 0.8, 0, 0, TAU); ctx.fill()
-        // sun-lit underside
-        const lg = ctx.createRadialGradient(c.x + 30, c.y + c.r * c.sq * 0.7, 0, c.x + 30, c.y + c.r * c.sq * 0.7, c.r * 0.9)
-        lg.addColorStop(0, 'rgba(255,190,120,0.32)'); lg.addColorStop(1, 'rgba(255,190,120,0)')
+      // deterministic lump layout per cloud (dx·r, dy·r, radius scale)
+      const PUFFS = [[0, 0, 1.0], [-0.58, 0.14, 0.64], [0.52, 0.12, 0.70], [-0.2, -0.2, 0.6], [0.24, -0.16, 0.54], [0.86, 0.2, 0.44]]
+      s.clouds.forEach((c) => {
+        c.x += c.v * dt; if (c.x - c.r > VW + 320) c.x = -c.r - 320
+        const tint = c.warm ? [124, 102, 122] : [98, 90, 122]
+        // body — overlapping cool puffs build an uneven billow
+        for (const [dx, dy, rs] of PUFFS) {
+          const px = c.x + dx * c.r * 0.92
+          const py = c.y + dy * c.r * 0.42
+          const pr = c.r * rs * (0.5 + c.sq * 1.2)
+          const g = ctx.createRadialGradient(px, py - pr * 0.25, pr * 0.1, px, py, pr)
+          g.addColorStop(0, `rgba(${tint[0]},${tint[1]},${tint[2]},0.46)`)
+          g.addColorStop(0.68, `rgba(${tint[0]},${tint[1]},${tint[2]},0.24)`)
+          g.addColorStop(1, `rgba(${tint[0]},${tint[1]},${tint[2]},0)`)
+          ctx.fillStyle = g
+          ctx.beginPath(); ctx.arc(px, py, pr, 0, TAU); ctx.fill()
+        }
+        // warm sun-lit underside, brighter on the sun side (right)
+        const uy = c.y + c.r * 0.34
+        const lg = ctx.createRadialGradient(c.x + c.r * 0.3, uy, 0, c.x + c.r * 0.3, uy, c.r * 0.95)
+        lg.addColorStop(0, 'rgba(255,198,134,0.30)'); lg.addColorStop(1, 'rgba(255,198,134,0)')
         ctx.fillStyle = lg
-        ctx.beginPath(); ctx.ellipse(c.x + 30, c.y + c.r * c.sq * 0.72, c.r * 0.92, c.r * c.sq * 0.5, 0, 0, TAU); ctx.fill()
-      }
+        ctx.beginPath(); ctx.ellipse(c.x + c.r * 0.3, uy, c.r * 0.95, c.r * 0.42, 0, 0, TAU); ctx.fill()
+      })
     })
 
     // geese V + gulls
@@ -415,20 +429,30 @@ export const shoreScene = {
     }
 
     par(8, () => {
-      // mirror bloom under the sun — soft elliptical, no hard edges
+      // mirror bloom under the sun — soft, low, well below clipping
       ctx.save(); ctx.globalCompositeOperation = 'lighter'
-      ctx.save(); ctx.translate(SUNX - 40, HZ + 6); ctx.scale(1, 0.16)
-      glow(ctx, 0, 0, 420, 'rgba(255,224,164,0.55)', 'rgba(255,224,164,0)')
+      ctx.save(); ctx.translate(SUNX - 40, HZ + 6); ctx.scale(1, 0.14)
+      glow(ctx, 0, 0, 300, 'rgba(255,224,164,0.24)', 'rgba(255,224,164,0)')
       ctx.restore()
-      // reflection corridor: stacked soft wobbling ellipses fading with depth
-      for (let i = 0; i < 22; i++) {
-        const q = i / 22
-        const y = HZ + 10 + q * 330
-        const wob = Math.sin(t * 1.9 + i * 0.8) * (4 + i * 2)
-        const w = 46 + i * 11
-        const a = (1 - q) * 0.11 * (0.7 + 0.3 * Math.sin(t * 2.4 + i))
-        ctx.fillStyle = `rgba(255,218,150,${a.toFixed(3)})`
-        ctx.beginPath(); ctx.ellipse(SUNX - 30 + wob - q * 60, y, w, 3.4 + i * 0.28, 0, 0, TAU); ctx.fill()
+      // reflection: a BROKEN column of small dashes shivering on the wave field —
+      // never solid strips. Each row is split into a few short glints with gaps,
+      // and it fades toward the viewer so the near lake stays readable teal.
+      for (let i = 0; i < 26; i++) {
+        const q = i / 26
+        const y = HZ + 8 + q * 340
+        const cxr = SUNX - 30 - q * 60 // reflection drifts with perspective
+        const rowA = (1 - q) * 0.14 * (0.6 + 0.4 * Math.sin(t * 2.4 + i))
+        if (rowA < 0.012) continue
+        const dashes = 2 + (i % 3) // 2–4 broken pieces per row
+        for (let d = 0; d < dashes; d++) {
+          const off = (d - (dashes - 1) / 2)
+          const wob = Math.sin(t * 2.1 + i * 0.8 + d * 1.7) * (3 + i * 1.2)
+          const dw = 10 + (i % 4) * 6 + Math.abs(Math.sin(i + d)) * 8
+          const gap = Math.sin(t * 3 + i * 2 + d) // random shimmer on/off
+          if (gap < -0.35) continue
+          ctx.fillStyle = `rgba(255,222,158,${rowA.toFixed(3)})`
+          ctx.beginPath(); ctx.ellipse(cxr + wob + off * (34 + i * 2), y, dw, 1.8 + i * 0.14, 0, 0, TAU); ctx.fill()
+        }
       }
       ctx.restore()
 
@@ -441,14 +465,14 @@ export const shoreScene = {
         ctx.beginPath(); ctx.ellipse(sw.x, sw.y, sw.rx, 7 + (sw.y - HZ) * 0.03, 0, 0, TAU); ctx.fill()
       }
 
-      // live glitter field in the sun corridor
+      // live glitter field in the sun corridor — small, sparse, never a sheet
       ctx.save(); ctx.globalCompositeOperation = 'lighter'
       for (const g of s.glints) {
         const tw2 = Math.max(0, Math.sin(t * g.sp + g.ph))
-        if (tw2 < 0.25) continue
-        const a = 0.65 * tw2 * (1 - (g.y - HZ) / 420)
+        if (tw2 < 0.45) continue
+        const a = 0.32 * tw2 * (1 - (g.y - HZ) / 420)
         ctx.fillStyle = `rgba(255,226,158,${a.toFixed(3)})`
-        ctx.fillRect(g.x - g.len * tw2 * 0.5, g.y, g.len * tw2, 1.9)
+        ctx.fillRect(g.x - g.len * tw2 * 0.4, g.y, g.len * tw2 * 0.8, 1.5)
       }
       ctx.restore()
     })
@@ -1463,23 +1487,30 @@ export const shoreScene = {
         if (d2 < best) { best = d2; hover = i }
       })
     }
-    // draw the markers
+    // draw the markers — calm little dots at rest so the scene reads as a
+    // painting, not a training diagram; only the hovered/pinned one blooms
+    // into a full ring + number (and its card).
     TOUCHPOINTS.forEach((tp, i) => {
       const q = tpPos(tp)
       const on = i === s.active || i === hover
-      const pulse = 0.5 + 0.5 * Math.sin(t * 2.4 + tp.n)
-      ctx.save(); ctx.globalCompositeOperation = 'lighter'
-      glow(ctx, q.x, q.y, (on ? 20 : 12) + pulse * 4, `rgba(125,245,223,${on ? 0.5 : 0.28})`, 'rgba(125,245,223,0)')
-      ctx.restore()
-      ctx.strokeStyle = `rgba(125,245,223,${on ? 0.95 : 0.6})`; ctx.lineWidth = on ? 2 : 1.4
-      ctx.beginPath(); ctx.arc(q.x, q.y, on ? 12 : 9 + pulse * 1.2, 0, TAU); ctx.stroke()
-      ctx.fillStyle = on ? 'rgba(125,245,223,0.9)' : 'rgba(8,26,32,0.7)'
-      ctx.beginPath(); ctx.arc(q.x, q.y, on ? 12 : 9, 0, TAU); ctx.fill()
-      ctx.fillStyle = on ? '#06222b' : '#bff4ea'
-      ctx.font = '700 11px "DM Sans", system-ui, sans-serif'
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-      ctx.fillText(tp.n, q.x, q.y + 0.5)
-      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
+      if (on) {
+        const pulse = 0.5 + 0.5 * Math.sin(t * 3)
+        ctx.save(); ctx.globalCompositeOperation = 'lighter'
+        glow(ctx, q.x, q.y, 22 + pulse * 5, 'rgba(125,245,223,0.5)', 'rgba(125,245,223,0)')
+        ctx.restore()
+        ctx.fillStyle = 'rgba(125,245,223,0.92)'
+        ctx.beginPath(); ctx.arc(q.x, q.y, 12, 0, TAU); ctx.fill()
+        ctx.fillStyle = '#06222b'; ctx.font = '700 11px "DM Sans", system-ui, sans-serif'
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillText(tp.n, q.x, q.y + 0.5)
+        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
+      } else {
+        const pulse = 0.5 + 0.5 * Math.sin(t * 1.6 + tp.n)
+        ctx.fillStyle = `rgba(140,240,220,${(0.26 + pulse * 0.13).toFixed(3)})`
+        ctx.beginPath(); ctx.arc(q.x, q.y, 2.6, 0, TAU); ctx.fill()
+        ctx.strokeStyle = `rgba(140,240,220,${(0.12 + pulse * 0.10).toFixed(3)})`; ctx.lineWidth = 1
+        ctx.beginPath(); ctx.arc(q.x, q.y, 5.5 + pulse * 1.6, 0, TAU); ctx.stroke()
+      }
     })
     // draw the open card (pinned wins over hover) last, so it sits on top
     const show = s.active != null ? s.active : hover
@@ -1490,8 +1521,8 @@ export const shoreScene = {
 
     // ═══ GRADE: warm bloom near sun path + cool vignette ═══
     ctx.save(); ctx.globalCompositeOperation = 'lighter'
-    const bloom = ctx.createRadialGradient(SUNX, HZ, 40, SUNX, HZ, 700)
-    bloom.addColorStop(0, 'rgba(255,190,110,0.10)'); bloom.addColorStop(1, 'rgba(255,190,110,0)')
+    const bloom = ctx.createRadialGradient(SUNX, HZ, 40, SUNX, HZ, 640)
+    bloom.addColorStop(0, 'rgba(255,190,110,0.055)'); bloom.addColorStop(1, 'rgba(255,190,110,0)')
     ctx.fillStyle = bloom; ctx.fillRect(0, 0, VW, VH)
     ctx.restore()
     const vg = ctx.createRadialGradient(VW * 0.55, VH * 0.42, VH * 0.45, VW * 0.55, VH * 0.42, VH * 1.05)
