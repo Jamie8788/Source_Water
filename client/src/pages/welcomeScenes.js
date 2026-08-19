@@ -134,17 +134,37 @@ function drawMayfly(ctx, t) {
 }
 function drawCrayfish(ctx, t) {
   const claw = Math.sin(t * 3) * 0.2
+  const tailFlick = Math.sin(t * 2.4) * 3
   ctx.fillStyle = '#8a4a34'; ctx.strokeStyle = '#5a2c1c'; ctx.lineWidth = 1.2
+  // segmented abdomen (tail) trailing behind, articulated
+  for (let i = 3; i >= 1; i--) {
+    const bx = -6 - i * 4
+    const by = (i === 1 ? 0 : tailFlick * (i * 0.15))
+    ctx.beginPath(); ctx.ellipse(bx, by, 5.4 - i * 0.4, 4.8 - i * 0.5, 0, 0, TAU); ctx.fill()
+  }
+  // fan-shaped uropod (tail fan) at very back — reads clearly as tail, not head
+  ctx.fillStyle = '#7a4028'
+  ctx.beginPath(); ctx.moveTo(-22, tailFlick * 0.5)
+  ctx.lineTo(-30, tailFlick - 6); ctx.lineTo(-28, tailFlick)
+  ctx.lineTo(-30, tailFlick + 6); ctx.closePath(); ctx.fill()
+  // main carapace (body)
+  ctx.fillStyle = '#8a4a34'
   ctx.beginPath(); ctx.ellipse(0, 0, 12, 6, 0, 0, TAU); ctx.fill()
-  // segmented tail
-  for (let i = 1; i <= 3; i++) { ctx.beginPath(); ctx.ellipse(-8 - i * 5, 0, 5 - i * 0.6, 4.4 - i * 0.5, 0, 0, TAU); ctx.fill() }
-  ctx.beginPath(); ctx.moveTo(-26, 0); ctx.lineTo(-33, -5); ctx.lineTo(-31, 0); ctx.lineTo(-33, 5); ctx.closePath(); ctx.fill()
-  // claws
+  // two long antennae from the FRONT (unmistakable head marker)
+  ctx.strokeStyle = '#4a2214'; ctx.lineWidth = 1
+  ctx.beginPath(); ctx.moveTo(10, -2); ctx.quadraticCurveTo(20, -10, 26, -14); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(10, 2); ctx.quadraticCurveTo(20, 10, 26, 14); ctx.stroke()
+  // two claws sticking forward
   for (const s2 of [-1, 1]) { ctx.save(); ctx.translate(11, s2 * 4); ctx.rotate(s2 * (0.5 + claw))
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(10, -1); ctx.stroke()
-    ctx.beginPath(); ctx.ellipse(12, -1, 4, 2.6, 0, 0, TAU); ctx.fill(); ctx.restore() }
-  ctx.strokeStyle = '#5a2c1c'; ctx.beginPath(); ctx.moveTo(10, -2); ctx.lineTo(20, -8); ctx.moveTo(10, 2); ctx.lineTo(20, 8); ctx.stroke()
-  ctx.fillStyle = '#0e1c22'; ctx.beginPath(); ctx.arc(9, -2, 1.4, 0, TAU); ctx.arc(9, 2, 1.4, 0, TAU); ctx.fill()
+    ctx.strokeStyle = '#5a2c1c'; ctx.lineWidth = 1.4
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(9, -1); ctx.stroke()
+    ctx.fillStyle = '#7a3a26'
+    ctx.beginPath(); ctx.moveTo(9, -3); ctx.lineTo(16, -1); ctx.lineTo(9, 1); ctx.closePath(); ctx.fill() // upper pincer
+    ctx.beginPath(); ctx.moveTo(9, 1); ctx.lineTo(16, -1); ctx.lineTo(9, 3); ctx.closePath(); ctx.fill() // lower pincer (opens/closes with rotation)
+    ctx.restore() }
+  // eyes on stalks at head
+  ctx.fillStyle = '#0e1c22'
+  ctx.beginPath(); ctx.arc(10, -3, 1.2, 0, TAU); ctx.arc(10, 3, 1.2, 0, TAU); ctx.fill()
 }
 function drawZebra(ctx, t) {
   for (const [zx, zy, zs] of [[0, 0, 1], [8, 3, 0.8], [-6, 4, 0.7], [4, -5, 0.75], [-8, -3, 0.65]]) {
@@ -157,18 +177,23 @@ function drawZebra(ctx, t) {
   }
 }
 function drawLamprey(ctx, t, wag) {
+  // sucker-mouth head at +x (matches every other creature's convention so
+  // face-flipping keeps it swimming in its direction of travel — not backward)
   ctx.fillStyle = 'rgba(90,86,74,0.95)'
   ctx.beginPath()
-  ctx.moveTo(-70, 0)
-  for (let i = 0; i <= 14; i++) { const q = i / 14, bx = -70 + q * 140, u = Math.sin(t * 5 - q * 6) * 8 * (0.4 + q * 0.6); ctx.lineTo(bx, u - (4 + 2 * Math.sin(Math.PI * q))) }
-  for (let i = 14; i >= 0; i--) { const q = i / 14, bx = -70 + q * 140, u = Math.sin(t * 5 - q * 6) * 8 * (0.4 + q * 0.6); ctx.lineTo(bx, u + (4 + 2 * Math.sin(Math.PI * q))) }
+  ctx.moveTo(70, 0)
+  for (let i = 0; i <= 14; i++) { const q = i / 14, bx = 70 - q * 140, u = Math.sin(t * 5 + q * 6) * 8 * (0.4 + q * 0.6); ctx.lineTo(bx, u - (4 + 2 * Math.sin(Math.PI * q))) }
+  for (let i = 14; i >= 0; i--) { const q = i / 14, bx = 70 - q * 140, u = Math.sin(t * 5 + q * 6) * 8 * (0.4 + q * 0.6); ctx.lineTo(bx, u + (4 + 2 * Math.sin(Math.PI * q))) }
   ctx.closePath(); ctx.fill()
-  // round sucker mouth
-  const mu = Math.sin(t * 5) * 8 * 0.4
-  ctx.fillStyle = '#3a3630'; ctx.beginPath(); ctx.arc(-70, mu, 6, 0, TAU); ctx.fill()
-  ctx.fillStyle = '#6b3a3a'; ctx.beginPath(); ctx.arc(-70, mu, 3.4, 0, TAU); ctx.fill()
-  // gill pores
-  ctx.fillStyle = '#3a3630'; for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.arc(-56 + i * 5, mu * 0.6 - 2, 1, 0, TAU); ctx.fill() }
+  // round sucker mouth (now at head, on the +x side)
+  const mu = Math.sin(t * 5) * 3.2
+  ctx.fillStyle = '#3a3630'; ctx.beginPath(); ctx.arc(70, mu, 6, 0, TAU); ctx.fill()
+  ctx.fillStyle = '#6b3a3a'; ctx.beginPath(); ctx.arc(70, mu, 3.4, 0, TAU); ctx.fill()
+  ctx.fillStyle = '#7a1e1e'; ctx.beginPath(); ctx.arc(70, mu, 1.4, 0, TAU); ctx.fill() // teeth ring
+  // gill pores behind the head
+  ctx.fillStyle = '#3a3630'; for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.arc(56 - i * 5, mu * 0.6 - 2, 1, 0, TAU); ctx.fill() }
+  // eye
+  ctx.fillStyle = '#0e1c22'; ctx.beginPath(); ctx.arc(62, mu - 3, 1.2, 0, TAU); ctx.fill()
 }
 
 // creature roster — the star of the scene ----------------------------------
@@ -204,8 +229,27 @@ const CREATURES = [
     lines: ['Invasive. Clears the water by filtering — but', 'strips the food web and clogs water intakes.', 'A cautionary tale of a hitchhiker gone wild.'],
     x: 1320, y: 806, kind: 'zebra', benthic: true },
   { id: 'lamprey', name: 'Sea Lamprey', latin: 'Petromyzon marinus', status: 'invasive', r: 52,
-    lines: ['Invasive jawless parasite that latches onto fish.', 'It nearly collapsed the trout fishery — now held', 'back by a binational control program.'],
+    lines: ['Invasive jawless parasite that latches onto fish.', 'It nearly collapsed the trout fishery — now held', 'back by a binational control program.',
+            'Source: Great Lakes Fishery Commission.'],
     lane: 792, sp: 26, dirBase: -1, kind: 'lamprey' },
+  { id: 'whitefish', name: 'Lake Whitefish', latin: 'Coregonus clupeaformis', status: 'atrisk', r: 52,
+    lines: ['A commercial cornerstone since the 1800s. Its',
+            'young now starve because invasive mussels have',
+            'stripped the plankton they eat — a cascade failure.',
+            'Source: DFO Great Lakes assessments.'],
+    lane: 720, sp: 34, dirBase: -1, kind: 'whitefish' },
+  { id: 'brooktrout', name: 'Brook Trout', latin: 'Salvelinus fontinalis', status: 'indicator', r: 46,
+    lines: ['Ontario\'s wild jewel. Needs cold, clean, oxygen-rich',
+            'tributary streams — if brookies vanish from a creek,',
+            'that watershed is warming or silting in.',
+            'Source: Ontario Ministry of Natural Resources.'],
+    lane: 396, sp: 46, kind: 'brooktrout' },
+  { id: 'cisco', name: 'Cisco / "Ghost of the Lakes"', latin: 'Coregonus artedi', status: 'atrisk', r: 44,
+    lines: ['Once the biomass king of the deep-lake food web.',
+            '18 native cisco/chub forms have been extirpated',
+            'from at least one Great Lake — a warning we heed.',
+            'Source: Great Lakes Fishery Commission.'],
+    lane: 604, sp: 30, dirBase: -1, kind: 'cisco' },
 ]
 
 function creaturePos(c, t) {
@@ -237,6 +281,9 @@ function drawCreature(ctx, c, t) {
   else if (c.kind === 'trout') drawFish2(ctx, 90, '#5e7484', '#aebfc9', wag, { spots: 'rgba(220,232,240,0.5)' })
   else if (c.kind === 'walleye') drawFish2(ctx, 62, '#8a8a52', '#d8d2a0', wag, { dorsal: '#5d6a46' })
   else if (c.kind === 'perch') drawFish2(ctx, 40, '#c2a83a', '#e8dca0', wag, { bars: 'rgba(60,50,20,0.6)', dorsal: '#8a6a2a' })
+  else if (c.kind === 'whitefish') drawFish2(ctx, 78, '#8a94a0', '#e0e6ea', wag, { dorsal: '#5d6a72' })
+  else if (c.kind === 'brooktrout') drawFish2(ctx, 62, '#4a6a4a', '#d8b26a', wag, { spots: 'rgba(210,88,60,0.72)' })
+  else if (c.kind === 'cisco') drawFish2(ctx, 60, '#a8b6c0', '#e8ecf0', wag, { spots: 'rgba(255,255,255,0.3)' })
   else if (c.kind === 'turtle') drawTurtle2(ctx, t)
   else if (c.kind === 'mussel') drawMussel(ctx, t)
   else if (c.kind === 'mayfly') drawMayfly(ctx, t)
@@ -311,12 +358,145 @@ export const underScene = {
       ctx.strokeStyle = i % 2 ? 'rgba(48,140,110,0.7)' : 'rgba(60,165,128,0.55)'; ctx.lineWidth = 5 - (i % 3); ctx.lineCap = 'round'
       ctx.beginPath(); ctx.moveTo(bx, 832); ctx.bezierCurveTo(bx - 8, 832 - bh * 0.4, bx + sway * 0.5, 832 - bh * 0.7, bx + sway, 832 - bh); ctx.stroke() }
 
-    // outfall + plume (a water-quality story point)
+    // ═══ AWARENESS LAYER — the real threats to the Great Lakes, each with
+    //     its authoritative Canadian source. These are clickable story
+    //     touch-points that turn the scene into a public-education tool.
+
+    // Outfall + chloride plume (road-salt runoff from streets, storm drains)
     ctx.fillStyle = '#46525a'; ctx.beginPath(); ctx.roundRect(-20, 548, 100, 38, 6); ctx.fill()
     ctx.fillStyle = '#1c2429'; ctx.beginPath(); ctx.ellipse(80, 567, 4.4, 13, 0, 0, TAU); ctx.fill()
     for (const pp of s.plume) { pp.life += dt * 0.16; if (pp.life > 1) pp.life -= 1; const q = pp.life
       ctx.fillStyle = `rgba(196,214,206,${(0.16 * (1 - q)).toFixed(3)})`; ctx.beginPath(); ctx.arc(84 + q * 240 + Math.sin(q * 9) * 14, 567 + q * 130 + Math.sin(q * 13) * 10, 4 + q * 15, 0, TAU); ctx.fill() }
-    s.hit.push({ x: 40, y: 567, r: 60, story: { name: 'Road-Salt Outfall', latin: 'winter chloride runoff', status: 'invasive', lines: ['Salted roads wash chloride straight into the', 'lake each winter. It stresses fish and insects', 'and lingers for years — the reason we monitor.'] } })
+    s.hit.push({ x: 40, y: 567, r: 60, story: { name: 'Road-Salt Chloride Runoff',
+      latin: 'a rising, permanent threat',
+      status: 'invasive',
+      lines: [
+        'Every winter, salted roads wash chloride into',
+        'the lake through storm drains. Chloride levels',
+        'have been rising for over a century and now',
+        'stress fish, insects and drinking-water intakes.',
+        'Source: USGS Upper Midwest Water Science Center;',
+        'Canada-Ontario Agreement on GL Water Quality.'
+      ] } })
+
+    // Toxic algae bloom drifting near the surface (phosphorus + warming)
+    const bloomX = 780 + Math.sin(t * 0.05) * 90
+    ctx.save(); ctx.globalCompositeOperation = 'source-over'
+    for (let i = 0; i < 24; i++) {
+      const bx = bloomX + Math.cos(i * 1.31 + t * 0.2) * (30 + (i % 5) * 22)
+      const by = 96 + Math.sin(i * 0.7 + t * 0.15) * 18
+      const br = 26 + (i % 4) * 10
+      const g = ctx.createRadialGradient(bx, by, 0, bx, by, br)
+      g.addColorStop(0, 'rgba(120,180,90,0.34)')
+      g.addColorStop(1, 'rgba(120,180,90,0)')
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, br, 0, TAU); ctx.fill()
+    }
+    ctx.restore()
+    s.hit.push({ x: bloomX, y: 96, r: 80, story: { name: 'Harmful Algae Bloom',
+      latin: 'cyanobacteria · Microcystis',
+      status: 'invasive',
+      lines: [
+        'Phosphorus from farm & city runoff, plus warmer',
+        'water, feed cyanobacteria blooms. They release',
+        'toxins (microcystin) that can shut drinking-water',
+        'plants — as Toledo learned in 2014.',
+        'Blooms now recur in Erie, Huron, Ontario and are',
+        'beginning to appear in Lake Superior.',
+        'Source: Canada Water Agency — Preventing Toxic',
+        'and Nuisance Algae (canada.ca).'
+      ] } })
+
+    // Plastic pollution — micro-plastic drifting particles + a floating bottle
+    for (let i = 0; i < 14; i++) {
+      const mx = ((i * 137 + t * 20) % (VW + 40)) - 20
+      const my = 220 + ((i * 53) % 380) + Math.sin(t * 0.4 + i) * 8
+      ctx.fillStyle = `rgba(230,230,240,${(0.28 - (i % 4) * 0.05).toFixed(3)})`
+      ctx.fillRect(mx, my, 3 + (i % 3), 1.4)
+    }
+    const bottleX = 1180 + Math.sin(t * 0.24) * 40, bottleY = 78 + Math.sin(t * 0.9) * 3
+    ctx.save(); ctx.translate(bottleX, bottleY); ctx.rotate(Math.sin(t * 0.5) * 0.4)
+    ctx.fillStyle = 'rgba(210,230,238,0.65)'; ctx.beginPath(); ctx.roundRect(-14, -5, 28, 10, 3); ctx.fill()
+    ctx.fillStyle = 'rgba(60,100,80,0.75)'; ctx.fillRect(14, -3, 4, 6) // green cap
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(-10, -3); ctx.lineTo(10, -3); ctx.stroke()
+    ctx.restore()
+    s.hit.push({ x: bottleX, y: bottleY, r: 40, story: { name: 'Plastic Pollution',
+      latin: 'up to 22 million lb / year',
+      status: 'invasive',
+      lines: [
+        'An estimated 10,000+ tonnes of plastic enter the',
+        'Great Lakes every year — bottles, packaging,',
+        'clothing fibres and tire dust. It breaks into',
+        'microplastic that fish and mussels eat, and moves',
+        'up the food web to us.',
+        'The 2021 Canada-Ontario Agreement names plastic',
+        'as a listed Great Lakes priority.',
+        'Source: Environment & Climate Change Canada;',
+        'Ontario.ca — Protecting the Great Lakes.'
+      ] } })
+
+    // Warming water — a thermocline haze band that visibly wobbles
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'
+    const thermY = 340
+    for (let i = 0; i < 6; i++) {
+      const wob = Math.sin(t * 0.6 + i) * 8
+      ctx.fillStyle = `rgba(200,150,100,${(0.05 - i * 0.006).toFixed(3)})`
+      ctx.fillRect(0, thermY + i * 6 + wob, VW, 5)
+    }
+    ctx.restore()
+    s.hit.push({ x: 300, y: thermY, r: 40, story: { name: 'Warming Water · Thermocline',
+      latin: 'summer stratification',
+      status: 'atrisk',
+      lines: [
+        'Warmer summers stretch the "thermocline" — the',
+        'layer separating warm surface water from cold',
+        'oxygen-rich deep water. Cold-water species like',
+        'lake trout and cisco get squeezed into a thinner',
+        'and thinner strip of habitat each decade.',
+        'Source: Environment & Climate Change Canada —',
+        'State of the Great Lakes reporting.'
+      ] } })
+
+    // Agricultural / phosphorus runoff — a farm-brown plume from the right
+    ctx.save()
+    const rg = ctx.createLinearGradient(VW, 480, VW - 380, 720)
+    rg.addColorStop(0, 'rgba(140,110,60,0.22)')
+    rg.addColorStop(1, 'rgba(140,110,60,0)')
+    ctx.fillStyle = rg
+    ctx.beginPath(); ctx.moveTo(VW, 480); ctx.lineTo(VW, 780); ctx.lineTo(VW - 380, 780); ctx.quadraticCurveTo(VW - 250, 620, VW, 480); ctx.closePath(); ctx.fill()
+    ctx.restore()
+    s.hit.push({ x: VW - 120, y: 620, r: 90, story: { name: 'Phosphorus Runoff',
+      latin: 'the algae-bloom fuel',
+      status: 'atrisk',
+      lines: [
+        'Phosphorus from farm fertilizer, manure and city',
+        'wastewater runs off into the lake and feeds the',
+        'algae blooms above. Canada & the US committed',
+        'under the GL Water Quality Agreement to a 40%',
+        'reduction in Lake Erie phosphorus loading.',
+        'Source: Canada-Ontario Agreement on Great Lakes',
+        'Water Quality and Ecosystem Health, 2021.'
+      ] } })
+
+    // Ballast-water invader pathway — a ghost ship silhouette on the surface
+    const shipX = ((t * 20) % (VW + 400)) - 200
+    ctx.save(); ctx.globalAlpha = 0.35
+    ctx.fillStyle = '#0e1c22'
+    ctx.beginPath(); ctx.moveTo(shipX - 60, 46); ctx.lineTo(shipX + 60, 46); ctx.lineTo(shipX + 50, 58); ctx.lineTo(shipX - 50, 58); ctx.closePath(); ctx.fill()
+    ctx.fillRect(shipX - 20, 32, 30, 14)
+    ctx.restore()
+    s.hit.push({ x: shipX, y: 52, r: 70, story: { name: 'Ballast-Water Pathway',
+      latin: 'how the zebra mussel arrived',
+      status: 'invasive',
+      lines: [
+        'Ocean ships take on water in one port and dump',
+        'it in another — carrying live species with it.',
+        'Zebra & quagga mussels, round goby and the sea',
+        'lamprey all reached the Great Lakes this way.',
+        'Since 2006 all ocean-going vessels entering the',
+        'St. Lawrence must exchange or treat ballast.',
+        'Source: Transport Canada; Great Lakes Fishery',
+        'Commission — Sea Lamprey Control Program.'
+      ] } })
 
     // sensor station
     ctx.strokeStyle = '#5a6a72'; ctx.lineWidth = 3; ctx.strokeRect(1156, 756, 48, 44)
