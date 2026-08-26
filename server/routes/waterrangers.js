@@ -503,15 +503,21 @@ async function askLLM(systemPrompt, question) {
   // last-ditch net (flaky lately — may 402 — but costs nothing to try).
   const order = [...preference.filter(p => has[p]), 'pollinations']
 
+  // Cap each provider at 22s so a CPU-starved free instance fails over to the
+  // next provider (or a clean friendly error) instead of hanging ~30s.
+  const withTimeout = (promise, ms = 22000) => Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout ${ms}ms`)), ms)),
+  ])
   let lastErr
   for (const p of order) {
     try {
-      if (p === 'groq') return { text: await callGroq(messages), provider: 'groq' }
-      if (p === 'gemini') return { text: await callGemini(systemPrompt), provider: 'gemini' }
-      if (p === 'xai') return { text: await callXAI(messages), provider: 'xai' }
-      if (p === 'anthropic') return { text: await callAnthropic(messages), provider: 'anthropic' }
-      if (p === 'openai') return { text: await callOpenAI(messages), provider: 'openai' }
-      if (p === 'pollinations') return { text: await callPollinationsFree(messages), provider: 'pollinations(free)' }
+      if (p === 'groq') return { text: await withTimeout(callGroq(messages)), provider: 'groq' }
+      if (p === 'gemini') return { text: await withTimeout(callGemini(systemPrompt)), provider: 'gemini' }
+      if (p === 'xai') return { text: await withTimeout(callXAI(messages)), provider: 'xai' }
+      if (p === 'anthropic') return { text: await withTimeout(callAnthropic(messages)), provider: 'anthropic' }
+      if (p === 'openai') return { text: await withTimeout(callOpenAI(messages)), provider: 'openai' }
+      if (p === 'pollinations') return { text: await withTimeout(callPollinationsFree(messages), 15000), provider: 'pollinations(free)' }
     } catch (e) { lastErr = e; console.log(`[WR Agent] ${p} failed: ${e.message}`) }
   }
   throw lastErr || new Error('no AI provider available')
@@ -594,6 +600,51 @@ USER QUESTION: ${question}`
     console.error('[WR Agent] Error:', e)
     res.status(500).json({ error: e.message })
   }
+})
+
+// ── GET /api/wr/ai-health — diagnostic. Open this in a browser to see, in
+//    plain language, which AI providers actually work right now, which keys
+//    are set (booleans only — never the secret), and the current provider
+//    order. Turns "AI still broken??" into an exact answer. Safe, read-only. ──
+router.get('/ai-health', async (req, res) => {
+  const withTimeout = (p, ms) => Promise.race([
+    p,
+    new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout after ${ms}ms`)), ms)),
+  ])
+  const probe = async (name, fn) => {
+    const t0 = Date.now()
+    try {
+      const text = await withTimeout(fn(), 12000)
+      return { provider: name, ok: true, ms: Date.now() - t0, sample: String(text).slice(0, 40) }
+    } catch (e) {
+      return { provider: name, ok: false, ms: Date.now() - t0, error: e.message }
+    }
+  }
+  const ping = [{ role: 'user', content: 'Reply with the single word: OK' }]
+  const results = []
+  if (GROQ_KEY) results.push(await probe('groq', () => callGroq(ping)))
+  if (GEMINI_KEY) results.push(await probe('gemini', () => callGemini('Reply with the single word: OK')))
+  if (process.env.XAI_API_KEY) results.push(await probe('xai', () => callXAI(ping)))
+  if (process.env.ANTHROPIC_API_KEY) results.push(await probe('anthropic', () => callAnthropic(ping)))
+  if (process.env.OPENAI_API_KEY) results.push(await probe('openai', () => callOpenAI(ping)))
+
+  const working = results.filter(r => r.ok).map(r => r.provider)
+  res.json({
+    summary: working.length
+      ? `✅ Working now: ${working.join(', ')}. The AI Lab will answer.`
+      : `❌ No provider answered. See "results" below for the exact error per provider.`,
+    aiProvider: process.env.AI_PROVIDER || 'auto',
+    keysPresent: {
+      GROQ_API_KEY: !!GROQ_KEY,
+      GEMINI_API_KEY: !!GEMINI_KEY,
+      XAI_API_KEY: !!process.env.XAI_API_KEY,
+      ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY,
+      OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
+    },
+    groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+    results,
+    note: 'If a provider shows "timeout", the free instance is CPU-starved by other work (e.g. the 9k-location load), not a bad key. If it shows 401, the key is wrong. If 404, the model name is wrong.',
+  })
 })
 
 module.exports = router
