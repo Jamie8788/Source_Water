@@ -19,10 +19,12 @@ const aiDailyLimiter = rateLimit({
   max: AI_DAILY_LIMIT,
   standardHeaders: true,
   legacyHeaders: false,
-  // Returned as the 429 body; the client shows `answer` verbatim.
+  // Returned as the 429 body; the client shows `answer` verbatim. Themed as
+  // "drops" for the water app: 5 drops = 5 AI questions a day.
   message: {
     error: 'daily_limit',
-    answer: `You've used your ${AI_DAILY_LIMIT} AI research questions for today. This limit keeps the assistant free and fast for everyone. The Charts, Trends and Anomaly tabs still work with no limit — come back tomorrow for more AI analysis.`,
+    answer: `💧 You've used all ${AI_DAILY_LIMIT} of your daily drops (AI research questions). This limit keeps the assistant free and fast for everyone. The Charts, Trends and Anomaly tabs still work with no limit — your drops refill tomorrow.`,
+    quota: { limit: AI_DAILY_LIMIT, remaining: 0 },
   },
   keyGenerator: (req) => req.ip,
 })
@@ -435,6 +437,34 @@ async function callOpenAI(messages) {
   return data.choices?.[0]?.message?.content || 'No response'
 }
 
+// ── xAI (Grok) — your key (starts with xai-). Set XAI_API_KEY + AI_PROVIDER=xai.
+//    xAI's API is OpenAI-compatible, so the same message shape works. ──
+async function callXAI(messages) {
+  const key = process.env.XAI_API_KEY
+  if (!key) throw new Error('XAI_API_KEY not set')
+  const res = await fetch('https://api.x.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+    body: JSON.stringify({ model: process.env.XAI_MODEL || 'grok-2-latest', max_tokens: 1200, temperature: 0.3, messages }),
+  })
+  if (!res.ok) throw new Error(`xAI ${res.status}`)
+  const data = await res.json()
+  return data.choices?.[0]?.message?.content || 'No response'
+}
+
+// ── Pollinations — FREE, no key, no credits. The permanent safety net so the
+//    assistant is NEVER fully down and NEVER burns paid credits at 500 users. ──
+async function callPollinationsFree(messages) {
+  const res = await fetch('https://text.pollinations.ai/openai', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'openai', messages, max_tokens: 1024, temperature: 0.4 }),
+  })
+  if (!res.ok) throw new Error(`Pollinations ${res.status}`)
+  const data = await res.json()
+  return data.choices?.[0]?.message?.content || 'No response'
+}
+
 // ── Universal provider adapter — flip AI_PROVIDER to switch, no code change.
 //    Values: 'auto' (default: gemini→groq, today's behaviour), 'anthropic',
 //    'openai', 'groq', 'gemini'. Each choice keeps sensible fallbacks so a
@@ -442,19 +472,26 @@ async function callOpenAI(messages) {
 async function askLLM(systemPrompt, question) {
   const provider = (process.env.AI_PROVIDER || 'auto').toLowerCase()
   const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: question }]
-  const order =
+  // Preferred provider first, then cheaper/free ones. `pollinations` (free,
+  // no key) is ALWAYS appended last, so the assistant never fully dies and
+  // never runs up a bill once paid credits are exhausted.
+  const base =
     provider === 'anthropic' ? ['anthropic', 'groq', 'gemini'] :
     provider === 'openai' ? ['openai', 'groq', 'gemini'] :
+    provider === 'xai' ? ['xai', 'groq', 'gemini'] :
     provider === 'groq' ? ['groq', 'gemini'] :
     provider === 'gemini' ? ['gemini', 'groq'] :
-    ['gemini', 'groq'] // 'auto'
+    ['gemini', 'groq'] // 'auto' — free-first, keeps paid credits untouched
+  const order = [...base, 'pollinations']
   let lastErr
   for (const p of order) {
     try {
       if (p === 'gemini') return { text: await callGemini(systemPrompt), provider: 'gemini' }
       if (p === 'groq') return { text: await callGroq(messages), provider: 'groq' }
+      if (p === 'xai') return { text: await callXAI(messages), provider: 'xai' }
       if (p === 'anthropic') return { text: await callAnthropic(messages), provider: 'anthropic' }
       if (p === 'openai') return { text: await callOpenAI(messages), provider: 'openai' }
+      if (p === 'pollinations') return { text: await callPollinationsFree(messages), provider: 'pollinations(free)' }
     } catch (e) { lastErr = e; console.log(`[WR Agent] ${p} failed: ${e.message}`) }
   }
   throw lastErr || new Error('no AI provider available')
@@ -517,10 +554,20 @@ USER QUESTION: ${question}`
       })
     }
 
+    // ── Tell the user how many "drops" (daily AI questions) they have left.
+    //    express-rate-limit fills req.rateLimit after the limiter runs; this
+    //    question already counted, so `remaining` is what's left AFTER it. ──
+    const rl = req.rateLimit || {}
     res.json({
       answer: result.text,
       provider: result.provider,
       grounding: { site: siteName || 'global', mode: siteContext ? 'site-specific' : 'global' },
+      quota: {
+        limit: rl.limit ?? AI_DAILY_LIMIT,
+        used: rl.used ?? null,
+        remaining: rl.remaining ?? null,
+        resetsAt: rl.resetTime || null,
+      },
     })
 
   } catch (e) {

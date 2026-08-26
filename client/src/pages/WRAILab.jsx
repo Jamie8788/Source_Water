@@ -750,6 +750,7 @@ function ResearchAI({ site, observations, analysis }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [quota, setQuota] = useState(null) // { remaining, limit } — daily "drops"
   const bottomRef = useRef(null)
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
@@ -805,6 +806,8 @@ IMPORTANT: This is REAL data loaded directly from Water Rangers API for this spe
       })
       const footer = `\n\n---\n*Based on ${observations.length} real observations at ${site.name} (${analysis.totalReadings} readings, ${analysis.anomalies.length} anomalies)*`
       setMessages(prev => [...prev, { role: 'assistant', content: data.answer + footer }])
+      // Update the "drops left today" counter from the server's real count.
+      if (data.quota && data.quota.remaining != null) setQuota(data.quota)
     } catch (e) {
       // Server sends a friendly `answer` for the daily-limit (429) and the
       // AI-unavailable (503) cases — show that verbatim; only fall back to a
@@ -813,12 +816,37 @@ IMPORTANT: This is REAL data loaded directly from Water Rangers API for this spe
         || (e.response?.status === 429 ? "You've reached today's AI question limit. The other tabs still work — try again tomorrow." : null)
         || `The research assistant hit a snag (${e.response?.data?.error || e.message}). Your data and charts are unaffected — please try again in a moment.`
       setMessages(prev => [...prev, { role: 'assistant', content: friendly }])
+      // On the daily-limit case, reflect 0 drops left so the badge matches.
+      if (e.response?.data?.quota) setQuota(e.response.data.quota)
+      else if (e.response?.status === 429) setQuota({ remaining: 0, limit: 5 })
     }
     setLoading(false)
   }
 
+  // "Drops" = daily AI questions. Show the user how many they have left so the
+  // guardrail is transparent, not a surprise wall. Null until first answer.
+  const dropsLeft = quota?.remaining
+  const dropsLimit = quota?.limit ?? 5
+
   return (
     <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+          💧 Each answer uses one <strong>drop</strong> — {dropsLimit} free AI drops a day
+        </div>
+        {dropsLeft != null && (
+          <div title="Your daily AI questions (drops) reset every 24 hours" style={{
+            fontSize: 10.5, fontWeight: 700, padding: '3px 9px', borderRadius: 20, whiteSpace: 'nowrap',
+            background: dropsLeft === 0 ? 'rgba(239,68,68,.12)' : 'rgba(56,189,248,.12)',
+            border: `1px solid ${dropsLeft === 0 ? 'rgba(239,68,68,.3)' : 'rgba(56,189,248,.3)'}`,
+            color: dropsLeft === 0 ? '#f87171' : '#38bdf8',
+          }}>
+            {dropsLeft === 0
+              ? '💧 0 drops left — refills tomorrow'
+              : `💧 ${dropsLeft} of ${dropsLimit} drops left today`}
+          </div>
+        )}
+      </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
         {PRESETS.map(p => (
           <button key={p.label} onClick={() => send(p.prompt)} disabled={loading} style={{
