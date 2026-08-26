@@ -56,11 +56,10 @@ RULES:
 Tone: warm, direct, educational. Simple language for community members, technical depth for researchers when warranted. Emphasize stewardship where it fits naturally, but don't force it.`
 
 async function callAI(messages) {
-  // 1. Groq — free tier. Upgraded from llama-3.1-8b-instant to the 70B
-  // versatile model: same zero-cost tier, far better reasoning + instruction
-  // following, which is why the old 8B kept mis-reading "how much water per
-  // day?" as a question about itself and deflecting on every drinking-water
-  // topic. Temperature lowered from 0.7 → 0.5 for more grounded answers.
+  // 1. Groq — free tier. Groq retired the llama-3.x chat models, so we use
+  // openai/gpt-oss-120b (the strongest free general model on this account's
+  // live roster — see /api/wr/ai-health). Override with GROQ_MODEL if needed.
+  // Temperature 0.5 for grounded answers.
   if (GROQ_KEY) {
     try {
       const ctrl = new AbortController()
@@ -69,7 +68,7 @@ async function callAI(messages) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_KEY}` },
         signal: ctrl.signal,
-        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages, max_tokens: 1024, temperature: 0.5 }),
+        body: JSON.stringify({ model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b', messages, max_tokens: 1024, temperature: 0.5 }),
       })
       clearTimeout(timer)
       if (res.ok) {
@@ -87,7 +86,7 @@ async function callAI(messages) {
     try {
       const ctrl = new AbortController()
       const timer = setTimeout(() => ctrl.abort(), 20000)
-      const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+      const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
       const prompt = messages.map(m => `${m.role}: ${m.content}`).join('\n\n')
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`, {
         method: 'POST',

@@ -385,7 +385,7 @@ function analyzeObservations(observations) {
 
 async function callGemini(prompt) {
   if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY not set')
-  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -401,9 +401,10 @@ async function callGroq(messages) {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_KEY}` },
-    // llama-3.1-8b-instant was decommissioned by Groq (404). 3.3-70b-versatile
-    // is the current free-tier model — the same one /api/ai/public-chat uses.
-    body: JSON.stringify({ model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile', messages, max_tokens: 2048, temperature: 0.3 }),
+    // Groq retired the llama-3.x chat models; this account's live model list
+    // (see /api/wr/ai-health) offers openai/gpt-oss-120b as the strongest free
+    // general chat model. Override with GROQ_MODEL if the roster changes again.
+    body: JSON.stringify({ model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b', messages, max_tokens: 2048, temperature: 0.3 }),
   })
   if (!res.ok) throw new Error(`Groq ${res.status}`)
   const data = await res.json()
@@ -665,8 +666,8 @@ router.get('/ai-health', async (req, res) => {
       OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
     },
     modelsTried: {
-      groq: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
-      gemini: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+      groq: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
+      gemini: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     },
     availableModels: available,
     results,
