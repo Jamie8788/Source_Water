@@ -628,11 +628,34 @@ router.get('/ai-health', async (req, res) => {
   if (process.env.ANTHROPIC_API_KEY) results.push(await probe('anthropic', () => callAnthropic(ping)))
   if (process.env.OPENAI_API_KEY) results.push(await probe('openai', () => callOpenAI(ping)))
 
+  // Ask each account which models it actually allows — the definitive fix for
+  // 404s. This lists real, usable model IDs for THESE keys so we stop guessing.
+  const available = {}
+  if (GROQ_KEY) {
+    try {
+      const r = await withTimeout(fetch('https://api.groq.com/openai/v1/models', {
+        headers: { 'Authorization': `Bearer ${GROQ_KEY}` },
+      }), 12000)
+      available.groq = r.ok
+        ? (await r.json()).data?.map(m => m.id).sort()
+        : { httpStatus: r.status, body: (await r.text()).slice(0, 300) }
+    } catch (e) { available.groq = { error: e.message } }
+  }
+  if (GEMINI_KEY) {
+    try {
+      const r = await withTimeout(fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_KEY}`), 12000)
+      available.gemini = r.ok
+        ? (await r.json()).models?.filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+            .map(m => m.name.replace('models/', '')).filter(n => /flash|pro/.test(n)).sort()
+        : { httpStatus: r.status, body: (await r.text()).slice(0, 300) }
+    } catch (e) { available.gemini = { error: e.message } }
+  }
+
   const working = results.filter(r => r.ok).map(r => r.provider)
   res.json({
     summary: working.length
       ? `✅ Working now: ${working.join(', ')}. The AI Lab will answer.`
-      : `❌ No provider answered. See "results" below for the exact error per provider.`,
+      : `❌ No provider answered. Look at "availableModels" for the model IDs your keys actually allow, and "results" for the exact error.`,
     aiProvider: process.env.AI_PROVIDER || 'auto',
     keysPresent: {
       GROQ_API_KEY: !!GROQ_KEY,
@@ -641,9 +664,13 @@ router.get('/ai-health', async (req, res) => {
       ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY,
       OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
     },
-    groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+    modelsTried: {
+      groq: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+      gemini: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+    },
+    availableModels: available,
     results,
-    note: 'If a provider shows "timeout", the free instance is CPU-starved by other work (e.g. the 9k-location load), not a bad key. If it shows 401, the key is wrong. If 404, the model name is wrong.',
+    note: '"availableModels" is the real list your keys can use. If groq/gemini there is an object with httpStatus 401, the KEY is invalid/revoked. If it is a list of IDs but our modelsTried is not in it, the MODEL name is the problem — set GROQ_MODEL / GEMINI_MODEL to one from the list (or tell Claude and it will bake it in).',
   })
 })
 
