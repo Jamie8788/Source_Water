@@ -806,7 +806,13 @@ IMPORTANT: This is REAL data loaded directly from Water Rangers API for this spe
       const footer = `\n\n---\n*Based on ${observations.length} real observations at ${site.name} (${analysis.totalReadings} readings, ${analysis.anomalies.length} anomalies)*`
       setMessages(prev => [...prev, { role: 'assistant', content: data.answer + footer }])
     } catch (e) {
-      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${e.response?.data?.error || e.message}` }])
+      // Server sends a friendly `answer` for the daily-limit (429) and the
+      // AI-unavailable (503) cases — show that verbatim; only fall back to a
+      // raw error if there genuinely isn't one.
+      const friendly = e.response?.data?.answer
+        || (e.response?.status === 429 ? "You've reached today's AI question limit. The other tabs still work — try again tomorrow." : null)
+        || `The research assistant hit a snag (${e.response?.data?.error || e.message}). Your data and charts are unaffected — please try again in a moment.`
+      setMessages(prev => [...prev, { role: 'assistant', content: friendly }])
     }
     setLoading(false)
   }

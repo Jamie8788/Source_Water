@@ -4,9 +4,28 @@
  * API key stored server-side for security
  */
 const router = require('express').Router()
+const rateLimit = require('express-rate-limit')
 
 const WR_BASE = 'https://data.waterrangers.com'
 const API_KEY = process.env.WATERRANGERS_API_KEY || process.env.VITE_WATERRANGERS_API_KEY
+
+// ── AI GUARDRAIL (WetLab / Research-AI tab ONLY) ────────────────────────────
+// A universal per-user daily cap so 500 users can't run up an AI bill. Keyed
+// by IP (the endpoint is public), configurable via AI_DAILY_LIMIT (default 5).
+// Applies ONLY to POST /api/wr/agent — no other tab/endpoint is affected.
+const AI_DAILY_LIMIT = parseInt(process.env.AI_DAILY_LIMIT || '5', 10)
+const aiDailyLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // 24h rolling window
+  max: AI_DAILY_LIMIT,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Returned as the 429 body; the client shows `answer` verbatim.
+  message: {
+    error: 'daily_limit',
+    answer: `You've used your ${AI_DAILY_LIMIT} AI research questions for today. This limit keeps the assistant free and fast for everyone. The Charts, Trends and Anomaly tabs still work with no limit — come back tomorrow for more AI analysis.`,
+  },
+  keyGenerator: (req) => req.ip,
+})
 
 // Simple in-memory cache (5 min TTL)
 const cache = new Map()
@@ -379,11 +398,66 @@ async function callGroq(messages) {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_KEY}` },
-    body: JSON.stringify({ model: 'llama-3.1-8b-instant', messages, max_tokens: 2048, temperature: 0.3 }),
+    body: JSON.stringify({ model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant', messages, max_tokens: 2048, temperature: 0.3 }),
   })
   if (!res.ok) throw new Error(`Groq ${res.status}`)
   const data = await res.json()
   return data.choices?.[0]?.message?.content || 'No response'
+}
+
+// ── Anthropic (Claude) — enable later with ANTHROPIC_API_KEY + AI_PROVIDER=anthropic ──
+async function callAnthropic(messages) {
+  const key = process.env.ANTHROPIC_API_KEY
+  if (!key) throw new Error('ANTHROPIC_API_KEY not set')
+  const system = messages.find(m => m.role === 'system')?.content || ''
+  const chat = messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content }))
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || 'claude-3-5-haiku-latest', max_tokens: 1200, system, messages: chat }),
+  })
+  if (!res.ok) throw new Error(`Anthropic ${res.status}`)
+  const data = await res.json()
+  return data.content?.[0]?.text || 'No response'
+}
+
+// ── OpenAI — enable later with OPENAI_API_KEY + AI_PROVIDER=openai ──
+async function callOpenAI(messages) {
+  const key = process.env.OPENAI_API_KEY
+  if (!key) throw new Error('OPENAI_API_KEY not set')
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+    body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-4o-mini', max_tokens: 1200, temperature: 0.3, messages }),
+  })
+  if (!res.ok) throw new Error(`OpenAI ${res.status}`)
+  const data = await res.json()
+  return data.choices?.[0]?.message?.content || 'No response'
+}
+
+// ── Universal provider adapter — flip AI_PROVIDER to switch, no code change.
+//    Values: 'auto' (default: gemini→groq, today's behaviour), 'anthropic',
+//    'openai', 'groq', 'gemini'. Each choice keeps sensible fallbacks so a
+//    single provider outage never takes the assistant fully down.
+async function askLLM(systemPrompt, question) {
+  const provider = (process.env.AI_PROVIDER || 'auto').toLowerCase()
+  const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: question }]
+  const order =
+    provider === 'anthropic' ? ['anthropic', 'groq', 'gemini'] :
+    provider === 'openai' ? ['openai', 'groq', 'gemini'] :
+    provider === 'groq' ? ['groq', 'gemini'] :
+    provider === 'gemini' ? ['gemini', 'groq'] :
+    ['gemini', 'groq'] // 'auto'
+  let lastErr
+  for (const p of order) {
+    try {
+      if (p === 'gemini') return { text: await callGemini(systemPrompt), provider: 'gemini' }
+      if (p === 'groq') return { text: await callGroq(messages), provider: 'groq' }
+      if (p === 'anthropic') return { text: await callAnthropic(messages), provider: 'anthropic' }
+      if (p === 'openai') return { text: await callOpenAI(messages), provider: 'openai' }
+    } catch (e) { lastErr = e; console.log(`[WR Agent] ${p} failed: ${e.message}`) }
+  }
+  throw lastErr || new Error('no AI provider available')
 }
 
 // POST /api/wr/agent — AI Research Agent
@@ -391,7 +465,7 @@ async function callGroq(messages) {
 // 2. Analyzes it (anomalies, trends, stats)
 // 3. Feeds everything to Gemini as context
 // 4. Returns grounded answer — no hallucination
-router.post('/agent', async (req, res) => {
+router.post('/agent', aiDailyLimiter, async (req, res) => {
   const { question, pages = 3, siteContext, siteName } = req.body
   if (!question?.trim()) return res.status(400).json({ error: 'question required' })
 
@@ -428,26 +502,24 @@ ${context}
 
 USER QUESTION: ${question}`
 
-    let reply
+    let result
     try {
-      reply = await callGemini(systemPrompt)
-      console.log('[WR Agent] Gemini response OK')
+      result = await askLLM(systemPrompt, question)
+      console.log(`[WR Agent] ${result.provider} response OK`)
     } catch (e) {
-      console.log('[WR Agent] Gemini failed:', e.message, '— trying Groq')
-      try {
-        reply = await callGroq([
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: question },
-        ])
-        console.log('[WR Agent] Groq response OK')
-      } catch (e2) {
-        console.log('[WR Agent] Groq failed:', e2.message)
-        return res.status(503).json({ error: 'AI unavailable', details: e2.message })
-      }
+      console.log('[WR Agent] all AI providers failed:', e.message)
+      // Return 503 but with a friendly `answer` the client can show as-is, so
+      // the tab degrades gracefully instead of printing "Error: AI unavailable".
+      return res.status(503).json({
+        error: 'AI unavailable',
+        answer: 'The research assistant is momentarily unavailable — the AI service did not respond. Your site data, charts, anomalies and trends all still work; please try the assistant again in a minute.',
+        details: e.message,
+      })
     }
 
     res.json({
-      answer: reply,
+      answer: result.text,
+      provider: result.provider,
       grounding: { site: siteName || 'global', mode: siteContext ? 'site-specific' : 'global' },
     })
 
