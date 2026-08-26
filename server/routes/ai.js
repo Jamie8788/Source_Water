@@ -24,6 +24,7 @@ async function edgeTTS(text) {
 const POLLINATIONS = 'https://text.pollinations.ai/openai'
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 const GROQ_KEY = process.env.GROQ_API_KEY
+const GEMINI_KEY = process.env.GEMINI_API_KEY
 
 // Bump PROMPT_VERSION whenever SYSTEM changes — it's folded into the cache
 // key so stale answers from the prior persona can't leak through the 24h
@@ -77,6 +78,30 @@ async function callAI(messages) {
         if (text?.trim().length > 5) { console.log('[AI] Groq/llama-3.3-70b'); return { text, model: 'Groq Llama 3.3 70B' } }
       }
     } catch (e) { console.log(`[AI] Groq failed: ${e.message}`) }
+  }
+
+  // 2. Gemini free tier — second free workhorse. Only runs if Groq failed,
+  //    so it can never slow the happy path. Keeps AI alive now that the old
+  //    Pollinations free tier started returning 402 (payment required).
+  if (GEMINI_KEY) {
+    try {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 20000)
+      const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+      const prompt = messages.map(m => `${m.role}: ${m.content}`).join('\n\n')
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: ctrl.signal,
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      })
+      clearTimeout(timer)
+      if (res.ok) {
+        const data = await res.json()
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+        if (text?.trim().length > 5) { console.log('[AI] Gemini/flash'); return { text, model: 'Gemini Flash' } }
+      }
+    } catch (e) { console.log(`[AI] Gemini failed: ${e.message}`) }
   }
 
   // 3. Pollinations fallback (no key needed)

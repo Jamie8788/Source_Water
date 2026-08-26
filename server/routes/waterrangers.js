@@ -385,7 +385,8 @@ function analyzeObservations(observations) {
 
 async function callGemini(prompt) {
   if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY not set')
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`, {
+  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
@@ -400,7 +401,9 @@ async function callGroq(messages) {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_KEY}` },
-    body: JSON.stringify({ model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant', messages, max_tokens: 2048, temperature: 0.3 }),
+    // llama-3.1-8b-instant was decommissioned by Groq (404). 3.3-70b-versatile
+    // is the current free-tier model — the same one /api/ai/public-chat uses.
+    body: JSON.stringify({ model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile', messages, max_tokens: 2048, temperature: 0.3 }),
   })
   if (!res.ok) throw new Error(`Groq ${res.status}`)
   const data = await res.json()
@@ -466,28 +469,45 @@ async function callPollinationsFree(messages) {
 }
 
 // ── Universal provider adapter — flip AI_PROVIDER to switch, no code change.
-//    Values: 'auto' (default: gemini→groq, today's behaviour), 'anthropic',
-//    'openai', 'groq', 'gemini'. Each choice keeps sensible fallbacks so a
-//    single provider outage never takes the assistant fully down.
+//    Values: 'auto' (default), 'anthropic', 'openai', 'xai', 'groq', 'gemini'.
+//    KEY-AWARE: providers with no key configured are skipped, so we never
+//    waste a call (or an error) on a provider that can't possibly answer.
+//    Whatever key you paste in Render just starts working — no AI_PROVIDER
+//    needed. 'auto' tries the FREE tiers first (Groq → Gemini) to protect
+//    paid credits at 500 users, with Grok/Claude/OpenAI as premium backups.
 async function askLLM(systemPrompt, question) {
   const provider = (process.env.AI_PROVIDER || 'auto').toLowerCase()
   const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: question }]
-  // Preferred provider first, then cheaper/free ones. `pollinations` (free,
-  // no key) is ALWAYS appended last, so the assistant never fully dies and
-  // never runs up a bill once paid credits are exhausted.
-  const base =
-    provider === 'anthropic' ? ['anthropic', 'groq', 'gemini'] :
-    provider === 'openai' ? ['openai', 'groq', 'gemini'] :
-    provider === 'xai' ? ['xai', 'groq', 'gemini'] :
-    provider === 'groq' ? ['groq', 'gemini'] :
-    provider === 'gemini' ? ['gemini', 'groq'] :
-    ['gemini', 'groq'] // 'auto' — free-first, keeps paid credits untouched
-  const order = [...base, 'pollinations']
+
+  // Which providers actually have a key right now.
+  const has = {
+    groq: !!GROQ_KEY,
+    gemini: !!GEMINI_KEY,
+    xai: !!process.env.XAI_API_KEY,
+    anthropic: !!process.env.ANTHROPIC_API_KEY,
+    openai: !!process.env.OPENAI_API_KEY,
+  }
+
+  // Preference order by AI_PROVIDER. Every case still falls through to the
+  // free workhorses (groq, gemini) so one provider dying never takes the
+  // assistant fully down.
+  const preference =
+    provider === 'anthropic' ? ['anthropic', 'groq', 'gemini', 'xai'] :
+    provider === 'openai'    ? ['openai', 'groq', 'gemini', 'xai'] :
+    provider === 'xai'       ? ['xai', 'groq', 'gemini'] :
+    provider === 'gemini'    ? ['gemini', 'groq', 'xai'] :
+    provider === 'groq'      ? ['groq', 'gemini', 'xai'] :
+    /* auto */                 ['groq', 'gemini', 'xai', 'anthropic', 'openai']
+
+  // Skip providers with no key, then always append pollinations as the free
+  // last-ditch net (flaky lately — may 402 — but costs nothing to try).
+  const order = [...preference.filter(p => has[p]), 'pollinations']
+
   let lastErr
   for (const p of order) {
     try {
-      if (p === 'gemini') return { text: await callGemini(systemPrompt), provider: 'gemini' }
       if (p === 'groq') return { text: await callGroq(messages), provider: 'groq' }
+      if (p === 'gemini') return { text: await callGemini(systemPrompt), provider: 'gemini' }
       if (p === 'xai') return { text: await callXAI(messages), provider: 'xai' }
       if (p === 'anthropic') return { text: await callAnthropic(messages), provider: 'anthropic' }
       if (p === 'openai') return { text: await callOpenAI(messages), provider: 'openai' }
