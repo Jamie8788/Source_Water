@@ -603,6 +603,84 @@ USER QUESTION: ${question}`
   }
 })
 
+// ── Water Rangers test-page slugs (their public education pages live at
+//    waterrangers.com/testkits/tests/<slug>/). Used for the "Learn more" link
+//    and the best-effort live prose fetch below. Unknown params fall back to a
+//    slug derived from the label; a wrong slug just 404s and we degrade to the
+//    app's own plain-English layer — nothing breaks. ──
+const WR_TEST_SLUGS = {
+  oxygen: 'dissolved-oxygen', alkalinity: 'alkalinity', ph: 'ph',
+  water_temperature: 'water-temperature', air_temperature: 'air-temperature',
+  conductivity: 'conductivity', turbidity: 'turbidity', secchi_depth: 'water-clarity',
+  water_depth: 'water-depth', nitrate: 'nitrates', nitrite: 'nitrites',
+  phosphate: 'phosphates', total_phosphorus: 'phosphorus', chloride: 'chloride',
+  salinity: 'salinity', hardness: 'hardness', tds: 'total-dissolved-solids',
+  ammonia: 'ammonia', e_coli: 'e-coli', total_coliform: 'coliforms', flow: 'flow-rate',
+}
+function wrSlugFor(name) {
+  const key = String(name || '').toLowerCase().trim().replace(/\s+/g, '_')
+  return WR_TEST_SLUGS[key] || key.replace(/_/g, '-')
+}
+
+// 24h cache for the scraped WR education prose (separate from the 5-min data cache).
+const wrGuideCache = new Map()
+const WR_GUIDE_TTL = 24 * 60 * 60 * 1000
+
+// ── GET /api/wr/param-guide?name=<parameter> — BEST-EFFORT. Fetches Water
+//    Rangers' own test-page prose (What is it / Why important / What does it
+//    mean / How to test) server-side, where egress to their site is allowed.
+//    Always returns 200 with { ok: true, guide } or { ok: false } — never
+//    throws to the client, so the UI can safely fall back to its own layer. ──
+router.get('/param-guide', async (req, res) => {
+  const name = req.query.name
+  if (!name) return res.json({ ok: false, reason: 'no name' })
+  const slug = wrSlugFor(name)
+  const cached = wrGuideCache.get(slug)
+  if (cached && Date.now() - cached.at < WR_GUIDE_TTL) return res.json(cached.payload)
+
+  const url = `https://www.waterrangers.com/testkits/tests/${slug}/`
+  try {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 8000)
+    const r = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'SourceWater/1.0' } })
+    clearTimeout(timer)
+    if (!r.ok) throw new Error(`WR ${r.status}`)
+    const html = await r.text()
+
+    // Strip tags to plain text, then pull the sections by their headings.
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#8217;|&rsquo;/g, "'")
+      .replace(/\s+/g, ' ').trim()
+    const between = (startRe, endRes) => {
+      const m = text.match(startRe)
+      if (!m) return null
+      const from = m.index + m[0].length
+      let to = text.length
+      for (const e of endRes) { const em = text.slice(from).search(e); if (em >= 0) to = Math.min(to, from + em) }
+      const seg = text.slice(from, to).trim()
+      return seg.length > 8 ? seg.slice(0, 700) : null
+    }
+    const guide = {
+      whatIsIt:     between(/What is it\??/i, [/Why is it important\??/i, /How to test/i, /What does it mean\??/i]),
+      whyImportant: between(/Why is it important\??/i, [/What does it mean\??/i, /How to test/i, /Learn more/i]),
+      whatItMeans:  between(/What does it mean\??/i, [/How to test/i, /Learn more/i, /Watch the protocol/i]),
+      url,
+    }
+    const ok = !!(guide.whatIsIt || guide.whyImportant || guide.whatItMeans)
+    const payload = ok ? { ok: true, source: 'waterrangers.com', guide } : { ok: false, reason: 'no sections parsed', url }
+    wrGuideCache.set(slug, { at: Date.now(), payload })
+    res.json(payload)
+  } catch (e) {
+    const payload = { ok: false, reason: e.message, url }
+    // Cache negatives briefly (5 min) so a blocked/500 site isn't hammered.
+    wrGuideCache.set(slug, { at: Date.now() - (WR_GUIDE_TTL - 5 * 60 * 1000), payload })
+    res.json(payload)
+  }
+})
+
 // ── GET /api/wr/ai-health — diagnostic. Open this in a browser to see, in
 //    plain language, which AI providers actually work right now, which keys
 //    are set (booleans only — never the secret), and the current provider

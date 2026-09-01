@@ -22,6 +22,8 @@ import { getAllLocations, getLocationObservations } from '../api/waterRangers'
 import api from '../utils/api'
 import { playNibiTTS } from '../utils/voice'
 import { matchParam } from '../utils/waterParams'
+import { getWRParameter, WR_DOCS_URL } from '../utils/wrParameters'
+import { getPlainEnglish } from '../utils/plainEnglishParams'
 import ParameterDeepDive from '../components/ParameterDeepDive'
 
 // WHO thresholds
@@ -746,6 +748,107 @@ function ChartsTab({ trends, siteName, observationsCount, totalReadings, onOpenD
 }
 
 // ── Research AI Chat ─────────────────────────────────────────────────────────
+// ── One anomaly row that expands into a rich, honest explanation. ───────────
+// Layers, clearly separated so nothing is faked or mis-attributed:
+//   1. "What this reading means" — computed from THIS reading vs the real WR band
+//   2. "In plain English" — our own general-science explainer (labelled ours)
+//   3. "From Water Rangers" — WR's own text if the app has it, else honest note
+//   4. Live WR prose (best-effort from the server; silently skipped if absent)
+// No AI call, so this costs nothing.
+function AnomalyRow({ a }) {
+  const [open, setOpen] = useState(false)
+  const [wrLive, setWrLive] = useState(null)   // { ok, guide } from /wr/param-guide
+  const [tried, setTried] = useState(false)
+  const unit = (a.unit || '').replace(/_/g, '/')
+  const wr = getWRParameter(a.param)
+  const pe = getPlainEnglish(a.param)
+  const learnUrl = (wr && wr.sources && wr.sources[0]) || WR_DOCS_URL
+
+  // Parse the "min–max" band string and say, honestly, where this reading sits.
+  const parts = String(a.threshold || '').split(/[–—-]/).map(s => parseFloat(s))
+  const lo = parts[0], hi = parts[1]
+  let position = 'outside the safe band'
+  if (Number.isFinite(lo) && a.value < lo) position = `below the safe band (min ${lo})`
+  else if (Number.isFinite(hi) && a.value > hi) position = `above the safe band (max ${hi})`
+  const dateStr = a.date ? new Date(a.date).toLocaleDateString() : 'an unknown date'
+  const interp = `On ${dateStr}, ${a.param.replace(/_/g, ' ')} read ${a.value}${unit ? ' ' + unit : ''}. ` +
+    `Water Rangers' review band for this site is ${a.threshold}${unit ? ' ' + unit : ''}, so this reading is ${position} — which is why it's flagged as ${a.severity}.`
+  const direction = Number.isFinite(hi) && a.value > hi ? 'high' : 'low'
+
+  const toggle = () => {
+    const next = !open
+    setOpen(next)
+    if (next && !tried) {
+      setTried(true)
+      api.get(`/wr/param-guide?name=${encodeURIComponent(a.param)}`)
+        .then(r => setWrLive(r.data)).catch(() => setWrLive({ ok: false }))
+    }
+  }
+
+  const Section = ({ title, color, children }) => (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', color, marginBottom: 3 }}>{title}</div>
+      <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--text)' }}>{children}</div>
+    </div>
+  )
+
+  return (
+    <>
+      <tr onClick={toggle} style={{ borderBottom: open ? 'none' : '1px solid var(--border)', cursor: 'pointer' }}>
+        <td style={{ padding: '5px' }}><span style={{ padding: '1px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: a.severity === 'critical' ? 'rgba(239,68,68,.1)' : 'rgba(245,158,11,.1)', color: a.severity === 'critical' ? '#ef4444' : '#f59e0b' }}>{a.severity}</span></td>
+        <td style={{ padding: '5px', color: 'var(--text)', fontWeight: 600 }}>
+          <span style={{ display: 'inline-block', width: 10, color: 'var(--text-muted)', transition: 'transform .15s', transform: open ? 'rotate(90deg)' : 'none' }}>▸</span>
+          {a.param.replace(/_/g, ' ')}
+        </td>
+        <td style={{ padding: '5px', color: '#ef4444', fontWeight: 700 }}>{a.value} {unit}</td>
+        <td style={{ padding: '5px', color: 'var(--text-muted)' }}>{a.threshold}</td>
+        <td style={{ padding: '5px', color: 'var(--text-muted)', fontSize: 10 }}>{a.explain || ''}</td>
+        <td style={{ padding: '5px', color: 'var(--text-muted)', fontSize: 9 }}>{(a.equipment || '').replace(/_/g, ' ').slice(0, 30)}</td>
+        <td style={{ padding: '5px', color: 'var(--text-muted)' }}>{a.date ? new Date(a.date).toLocaleDateString() : '—'}</td>
+      </tr>
+      {open && (
+        <tr style={{ borderBottom: '1px solid var(--border)' }}>
+          <td colSpan={7} style={{ padding: '4px 12px 14px 26px', background: 'rgba(99,102,241,.03)' }}>
+            <Section title="📊 What this reading means" color="#38bdf8">{interp}</Section>
+            {pe && (
+              <Section title="💬 In plain English (our explainer)" color="#a78bfa">
+                <div>{pe.plain}</div>
+                <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>{pe.whyCare}</div>
+                <div style={{ marginTop: 4 }}><strong>This reading is {direction}.</strong> {direction === 'high' ? pe.highMeans : pe.lowMeans}</div>
+              </Section>
+            )}
+            {(wr && (wr.whatIsIt || wr.whyImportant)) ? (
+              <Section title="🌊 From Water Rangers" color="#10b981">
+                {wr.whatIsIt && <div>{wr.whatIsIt}</div>}
+                {wr.whyImportant && <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>{wr.whyImportant}</div>}
+              </Section>
+            ) : wrLive && wrLive.ok && wrLive.guide ? (
+              <Section title="🌊 From Water Rangers" color="#10b981">
+                {wrLive.guide.whatIsIt && <div>{wrLive.guide.whatIsIt}</div>}
+                {wrLive.guide.whyImportant && <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>{wrLive.guide.whyImportant}</div>}
+                {wrLive.guide.whatItMeans && <div style={{ marginTop: 4 }}>{wrLive.guide.whatItMeans}</div>}
+              </Section>
+            ) : (
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, fontStyle: 'italic' }}>
+                Water Rangers hasn't published an inline guide for this parameter{tried && wrLive && !wrLive.ok ? '' : '…'} — the plain-English note above explains it, and the link below goes to their reference.
+              </div>
+            )}
+            {a.equipment && (
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 8 }}>
+                <strong>Measured with:</strong> {(a.equipment || '').replace(/_/g, ' ')}
+              </div>
+            )}
+            <a href={learnUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+              style={{ fontSize: 11, color: '#6366f1', textDecoration: 'none', fontWeight: 600 }}>
+              Learn more at Water Rangers ↗
+            </a>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
 function ResearchAI({ site, observations, analysis }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
@@ -1066,6 +1169,9 @@ export default function WRAILab() {
                     <div style={{ textAlign: 'center', padding: 20, color: '#10b981', fontSize: 13 }}>✅ No anomalies at {selectedSite.name} — all readings within WHO thresholds</div>
                   ) : (
                     <div style={{ overflowX: 'auto' }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6 }}>
+                        ▸ Click any row to expand a plain-English explanation of what it means and why it matters.
+                      </div>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                         <thead>
                           <tr style={{ borderBottom: '2px solid var(--border)' }}>
@@ -1075,17 +1181,7 @@ export default function WRAILab() {
                           </tr>
                         </thead>
                         <tbody>
-                          {anomalies.map((a, i) => (
-                            <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                              <td style={{ padding: '5px' }}><span style={{ padding: '1px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: a.severity === 'critical' ? 'rgba(239,68,68,.1)' : 'rgba(245,158,11,.1)', color: a.severity === 'critical' ? '#ef4444' : '#f59e0b' }}>{a.severity}</span></td>
-                              <td style={{ padding: '5px', color: 'var(--text)', fontWeight: 600 }}>{a.param.replace(/_/g, ' ')}</td>
-                              <td style={{ padding: '5px', color: '#ef4444', fontWeight: 700 }}>{a.value} {(a.unit || '').replace(/_/g, '/')}</td>
-                              <td style={{ padding: '5px', color: 'var(--text-muted)' }}>{a.threshold}</td>
-                              <td style={{ padding: '5px', color: 'var(--text-muted)', fontSize: 10 }}>{a.explain || ''}</td>
-                              <td style={{ padding: '5px', color: 'var(--text-muted)', fontSize: 9 }}>{(a.equipment || '').replace(/_/g, ' ').slice(0, 30)}</td>
-                              <td style={{ padding: '5px', color: 'var(--text-muted)' }}>{a.date ? new Date(a.date).toLocaleDateString() : '—'}</td>
-                            </tr>
-                          ))}
+                          {anomalies.map((a, i) => (<AnomalyRow key={i} a={a} />))}
                         </tbody>
                       </table>
                     </div>
