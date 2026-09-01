@@ -851,12 +851,97 @@ function AnomalyRow({ a }) {
   )
 }
 
+// ── Lightweight Markdown → JSX for AI answers ────────────────────────────────
+// The AI returns Markdown (**bold**, ## headings, | tables |, lists). Rendering
+// it raw showed the symbols literally and looked broken. This turns the common
+// shapes into clean, styled elements — no external dependency — and strips the
+// 【…】 citation tags the model sometimes emits.
+function mdInline(str) {
+  const out = []
+  let rest = String(str).replace(/【[^】]*】/g, '')
+  const re = /(\*\*([^*]+)\*\*|\*([^*\n]+)\*|`([^`]+)`)/
+  let key = 0, m
+  while ((m = rest.match(re))) {
+    if (m.index > 0) out.push(rest.slice(0, m.index))
+    if (m[2] != null) out.push(<strong key={key++}>{m[2]}</strong>)
+    else if (m[3] != null) out.push(<em key={key++}>{m[3]}</em>)
+    else if (m[4] != null) out.push(<code key={key++} style={{ background: 'rgba(99,102,241,.12)', padding: '0 4px', borderRadius: 4, fontSize: '0.92em' }}>{m[4]}</code>)
+    rest = rest.slice(m.index + m[0].length)
+  }
+  if (rest) out.push(rest)
+  return out
+}
+
+function MarkdownLite({ text }) {
+  const clean = String(text || '').replace(/【[^】]*】/g, '')
+  const lines = clean.split('\n')
+  const blocks = []
+  let i = 0, key = 0
+  const isSep = (s) => s && /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(s) && s.includes('-')
+  while (i < lines.length) {
+    const line = lines[i]
+    const t = line.trim()
+    if (!t) { i++; continue }
+    if (/^(---+|\*\*\*+|___+)$/.test(t)) { blocks.push(<hr key={key++} style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '8px 0' }} />); i++; continue }
+    const h = t.match(/^(#{1,6})\s+(.*)$/)
+    if (h) {
+      const lvl = h[1].length
+      blocks.push(<div key={key++} style={{ fontWeight: 800, fontSize: lvl <= 1 ? 16 : lvl === 2 ? 14.5 : 13, margin: '10px 0 4px', color: 'var(--text)' }}>{mdInline(h[2])}</div>)
+      i++; continue
+    }
+    // GFM table: a row with pipes followed by a --- separator row
+    if (t.includes('|') && i + 1 < lines.length && isSep(lines[i + 1])) {
+      const cut = (s) => s.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())
+      const header = cut(t)
+      i += 2
+      const rows = []
+      while (i < lines.length && lines[i].includes('|') && lines[i].trim()) { rows.push(cut(lines[i])); i++ }
+      blocks.push(
+        <div key={key++} style={{ overflowX: 'auto', margin: '8px 0' }}>
+          <table style={{ borderCollapse: 'collapse', fontSize: 11, width: '100%' }}>
+            <thead><tr>{header.map((c, ci) => <th key={ci} style={{ border: '1px solid var(--border)', padding: '4px 8px', textAlign: 'left', background: 'rgba(99,102,241,.1)', fontWeight: 700 }}>{mdInline(c)}</th>)}</tr></thead>
+            <tbody>{rows.map((r, ri) => <tr key={ri} style={{ background: ri % 2 ? 'rgba(99,102,241,.03)' : 'transparent' }}>{r.map((c, ci) => <td key={ci} style={{ border: '1px solid var(--border)', padding: '4px 8px', verticalAlign: 'top' }}>{mdInline(c)}</td>)}</tr>)}</tbody>
+          </table>
+        </div>
+      )
+      continue
+    }
+    if (/^[-*]\s+/.test(t)) {
+      const items = []
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) { items.push(lines[i].trim().replace(/^[-*]\s+/, '')); i++ }
+      blocks.push(<ul key={key++} style={{ margin: '4px 0', paddingLeft: 18 }}>{items.map((it, ii) => <li key={ii} style={{ margin: '2px 0' }}>{mdInline(it)}</li>)}</ul>)
+      continue
+    }
+    if (/^\d+\.\s+/.test(t)) {
+      const items = []
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) { items.push(lines[i].trim().replace(/^\d+\.\s+/, '')); i++ }
+      blocks.push(<ol key={key++} style={{ margin: '4px 0', paddingLeft: 20 }}>{items.map((it, ii) => <li key={ii} style={{ margin: '2px 0' }}>{mdInline(it)}</li>)}</ol>)
+      continue
+    }
+    const para = [line]; i++
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|[-*]\s|\d+\.\s|---+$)/.test(lines[i].trim()) && !(lines[i].includes('|') && isSep(lines[i + 1] || ''))) { para.push(lines[i]); i++ }
+    blocks.push(<p key={key++} style={{ margin: '4px 0', lineHeight: 1.6 }}>{mdInline(para.join(' '))}</p>)
+  }
+  return <div>{blocks}</div>
+}
+
 function ResearchAI({ site, observations, analysis }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [quota, setQuota] = useState(null) // { remaining, limit } — daily "drops"
   const bottomRef = useRef(null)
+
+  // ── Daily "drops" guardrail — HARD client-side stop so cost can't run away.
+  // The server also limits, but a free instance can restart and lose its count;
+  // the browser count (per calendar day) is the reliable wall for real users.
+  // Bumped to the server's number whenever the server says fewer remain. ──
+  const DAILY_LIMIT = 5
+  const dropsKey = `wr_drops_${new Date().toISOString().slice(0, 10)}`
+  const readUsed = () => { try { return parseInt(localStorage.getItem(dropsKey) || '0', 10) || 0 } catch { return 0 } }
+  const [used, setUsed] = useState(readUsed())
+  const persistUsed = (n) => { setUsed(n); try { localStorage.setItem(dropsKey, String(n)) } catch { /* ignore */ } }
+  const remaining = Math.max(0, DAILY_LIMIT - used)
+  const outOfDrops = remaining <= 0
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
@@ -899,11 +984,15 @@ IMPORTANT: This is REAL data loaded directly from Water Rangers API for this spe
   const send = async (text) => {
     const q = (text || input).trim()
     if (!q || loading) return
+    // HARD STOP: out of drops → don't even hit the server (protects cost).
+    if (outOfDrops) {
+      setMessages(prev => [...prev, { role: 'assistant', content: `💧 You've used all ${DAILY_LIMIT} of your daily drops. They refill tomorrow. The Charts, Trends and Anomaly tabs still work with no limit.` }])
+      return
+    }
     setInput('')
     setMessages(prev => [...prev, { role: 'user', content: q }])
     setLoading(true)
     try {
-      // Send site-specific real data directly to Gemini via agent
       const { data } = await api.post('/wr/agent', {
         question: q,
         siteContext, // pass the real site data
@@ -911,27 +1000,24 @@ IMPORTANT: This is REAL data loaded directly from Water Rangers API for this spe
       })
       const footer = `\n\n---\n*Based on ${observations.length} real observations at ${site.name} (${analysis.totalReadings} readings, ${analysis.anomalies.length} anomalies)*`
       setMessages(prev => [...prev, { role: 'assistant', content: data.answer + footer }])
-      // Update the "drops left today" counter from the server's real count.
-      if (data.quota && data.quota.remaining != null) setQuota(data.quota)
+      // Count this drop. Reconcile with the server: if it says fewer remain
+      // (e.g. asked from another device), jump the local count up to match.
+      let n = readUsed() + 1
+      if (data.quota && data.quota.remaining != null) n = Math.max(n, DAILY_LIMIT - data.quota.remaining)
+      persistUsed(n)
     } catch (e) {
-      // Server sends a friendly `answer` for the daily-limit (429) and the
-      // AI-unavailable (503) cases — show that verbatim; only fall back to a
-      // raw error if there genuinely isn't one.
       const friendly = e.response?.data?.answer
         || (e.response?.status === 429 ? "You've reached today's AI question limit. The other tabs still work — try again tomorrow." : null)
         || `The research assistant hit a snag (${e.response?.data?.error || e.message}). Your data and charts are unaffected — please try again in a moment.`
       setMessages(prev => [...prev, { role: 'assistant', content: friendly }])
-      // On the daily-limit case, reflect 0 drops left so the badge matches.
-      if (e.response?.data?.quota) setQuota(e.response.data.quota)
-      else if (e.response?.status === 429) setQuota({ remaining: 0, limit: 5 })
+      // Server-enforced limit hit → mark all drops spent locally too.
+      if (e.response?.status === 429 || e.response?.data?.quota?.remaining === 0) persistUsed(DAILY_LIMIT)
     }
     setLoading(false)
   }
 
-  // "Drops" = daily AI questions. Show the user how many they have left so the
-  // guardrail is transparent, not a surprise wall. Null until first answer.
-  const dropsLeft = quota?.remaining
-  const dropsLimit = quota?.limit ?? 5
+  const dropsLeft = remaining
+  const dropsLimit = DAILY_LIMIT
 
   return (
     <div>
@@ -954,10 +1040,11 @@ IMPORTANT: This is REAL data loaded directly from Water Rangers API for this spe
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
         {PRESETS.map(p => (
-          <button key={p.label} onClick={() => send(p.prompt)} disabled={loading} style={{
+          <button key={p.label} onClick={() => send(p.prompt)} disabled={loading || outOfDrops} style={{
             padding: '4px 8px', borderRadius: 5, fontSize: 10, fontWeight: 600,
             background: 'rgba(99,102,241,.06)', border: '1px solid rgba(99,102,241,.12)',
-            color: '#a78bfa', cursor: 'pointer',
+            color: '#a78bfa', cursor: (loading || outOfDrops) ? 'not-allowed' : 'pointer',
+            opacity: (loading || outOfDrops) ? 0.45 : 1,
           }}>{p.label}</button>
         ))}
       </div>
@@ -967,21 +1054,30 @@ IMPORTANT: This is REAL data loaded directly from Water Rangers API for this spe
           {messages.map((m, i) => (
             <div key={i} style={{
               alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-              maxWidth: '88%', padding: '8px 12px', borderRadius: 10,
+              maxWidth: m.role === 'user' ? '88%' : '94%', padding: '8px 12px', borderRadius: 10,
               background: m.role === 'user' ? 'rgba(99,102,241,.12)' : 'rgba(255,255,255,.03)',
               border: `1px solid ${m.role === 'user' ? 'rgba(99,102,241,.25)' : 'var(--border)'}`,
-              color: 'var(--text)', fontSize: 12, lineHeight: 1.7, whiteSpace: 'pre-wrap',
-            }}>{m.content}</div>
+              color: 'var(--text)', fontSize: 12, lineHeight: 1.7,
+              whiteSpace: m.role === 'user' ? 'pre-wrap' : 'normal',
+            }}>{m.role === 'assistant' ? <MarkdownLite text={m.content} /> : m.content}</div>
           ))}
           {loading && <div style={{ color: 'var(--text-muted)', fontSize: 11 }}><Loader size={12} className="animate-spin" /> Analyzing {site?.name} data...</div>}
           <div ref={bottomRef} />
         </div>
+        {outOfDrops && (
+          <div style={{ padding: '8px 10px', borderTop: '1px solid var(--border)', background: 'rgba(239,68,68,.08)', fontSize: 11, color: '#f87171', lineHeight: 1.5 }}>
+            💧 <strong>Out of drops for today.</strong> Your {DAILY_LIMIT} free AI questions refill tomorrow. The Charts, Trends and Anomaly tabs still work with no limit. <span style={{ color: 'var(--text-muted)' }}>(Unlimited paid AI is coming as an upgrade.)</span>
+          </div>
+        )}
         <div style={{ padding: 8, borderTop: '1px solid var(--border)', display: 'flex', gap: 6 }}>
-          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
-            placeholder={`Ask about ${site?.name}...`}
-            style={{ flex: 1, padding: '7px 10px', borderRadius: 8, fontSize: 12, background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text)', outline: 'none' }} />
-          <button onClick={() => send()} disabled={loading || !input.trim()} style={{
-            padding: '7px 12px', borderRadius: 8, border: 'none', background: 'rgba(99,102,241,.12)', color: '#a78bfa', cursor: 'pointer',
+          <input value={input} onChange={e => setInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && !outOfDrops && send()}
+            disabled={loading || outOfDrops}
+            placeholder={outOfDrops ? 'Out of drops — refills tomorrow' : `Ask about ${site?.name}...`}
+            style={{ flex: 1, padding: '7px 10px', borderRadius: 8, fontSize: 12, background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text)', outline: 'none', opacity: outOfDrops ? 0.6 : 1, cursor: outOfDrops ? 'not-allowed' : 'text' }} />
+          <button onClick={() => send()} disabled={loading || !input.trim() || outOfDrops} style={{
+            padding: '7px 12px', borderRadius: 8, border: 'none', background: 'rgba(99,102,241,.12)', color: '#a78bfa',
+            cursor: (loading || !input.trim() || outOfDrops) ? 'not-allowed' : 'pointer', opacity: (loading || outOfDrops) ? 0.5 : 1,
           }}><Send size={13} /></button>
         </div>
       </div>
