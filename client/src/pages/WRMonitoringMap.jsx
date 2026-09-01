@@ -58,9 +58,12 @@ const KNOWN_BODY_TYPES = new Set([
 
 // Tile-layer themes for the map. Pure swap — Water Rangers data flows
 // through the same `mappable` array regardless of which basemap is shown.
+// NOTE: Carto's basemap CDN (basemaps.cartocdn.com) now requires an API key and
+// stamps "API KEY REQUIRED" across the tiles. Use Esri's free, no-key grey
+// canvas layers instead — same clean light/dark look, no key, no watermark.
 const THEME_LAYERS = {
-  dark:      { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',  attribution: '&copy; <a href="https://carto.com/">CARTO</a>',     icon: Moon,     label: 'Dark' },
-  light:     { url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attribution: '&copy; <a href="https://carto.com/">CARTO</a>',     icon: Sun,      label: 'Light' },
+  dark:      { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',  attribution: 'Tiles &copy; Esri', icon: Moon,     label: 'Dark' },
+  light:     { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri', icon: Sun,      label: 'Light' },
   satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri', icon: MapIcon,  label: 'Satellite' },
   topo:      { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attribution: '&copy; OpenTopoMap (CC-BY-SA)', icon: Mountain, label: 'Topo' },
 }

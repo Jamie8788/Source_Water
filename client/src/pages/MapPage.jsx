@@ -46,8 +46,10 @@ const PARAMS = [
 const BASEMAPS = {
   light: {
     label: 'Light',
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+    // Carto's CDN now requires an API key (watermarks tiles). Esri's free,
+    // no-key light grey canvas gives the same look with no key.
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri',
   },
   topo: {
     label: 'Topo',

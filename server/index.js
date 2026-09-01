@@ -5,6 +5,7 @@ console.log('[startup] Cloudinary api_secret:', process.env.CLOUDINARY_API_SECRE
 const express = require('express')
 const cors = require('cors')
 const helmet = require('helmet')
+const compression = require('compression')
 const morgan = require('morgan')
 const path = require('path')
 const fs = require('fs')
@@ -39,6 +40,11 @@ const chatService = new ChatService(server)
 
 // Trust Render's reverse proxy so rate-limiting uses real client IPs
 app.set('trust proxy', 1)
+
+// Gzip every response. The map's /api/wr/locations-all payload is ~10 MB of
+// JSON; gzip shrinks it ~6-8x on the wire (to ~1.5 MB), which is the single
+// biggest win for how fast the map appears. Cheap CPU, big transfer saving.
+app.use(compression())
 
 // Security
 app.use(helmet({
