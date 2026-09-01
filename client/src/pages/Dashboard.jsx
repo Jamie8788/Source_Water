@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useCMS } from '../context/CMSContext'
 import CMSField from '../components/cms/CMSField'
 import api from '../utils/api'
-import { getAllLocations } from '../api/waterRangers'
+import { getAllLocations, getLocationObservations } from '../api/waterRangers'
 import {
   Map, Sparkles, BellRing, Users, FlaskConical, BookOpen,
   Joystick, Bell, TrendingUp, Activity, AlertTriangle, Droplets,
@@ -306,6 +306,134 @@ function WaterGauge({ label, value, unit, min, max, good_min, good_max }) {
   )
 }
 
+/* ── Live Water Quality — REAL Water Rangers data. Defaults to the most
+   recently-sampled site (exact timestamp; ties broken by most parameters,
+   then name), and the user can pick any site — the choice is remembered. ── */
+const LIVE_PARAMS = [
+  { key: 'ph',                aliases: ['ph'],                             label: 'pH',           unit: '',       min: 0, max: 14,   good_min: 6.5, good_max: 8.5 },
+  { key: 'dissolved_oxygen',  aliases: ['dissolved_oxygen', 'oxygen', 'do'], label: 'Dissolved O₂', unit: ' mg/L',  min: 0, max: 14,   good_min: 6,   good_max: 14  },
+  { key: 'water_temperature', aliases: ['water_temperature', 'temperature'], label: 'Temperature',  unit: '°C',     min: 0, max: 30,   good_min: 5,   good_max: 22  },
+  { key: 'conductivity',      aliases: ['conductivity'],                   label: 'Conductivity', unit: ' µS/cm', min: 0, max: 1500, good_min: 50,  good_max: 800 },
+  { key: 'turbidity',         aliases: ['turbidity'],                      label: 'Turbidity',    unit: ' NTU',   min: 0, max: 100,  good_min: 0,   good_max: 5   },
+]
+
+function LiveWaterQuality({ wrAll, navigate }) {
+  const ranked = useMemo(() => (wrAll || [])
+    .filter(l => l.last_observation_at)
+    .slice()
+    .sort((a, b) => {
+      const tb = new Date(b.last_observation_at).getTime(), ta = new Date(a.last_observation_at).getTime()
+      if (tb !== ta) return tb - ta                                   // newest first (exact timestamp)
+      const pa = (a.tested_parameters || []).length, pb = (b.tested_parameters || []).length
+      if (pb !== pa) return pb - pa                                   // tie: most parameters
+      return String(a.name || '').localeCompare(String(b.name || '')) // tie: name
+    }), [wrAll])
+
+  const stored = (() => { try { return localStorage.getItem('dash_live_site') } catch { return null } })()
+  const [siteId, setSiteId] = useState(stored || null)
+  const [picking, setPicking] = useState(false)
+  const [query, setQuery] = useState('')
+  const [obs, setObs] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  const site = useMemo(() => {
+    if (siteId) { const s = (wrAll || []).find(l => String(l.id) === String(siteId)); if (s) return s }
+    return ranked[0] || null
+  }, [siteId, ranked, wrAll])
+
+  useEffect(() => {
+    if (!site) return
+    let alive = true
+    setLoading(true); setObs(null)
+    getLocationObservations(site.id, { page: 1, per_page: 50 })
+      .then(d => { if (alive) setObs(Array.isArray(d) ? d : (d?.observations || d?.data || [])) })
+      .catch(() => { if (alive) setObs([]) })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [site?.id])
+
+  const sorted = useMemo(() => (obs || []).slice().sort((a, b) => new Date(b.observed_at || 0) - new Date(a.observed_at || 0)), [obs])
+
+  const gauges = useMemo(() => {
+    if (!sorted.length) return []
+    const out = []
+    for (const p of LIVE_PARAMS) {
+      for (const o of sorted) {
+        const r = (o.readings || []).find(rr => {
+          const name = String(rr.parameter || '').toLowerCase()
+          if (p.key === 'water_temperature' && name.includes('air')) return false
+          return p.aliases.some(a => name === a || name.includes(a))
+        })
+        const v = r ? parseFloat(r.value) : NaN
+        if (Number.isFinite(v)) { out.push({ ...p, value: v }); break }
+      }
+    }
+    return out
+  }, [sorted])
+
+  const latestAt = sorted[0]?.observed_at
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim()
+    return (q ? ranked.filter(s => String(s.name || '').toLowerCase().includes(q)) : ranked).slice(0, 8)
+  }, [query, ranked])
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-bold text-gray-800 flex items-center gap-2">
+          <Droplets className="w-4 h-4 text-indigo-500"/> Live Water Quality
+          {site?.name && (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-50 text-green-600 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"/> {site.name}
+            </span>
+          )}
+        </h3>
+        <button onClick={() => setPicking(p => !p)} className="text-xs font-semibold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">
+          Change site <ChevronRight className="w-3 h-3"/>
+        </button>
+      </div>
+
+      {picking && (
+        <div className="mb-3">
+          <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search a site…"
+            className="w-full px-3 py-2 rounded-lg text-sm" style={{ border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', outline: 'none' }}/>
+          <div className="mt-1 max-h-48 overflow-y-auto rounded-lg" style={{ border: '1px solid var(--border)' }}>
+            {filtered.map(s => (
+              <button key={s.id}
+                onClick={() => { setSiteId(String(s.id)); try { localStorage.setItem('dash_live_site', String(s.id)) } catch { /* ignore */ } setPicking(false); setQuery('') }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-black/5" style={{ color: 'var(--text)' }}>
+                {s.name} <span style={{ color: 'var(--text-muted)' }}>· {s.last_observation_at ? new Date(s.last_observation_at).toLocaleDateString() : ''}</span>
+              </button>
+            ))}
+            {!filtered.length && <div className="px-3 py-2 text-sm" style={{ color: 'var(--text-muted)' }}>No match</div>}
+          </div>
+          {siteId && (
+            <button onClick={() => { setSiteId(null); try { localStorage.removeItem('dash_live_site') } catch { /* ignore */ } setPicking(false) }}
+              className="mt-1 text-xs text-indigo-500 hover:text-indigo-700">↺ Back to most recent</button>
+          )}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-sm text-center py-6" style={{ color: 'var(--text-muted)' }}>Loading {site?.name || 'site'}…</div>
+      ) : gauges.length ? (
+        <>
+          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+            {gauges.map(p => <WaterGauge key={p.label} {...p}/>)}
+          </div>
+          {latestAt && (
+            <div className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>Latest reading · {new Date(latestAt).toLocaleString()}</div>
+          )}
+        </>
+      ) : (
+        <div className="text-sm text-center py-6" style={{ color: 'var(--text-muted)' }}>
+          No chartable readings for {site?.name || 'this site'} yet — use “Change site” to pick another.
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const { user, isAdmin } = useAuth()
   const { loadPage } = useCMS()
@@ -320,8 +448,7 @@ export default function Dashboard() {
   // instead of showing the sparse local `sites` table (~33 rows).
   const [wr, setWr] = useState({ sites: 0, sampled: 0 })
   const [wrLoaded, setWrLoaded] = useState(false)
-  const [wrAll, setWrAll] = useState([]) // full list for the TrendingSites card
-  const [latestObs, setLatestObs] = useState(null) // real observation or null
+  const [wrAll, setWrAll] = useState([]) // full list for TrendingSites + LiveWaterQuality
 
   useEffect(() => {
     const h = new Date().getHours()
@@ -332,7 +459,6 @@ export default function Dashboard() {
     api.get('/admin/alerts').then(r => setAlerts((r.data.alerts || []).slice(0, 3))).catch(() => {})
     api.get('/posts?limit=4').then(r => setPosts(r.data.posts || [])).catch(() => {})
     api.get('/leaderboard?limit=5').then(r => setLeaderboard(r.data.leaderboard || [])).catch(() => {})
-    api.get('/sites/latest-observation').then(r => setLatestObs(r.data?.observation || null)).catch(() => {})
     // Cached server-side for 30min, so this is cheap on repeat loads.
     getAllLocations()
       .then(locs => {
@@ -351,18 +477,6 @@ export default function Dashboard() {
   const level = Math.floor(points / 100) + 1
   const nextLevel = level * 100
   const levelPct = Math.min(100, (points % 100))
-
-  // Real water quality — derived from the most recent observation in the DB.
-  // Only parameters that actually have a value on that row are shown.
-  const WATER_PARAMS = latestObs ? [
-    { key: 'ph',               label: 'pH',           unit: '',         min: 0, max: 14,   good_min: 6.5, good_max: 8.5 },
-    { key: 'dissolved_oxygen', label: 'Dissolved O₂', unit: ' mg/L',    min: 0, max: 14,   good_min: 6,   good_max: 14  },
-    { key: 'turbidity',        label: 'Turbidity',    unit: ' NTU',     min: 0, max: 100,  good_min: 0,   good_max: 5   },
-    { key: 'water_temp',       label: 'Temperature',  unit: '°C',       min: 0, max: 30,   good_min: 5,   good_max: 22  },
-    { key: 'conductivity',     label: 'Conductivity', unit: ' µS/cm',   min: 0, max: 1500, good_min: 50,  good_max: 800 },
-  ].filter(p => latestObs[p.key] != null)
-    .map(p => ({ ...p, value: parseFloat(latestObs[p.key]) }))
-    : []
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-5 relative">
@@ -453,38 +567,9 @@ export default function Dashboard() {
             <TrendingSites locations={wrAll} />
           </div>
 
-          {/* Water Quality Live */}
-          <div className="card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                <Droplets className="w-4 h-4 text-indigo-500"/> Live Water Quality
-                {latestObs?.site_name && (
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-50 text-green-600 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"/> {latestObs.site_name}
-                  </span>
-                )}
-              </h3>
-              <button onClick={() => navigate('/monitoring')} className="text-xs font-semibold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">
-                All sites <ChevronRight className="w-3 h-3"/>
-              </button>
-            </div>
-            {WATER_PARAMS.length > 0 ? (
-              <>
-                <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-                  {WATER_PARAMS.map(p => <WaterGauge key={p.label} {...p}/>)}
-                </div>
-                {latestObs?.observed_at && (
-                  <div className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
-                    Latest reading · {new Date(latestObs.observed_at).toLocaleString()}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="text-sm text-center py-6" style={{ color: 'var(--text-muted)' }}>
-                No observations recorded yet. Real values will appear here once a site logs a reading.
-              </div>
-            )}
-          </div>
+          {/* Water Quality Live — real Water Rangers data, most-recent site by
+              default, changeable via the picker. */}
+          <LiveWaterQuality wrAll={wrAll} navigate={navigate}/>
 
           {/* Recent social posts */}
           <div className="card p-5">
