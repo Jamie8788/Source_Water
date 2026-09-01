@@ -117,6 +117,12 @@ const PLAIN = {
     highMeans: 'High TDS points to lots of dissolved material — run-off, salts, or wastewater.',
     lowMeans: 'Low TDS indicates very pure, lightly mineralised water.',
   },
+  chlorine: {
+    plain: 'Chlorine is a strong disinfectant. In natural water it usually points to treated drinking water, pool water, or a wastewater discharge — it is not normally present in a healthy stream or lake.',
+    whyCare: 'Even small amounts are toxic to fish, insects and the tiny life at the base of the food web. Finding it in open water is a red flag that treated or pool water is getting in.',
+    highMeans: 'High chlorine usually means a discharge of treated, pool, or wastewater nearby.',
+    lowMeans: 'Little to no chlorine is normal and expected for natural surface water.',
+  },
   ammonia: {
     plain: 'Ammonia is a nitrogen compound that comes from sewage, manure, fertiliser and decaying matter.',
     whyCare: 'It is directly toxic to fish, especially when the water is warm or basic (high pH), which makes it more poisonous.',
@@ -152,6 +158,10 @@ export function getPlainEnglish(rawName) {
   if (/temp/.test(s) && !/air/.test(s)) return PLAIN.water_temperature
   if (/clarity|secchi/.test(s)) return PLAIN.secchi_depth
   if (/conduct/.test(s)) return PLAIN.conductivity
+  if (/chlorine/.test(s)) return PLAIN.chlorine
+  if (/phosphate/.test(s)) return PLAIN.phosphate
+  if (/phosphor/.test(s)) return PLAIN.total_phosphorus // "total phosphorus", "phosphorus"
+  if (/nitrate/.test(s)) return PLAIN.nitrate
   return null
 }
 
