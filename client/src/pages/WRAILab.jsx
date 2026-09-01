@@ -943,6 +943,19 @@ function ResearchAI({ site, observations, analysis }) {
   const remaining = Math.max(0, DAILY_LIMIT - used)
   const outOfDrops = remaining <= 0
 
+  // On open, sync to the server's real per-user count (authoritative across
+  // devices/tabs/networks). Reconcile upward so we never show more than allowed.
+  useEffect(() => {
+    let alive = true
+    api.get('/wr/my-drops').then(r => {
+      if (!alive || r?.data?.used == null) return
+      const serverUsed = r.data.used
+      if (serverUsed > readUsed()) persistUsed(serverUsed)
+    }).catch(() => { /* offline / not logged in — keep local count */ })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   const PRESETS = [

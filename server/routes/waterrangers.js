@@ -5,29 +5,55 @@
  */
 const router = require('express').Router()
 const rateLimit = require('express-rate-limit')
+const db = require('../db/connection')
+const { requireAuth } = require('../middleware/auth')
 
 const WR_BASE = 'https://data.waterrangers.com'
 const API_KEY = process.env.WATERRANGERS_API_KEY || process.env.VITE_WATERRANGERS_API_KEY
 
 // ── AI GUARDRAIL (WetLab / Research-AI tab ONLY) ────────────────────────────
-// A universal per-user daily cap so 500 users can't run up an AI bill. Keyed
-// by IP (the endpoint is public), configurable via AI_DAILY_LIMIT (default 5).
-// Applies ONLY to POST /api/wr/agent — no other tab/endpoint is affected.
+// A universal per-USER daily cap so 500 users can't run up an AI bill. The
+// count lives in Postgres (table ai_usage), keyed by the logged-in user id —
+// NOT the browser and NOT the IP. That means it holds across every tab, device,
+// browser and network the same account signs in from, and survives instance
+// restarts. The AI Lab is login-gated, so every caller has a real user id.
+// Configurable via AI_DAILY_LIMIT (default 5). Provider-agnostic: the same
+// guardrail protects free AI today and paid AI later — only AI_DAILY_LIMIT /
+// AI_PROVIDER change. Applies ONLY to POST /api/wr/agent.
 const AI_DAILY_LIMIT = parseInt(process.env.AI_DAILY_LIMIT || '5', 10)
-const aiDailyLimiter = rateLimit({
-  windowMs: 24 * 60 * 60 * 1000, // 24h rolling window
-  max: AI_DAILY_LIMIT,
-  standardHeaders: true,
-  legacyHeaders: false,
-  // Returned as the 429 body; the client shows `answer` verbatim. Themed as
-  // "drops" for the water app: 5 drops = 5 AI questions a day.
-  message: {
-    error: 'daily_limit',
-    answer: `💧 You've used all ${AI_DAILY_LIMIT} of your daily drops (AI research questions). This limit keeps the assistant free and fast for everyone. The Charts, Trends and Anomaly tabs still work with no limit — your drops refill tomorrow.`,
-    quota: { limit: AI_DAILY_LIMIT, remaining: 0 },
-  },
-  keyGenerator: (req) => req.ip,
-})
+const AI_LIMIT_MSG = `💧 You've used all ${AI_DAILY_LIMIT} of your daily drops (AI research questions). This limit keeps the assistant free and fast for everyone. The Charts, Trends and Anomaly tabs still work with no limit — your drops refill tomorrow.`
+
+const utcDay = () => new Date().toISOString().slice(0, 10)
+
+// Atomically reserve one drop for this user today. Returns { allowed, count,
+// remaining, limit }. The ON CONFLICT ... WHERE count < limit makes the check
+// and increment a single atomic statement, so concurrent tabs can't slip past.
+async function reserveDrop(userId, limit = AI_DAILY_LIMIT) {
+  const date = utcDay()
+  const row = await db.get(
+    `INSERT INTO ai_usage (user_id, usage_date, count) VALUES (?, ?, 1)
+     ON CONFLICT (user_id, usage_date)
+       DO UPDATE SET count = ai_usage.count + 1
+       WHERE ai_usage.count < ?
+     RETURNING count`,
+    [String(userId), date, limit]
+  )
+  if (row && row.count != null) {
+    return { allowed: true, count: row.count, remaining: Math.max(0, limit - row.count), limit }
+  }
+  // No row returned → already at the cap. Read current count for display.
+  const cur = await db.get(`SELECT count FROM ai_usage WHERE user_id = ? AND usage_date = ?`, [String(userId), date])
+  return { allowed: false, count: cur?.count ?? limit, remaining: 0, limit }
+}
+
+// Give a drop back — used when the AI itself fails, so an outage never costs
+// the user one of their daily questions.
+async function refundDrop(userId) {
+  try {
+    await db.run(`UPDATE ai_usage SET count = CASE WHEN count > 0 THEN count - 1 ELSE 0 END WHERE user_id = ? AND usage_date = ?`,
+      [String(userId), utcDay()])
+  } catch (e) { console.log('[WR Agent] refundDrop failed:', e.message) }
+}
 
 // Simple in-memory cache (5 min TTL)
 const cache = new Map()
@@ -529,9 +555,27 @@ async function askLLM(systemPrompt, question) {
 // 2. Analyzes it (anomalies, trends, stats)
 // 3. Feeds everything to Gemini as context
 // 4. Returns grounded answer — no hallucination
-router.post('/agent', aiDailyLimiter, async (req, res) => {
+router.post('/agent', requireAuth, async (req, res) => {
   const { question, pages = 3, siteContext, siteName } = req.body
   if (!question?.trim()) return res.status(400).json({ error: 'question required' })
+
+  // ── Per-user daily guardrail (Postgres-backed). Reserve one drop up front;
+  //    if the user is at their cap, refuse before spending any AI. ──
+  const userId = req.user?.id
+  let drop
+  try {
+    drop = await reserveDrop(userId)
+  } catch (e) {
+    console.error('[WR Agent] reserveDrop failed:', e.message)
+    drop = { allowed: true, remaining: null, limit: AI_DAILY_LIMIT } // fail-open on DB hiccup, never block a paying feature
+  }
+  if (drop && drop.allowed === false) {
+    return res.status(429).json({
+      error: 'daily_limit',
+      answer: AI_LIMIT_MSG,
+      quota: { limit: drop.limit, remaining: 0, used: drop.count },
+    })
+  }
 
   try {
     let context
@@ -572,34 +616,46 @@ USER QUESTION: ${question}`
       console.log(`[WR Agent] ${result.provider} response OK`)
     } catch (e) {
       console.log('[WR Agent] all AI providers failed:', e.message)
-      // Return 503 but with a friendly `answer` the client can show as-is, so
-      // the tab degrades gracefully instead of printing "Error: AI unavailable".
+      // The AI never answered — give the reserved drop back so an outage
+      // doesn't cost the user one of their daily questions.
+      await refundDrop(userId)
       return res.status(503).json({
         error: 'AI unavailable',
-        answer: 'The research assistant is momentarily unavailable — the AI service did not respond. Your site data, charts, anomalies and trends all still work; please try the assistant again in a minute.',
+        answer: 'The research assistant is momentarily unavailable — the AI service did not respond. Your site data, charts, anomalies and trends all still work; please try the assistant again in a minute. (This attempt did not use one of your drops.)',
         details: e.message,
       })
     }
 
-    // ── Tell the user how many "drops" (daily AI questions) they have left.
-    //    express-rate-limit fills req.rateLimit after the limiter runs; this
-    //    question already counted, so `remaining` is what's left AFTER it. ──
-    const rl = req.rateLimit || {}
+    // Real per-user quota straight from the DB reservation above.
     res.json({
       answer: result.text,
       provider: result.provider,
       grounding: { site: siteName || 'global', mode: siteContext ? 'site-specific' : 'global' },
       quota: {
-        limit: rl.limit ?? AI_DAILY_LIMIT,
-        used: rl.used ?? null,
-        remaining: rl.remaining ?? null,
-        resetsAt: rl.resetTime || null,
+        limit: drop?.limit ?? AI_DAILY_LIMIT,
+        used: drop?.count ?? null,
+        remaining: drop?.remaining ?? null,
       },
     })
 
   } catch (e) {
     console.error('[WR Agent] Error:', e)
+    // Unexpected server error after reserving — refund so a crash isn't charged.
+    await refundDrop(userId)
     res.status(500).json({ error: e.message })
+  }
+})
+
+// GET /api/wr/my-drops — the logged-in user's real remaining drops for today,
+// so the UI shows the correct number the moment the tab opens (on any device),
+// not just after the first question.
+router.get('/my-drops', requireAuth, async (req, res) => {
+  try {
+    const cur = await db.get(`SELECT count FROM ai_usage WHERE user_id = ? AND usage_date = ?`, [String(req.user.id), utcDay()])
+    const used = cur?.count ?? 0
+    res.json({ limit: AI_DAILY_LIMIT, used, remaining: Math.max(0, AI_DAILY_LIMIT - used) })
+  } catch (e) {
+    res.json({ limit: AI_DAILY_LIMIT, used: null, remaining: null, error: e.message })
   }
 })
 

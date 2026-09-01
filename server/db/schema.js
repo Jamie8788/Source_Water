@@ -711,6 +711,19 @@ async function initSchema() {
       console.error('[schema] reaction migration error:', e.message)
     }
 
+    // Per-user daily AI usage — the review-ready guardrail. One row per user
+    // per day; the count survives instance restarts and is shared across every
+    // device/tab/network the user signs in from. user_id is TEXT so it holds
+    // both integer (local) and uuid (Supabase) ids.
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS ai_usage (
+        user_id TEXT NOT NULL,
+        usage_date TEXT NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, usage_date)
+      )
+    `)
+
     console.log('[schema] PostgreSQL schema ready')
   } else {
     // ── SQLite schema (local dev only) ───────────────────────────────────────
@@ -1105,6 +1118,14 @@ async function initSchema() {
     for (const m of sqliteMigrations) {
       try { db.sqlite.exec(m) } catch (_) {} // ignore "duplicate column" errors
     }
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS ai_usage (
+        user_id TEXT NOT NULL,
+        usage_date TEXT NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, usage_date)
+      )
+    `)
     console.log('[schema] SQLite schema ready')
   }
 }
