@@ -647,12 +647,16 @@ router.get('/param-guide', async (req, res) => {
     if (!r.ok) throw new Error(`WR ${r.status}`)
     const html = await r.text()
 
-    // Strip tags to plain text, then pull the sections by their headings.
+    // Strip tags to plain text, decode entities (incl. numeric curly quotes /
+    // en-dashes), then pull sections by heading.
     const text = html
       .replace(/<script[\s\S]*?<\/script>/gi, ' ')
       .replace(/<style[\s\S]*?<\/style>/gi, ' ')
       .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#8217;|&rsquo;/g, "'")
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
+      .replace(/&[a-z]+;/gi, ' ')
       .replace(/\s+/g, ' ').trim()
     const between = (startRe, endRes) => {
       const m = text.match(startRe)
@@ -661,15 +665,29 @@ router.get('/param-guide', async (req, res) => {
       let to = text.length
       for (const e of endRes) { const em = text.slice(from).search(e); if (em >= 0) to = Math.min(to, from + em) }
       const seg = text.slice(from, to).trim()
-      return seg.length > 8 ? seg.slice(0, 700) : null
+      return seg.length > 8 ? seg.slice(0, 750) : null
+    }
+    // WR headings are parameter-specific — "What is dissolved oxygen?",
+    // "Why is X important?", "What impacts X levels?", "What does a X
+    // measurement mean?" — so match the SHAPE, not fixed words.
+    const H = {
+      what:    /What is\s+[^?]{2,45}\?/i,
+      why:     /Why is\s+[^?]{2,45}important\?/i,
+      impacts: /What impacts\s+[^?]{2,45}\?/i,
+      means:   /What does\s+[^?]{2,60}mean\?/i,
+      common:  /Some common values/i,
+      howto:   /How to test/i,
+      watch:   /Watch the protocol/i,
+      learn:   /Learn more/i,
     }
     const guide = {
-      whatIsIt:     between(/What is it\??/i, [/Why is it important\??/i, /How to test/i, /What does it mean\??/i]),
-      whyImportant: between(/Why is it important\??/i, [/What does it mean\??/i, /How to test/i, /Learn more/i]),
-      whatItMeans:  between(/What does it mean\??/i, [/How to test/i, /Learn more/i, /Watch the protocol/i]),
+      whatIsIt:     between(H.what,    [H.why, H.impacts, H.means, H.common, H.howto, H.watch]),
+      whyImportant: between(H.why,     [H.impacts, H.means, H.common, H.howto, H.watch, H.learn]),
+      whatImpacts:  between(H.impacts, [H.means, H.common, H.howto, H.watch, H.learn]),
+      whatItMeans:  between(H.means,   [H.common, H.howto, H.watch, H.learn]),
       url,
     }
-    const ok = !!(guide.whatIsIt || guide.whyImportant || guide.whatItMeans)
+    const ok = !!(guide.whatIsIt || guide.whyImportant || guide.whatItMeans || guide.whatImpacts)
     // Debug mode (?debug=1): return a sample of the cleaned text so we can see
     // WR's real page structure and fix the parser. Not cached.
     if (req.query.debug) {

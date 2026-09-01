@@ -826,7 +826,9 @@ function AnomalyRow({ a }) {
               <Section title="🌊 From Water Rangers" color="#10b981">
                 {wrLive.guide.whatIsIt && <div>{wrLive.guide.whatIsIt}</div>}
                 {wrLive.guide.whyImportant && <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>{wrLive.guide.whyImportant}</div>}
+                {wrLive.guide.whatImpacts && <div style={{ marginTop: 4 }}>{wrLive.guide.whatImpacts}</div>}
                 {wrLive.guide.whatItMeans && <div style={{ marginTop: 4 }}>{wrLive.guide.whatItMeans}</div>}
+                <div style={{ marginTop: 5, fontSize: 9, color: 'var(--text-muted)', fontStyle: 'italic' }}>Pulled live from waterrangers.com</div>
               </Section>
             ) : (
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, fontStyle: 'italic' }}>
