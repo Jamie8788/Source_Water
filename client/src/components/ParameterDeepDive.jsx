@@ -1,8 +1,40 @@
 import { useEffect, useMemo, useState } from 'react'
-import { X, Download, Sparkles, AlertTriangle, TrendingUp } from 'lucide-react'
+import { X, Download, Sparkles, AlertTriangle, TrendingUp, ChevronDown, RefreshCw } from 'lucide-react'
 import { PARAM_META, classifyValue, latestValueFor, TONE_COLOR, matchParam } from '../utils/waterParams'
 import { getWRParameter, formatQaRange, WR_NA, WR_DOCS_URL } from '../utils/wrParameters'
 import api from '../utils/api'
+
+// ── AI explainer cache ───────────────────────────────────────────────────────
+// The deep-dive used to re-call the AI on EVERY open of this panel, which burns
+// tokens fast at 500 users. Cache each explainer per site + parameter + a
+// data-fingerprint, in memory (this tab) and localStorage (24h across reloads),
+// so each site/parameter is generated at most once a day — unless the readings
+// change or the user clicks Regenerate. This is the main cost-saver here.
+const AI_TTL = 24 * 60 * 60 * 1000
+const aiMemCache = new Map()
+function aiCacheKey(siteId, paramKey, series) {
+  const last = series.length ? series[series.length - 1].value : ''
+  return `ddai:${siteId || 'site'}:${paramKey}:${series.length}:${last}`
+}
+function readAiCache(key) {
+  if (aiMemCache.has(key)) return aiMemCache.get(key)
+  try {
+    const raw = localStorage.getItem(key)
+    if (raw) {
+      const { text, at } = JSON.parse(raw)
+      if (text && Date.now() - at < AI_TTL) { aiMemCache.set(key, text); return text }
+    }
+  } catch { /* private mode / disabled storage — just skip the cache */ }
+  return null
+}
+function writeAiCache(key, text) {
+  aiMemCache.set(key, text)
+  try { localStorage.setItem(key, JSON.stringify({ text, at: Date.now() })) } catch { /* ignore */ }
+}
+function clearAiCache(key) {
+  aiMemCache.delete(key)
+  try { localStorage.removeItem(key) } catch { /* ignore */ }
+}
 
 // Slide-in deep-dive panel for a single water parameter at a single site.
 // Goes far beyond what Water Rangers shows: full time-series with each reading
@@ -17,6 +49,8 @@ export default function ParameterDeepDive({ paramKey, observations, onClose, sit
   const [aiText, setAiText] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState(null)
+  const [aiCached, setAiCached] = useState(false) // true = served from cache (no AI call)
+  const [aiReload, setAiReload] = useState(0)      // bump to force a fresh generation
 
   // ESC closes the panel
   useEffect(() => {
@@ -137,9 +171,19 @@ export default function ParameterDeepDive({ paramKey, observations, onClose, sit
   // if the call fails, surface the error to the user instead of inventing something.
   useEffect(() => {
     if (!series.length) { setAiText(''); setAiError(null); return }
+
+    // Cost saver: serve a cached explainer if we have a fresh one for this exact
+    // site + parameter + data. Only call the AI on a cache miss (or Regenerate).
+    const cacheKey = aiCacheKey(siteId, paramKey, series)
+    const cached = readAiCache(cacheKey)
+    if (cached) {
+      setAiText(cached); setAiCached(true); setAiLoading(false); setAiError(null)
+      return
+    }
+
     let cancelled = false
     const ctl = new AbortController()
-    setAiLoading(true); setAiError(null); setAiText('')
+    setAiLoading(true); setAiError(null); setAiText(''); setAiCached(false)
 
     const recent = series.slice(-12).map(s => ({
       v: s.value,
@@ -212,6 +256,7 @@ Write 3 short paragraphs (each 2-3 sentences):
         const reply = String(r?.data?.reply || '').trim()
         if (!reply) { setAiError('AI returned an empty response.'); return }
         setAiText(reply)
+        writeAiCache(cacheKey, reply) // cache so re-opening this panel costs nothing
       })
       .catch((e) => {
         if (cancelled || e?.name === 'CanceledError' || e?.name === 'AbortError') return
@@ -220,7 +265,13 @@ Write 3 short paragraphs (each 2-3 sentences):
       .finally(() => { if (!cancelled) setAiLoading(false) })
 
     return () => { cancelled = true; ctl.abort() }
-  }, [paramKey, series, meta, stats, anomalies, siteName, siteId])
+  }, [paramKey, series, meta, stats, anomalies, siteName, siteId, aiReload])
+
+  // Force a fresh AI explainer (clears the cached one for this site+parameter).
+  const regenerateAI = () => {
+    clearAiCache(aiCacheKey(siteId, paramKey, series))
+    setAiReload(v => v + 1)
+  }
 
   // CSV download — just this parameter's readings at this site
   const downloadCSV = () => {
@@ -279,13 +330,22 @@ Write 3 short paragraphs (each 2-3 sentences):
       }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.() }}
     >
+      {/* Scoped styling for a visible, coloured scrollbar on the panel body. */}
+      <style>{`
+        .dd-scroll { scrollbar-width: thin; scrollbar-color: #a78bfa #ece9f7; }
+        .dd-scroll::-webkit-scrollbar { width: 12px; }
+        .dd-scroll::-webkit-scrollbar-track { background: #ece9f7; border-radius: 8px; }
+        .dd-scroll::-webkit-scrollbar-thumb { background: linear-gradient(#a78bfa,#6366f1); border-radius: 8px; border: 2px solid #ece9f7; }
+        .dd-scroll::-webkit-scrollbar-thumb:hover { background: #6366f1; }
+      `}</style>
       <div
         style={{
           width: 'min(960px, 100%)', background: '#fff',
           boxShadow: '0 30px 80px rgba(0,0,0,0.35)',
           borderRadius: 16,
           border: '1px solid rgba(15,23,42,0.12)',
-          marginBottom: 24,
+          maxHeight: 'calc(100vh - 48px)',
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
         }}
       >
         {/* Header — sticks to the top of the modal */}
@@ -322,7 +382,7 @@ Write 3 short paragraphs (each 2-3 sentences):
           </div>
         </div>
 
-        <div style={{ padding: '22px 28px 28px', color: '#0f172a' }}>
+        <div className="dd-scroll" style={{ padding: '22px 28px 28px', color: '#0f172a', overflowY: 'auto', flex: 1, minHeight: 0 }}>
           {/* Plain-language intro */}
           {meta?.short && (
             <p style={{ fontSize: 15, lineHeight: 1.6, color: '#334155', marginTop: 0 }}>{meta.short}</p>
@@ -387,41 +447,37 @@ Write 3 short paragraphs (each 2-3 sentences):
 
           {/* Site-specific stats — only when we have observations */}
           {stats && (
-            <>
-              <SectionHeader icon={<TrendingUp size={16} color="#0ea5e9" />} title="What this site's history shows"
-                hint="Quick numbers from every sample ever taken at this exact spot." />
+            <Collapsible icon={<TrendingUp size={16} color="#0ea5e9" />} title="What this site's history shows"
+              hint="Quick numbers from every sample ever taken at this exact spot.">
               <StatsGrid stats={stats} unit={displayUnit} />
-            </>
+            </Collapsible>
           )}
 
           {/* Range diagram — only for mapped parameters */}
           {meta && (
-            <>
-              <SectionHeader icon="🎯" title="Where this reading falls"
-                hint="The coloured bar shows the science-based safety zones. Green = healthy. Amber = stressful for sensitive species. Red = dangerous. The black arrow is this site's most recent reading." />
+            <Collapsible icon="🎯" title="Where this reading falls"
+              hint="The coloured bar shows the science-based safety zones. Green = healthy. Amber = stressful for sensitive species. Red = dangerous. The black arrow is this site's most recent reading.">
               <RangeBar meta={meta} pointerPct={pointerPct} pointerValue={latest?.value} />
               <ScaleLegend meta={meta} currentBandIndex={cls?.index ?? null} unit={displayUnit} />
-            </>
+            </Collapsible>
           )}
 
           {/* Full time-series chart — every reading dot-coloured by CCME tone */}
           {series.length >= 2 && (
-            <>
-              <SectionHeader icon="📈" title={`Every reading over time (${series.length} samples)`}
-                hint={meta
-                  ? 'Each dot is one water sample. Green dots are healthy readings, amber are stressful, red are critical. Hover any dot to see the value and date.'
-                  : 'Each dot is one water sample. Hover any dot to see the value and date.'} />
+            <Collapsible icon="📈" title={`Every reading over time (${series.length} samples)`}
+              hint={meta
+                ? 'Each dot is one water sample. Green dots are healthy readings, amber are stressful, red are critical. Hover any dot to see the value and date.'
+                : 'Each dot is one water sample. Hover any dot to see the value and date.'}>
               <TimeSeriesChart series={series} meta={meta} paramKey={paramKey} />
-            </>
+            </Collapsible>
           )}
 
           {/* Anomaly badges — only if we found any */}
           {anomalies.length > 0 && (
-            <>
-              <SectionHeader
-                icon={<AlertTriangle size={16} color="#f59e0b" />}
-                title={`Unusual readings (${anomalies.length})`}
-                hint="These readings either landed in the danger zone or were way different from the site's normal range. Worth a closer look." />
+            <Collapsible
+              icon={<AlertTriangle size={16} color="#f59e0b" />}
+              title={`Unusual readings (${anomalies.length})`}
+              hint="These readings either landed in the danger zone or were way different from the site's normal range. Worth a closer look.">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {anomalies.slice(0, 8).map((a, i) => (
                   <div key={i} style={{
@@ -446,68 +502,78 @@ Write 3 short paragraphs (each 2-3 sentences):
                   </div>
                 )}
               </div>
-            </>
+            </Collapsible>
           )}
 
           {/* AI summary — REAL call to /api/ai/public-chat with the actual readings.
-              Loading + error states; never canned/fake text. */}
-          <SectionHeader
+              Cached per site+parameter (see top of file) so it doesn't re-charge
+              on every open. Loading + error states; never canned/fake text. */}
+          <Collapsible
             icon={<Sparkles size={16} color="#a78bfa" />}
             title="AI explainer (using this site's actual data)"
-            hint="A water scientist–style summary of what these specific readings mean — not a generic explanation. Updates every time you open this panel." />
-
-          <div style={{
-            padding: 12, borderRadius: 10,
-            background: 'linear-gradient(180deg, rgba(167,139,250,0.06), rgba(99,102,241,0.04))',
-            border: '1px solid rgba(167,139,250,0.25)',
-          }}>
-            {aiLoading && (
-              <div style={{ fontSize: 12, color: '#6366f1' }}>
-                Analysing {series.length} reading{series.length === 1 ? '' : 's'}…
-              </div>
-            )}
-            {aiError && !aiLoading && (
-              <div style={{ fontSize: 12, color: '#b91c1c' }}>
-                Could not reach the AI service: {aiError}. The numbers above are still authoritative.
-              </div>
-            )}
-            {!aiLoading && !aiError && aiText && (
-              <div style={{ fontSize: 13, lineHeight: 1.6, color: '#1e293b', whiteSpace: 'pre-wrap' }}>
-                {aiText}
-              </div>
-            )}
-            {!aiLoading && !aiError && !aiText && !series.length && (
-              <div style={{ fontSize: 12, color: '#64748b' }}>
-                AI summary appears once this site has at least one reading for this parameter.
-              </div>
-            )}
-          </div>
+            hint="A water scientist–style summary of what these specific readings mean. Generated once and cached to keep it fast and free — hit Regenerate for a fresh take.">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              {aiCached && !aiLoading && (
+                <span style={{ fontSize: 10, color: '#16a34a', background: 'rgba(22,163,74,.1)', border: '1px solid rgba(22,163,74,.25)', padding: '2px 8px', borderRadius: 999, fontWeight: 700 }}>
+                  ✓ cached · no new AI cost
+                </span>
+              )}
+              <button onClick={regenerateAI} disabled={aiLoading || !series.length}
+                title="Discard the cached summary and generate a fresh one (uses one AI call)"
+                style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: '#6366f1', background: 'rgba(99,102,241,.08)', border: '1px solid rgba(99,102,241,.2)', borderRadius: 7, padding: '4px 9px', cursor: aiLoading ? 'default' : 'pointer', opacity: aiLoading ? 0.5 : 1 }}>
+                <RefreshCw size={11} /> Regenerate
+              </button>
+            </div>
+            <div style={{
+              padding: 12, borderRadius: 10,
+              background: 'linear-gradient(180deg, rgba(167,139,250,0.06), rgba(99,102,241,0.04))',
+              border: '1px solid rgba(167,139,250,0.25)',
+            }}>
+              {aiLoading && (
+                <div style={{ fontSize: 12, color: '#6366f1' }}>
+                  Analysing {series.length} reading{series.length === 1 ? '' : 's'}…
+                </div>
+              )}
+              {aiError && !aiLoading && (
+                <div style={{ fontSize: 12, color: '#b91c1c' }}>
+                  Could not reach the AI service: {aiError}. The numbers above are still authoritative.
+                </div>
+              )}
+              {!aiLoading && !aiError && aiText && (
+                <div style={{ fontSize: 13, lineHeight: 1.6, color: '#1e293b', whiteSpace: 'pre-wrap' }}>
+                  {aiText}
+                </div>
+              )}
+              {!aiLoading && !aiError && !aiText && !series.length && (
+                <div style={{ fontSize: 12, color: '#64748b' }}>
+                  AI summary appears once this site has at least one reading for this parameter.
+                </div>
+              )}
+            </div>
+          </Collapsible>
 
           {/* Mechanism / story — mapped params only */}
           {meta?.mechanism && (
-            <>
-              <SectionHeader icon="🧪" title="Why this number goes up and down"
-                hint="The real-world drivers behind changes in this parameter." />
+            <Collapsible icon="🧪" title="Why this number goes up and down"
+              hint="The real-world drivers behind changes in this parameter.">
               <p style={{ fontSize: 14, lineHeight: 1.65, color: '#334155', margin: 0 }}>{meta.mechanism}</p>
-            </>
+            </Collapsible>
           )}
 
           {/* Impacts diagram — three columns with mini icons */}
           {meta?.impacts && (
-            <>
-              <SectionHeader icon="🐟" title="Who in the water this affects"
-                hint="Plain-English impact on fish, insects, and water plants." />
+            <Collapsible icon="🐟" title="Who in the water this affects"
+              hint="Plain-English impact on fish, insects, and water plants.">
               <ImpactsRow impacts={meta.impacts} />
-            </>
+            </Collapsible>
           )}
 
           {/* How measured */}
           {meta?.measured && (
-            <>
-              <SectionHeader icon="📏" title="How a volunteer measures this"
-                hint="What gear is used out in the field to take this reading." />
+            <Collapsible icon="📏" title="How a volunteer measures this"
+              hint="What gear is used out in the field to take this reading.">
               <p style={{ fontSize: 14, lineHeight: 1.65, color: '#334155', margin: 0 }}>{meta.measured}</p>
-            </>
+            </Collapsible>
           )}
 
           <div style={{ marginTop: 24, padding: '12px 14px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 12, color: '#64748b', lineHeight: 1.55 }}>
@@ -519,6 +585,32 @@ Write 3 short paragraphs (each 2-3 sentences):
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Collapsible section — same heading as SectionHeader but the whole block
+// expands/contracts on click, so a long deep-dive can be tidied down to just
+// the parts a reader cares about. Defaults to open.
+function Collapsible({ icon, title, hint, defaultOpen = true, children }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div style={{ marginTop: 26 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%' }}
+      >
+        <ChevronDown size={16} color="#64748b" style={{ marginTop: 3, flexShrink: 0, transition: 'transform .15s', transform: open ? 'none' : 'rotate(-90deg)' }} />
+        <span style={{ flex: 1 }}>
+          <span style={{ fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, color: '#0f172a' }}>
+            {typeof icon === 'string' ? <span aria-hidden style={{ fontSize: 18 }}>{icon}</span> : icon}
+            {title}
+          </span>
+          {hint && <span style={{ display: 'block', fontSize: 12.5, color: '#64748b', margin: '4px 0 0', lineHeight: 1.45 }}>{hint}</span>}
+        </span>
+      </button>
+      {open && <div style={{ marginTop: 10 }}>{children}</div>}
     </div>
   )
 }
