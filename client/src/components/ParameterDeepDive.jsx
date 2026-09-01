@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { X, Download, Sparkles, AlertTriangle, TrendingUp, ChevronDown, RefreshCw } from 'lucide-react'
+import { X, Download, Sparkles, AlertTriangle, TrendingUp, ChevronDown, RefreshCw, Maximize2, Minimize2 } from 'lucide-react'
 import { PARAM_META, classifyValue, latestValueFor, TONE_COLOR, matchParam } from '../utils/waterParams'
 import { getWRParameter, formatQaRange, WR_NA, WR_DOCS_URL } from '../utils/wrParameters'
 import api from '../utils/api'
+import MarkdownLite from './MarkdownLite'
 
 // ── AI explainer cache ───────────────────────────────────────────────────────
 // The deep-dive used to re-call the AI on EVERY open of this panel, which burns
@@ -51,6 +52,7 @@ export default function ParameterDeepDive({ paramKey, observations, onClose, sit
   const [aiError, setAiError] = useState(null)
   const [aiCached, setAiCached] = useState(false) // true = served from cache (no AI call)
   const [aiReload, setAiReload] = useState(0)      // bump to force a fresh generation
+  const [maximized, setMaximized] = useState(false) // full-width view toggle
 
   // ESC closes the panel
   useEffect(() => {
@@ -340,12 +342,13 @@ Write 3 short paragraphs (each 2-3 sentences):
       `}</style>
       <div
         style={{
-          width: 'min(960px, 100%)', background: '#fff',
+          width: maximized ? 'min(1600px, 98vw)' : 'min(960px, 100%)', background: '#fff',
           boxShadow: '0 30px 80px rgba(0,0,0,0.35)',
           borderRadius: 16,
           border: '1px solid rgba(15,23,42,0.12)',
-          maxHeight: 'calc(100vh - 48px)',
+          maxHeight: maximized ? 'calc(100vh - 16px)' : 'calc(100vh - 48px)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          transition: 'width .18s ease, max-height .18s ease',
         }}
       >
         {/* Header — sticks to the top of the modal */}
@@ -372,6 +375,14 @@ Write 3 short paragraphs (each 2-3 sentences):
                 <Download size={12} /> CSV
               </button>
             )}
+            <button
+              onClick={() => setMaximized(m => !m)}
+              aria-label={maximized ? 'Restore size' : 'Maximize'}
+              title={maximized ? 'Restore size' : 'Maximize'}
+              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', cursor: 'pointer', padding: 6, borderRadius: 6, display: 'flex', alignItems: 'center' }}
+            >
+              {maximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
             <button
               onClick={onClose}
               aria-label="Close"
@@ -514,8 +525,8 @@ Write 3 short paragraphs (each 2-3 sentences):
             hint="A water scientist–style summary of what these specific readings mean. Generated once and cached to keep it fast and free — hit Regenerate for a fresh take.">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               {aiCached && !aiLoading && (
-                <span style={{ fontSize: 10, color: '#16a34a', background: 'rgba(22,163,74,.1)', border: '1px solid rgba(22,163,74,.25)', padding: '2px 8px', borderRadius: 999, fontWeight: 700 }}>
-                  ✓ cached · no new AI cost
+                <span title="Reusing the saved summary — no new AI call" style={{ fontSize: 10, color: '#16a34a', background: 'rgba(22,163,74,.1)', border: '1px solid rgba(22,163,74,.25)', padding: '2px 8px', borderRadius: 999, fontWeight: 700 }}>
+                  ✓ cached
                 </span>
               )}
               <button onClick={regenerateAI} disabled={aiLoading || !series.length}
@@ -540,8 +551,8 @@ Write 3 short paragraphs (each 2-3 sentences):
                 </div>
               )}
               {!aiLoading && !aiError && aiText && (
-                <div style={{ fontSize: 13, lineHeight: 1.6, color: '#1e293b', whiteSpace: 'pre-wrap' }}>
-                  {aiText}
+                <div style={{ fontSize: 13, lineHeight: 1.6, color: '#1e293b' }}>
+                  <MarkdownLite text={aiText} />
                 </div>
               )}
               {!aiLoading && !aiError && !aiText && !series.length && (
