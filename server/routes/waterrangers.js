@@ -670,6 +670,11 @@ router.get('/param-guide', async (req, res) => {
       url,
     }
     const ok = !!(guide.whatIsIt || guide.whyImportant || guide.whatItMeans)
+    // Debug mode (?debug=1): return a sample of the cleaned text so we can see
+    // WR's real page structure and fix the parser. Not cached.
+    if (req.query.debug) {
+      return res.json({ ok, url, textLength: text.length, textSample: text.slice(0, 3500), parsed: guide })
+    }
     const payload = ok ? { ok: true, source: 'waterrangers.com', guide } : { ok: false, reason: 'no sections parsed', url }
     wrGuideCache.set(slug, { at: Date.now(), payload })
     res.json(payload)
