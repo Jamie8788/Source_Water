@@ -75,6 +75,14 @@ const TABS = [
   { id: 'organizations', label: 'Organizations', icon: Building2, color: '#f59e0b' },
 ]
 
+// Owning organization of a Water Rangers dataset. WR's shape varies, so check
+// the common places; empty string when none is published.
+const dsOrg = (ds) => String(
+  ds?.org?.name || ds?.organization?.name || ds?.owner?.name ||
+  (typeof ds?.org === 'string' ? ds.org : '') ||
+  (typeof ds?.organization === 'string' ? ds.organization : '') || ''
+).trim()
+
 export default function WRDataExplorer() {
   const [tab, setTab] = useState('observations')
 
@@ -93,6 +101,14 @@ export default function WRDataExplorer() {
   const [error, setError] = useState(null)
   const [dsSearch, setDsSearch] = useState('')
   const [dsStatusFilter, setDsStatusFilter] = useState('')
+  const [dsOrgFilter, setDsOrgFilter] = useState('') // filter datasets by owning organization
+  // Unique organizations across the loaded datasets, with counts, for the filter.
+  const dsOrgList = useMemo(() => {
+    const m = {}
+    for (const d of data) { const o = dsOrg(d); if (o) m[o] = (m[o] || 0) + 1 }
+    return Object.entries(m).map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+  }, [data])
 
   // ── Dataset detail / analysis hub ──────────────────────────────────────
   // Original Datasets tab was a dead-end — cards linked back to WR where
@@ -745,7 +761,16 @@ ${context}` },
         <div>
           <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             <input value={dsSearch} onChange={e => setDsSearch(e.target.value)} placeholder={`Search ${data.length} datasets…`}
-              style={{ padding: '6px 10px', borderRadius: 7, fontSize: 11, background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text)', width: 260 }} />
+              style={{ padding: '6px 10px', borderRadius: 7, fontSize: 11, background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text)', width: 220 }} />
+            {/* Organization filter — the NORDIK-style grouping WR shows. */}
+            {dsOrgList.length > 0 && (
+              <select value={dsOrgFilter} onChange={e => setDsOrgFilter(e.target.value)}
+                title="Filter by organization"
+                style={{ padding: '5px 9px', borderRadius: 7, fontSize: 11, fontWeight: 600, background: dsOrgFilter ? 'rgba(245,158,11,.12)' : 'var(--card-bg)', border: `1px solid ${dsOrgFilter ? 'rgba(245,158,11,.4)' : 'var(--border)'}`, color: dsOrgFilter ? '#f59e0b' : 'var(--text)', cursor: 'pointer', maxWidth: 220 }}>
+                <option value="">🏢 All organizations ({dsOrgList.length})</option>
+                {dsOrgList.map(o => <option key={o.name} value={o.name}>{o.name} ({o.count})</option>)}
+              </select>
+            )}
             {['', 'active', 'dormant', 'datastream'].map(f => (
               <button key={f} onClick={() => setDsStatusFilter(f)} style={{
                 padding: '4px 9px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer',
@@ -756,6 +781,10 @@ ${context}` },
                 {f === '' ? `All (${data.length})` : f === 'active' ? `Active (${data.filter(d=>!d.dormant).length})` : f === 'dormant' ? `Dormant (${data.filter(d=>d.dormant).length})` : `DataStream (${data.filter(d=>d.share_with_datastream).length})`}
               </button>
             ))}
+            {(dsOrgFilter || dsStatusFilter || dsSearch) && (
+              <button onClick={() => { setDsOrgFilter(''); setDsStatusFilter(''); setDsSearch('') }}
+                style={{ padding: '4px 9px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>✕ Clear</button>
+            )}
             <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: 10 }}>
               <Sparkles size={11} style={{ verticalAlign: -1, color: '#a78bfa' }}/> Click any dataset to open the AI analysis hub
             </span>
@@ -764,6 +793,7 @@ ${context}` },
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 8 }}>
               {data.filter(ds => {
                 if (dsSearch && !(ds.name||'').toLowerCase().includes(dsSearch.toLowerCase()) && !(ds.description||'').toLowerCase().includes(dsSearch.toLowerCase())) return false
+                if (dsOrgFilter && dsOrg(ds) !== dsOrgFilter) return false
                 if (dsStatusFilter === 'active' && ds.dormant) return false
                 if (dsStatusFilter === 'dormant' && !ds.dormant) return false
                 if (dsStatusFilter === 'datastream' && !ds.share_with_datastream) return false
@@ -779,7 +809,16 @@ ${context}` },
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'translateY(0)' }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                    <h4 style={{ color: 'var(--text)', fontSize: 13, fontWeight: 700, margin: 0, flex: 1, paddingRight: 6 }}>{ds.name}</h4>
+                    <div style={{ flex: 1, paddingRight: 6, minWidth: 0 }}>
+                      <h4 style={{ color: 'var(--text)', fontSize: 13, fontWeight: 700, margin: 0 }}>{ds.name}</h4>
+                      {dsOrg(ds) && (
+                        <div onClick={e => { e.stopPropagation(); setDsOrgFilter(dsOrg(ds)) }}
+                          title={`Filter to ${dsOrg(ds)}`}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 3, fontSize: 10, fontWeight: 600, color: '#f59e0b', cursor: 'pointer' }}>
+                          <Building2 size={10}/> {dsOrg(ds)}
+                        </div>
+                      )}
+                    </div>
                     <span style={{ padding: '2px 6px', borderRadius: 6, fontSize: 9, fontWeight: 700, background: ds.dormant ? 'rgba(239,68,68,.10)' : 'rgba(16,185,129,.10)', color: ds.dormant ? '#ef4444' : '#10b981' }}>{ds.dormant ? 'DORMANT' : 'ACTIVE'}</span>
                   </div>
                   {ds.description && <p style={{ color: 'var(--text-muted)', fontSize: 11, lineHeight: 1.45, margin: '2px 0 6px', maxHeight: 50, overflow: 'hidden' }}>{ds.description}</p>}

@@ -311,7 +311,7 @@ router.get('/datasets-health', async (req, res) => {
       clearTimeout(timer)
       const text = await r.text()
       const heroku = /Application Error|herokucdn|herokuapp/i.test(text)
-      return { httpStatus: r.status, ms: Date.now() - t0, ok: r.ok, herokuAppError: heroku, sample: text.slice(0, 180).replace(/\s+/g, ' ') }
+      return { httpStatus: r.status, ms: Date.now() - t0, ok: r.ok, herokuAppError: heroku, sample: text.slice(0, 600).replace(/\s+/g, ' ') }
     } catch (e) { return { httpStatus: 0, ms: Date.now() - t0, ok: false, error: e.message } }
   }
   const [datasets, locations] = await Promise.all([probe('/datasets.json'), probe('/locations.json')])
