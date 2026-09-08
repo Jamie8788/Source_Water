@@ -294,6 +294,38 @@ router.get('/datasets', async (req, res) => {
   }
 })
 
+// GET /api/wr/datasets-health — a live test pull of Water Rangers' datasets
+// AND locations endpoints, run from the server (which can reach WR). Open it in
+// a browser to see, plainly, whether WR's datasets service is up or down and
+// whether it's their side or ours. No secrets echoed (the api_key is not shown).
+router.get('/datasets-health', async (req, res) => {
+  const probe = async (path) => {
+    const t0 = Date.now()
+    try {
+      const url = new URL(`${WR_BASE}${path}`)
+      if (API_KEY) url.searchParams.set('api_key', API_KEY)
+      url.searchParams.set('per_page', '1')
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 25000)
+      const r = await fetch(url, { signal: ctrl.signal })
+      clearTimeout(timer)
+      const text = await r.text()
+      const heroku = /Application Error|herokucdn|herokuapp/i.test(text)
+      return { httpStatus: r.status, ms: Date.now() - t0, ok: r.ok, herokuAppError: heroku, sample: text.slice(0, 180).replace(/\s+/g, ' ') }
+    } catch (e) { return { httpStatus: 0, ms: Date.now() - t0, ok: false, error: e.message } }
+  }
+  const [datasets, locations] = await Promise.all([probe('/datasets.json'), probe('/locations.json')])
+  res.json({
+    checkedAt: new Date().toISOString(),
+    verdict: datasets.ok
+      ? '✅ Water Rangers datasets is UP right now.'
+      : (locations.ok
+          ? '❌ Water Rangers DATASETS is down, but LOCATIONS is up — confirms it is their datasets service (not our server).'
+          : '❌ Both Water Rangers endpoints are unreachable from the server right now.'),
+    datasets, locations,
+  })
+})
+
 // GET /api/wr/datasets/:id
 router.get('/datasets/:id', async (req, res) => {
   try {
