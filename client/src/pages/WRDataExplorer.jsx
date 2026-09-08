@@ -76,12 +76,12 @@ const TABS = [
   { id: 'organizations', label: 'Organizations', icon: Building2, color: '#f59e0b' },
 ]
 
-// Owning organization of a Water Rangers dataset. WR's shape varies, so check
-// the common places; empty string when none is published.
-const dsOrg = (ds) => String(
-  ds?.org?.name || ds?.organization?.name || ds?.owner?.name ||
-  (typeof ds?.org === 'string' ? ds.org : '') ||
-  (typeof ds?.organization === 'string' ? ds.organization : '') || ''
+// Owning organization NAME of a Water Rangers dataset. WR links a dataset to
+// its org by `organization_id` (a UUID) — the name lives in the organizations
+// list — so resolve it through the id→org map. Falls back to any inline field.
+const dsOrg = (ds, orgMap = {}) => String(
+  orgMap[ds?.organization_id]?.name ||
+  ds?.organization?.name || ds?.org?.name || ds?.owner?.name || ''
 ).trim()
 
 export default function WRDataExplorer() {
@@ -103,13 +103,35 @@ export default function WRDataExplorer() {
   const [dsSearch, setDsSearch] = useState('')
   const [dsStatusFilter, setDsStatusFilter] = useState('')
   const [dsOrgFilter, setDsOrgFilter] = useState('') // filter datasets by owning organization
+  const [orgMap, setOrgMap] = useState({})           // organization_id -> { name, slug }
+
+  // Load every organization once (id -> name) so datasets can resolve their
+  // owning org for the filter and the cards. Independent of the active tab.
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const map = {}
+      for (let page = 1; page <= 30; page++) {
+        try {
+          const res = await getOrganizations({ page, perPage: 100 })
+          const arr = res?.items || (Array.isArray(res) ? res : [])
+          if (!arr.length) break
+          arr.forEach(o => { if (o.id) map[o.id] = { name: o.name || o.title || '', slug: o.slug } })
+          if (arr.length < 100) break
+        } catch { break }
+      }
+      if (alive) setOrgMap(map)
+    })()
+    return () => { alive = false }
+  }, [])
+
   // Unique organizations across the loaded datasets, with counts, for the filter.
   const dsOrgList = useMemo(() => {
     const m = {}
-    for (const d of data) { const o = dsOrg(d); if (o) m[o] = (m[o] || 0) + 1 }
+    for (const d of data) { const o = dsOrg(d, orgMap); if (o) m[o] = (m[o] || 0) + 1 }
     return Object.entries(m).map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
-  }, [data])
+  }, [data, orgMap])
 
   // ── Dataset detail / analysis hub ──────────────────────────────────────
   // Original Datasets tab was a dead-end — cards linked back to WR where
@@ -811,7 +833,7 @@ ${context}` },
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 8 }}>
               {data.filter(ds => {
                 if (dsSearch && !(ds.name||'').toLowerCase().includes(dsSearch.toLowerCase()) && !(ds.description||'').toLowerCase().includes(dsSearch.toLowerCase())) return false
-                if (dsOrgFilter && dsOrg(ds) !== dsOrgFilter) return false
+                if (dsOrgFilter && dsOrg(ds, orgMap) !== dsOrgFilter) return false
                 if (dsStatusFilter === 'active' && ds.dormant) return false
                 if (dsStatusFilter === 'dormant' && !ds.dormant) return false
                 if (dsStatusFilter === 'datastream' && !ds.share_with_datastream) return false
@@ -829,11 +851,11 @@ ${context}` },
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                     <div style={{ flex: 1, paddingRight: 6, minWidth: 0 }}>
                       <h4 style={{ color: 'var(--text)', fontSize: 13, fontWeight: 700, margin: 0 }}>{ds.name}</h4>
-                      {dsOrg(ds) && (
-                        <div onClick={e => { e.stopPropagation(); setDsOrgFilter(dsOrg(ds)) }}
-                          title={`Filter to ${dsOrg(ds)}`}
+                      {dsOrg(ds, orgMap) && (
+                        <div onClick={e => { e.stopPropagation(); setDsOrgFilter(dsOrg(ds, orgMap)) }}
+                          title={`Filter to ${dsOrg(ds, orgMap)}`}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 3, fontSize: 10, fontWeight: 600, color: '#f59e0b', cursor: 'pointer' }}>
-                          <Building2 size={10}/> {dsOrg(ds)}
+                          <Building2 size={10}/> {dsOrg(ds, orgMap)}
                         </div>
                       )}
                     </div>
