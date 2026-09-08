@@ -159,7 +159,9 @@ export default function WRDataExplorer() {
           setData([...all])      // ← progressive render
           if (items.length < 100) break
         } catch (e) {
-          if (!cancelled) setError(e.message)
+          // Prefer the server's friendly message (e.g. "Water Rangers is down")
+          // over axios's generic "Request failed with status code 502".
+          if (!cancelled) setError(e.response?.data?.error || e.message)
           break
         }
       }

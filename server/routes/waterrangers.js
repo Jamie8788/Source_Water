@@ -271,13 +271,26 @@ router.get('/observations/:id', async (req, res) => {
 })
 
 // GET /api/wr/datasets
+// Water Rangers' datasets service goes down independently of ours (Heroku
+// "Application Error" 503s). Keep the last good response so a WR outage serves
+// slightly-stale data instead of a blank error screen; only show a message if
+// we've never loaded it this process.
+let lastGoodDatasets = null
 router.get('/datasets', async (req, res) => {
   try {
     const data = await wrFetch('/datasets.json', req.query)
+    lastGoodDatasets = data
     res.json(data)
   } catch (e) {
     console.error('[WR] datasets error:', e.message)
-    res.status(502).json({ error: e.message })
+    if (lastGoodDatasets) {
+      console.log('[WR] datasets: serving last-good copy (Water Rangers upstream is down)')
+      return res.json(lastGoodDatasets)
+    }
+    res.status(503).json({
+      error: "Water Rangers' datasets service is temporarily unavailable (their server, not ours). Please try again in a few minutes — the map, sites and AI Lab still work.",
+      upstream: 'waterrangers',
+    })
   }
 })
 
