@@ -29,6 +29,7 @@ function FitBounds({ bounds }) {
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip } from 'recharts'
 import { getDatasets, getOrganizations, getAllLocations, getLocationObservations, getDatasetObservations, getDatasetLocations, QA_STATUS } from '../api/waterRangers'
 import api from '../utils/api'
+import { getPlainEnglish } from '../utils/plainEnglishParams'
 
 // Plain English + safety for readings
 const PARAM_INFO = {
@@ -374,6 +375,23 @@ export default function WRDataExplorer() {
     })
     return Object.entries(byMonth).sort(([a],[b]) => a.localeCompare(b)).map(([month, count]) => ({ month, count }))
   }, [aiObs])
+
+  // Plain-English read of the monthly timeline — so the chart actually tells
+  // the user something ("monitoring is picking up / has gone quiet") instead of
+  // being a bare line. This is about MONITORING EFFORT, not water quality.
+  const timelineSummary = useMemo(() => {
+    if (timelineData.length < 2) return null
+    const counts = timelineData.map(d => d.count)
+    const total = counts.reduce((a, b) => a + b, 0)
+    const peak = timelineData.reduce((m, d) => d.count > m.count ? d : m, timelineData[0])
+    const recent = timelineData[timelineData.length - 1]
+    const half = Math.floor(timelineData.length / 2)
+    const firstAvg = counts.slice(0, half).reduce((a, b) => a + b, 0) / Math.max(1, half)
+    const lastAvg = counts.slice(half).reduce((a, b) => a + b, 0) / Math.max(1, counts.length - half)
+    const dir = lastAvg > firstAvg * 1.2 ? 'rising' : lastAvg < firstAvg * 0.8 ? 'slowing' : 'steady'
+    const fmtMonth = (m) => new Date(m + '-01').toLocaleDateString(undefined, { month: 'short', year: 'numeric' })
+    return { total, months: timelineData.length, peak, recent, dir, fmtMonth }
+  }, [timelineData])
 
   // QA status breakdown for the Overview sub-tab.
   const qaBreakdown = useMemo(() => {
@@ -1007,6 +1025,10 @@ ${context}` },
               {aiObsLoading ? <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}><RefreshCw size={14} className="animate-spin"/> Loading observations…</div> : paramRows.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No numeric parameters in this dataset's observations.</div>
               ) : (
+                <>
+                <div style={{ fontSize: 12, lineHeight: 1.55, color: 'var(--text-muted)', marginBottom: 10, padding: '10px 12px', borderRadius: 8, background: 'rgba(99,102,241,.05)', border: '1px solid rgba(99,102,241,.14)' }}>
+                  Every numeric reading in this dataset, grouped by parameter. <strong style={{ color: 'var(--text)' }}>Median</strong> is the typical value; the bar shows how many readings landed in the <span style={{ color: '#10b981', fontWeight: 700 }}>safe</span>, <span style={{ color: '#f59e0b', fontWeight: 700 }}>watch</span> and <span style={{ color: '#ef4444', fontWeight: 700 }}>concern</span> bands. Safe ranges come from Water Rangers — “n/a” means they don’t publish one for that parameter.
+                </div>
                 <div style={{ overflowX: 'auto', background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                     <thead>
@@ -1025,18 +1047,26 @@ ${context}` },
                         const total = r.safeCnt + r.watchCnt + r.concernCnt
                         return (
                           <tr key={r.param} style={{ borderTop: '1px solid var(--border)' }}>
-                            <td style={{ padding: '8px 10px', color: 'var(--text)', fontWeight: 700 }}>{r.info.emoji} {r.param.replace(/_/g, ' ')}</td>
-                            <td style={{ padding: '8px 10px', color: 'var(--text-muted)', textAlign: 'right' }}>{r.n}</td>
-                            <td style={{ padding: '8px 10px', color: 'var(--text)', textAlign: 'right' }}>{r.min}</td>
-                            <td style={{ padding: '8px 10px', color: 'var(--text)', textAlign: 'right', fontWeight: 700 }}>{r.median}</td>
-                            <td style={{ padding: '8px 10px', color: 'var(--text)', textAlign: 'right' }}>{r.max} <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>{r.unit ? r.unit.replace(/_/g, '/') : ''}</span></td>
-                            <td style={{ padding: '8px 10px', color: 'var(--text-muted)' }}>{r.info.safe}</td>
-                            <td style={{ padding: '8px 10px' }}>
+                            <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
+                              <div style={{ color: 'var(--text)', fontWeight: 700 }}>{r.info.emoji} {r.param.replace(/_/g, ' ')}</div>
+                              {getPlainEnglish(r.param)?.plain && (
+                                <div style={{ color: 'var(--text-muted)', fontSize: 9.5, lineHeight: 1.4, marginTop: 2, maxWidth: 340 }}>{getPlainEnglish(r.param).plain}</div>
+                              )}
+                            </td>
+                            <td style={{ padding: '8px 10px', color: 'var(--text-muted)', textAlign: 'right', verticalAlign: 'top' }}>{r.n}</td>
+                            <td style={{ padding: '8px 10px', color: 'var(--text)', textAlign: 'right', verticalAlign: 'top' }}>{r.min}</td>
+                            <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, verticalAlign: 'top', color: getSafetyColor(r.param, r.median) || 'var(--text)' }}>{r.median}</td>
+                            <td style={{ padding: '8px 10px', color: 'var(--text)', textAlign: 'right', verticalAlign: 'top' }}>{r.max} <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>{r.unit ? r.unit.replace(/_/g, '/') : ''}</span></td>
+                            <td style={{ padding: '8px 10px', color: 'var(--text-muted)', verticalAlign: 'top' }}>{r.info.safe}</td>
+                            <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
                               {total > 0 ? (
-                                <div style={{ display: 'flex', height: 10, width: 110, borderRadius: 5, overflow: 'hidden', border: '1px solid var(--border)' }} title={`Safe ${r.safeCnt} · Watch ${r.watchCnt} · Concern ${r.concernCnt}`}>
-                                  <div style={{ width: `${(r.safeCnt/total)*100}%`,    background: '#10b981' }}/>
-                                  <div style={{ width: `${(r.watchCnt/total)*100}%`,   background: '#f59e0b' }}/>
-                                  <div style={{ width: `${(r.concernCnt/total)*100}%`, background: '#ef4444' }}/>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <div style={{ display: 'flex', height: 10, width: 84, borderRadius: 5, overflow: 'hidden', border: '1px solid var(--border)', flexShrink: 0 }} title={`Safe ${r.safeCnt} · Watch ${r.watchCnt} · Concern ${r.concernCnt}`}>
+                                    <div style={{ width: `${(r.safeCnt/total)*100}%`,    background: '#10b981' }}/>
+                                    <div style={{ width: `${(r.watchCnt/total)*100}%`,   background: '#f59e0b' }}/>
+                                    <div style={{ width: `${(r.concernCnt/total)*100}%`, background: '#ef4444' }}/>
+                                  </div>
+                                  <span style={{ fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', color: r.concernCnt > 0 ? '#ef4444' : r.watchCnt > 0 ? '#f59e0b' : '#10b981' }}>{Math.round((r.safeCnt/total)*100)}% safe</span>
                                 </div>
                               ) : <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>n/a</span>}
                             </td>
@@ -1046,6 +1076,7 @@ ${context}` },
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           )}
@@ -1053,6 +1084,15 @@ ${context}` },
           {/* ─── Map sub-tab ─── */}
           {dsSubTab === 'map' && (
             <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+              {!dsLocsLoading && dsLocs.length > 0 && (
+                <div style={{ padding: '9px 12px', borderBottom: '1px solid var(--border)', fontSize: 11, color: 'var(--text-muted)', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                  <span>Each pin is a sampling site.</span>
+                  <span><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 9, background: '#10b981', verticalAlign: -1, marginRight: 4 }}/>Healthy</span>
+                  <span><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 9, background: '#f59e0b', verticalAlign: -1, marginRight: 4 }}/>Watch</span>
+                  <span><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 9, background: '#ef4444', verticalAlign: -1, marginRight: 4 }}/>Concern</span>
+                  <span style={{ marginLeft: 'auto' }}>Bigger pin = more sampling activity · click a pin to drill in</span>
+                </div>
+              )}
               {dsLocsLoading ? (
                 <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}><RefreshCw size={14} className="animate-spin"/> Loading sites…</div>
               ) : dsLocs.length === 0 ? (
@@ -1178,7 +1218,7 @@ ${context}` },
                 <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No dated observations.</div>
               ) : (
                 <>
-                  <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Observations per month ({timelineData.length} month{timelineData.length !== 1 ? 's' : ''})</div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Sampling visits per month — how actively this dataset is monitored ({timelineData.length} month{timelineData.length !== 1 ? 's' : ''})</div>
                   <ResponsiveContainer width="100%" height={280}>
                     <LineChart data={timelineData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                       <XAxis dataKey="month" tick={{ fontSize: 10 }} stroke="var(--text-muted)"/>
@@ -1187,6 +1227,31 @@ ${context}` },
                       <Line type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2.5} dot={{ r: 3, fill: '#a78bfa' }} activeDot={{ r: 5 }}/>
                     </LineChart>
                   </ResponsiveContainer>
+                  {timelineSummary && (
+                    <div style={{ marginTop: 12, padding: '12px 14px', borderRadius: 10, background: 'rgba(99,102,241,.06)', border: '1px solid rgba(99,102,241,.18)' }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#6366f1', marginBottom: 6 }}>📈 What this timeline shows</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginBottom: 8 }}>
+                        {[
+                          { k: 'Total visits', v: timelineSummary.total.toLocaleString() },
+                          { k: 'Busiest month', v: `${timelineSummary.fmtMonth(timelineSummary.peak.month)} (${timelineSummary.peak.count})` },
+                          { k: 'Most recent', v: `${timelineSummary.fmtMonth(timelineSummary.recent.month)} (${timelineSummary.recent.count})` },
+                          { k: 'Trend', v: timelineSummary.dir === 'rising' ? '↗ picking up' : timelineSummary.dir === 'slowing' ? '↘ slowing down' : '→ steady' },
+                        ].map(s => (
+                          <div key={s.k}>
+                            <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)' }}>{s.k}</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{s.v}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--text)' }}>
+                        This line counts <strong>how many times someone went out and sampled</strong> each month — a measure of monitoring effort, not water quality. Volunteers logged <strong>{timelineSummary.total.toLocaleString()}</strong> visits across <strong>{timelineSummary.months}</strong> months, peaking in <strong>{timelineSummary.fmtMonth(timelineSummary.peak.month)}</strong>.{' '}
+                        {timelineSummary.dir === 'rising' && 'Activity is picking up recently — more volunteers or more frequent sampling.'}
+                        {timelineSummary.dir === 'slowing' && 'Activity has slowed lately — sampling is less frequent than earlier in the record (often seasonal: winter dips are normal).'}
+                        {timelineSummary.dir === 'steady' && 'Sampling has stayed fairly steady over the record.'}
+                        {' '}Dips to zero usually mean winter or a pause between field seasons, not a problem with the water.
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
