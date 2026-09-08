@@ -299,7 +299,7 @@ router.get('/datasets', async (req, res) => {
 // a browser to see, plainly, whether WR's datasets service is up or down and
 // whether it's their side or ours. No secrets echoed (the api_key is not shown).
 router.get('/datasets-health', async (req, res) => {
-  const probe = async (path) => {
+  const probe = async (path, parseFirst) => {
     const t0 = Date.now()
     try {
       const url = new URL(`${WR_BASE}${path}`)
@@ -311,10 +311,21 @@ router.get('/datasets-health', async (req, res) => {
       clearTimeout(timer)
       const text = await r.text()
       const heroku = /Application Error|herokucdn|herokuapp/i.test(text)
-      return { httpStatus: r.status, ms: Date.now() - t0, ok: r.ok, herokuAppError: heroku, sample: text.slice(0, 600).replace(/\s+/g, ' ') }
+      const out = { httpStatus: r.status, ms: Date.now() - t0, ok: r.ok, herokuAppError: heroku }
+      if (parseFirst && r.ok) {
+        // Return the FULL first object so we can see every field name (owner_id,
+        // org, counts…) and wire dataset↔organization linking correctly.
+        try { const j = JSON.parse(text); out.firstObject = Array.isArray(j) ? j[0] : (j.data?.[0] || j) }
+        catch { out.sample = text.slice(0, 600) }
+      } else if (!parseFirst) {
+        out.sample = text.slice(0, 200).replace(/\s+/g, ' ')
+      }
+      return out
     } catch (e) { return { httpStatus: 0, ms: Date.now() - t0, ok: false, error: e.message } }
   }
-  const [datasets, locations] = await Promise.all([probe('/datasets.json'), probe('/locations.json')])
+  const [datasets, organizations, locations] = await Promise.all([
+    probe('/datasets.json', true), probe('/organizations.json', true), probe('/locations.json', false),
+  ])
   res.json({
     checkedAt: new Date().toISOString(),
     verdict: datasets.ok
@@ -322,7 +333,7 @@ router.get('/datasets-health', async (req, res) => {
       : (locations.ok
           ? '❌ Water Rangers DATASETS is down, but LOCATIONS is up — confirms it is their datasets service (not our server).'
           : '❌ Both Water Rangers endpoints are unreachable from the server right now.'),
-    datasets, locations,
+    datasets, organizations, locations,
   })
 })
 
