@@ -84,6 +84,18 @@ const dsOrg = (ds, orgMap = {}) => String(
   ds?.organization?.name || ds?.org?.name || ds?.owner?.name || ''
 ).trim()
 
+// The parameters a dataset measures — WR ships them on the dataset's `form`
+// (form_parameters[].parameter.name). WR doesn't surface this on its cards; we
+// do. Deduped, in form order.
+const dsParams = (ds) => {
+  const seen = new Set(), out = []
+  for (const fp of (ds?.form?.form_parameters || [])) {
+    const n = fp?.parameter?.name
+    if (n && !seen.has(n)) { seen.add(n); out.push(n) }
+  }
+  return out
+}
+
 export default function WRDataExplorer() {
   const [tab, setTab] = useState('observations')
 
@@ -842,30 +854,46 @@ ${context}` },
                 <div key={ds.id||i}
                   onClick={() => { setSelectedDs(ds); setAiMessages([]); setDsSubTab('ai'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
                   style={{
-                    background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 12,
+                    background: 'var(--card-bg)', border: '1px solid var(--border)',
+                    borderLeft: `3px solid ${ds.dormant ? '#94a3b8' : '#10b981'}`,
+                    borderRadius: 10, padding: 12,
                     cursor: 'pointer', transition: 'all 0.15s', position: 'relative',
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(167,139,250,0.45)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'translateY(0)' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(167,139,250,0.45)'; e.currentTarget.style.borderLeftColor = ds.dormant ? '#94a3b8' : '#10b981'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(99,102,241,0.12)' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.borderLeftColor = ds.dormant ? '#94a3b8' : '#10b981'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none' }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4, gap: 6 }}>
                     <div style={{ flex: 1, paddingRight: 6, minWidth: 0 }}>
                       <h4 style={{ color: 'var(--text)', fontSize: 13, fontWeight: 700, margin: 0 }}>{ds.name}</h4>
                       {dsOrg(ds, orgMap) && (
                         <div onClick={e => { e.stopPropagation(); setDsOrgFilter(dsOrg(ds, orgMap)) }}
-                          title={`Filter to ${dsOrg(ds, orgMap)}`}
+                          title={`Show only ${dsOrg(ds, orgMap)} datasets`}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 3, fontSize: 10, fontWeight: 600, color: '#f59e0b', cursor: 'pointer' }}>
                           <Building2 size={10}/> {dsOrg(ds, orgMap)}
                         </div>
                       )}
                     </div>
-                    <span style={{ padding: '2px 6px', borderRadius: 6, fontSize: 9, fontWeight: 700, background: ds.dormant ? 'rgba(239,68,68,.10)' : 'rgba(16,185,129,.10)', color: ds.dormant ? '#ef4444' : '#10b981' }}>{ds.dormant ? 'DORMANT' : 'ACTIVE'}</span>
+                    <span style={{ padding: '2px 6px', borderRadius: 6, fontSize: 9, fontWeight: 700, background: ds.dormant ? 'rgba(239,68,68,.10)' : 'rgba(16,185,129,.10)', color: ds.dormant ? '#ef4444' : '#10b981', whiteSpace: 'nowrap' }}>{ds.dormant ? 'DORMANT' : 'ACTIVE'}</span>
                   </div>
                   {ds.description && <p style={{ color: 'var(--text-muted)', fontSize: 11, lineHeight: 1.45, margin: '2px 0 6px', maxHeight: 50, overflow: 'hidden' }}>{ds.description}</p>}
+                  {/* Parameter chips — what this dataset measures (WR doesn't show this). */}
+                  {(() => {
+                    const ps = dsParams(ds)
+                    if (!ps.length) return null
+                    return (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', margin: '2px 0 7px' }}>
+                        <span style={{ fontSize: 9.5, fontWeight: 800, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '.04em', marginRight: 2 }}>🧪 {ps.length} params</span>
+                        {ps.slice(0, 6).map(p => (
+                          <span key={p} style={{ fontSize: 9.5, padding: '1px 6px', borderRadius: 999, background: 'rgba(99,102,241,.08)', border: '1px solid rgba(99,102,241,.18)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{p.replace(/_/g, ' ')}</span>
+                        ))}
+                        {ps.length > 6 && <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 700 }}>+{ps.length - 6}</span>}
+                      </div>
+                    )
+                  })()}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, fontSize: 10, color: 'var(--text-muted)' }}>
                     {ds.start_date && <span>Since {new Date(ds.start_date).toLocaleDateString()}</span>}
                     {ds.last_observation_at && <span>· Last {new Date(ds.last_observation_at).toLocaleDateString()}</span>}
-                    {ds.share_with_datastream && <span style={{ color: '#14b8a6' }}>· DataStream</span>}
+                    {ds.share_with_datastream && <span style={{ color: '#14b8a6', fontWeight: 700 }}>· DataStream</span>}
                   </div>
                   <div style={{ display: 'flex', gap: 5, marginTop: 7, flexWrap: 'wrap' }}>
                     <span style={{
