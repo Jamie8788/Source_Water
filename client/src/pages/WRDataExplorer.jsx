@@ -84,6 +84,23 @@ const dsOrg = (ds, orgMap = {}) => String(
   ds?.organization?.name || ds?.org?.name || ds?.owner?.name || ''
 ).trim()
 
+// Turn WR's long equipment slug into a short, human label for the instrument
+// used to take a reading (e.g. water_rangers_freshwater_teststrips_ph -> "test
+// strip"). Real WR data, just readable.
+function shortEquip(name) {
+  const s = String(name || '').toLowerCase()
+  if (!s) return ''
+  if (/teststrip|test_strip/.test(s)) return 'test strip'
+  if (/hanna/.test(s)) return 'Hanna checker'
+  if (/kyoritsu|packtest/.test(s)) return 'Kyoritsu packtest'
+  if (/chemetrics/.test(s)) return 'CHEMetrics'
+  if (/secchi/.test(s)) return 'Secchi disk'
+  if (/thermometer/.test(s)) return 'thermometer'
+  if (/multimeter|pen_type|pen-type|meter/.test(s)) return 'digital meter'
+  if (/community_scientist|visual/.test(s)) return 'visual assessment'
+  return s.replace(/_/g, ' ')
+}
+
 // The parameters a dataset measures — WR ships them on the dataset's `form`
 // (form_parameters[].parameter.name). WR doesn't surface this on its cards; we
 // do. Deduped, in form order.
@@ -1329,37 +1346,65 @@ ${context}` },
               {aiObsLoading ? <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}><RefreshCw size={14} className="animate-spin"/> Loading…</div> : shownObs.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No observations{filterLoc ? ' at this site' : ''}.</div>
               ) : (
-                <div style={{ maxHeight: 600, overflowY: 'auto' }}>
+                <>
+                  {/* Legend — makes the reading colours mean something. */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 8, padding: '7px 10px', borderRadius: 8, background: 'rgba(99,102,241,.05)', border: '1px solid rgba(99,102,241,.14)' }}>
+                    <span>Each card is one sampling visit. Every reading is colour-coded and shows the instrument used:</span>
+                    <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 8, background: '#10b981', verticalAlign: 0, marginRight: 4 }}/>safe</span>
+                    <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 8, background: '#f59e0b', verticalAlign: 0, marginRight: 4 }}/>watch</span>
+                    <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 8, background: '#ef4444', verticalAlign: 0, marginRight: 4 }}/>concern</span>
+                  </div>
+                  <div style={{ maxHeight: 600, overflowY: 'auto' }}>
                   {shownObs.slice(0, 50).map((o, i) => {
                     const loc = dsLocs.find(l => l.id === o.location_id)
                     const qa = QA_STATUS[o.checked] || { label: o.checked || '?', color: '#94a3b8' }
-                    const quantR = (o.readings || []).filter(r => r.value != null && r.unit && r.unit !== 'nil')
+                    // Show every quantitative reading WR returns — no filtering
+                    // of repeats, so we never hide a real measurement.
+                    const quantR = (o.readings || []).filter(r =>
+                      r.value != null && r.unit && r.unit !== 'nil')
+                    const safeN = quantR.filter(r => getSafetyColor(r.parameter, r.value) === '#10b981').length
+                    const watchN = quantR.filter(r => getSafetyColor(r.parameter, r.value) === '#f59e0b').length
+                    const concernN = quantR.filter(r => getSafetyColor(r.parameter, r.value) === '#ef4444').length
+                    const note = o.notes || o.note || o.comment || ''
                     return (
-                      <div key={o.id || i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 10, marginBottom: 5 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                          <div>
+                      <div key={o.id || i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderLeft: `3px solid ${concernN ? '#ef4444' : watchN ? '#f59e0b' : '#10b981'}`, borderRadius: 10, padding: 10, marginBottom: 5 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5, gap: 8, flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                             <span style={{ color: 'var(--text)', fontSize: 12, fontWeight: 700 }}>{o.observed_at ? new Date(o.observed_at).toLocaleDateString() : '?'}</span>
-                            <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: `${qa.color}15`, color: qa.color }}>{qa.label}</span>
+                            <span style={{ padding: '1px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: `${qa.color}15`, color: qa.color }}>{qa.label}</span>
+                            <span style={{ fontSize: 9.5, color: 'var(--text-muted)' }}>
+                              {safeN > 0 && <span style={{ color: '#10b981', fontWeight: 700 }}>{safeN} safe</span>}
+                              {watchN > 0 && <span style={{ color: '#f59e0b', fontWeight: 700 }}> · {watchN} watch</span>}
+                              {concernN > 0 && <span style={{ color: '#ef4444', fontWeight: 700 }}> · {concernN} concern</span>}
+                            </span>
                           </div>
                           {loc && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}><MapPin size={9} style={{ verticalAlign: -1 }}/> {loc.name}</span>}
                         </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                          {quantR.map((r, j) => (
-                            <span key={j} style={{
-                              fontSize: 10, padding: '2px 6px', borderRadius: 4, display: 'inline-flex', alignItems: 'center',
-                              background: `${getSafetyColor(r.parameter, r.value)}10`, border: `1px solid ${getSafetyColor(r.parameter, r.value)}25`,
-                            }}>
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: getSafetyColor(r.parameter, r.value), marginRight: 4 }}/>
-                              {(r.parameter || '').replace(/_/g, ' ')}: <strong style={{ marginLeft: 3 }}>{r.value}</strong>
-                              <span style={{ color: 'var(--text-muted)', marginLeft: 2, fontSize: 9 }}>{(r.unit || '').replace(/_/g, '/')}</span>
-                            </span>
-                          ))}
+                        {note && <div style={{ fontSize: 10.5, color: 'var(--text-muted)', fontStyle: 'italic', margin: '0 0 6px' }}>“{note}”</div>}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {quantR.map((r, j) => {
+                            const c = getSafetyColor(r.parameter, r.value)
+                            const equip = shortEquip(r.equipment)
+                            return (
+                              <span key={j} title={r.equipment ? `Measured with ${r.equipment.replace(/_/g, ' ')}` : undefined} style={{
+                                fontSize: 10, padding: '3px 7px', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 3,
+                                background: `${c}12`, border: `1px solid ${c}30`,
+                              }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: c }}/>
+                                <span style={{ color: 'var(--text-muted)' }}>{(r.parameter || '').replace(/_/g, ' ')}</span>
+                                <strong style={{ color: 'var(--text)' }}>{r.value}</strong>
+                                <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>{(r.unit || '').replace(/_/g, '/')}</span>
+                                {equip && <span style={{ color: 'var(--text-muted)', fontSize: 8.5, opacity: 0.8 }}>· 🔬{equip}</span>}
+                              </span>
+                            )
+                          })}
                         </div>
                       </div>
                     )
                   })}
-                  {shownObs.length > 50 && <div style={{ textAlign: 'center', padding: 10, color: 'var(--text-muted)', fontSize: 10 }}>Showing 50 of {shownObs.length} — use AI tab to analyse them all.</div>}
-                </div>
+                  {shownObs.length > 50 && <div style={{ textAlign: 'center', padding: 10, color: 'var(--text-muted)', fontSize: 10 }}>Showing 50 of {shownObs.length} — use the AI tab to analyse them all.</div>}
+                  </div>
+                </>
               )}
             </div>
             )
