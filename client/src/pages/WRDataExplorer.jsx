@@ -101,6 +101,61 @@ function shortEquip(name) {
   return s.replace(/_/g, ' ')
 }
 
+// A small emoji per parameter so a card is scannable at a glance (not data —
+// just a visual label for the parameter name WR already gives us).
+function paramIcon(name) {
+  const s = String(name || '').toLowerCase()
+  if (/air.*temp/.test(s)) return '🌤️'
+  if (/temp/.test(s)) return '🌡️'
+  if (/\bph\b/.test(s)) return '⚗️'
+  if (/oxygen/.test(s)) return '🫧'
+  if (/conduct/.test(s)) return '⚡'
+  if (/secchi|clarity/.test(s)) return '👁️'
+  if (/depth|level|water_depth/.test(s)) return '📏'
+  if (/chlorine/.test(s)) return '🧪'
+  if (/alkalin/.test(s)) return '🛡️'
+  if (/hardness/.test(s)) return '🪨'
+  if (/salinity|salt/.test(s)) return '🧂'
+  if (/nitrate|nitrite|nitrogen/.test(s)) return '🌱'
+  if (/phosph/.test(s)) return '🍃'
+  if (/turbid/.test(s)) return '🌫️'
+  if (/ecoli|coliform|bacteria/.test(s)) return '🦠'
+  return '💧'
+}
+
+// Display a reading's value nicely. WR sometimes stores a non-numeric slug
+// (e.g. secchi depth "bottom_visible" when the bottom is seen); show that as
+// readable words instead of a raw underscore slug. Real WR value, just tidy.
+function prettyVal(v) {
+  if (v == null) return ''
+  const s = String(v)
+  if (/^-?\d*\.?\d+$/.test(s)) return s            // plain number, leave as-is
+  return s.replace(/_/g, ' ')                       // slug -> words
+}
+
+// A short, HONEST plain-English summary of one sampling visit — computed from
+// the readings, NO AI call and nothing invented. It only names the readings
+// that WR's published safety bands flag as watch/concern (via getSafetyColor),
+// and otherwise says everything measured looked normal. Numbers shown are the
+// real measured values.
+function describeVisit(quantR) {
+  const flagged = []
+  for (const r of quantR) {
+    const c = getSafetyColor(r.parameter, r.value)
+    if (c === '#ef4444' || c === '#f59e0b') {
+      const label = String(r.parameter || '').replace(/_/g, ' ')
+      flagged.push({ label, value: r.value, unit: (r.unit || '').replace(/_/g, '/'), level: c === '#ef4444' ? 'concern' : 'watch' })
+    }
+  }
+  const total = quantR.length
+  if (!total) return null
+  if (!flagged.length)
+    return `All ${total} measurement${total > 1 ? 's' : ''} on this visit fell within Water Rangers' normal safety bands.`
+  const parts = flagged.map(f => `${f.label} ${f.value}${f.unit ? ' ' + f.unit : ''} (${f.level})`)
+  const lead = flagged.some(f => f.level === 'concern') ? 'Worth a closer look' : 'Keep an eye on'
+  return `${lead}: ${parts.join(', ')}. The other readings sat within normal bands.`
+}
+
 // The parameters a dataset measures — WR ships them on the dataset's `form`
 // (form_parameters[].parameter.name). WR doesn't surface this on its cards; we
 // do. Deduped, in form order.
@@ -1366,11 +1421,13 @@ ${context}` },
                     const watchN = quantR.filter(r => getSafetyColor(r.parameter, r.value) === '#f59e0b').length
                     const concernN = quantR.filter(r => getSafetyColor(r.parameter, r.value) === '#ef4444').length
                     const note = o.notes || o.note || o.comment || ''
+                    const summary = describeVisit(quantR)
+                    const accent = concernN ? '#ef4444' : watchN ? '#f59e0b' : '#10b981'
                     return (
-                      <div key={o.id || i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderLeft: `3px solid ${concernN ? '#ef4444' : watchN ? '#f59e0b' : '#10b981'}`, borderRadius: 10, padding: 10, marginBottom: 5 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5, gap: 8, flexWrap: 'wrap' }}>
+                      <div key={o.id || i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderLeft: `3px solid ${accent}`, borderRadius: 10, padding: 12, marginBottom: 7 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <span style={{ color: 'var(--text)', fontSize: 12, fontWeight: 700 }}>{o.observed_at ? new Date(o.observed_at).toLocaleDateString() : '?'}</span>
+                            <span style={{ color: 'var(--text)', fontSize: 12.5, fontWeight: 800 }}>{o.observed_at ? new Date(o.observed_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '?'}</span>
                             <span style={{ padding: '1px 6px', borderRadius: 5, fontSize: 9, fontWeight: 700, background: `${qa.color}15`, color: qa.color }}>{qa.label}</span>
                             <span style={{ fontSize: 9.5, color: 'var(--text-muted)' }}>
                               {safeN > 0 && <span style={{ color: '#10b981', fontWeight: 700 }}>{safeN} safe</span>}
@@ -1380,22 +1437,33 @@ ${context}` },
                           </div>
                           {loc && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}><MapPin size={9} style={{ verticalAlign: -1 }}/> {loc.name}</span>}
                         </div>
-                        {note && <div style={{ fontSize: 10.5, color: 'var(--text-muted)', fontStyle: 'italic', margin: '0 0 6px' }}>“{note}”</div>}
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {/* Computed plain-English read-out of this visit — no AI, real values only. */}
+                        {summary && (
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 11, lineHeight: 1.45, color: 'var(--text)', background: `${accent}0e`, border: `1px solid ${accent}26`, borderRadius: 8, padding: '6px 9px', marginBottom: 8 }}>
+                            <span style={{ flexShrink: 0 }}>{concernN ? '🔴' : watchN ? '🟡' : '🟢'}</span>
+                            <span>{summary}</span>
+                          </div>
+                        )}
+                        {note && <div style={{ fontSize: 10.5, color: 'var(--text-muted)', fontStyle: 'italic', margin: '0 0 8px' }}>🗒️ “{note}”</div>}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 5 }}>
                           {quantR.map((r, j) => {
                             const c = getSafetyColor(r.parameter, r.value)
                             const equip = shortEquip(r.equipment)
+                            const pe = getPlainEnglish(r.parameter)
                             return (
-                              <span key={j} title={r.equipment ? `Measured with ${r.equipment.replace(/_/g, ' ')}` : undefined} style={{
-                                fontSize: 10, padding: '3px 7px', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 3,
-                                background: `${c}12`, border: `1px solid ${c}30`,
+                              <div key={j} title={[pe?.plain, r.equipment ? `Measured with ${r.equipment.replace(/_/g, ' ')}` : ''].filter(Boolean).join('\n\n')} style={{
+                                padding: '5px 8px', borderRadius: 7, background: `${c}10`, border: `1px solid ${c}2e`, borderLeft: `3px solid ${c}`,
                               }}>
-                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: c }}/>
-                                <span style={{ color: 'var(--text-muted)' }}>{(r.parameter || '').replace(/_/g, ' ')}</span>
-                                <strong style={{ color: 'var(--text)' }}>{r.value}</strong>
-                                <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>{(r.unit || '').replace(/_/g, '/')}</span>
-                                {equip && <span style={{ color: 'var(--text-muted)', fontSize: 8.5, opacity: 0.8 }}>· 🔬{equip}</span>}
-                              </span>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                                  <span style={{ fontSize: 11 }}>{paramIcon(r.parameter)}</span>
+                                  <span style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'capitalize' }}>{(r.parameter || '').replace(/_/g, ' ')}</span>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 1 }}>
+                                  <strong style={{ color: 'var(--text)', fontSize: 13.5 }}>{prettyVal(r.value)}</strong>
+                                  <span style={{ color: 'var(--text-muted)', fontSize: 9.5 }}>{(r.unit || '').replace(/_/g, '/')}</span>
+                                </div>
+                                {equip && <div style={{ color: 'var(--text-muted)', fontSize: 8.5, opacity: 0.85, marginTop: 2 }}>🔬 {equip}</div>}
+                              </div>
                             )
                           })}
                         </div>
