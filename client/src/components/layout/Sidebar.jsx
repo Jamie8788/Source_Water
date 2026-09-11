@@ -24,7 +24,7 @@ const NAV_GROUPS = [
       { label: 'Dashboard',      icon: LayoutDashboard, path: '/dashboard',    color: '#3b82f6', sub: 'Key metrics · AI' },
       { label: 'Ask Water (AI)', icon: Sparkles,        path: '/ask-water',    color: '#8b5cf6', sub: 'Chat · scan · analyze' },
       { label: 'Site Map',       icon: Map,             path: '/monitoring',   color: '#14b8a6', sub: 'Explore live data' },
-      { label: 'Alerts',         icon: BellRing,        path: '/alerts',       color: '#f59e0b', sub: 'Threshold warnings', adminOnly: true },
+      { label: 'Alerts',         icon: BellRing,        path: '/alerts',       color: '#f59e0b', sub: 'Threshold warnings' },
       { label: 'Community',      icon: Users,           path: '/social',       color: '#ec4899', sub: 'Posts · DMs · leaders' },
     ],
   },

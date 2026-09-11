@@ -91,16 +91,20 @@ function AppRoutes() {
           <Route path="/map"        element={<MapPage />} />
           <Route path="/geoanalytics" element={<GeoAnalytics />} />
           <Route path="/monitoring"   element={<WRMonitoringMap />} />
-          <Route path="/explorer"     element={<AdminGated admin={<WRDataExplorer />} fallback={<ComingSoon title="Dive into Data" message="Observation details, datasets, and exploration tools are being prepared. Check back soon." />} />} />
-          <Route path="/ai-lab"       element={<AdminGated admin={<WRAILab />} fallback={<ComingSoon title="Wet Lab" message="Advanced AI reports, anomaly detection, and trend analysis are being prepared. Check back soon." />} />} />
+          {/* Testing phase: these four feature tabs are open to all signed-in
+              users. To re-gate any of them to admins-only, wrap it back in
+              <AdminGated admin={<Page/>} fallback={<ComingSoon .../>} /> —
+              the helper and ComingSoon import are kept below for that. */}
+          <Route path="/explorer"     element={<WRDataExplorer />} />
+          <Route path="/ai-lab"       element={<WRAILab />} />
           <Route path="/methods"      element={<WRMethods />} />
           <Route path="/social"     element={<Social />} />
           <Route path="/quiz"       element={<QuizMe />} />
-          <Route path="/resources"  element={<AdminGated admin={<Resources />} fallback={<ComingSoon title="Resources" message="Guides, articles, and learning materials are being curated for you." />} />} />
+          <Route path="/resources"  element={<Resources />} />
           <Route path="/projects"   element={<Projects />} />
           <Route path="/analysis"   element={<Analysis />} />
           <Route path="/reports"    element={<Reports />} />
-          <Route path="/alerts"     element={<AdminGated admin={<Alerts />} fallback={<ComingSoon title="Alerts" message="Threshold warnings and live alerts are being prepared. Check back soon." />} />} />
+          <Route path="/alerts"     element={<Alerts />} />
           <Route path="/weather"    element={<Weather />} />
           <Route path="/games"      element={<Games />} />
           <Route path="/research"      element={<ResearchHub />} />
