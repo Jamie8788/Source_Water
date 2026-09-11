@@ -1267,7 +1267,11 @@ ${context}` },
                       <span style={{ marginLeft: 'auto', fontStyle: 'italic' }}>Pin size = monitoring activity · number = observations · click to drill in</span>
                     </div>
                     <MapContainer bounds={bounds.length > 1 ? bounds : undefined} center={bounds[0]} zoom={13} style={{ height: 480, width: '100%' }} scrollWheelZoom preferCanvas={true}>
-                      <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
+                      {/* Free, no-key Esri grey canvas. OSM's default tile
+                          servers now block apps that hit them directly
+                          ("tile usage policy" / 403), so we use the same
+                          keyless Esri basemap as the other maps in the app. */}
+                      <TileLayer attribution='Tiles &copy; Esri' url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"/>
                       <FitBounds bounds={bounds}/>
                       {groupList.map(({ lat, lng, sites }) => {
                         const totalObs = sites.reduce((s, x) => s + x.obs, 0)
