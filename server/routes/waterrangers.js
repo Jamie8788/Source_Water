@@ -122,6 +122,96 @@ async function wrFetch(endpoint, query = {}, opts = {}) {
 // Convenience helper for background callers that should pause on 429.
 const wrFetchBackground = (endpoint, query) => wrFetch(endpoint, query, { respectBreaker: true })
 
+// ── Bulk store: serve a whole WR collection FAST at any scale ────────────────
+// The datasets and organizations lists change rarely (an org adds a dataset now
+// and then — not second-to-second), but the naive path made the browser fetch
+// them one 10–20s page at a time, so 500+ datasets took 1–2 minutes. This
+// factory fixes that the way a backend that expects 5,000 concurrent users
+// should:
+//   • ONE long-lived in-memory copy of the full list (TTL below).
+//   • Stale-while-revalidate: once warm, every request returns instantly from
+//     memory. When the copy goes stale we still return it immediately AND kick
+//     a single background refresh — so no user ever waits on WR again.
+//   • In-flight de-duplication: a cold cache hit by N users triggers exactly
+//     ONE upstream load; everyone else awaits that same promise. No stampede.
+//   • Never caches an empty result (a rate-limited load must not poison the
+//     cache), and serves the last-good copy if a refresh fails.
+// This is the same shape as /locations-all, generalised.
+function makeBulkStore({ name, path, ttlMs, maxPages = 40 }) {
+  let store = { data: null, ts: 0 }
+  let inFlight = null
+
+  async function loadAll() {
+    const all = []
+    pageLoop: for (let page = 1; page <= maxPages; page++) {
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        try {
+          const data = await wrFetch(path, { page, per_page: 100 })
+          const items = Array.isArray(data) ? data : (data.datasets || data.organizations || data.data || [])
+          if (!items.length) break pageLoop
+          all.push(...items)
+          if (items.length < 100) break pageLoop
+          break // page ok → next page
+        } catch (e) {
+          // Honour WR's rate-limit deadline, then retry the same page.
+          if (String(e.message).includes('429') && wrRateLimitedUntil > Date.now()) {
+            const waitMs = Math.min((wrRateLimitedUntil - Date.now()) + 500, 60_000)
+            console.log(`[WR] ${name} page ${page} 429 — waiting ${Math.ceil(waitMs/1000)}s (have ${all.length})`)
+            await new Promise(r => setTimeout(r, waitMs))
+            continue
+          }
+          if (attempt < 4) { await new Promise(r => setTimeout(r, 800 * attempt)); continue }
+          throw e // exhausted retries on a hard error → let caller decide
+        }
+      }
+    }
+    return all
+  }
+
+  // Kick a single background refresh (deduped). Never throws to the caller.
+  function refresh() {
+    if (inFlight) return inFlight
+    inFlight = loadAll()
+      .then(all => {
+        if (all.length) { store = { data: all, ts: Date.now() }; console.log(`[WR] ${name}: cached ${all.length}`) }
+        else console.log(`[WR] ${name}: loaded 0 — not caching (will retry)`)
+        return all
+      })
+      .catch(e => { console.error(`[WR] ${name} refresh failed:`, e.message); return store.data || [] })
+      .finally(() => { inFlight = null })
+    return inFlight
+  }
+
+  async function get() {
+    const now = Date.now()
+    const has = store.data && store.data.length > 0
+    const fresh = has && (now - store.ts < ttlMs)
+    if (fresh) return { items: store.data, cached: true, count: store.data.length }
+    if (has) {
+      // Stale: serve immediately, refresh in the background.
+      refresh()
+      return { items: store.data, cached: true, stale: true, count: store.data.length }
+    }
+    // Cold: must wait, but only one upstream load runs for all waiters.
+    const items = await refresh()
+    return { items, cached: false, count: items.length }
+  }
+
+  return { get, warm: () => { refresh() } }
+}
+
+// Datasets & organizations change rarely → a 30-minute freshness window is
+// plenty, and SWR means even that boundary is invisible to users.
+const datasetsStore     = makeBulkStore({ name: 'datasets-all',      path: '/datasets.json',      ttlMs: 30 * 60 * 1000 })
+const organizationsStore = makeBulkStore({ name: 'organizations-all', path: '/organizations.json', ttlMs: 30 * 60 * 1000 })
+
+// Warm the caches shortly after boot so the very first real user is fast too.
+// Delayed a few seconds so it doesn't compete with app startup.
+setTimeout(() => {
+  console.log('[WR] warming datasets + organizations caches…')
+  datasetsStore.warm(); organizationsStore.warm()
+}, 4000)
+
 // GET /api/wr/locations — single page (backwards compat)
 router.get('/locations', async (req, res) => {
   try {
@@ -267,6 +357,31 @@ router.get('/observations/:id', async (req, res) => {
     res.json(data)
   } catch (e) {
     res.status(502).json({ error: e.message })
+  }
+})
+
+// GET /api/wr/datasets-all — the WHOLE datasets list, fast, at any scale.
+// Backed by the stale-while-revalidate bulk store above: warm cache returns in
+// ~ms, one upstream load serves all concurrent users, never blocks after the
+// first warm-up. This is what the Data Explorer's Datasets tab now calls.
+router.get('/datasets-all', async (req, res) => {
+  try {
+    const r = await datasetsStore.get()
+    res.json({ datasets: r.items, count: r.count, cached: r.cached, stale: !!r.stale })
+  } catch (e) {
+    console.error('[WR] datasets-all error:', e.message)
+    res.status(502).json({ error: "Water Rangers' datasets service is temporarily unavailable (their server, not ours). Please try again in a few minutes — the map, sites and AI Lab still work." })
+  }
+})
+
+// GET /api/wr/organizations-all — the WHOLE organizations list, same fast path.
+router.get('/organizations-all', async (req, res) => {
+  try {
+    const r = await organizationsStore.get()
+    res.json({ organizations: r.items, count: r.count, cached: r.cached, stale: !!r.stale })
+  } catch (e) {
+    console.error('[WR] organizations-all error:', e.message)
+    res.status(502).json({ error: 'Water Rangers organizations service is temporarily unavailable. Please try again shortly.' })
   }
 })
 

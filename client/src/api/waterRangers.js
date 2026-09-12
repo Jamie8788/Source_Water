@@ -78,6 +78,15 @@ export async function getDatasets(opts = {}) {
   return { raw: data, items: norm(data, 'datasets'), page }
 }
 
+// Bulk: the WHOLE datasets list in ONE request. The server keeps it warm in
+// memory (stale-while-revalidate + de-duped upstream load), so this returns in
+// ~ms once warm instead of the browser paging through 6× 10–20s calls. Falls
+// back to the paginated getDatasets loop if this endpoint isn't available.
+export async function getAllDatasets() {
+  const { data } = await api.get('/wr/datasets-all')
+  return data.datasets || []
+}
+
 export const getDataset = (id) => wrGet(`/datasets/${id}`)
 // v2: server now paginates and returns the complete site list (was 20-cap).
 // Bumping the cache-key salt forces a fresh fetch so users with a stale
@@ -92,6 +101,12 @@ export async function getOrganizations(opts = {}) {
   const { page = 1, perPage = 50 } = opts
   const data = await wrGet('/organizations', { page, per_page: perPage })
   return { raw: data, items: norm(data, 'organizations'), page }
+}
+
+// Bulk: the WHOLE organizations list in ONE warm request (see getAllDatasets).
+export async function getAllOrganizations() {
+  const { data } = await api.get('/wr/organizations-all')
+  return data.organizations || []
 }
 
 export const getOrganization = (id) => wrGet(`/organizations/${id}`)
@@ -117,7 +132,7 @@ export const QA_STATUS = {
 export default {
   getLocations, getLocation, getLocationObservations,
   getObservations, getObservation,
-  getDatasets, getDataset, getDatasetLocations, getDatasetObservations, getDatasetForm,
-  getOrganizations, getOrganization,
+  getDatasets, getAllDatasets, getDataset, getDatasetLocations, getDatasetObservations, getDatasetForm,
+  getOrganizations, getAllOrganizations, getOrganization,
   getPOIs, isConfigured, clearCache, QA_STATUS,
 }

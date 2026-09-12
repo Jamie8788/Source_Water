@@ -27,7 +27,7 @@ function FitBounds({ bounds }) {
   return null
 }
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip } from 'recharts'
-import { getDatasets, getOrganizations, getAllLocations, getLocationObservations, getDatasetObservations, getDatasetLocations, QA_STATUS } from '../api/waterRangers'
+import { getDatasets, getAllDatasets, getOrganizations, getAllOrganizations, getAllLocations, getLocationObservations, getDatasetObservations, getDatasetLocations, QA_STATUS } from '../api/waterRangers'
 import api from '../utils/api'
 import { getPlainEnglish } from '../utils/plainEnglishParams'
 
@@ -191,18 +191,25 @@ export default function WRDataExplorer() {
 
   // Load every organization once (id -> name) so datasets can resolve their
   // owning org for the filter and the cards. Independent of the active tab.
+  // One warm bulk call (server-cached) instead of paging; falls back to the
+  // paginated loop if the bulk endpoint isn't available.
   useEffect(() => {
     let alive = true
     ;(async () => {
       const map = {}
-      for (let page = 1; page <= 30; page++) {
-        try {
-          const res = await getOrganizations({ page, perPage: 100 })
-          const arr = res?.items || (Array.isArray(res) ? res : [])
-          if (!arr.length) break
-          arr.forEach(o => { if (o.id) map[o.id] = { name: o.name || o.title || '', slug: o.slug } })
-          if (arr.length < 100) break
-        } catch { break }
+      const put = arr => arr.forEach(o => { if (o.id) map[o.id] = { name: o.name || o.title || '', slug: o.slug } })
+      try {
+        put(await getAllOrganizations())
+      } catch {
+        for (let page = 1; page <= 30; page++) {
+          try {
+            const res = await getOrganizations({ page, perPage: 100 })
+            const arr = res?.items || (Array.isArray(res) ? res : [])
+            if (!arr.length) break
+            put(arr)
+            if (arr.length < 100) break
+          } catch { break }
+        }
       }
       if (alive) setOrgMap(map)
     })()
@@ -257,35 +264,60 @@ export default function WRDataExplorer() {
       .finally(() => setLocObsLoading(false))
   }, [selectedLoc])
 
-  // Load datasets/orgs — STREAMED. Wipe stale data on tab change so the user
-  // can't click a card from the old tab while the new tab is still loading
-  // (this was the NORDIK Institute bug: org id leaked into a dataset card
-  // during the org→datasets switch and the detail call 404'd). Then push
-  // each page into state as it lands instead of waiting for all 6 — WR's
-  // API is ~10–20s per page, the old "wait for everything" pattern gave a
-  // 60–120s blank screen.
+  // Load datasets/orgs — ONE warm bulk request instead of paging through six
+  // 10–20s calls. The server keeps the whole list in memory (stale-while-
+  // revalidate), so this returns in ~ms once warm. We also stash the result in
+  // sessionStorage so switching tabs (or coming back) is instant, with no
+  // network at all — the stored copy paints immediately while a fresh bulk
+  // request confirms it in the background. Falls back to the old paginated
+  // loop if the bulk endpoint is unavailable, so nothing breaks on old servers.
   useEffect(() => {
     if (tab === 'observations') return
-    setData([])
-    setLoading(true); setError(null)
-    const fetcher = tab === 'datasets' ? getDatasets : getOrganizations
     let cancelled = false
+    const ssKey = tab === 'datasets' ? 'wr_datasets_all' : 'wr_orgs_all'
+
+    // 1) Instant paint from this session's cached copy, if any.
+    let hadCache = false
+    try {
+      const raw = sessionStorage.getItem(ssKey)
+      if (raw) {
+        const arr = JSON.parse(raw)
+        if (Array.isArray(arr) && arr.length) { setData(arr); hadCache = true }
+      }
+    } catch {}
+    if (!hadCache) setData([])
+    setLoading(!hadCache); setError(null)
+
+    // 2) Fetch the fresh full list (fast: server-cached) and reconcile.
     ;(async () => {
-      const all = []
-      for (let p = 1; p <= 10; p++) {
-        try {
-          const result = await fetcher({ page: p, perPage: 100 })
-          if (cancelled) return
-          const items = result.items || []
-          if (items.length === 0) break
-          all.push(...items)
-          setData([...all])      // ← progressive render
-          if (items.length < 100) break
-        } catch (e) {
-          // Prefer the server's friendly message (e.g. "Water Rangers is down")
-          // over axios's generic "Request failed with status code 502".
-          if (!cancelled) setError(e.response?.data?.error || e.message)
-          break
+      try {
+        const bulk = tab === 'datasets' ? getAllDatasets : getAllOrganizations
+        const items = await bulk()
+        if (cancelled) return
+        if (Array.isArray(items) && items.length) {
+          setData(items)
+          try { sessionStorage.setItem(ssKey, JSON.stringify(items)) } catch {}
+          return
+        }
+      } catch (e) {
+        // Bulk endpoint missing/old server → fall through to paginated loop.
+        if (!hadCache) {
+          const fetcher = tab === 'datasets' ? getDatasets : getOrganizations
+          const all = []
+          for (let p = 1; p <= 10; p++) {
+            try {
+              const result = await fetcher({ page: p, perPage: 100 })
+              if (cancelled) return
+              const items = result.items || []
+              if (items.length === 0) break
+              all.push(...items)
+              setData([...all])
+              if (items.length < 100) break
+            } catch (err) {
+              if (!cancelled) setError(err.response?.data?.error || err.message)
+              break
+            }
+          }
         }
       }
     })().finally(() => { if (!cancelled) setLoading(false) })
