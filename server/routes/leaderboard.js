@@ -1,9 +1,18 @@
 const router = require('express').Router()
 const db = require('../db/connection')
 const { requireAuth } = require('../middleware/auth')
+const { makeCache } = require('../utils/microCache')
 
-router.get('/', requireAuth, async (req, res) => {
-  const month = req.query.month || new Date().toISOString().slice(0, 7)
+// The leaderboard is IDENTICAL for every user in a given month, but it's
+// expensive: one ranking query plus 3 count queries per ranked user (~151 DB
+// hits). Without caching, 1,000 concurrent users would run that ~1,000 times.
+// We cache the finished board per month for 60s (points move slowly, so a
+// minute of staleness is invisible) and de-dupe concurrent misses, so a burst
+// of users triggers ONE computation, not a thousand. Cache lives in memory —
+// carries over to any host unchanged.
+const boardCache = makeCache(60 * 1000)
+
+async function computeBoard(month) {
   const board = await db.all(`
     SELECT u.id, u.username, u.display_name, u.avatar_emoji, u.avatar_bg_color, u.role, u.xp,
            COALESCE(SUM(lp.points),0) as points
@@ -30,7 +39,18 @@ router.get('/', requireAuth, async (req, res) => {
     if (u.xp >= 500) badges.push('💎 Expert')
     return { ...u, rank: i + 1, observations: obs, quizzes_passed: quizzes, posts, badges }
   }))
-  res.json({ month, leaderboard: enriched })
+  return { month, leaderboard: enriched }
+}
+
+router.get('/', requireAuth, async (req, res) => {
+  const month = req.query.month || new Date().toISOString().slice(0, 7)
+  try {
+    const body = await boardCache.get(month, () => computeBoard(month))
+    res.json(body)
+  } catch (e) {
+    console.error('[leaderboard] error:', e.message)
+    res.status(500).json({ error: 'Could not load the leaderboard right now.' })
+  }
 })
 
 router.get('/games', requireAuth, async (req, res) => {

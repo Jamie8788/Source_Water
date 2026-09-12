@@ -92,6 +92,26 @@ async function wrFetch(endpoint, query = {}, opts = {}) {
   const cached = cache.get(cacheKey)
   if (cached && Date.now() - cached.ts < TTL) return cached.data
 
+  // Request de-duplication: if an identical fetch is ALREADY in flight (e.g.
+  // 100 users click into the same dataset at the same moment), don't fire 100
+  // requests at Water Rangers — everyone waits on the one already running. This
+  // protects every WR endpoint (dataset detail, observations, locations…) from
+  // a self-inflicted burst and from tripping WR's rate limit. In-memory only,
+  // so it carries to any host unchanged.
+  const pending = inFlightFetches.get(cacheKey)
+  if (pending) return pending
+
+  const p = doWrFetch(url, cacheKey)
+  inFlightFetches.set(cacheKey, p)
+  try { return await p }
+  finally { inFlightFetches.delete(cacheKey) }
+}
+
+// Map of URL -> in-progress fetch promise, used by the de-dup logic above.
+const inFlightFetches = new Map()
+
+// The actual network call + cache write, split out so wrFetch can de-dupe it.
+async function doWrFetch(url, cacheKey) {
   const res = await fetch(url.toString())
   if (!res.ok) {
     const text = await res.text().catch(() => '')

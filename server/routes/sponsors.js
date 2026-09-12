@@ -6,6 +6,13 @@ const cloudinary = require('cloudinary').v2
 const { Readable } = require('stream')
 const db = require('../db/connection')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
+const { makeCache } = require('../utils/microCache')
+
+// The active-sponsors list is the same for every visitor and loads on nearly
+// every page. Cache it for 120s (sponsors change rarely) and de-dupe concurrent
+// misses, so a burst of users hits the DB once. Admin writes below call
+// invalidate() so a change shows up immediately, not after the TTL.
+const activeSponsorsCache = makeCache(120 * 1000)
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -119,14 +126,22 @@ function validateSponsor(payload) {
 }
 
 router.get('/active', async (_req, res) => {
-  const rows = await db.all(
-    `SELECT *
-     FROM sponsors
-     WHERE COALESCE(is_active, CASE WHEN status = 'active' THEN 1 ELSE 0 END) = 1
-     ORDER BY display_order ASC, created_at ASC, id ASC`,
-    []
-  )
-  res.json(rows.map(normalizeSponsor))
+  try {
+    const body = await activeSponsorsCache.get('active', async () => {
+      const rows = await db.all(
+        `SELECT *
+         FROM sponsors
+         WHERE COALESCE(is_active, CASE WHEN status = 'active' THEN 1 ELSE 0 END) = 1
+         ORDER BY display_order ASC, created_at ASC, id ASC`,
+        []
+      )
+      return rows.map(normalizeSponsor)
+    })
+    res.json(body)
+  } catch (err) {
+    console.error('[sponsors:active]', err)
+    res.status(500).json({ error: 'Could not load sponsors right now.' })
+  }
 })
 
 router.get('/', requireAuth, requireAdmin, async (_req, res) => {
@@ -163,6 +178,7 @@ router.post('/', requireAuth, requireAdmin, upload.single('logo'), async (req, r
       [payload.name, payload.website_url, logoPath, logoPublicId, payload.alt_text, payload.tagline, payload.is_active ? 1 : 0, status, payload.display_order]
     )
     const sponsor = await loadSponsor(lastInsertRowid)
+    activeSponsorsCache.invalidate('active')
     res.status(201).json(normalizeSponsor(sponsor))
   } catch (err) {
     console.error('[sponsors:create]', err)
@@ -205,6 +221,7 @@ router.put('/:id', requireAuth, requireAdmin, upload.single('logo'), async (req,
     }
 
     const sponsor = await loadSponsor(req.params.id)
+    activeSponsorsCache.invalidate('active')
     res.json(normalizeSponsor(sponsor))
   } catch (err) {
     console.error('[sponsors:update]', err)
@@ -219,6 +236,7 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
     await db.run('DELETE FROM sponsors WHERE id = ?', [req.params.id])
     await cleanupLogo(sponsor.logo_path)
     await cleanupCloudinaryLogo(sponsor.logo_public_id)
+    activeSponsorsCache.invalidate('active')
     res.json({ success: true })
   } catch (err) {
     console.error('[sponsors:delete]', err)
