@@ -1149,8 +1149,8 @@ function computeSiteStory(observations, analysis, card, corr, health, siteName) 
     const { safe, warn, danger } = health.breakdown
     const total = safe + warn + danger
     const concerns = health.items.filter(i => i.status.tone !== 'safe').map(i => i.param.replace(/_/g, ' '))
-    if (danger + warn === 0) bits.push(`All ${total} parameters that have a safety standard are currently within range — no active red flags.`)
-    else bits.push(`${safe} of ${total} standard-tracked parameters sit within safe limits. Worth watching: ${concerns.slice(0, 3).join(', ')}${concerns.length > 3 ? ` and ${concerns.length - 3} more` : ''}.`)
+    if (danger + warn === 0) bits.push(`All ${total} parameters that have a general guideline range currently read inside it — nothing falls outside the guidelines used here.`)
+    else bits.push(`${safe} of ${total} parameters with a general guideline range read inside it. Currently reading outside the guidelines: ${concerns.slice(0, 3).join(', ')}${concerns.length > 3 ? ` and ${concerns.length - 3} more` : ''}.`)
   }
 
   const moving = analysis.trends.filter(t => t.count >= 4 && t.trend !== 'stable')
@@ -1222,7 +1222,7 @@ function InsightsTab({ observations, analysis, siteName }) {
 
   const hs = health.score
   const hTone = hs == null ? '#6366f1' : hs >= 85 ? '#10b981' : hs >= 60 ? '#f59e0b' : '#ef4444'
-  const hVerdict = hs == null ? 'No safety standard' : hs >= 85 ? 'Healthy' : hs >= 60 ? 'Watch' : 'Concern'
+  const hVerdict = hs == null ? 'No guideline set' : hs >= 85 ? 'Looks within guidelines' : hs >= 60 ? 'Worth watching' : 'Worth a closer look'
   const monthsPresent = [...new Set(seasons.flatMap(s => Object.keys(s.avgs).map(Number)))].sort((a, b) => a - b)
 
   return (
@@ -1249,7 +1249,7 @@ function InsightsTab({ observations, analysis, siteName }) {
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 7, background: `${hTone}14`, border: `1px solid ${hTone}40`, borderRadius: 20, padding: '4px 12px' }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: hTone, boxShadow: `0 0 8px ${hTone}` }} />
                 <span style={{ fontSize: 12, fontWeight: 800, color: hTone }}>{hVerdict}</span>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {hs}/100 health · {health.breakdown.safe}✓ {health.breakdown.warn}◐ {health.breakdown.danger}✕</span>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {hs}/100 vs guidelines · {health.breakdown.safe}✓ {health.breakdown.warn}◐ {health.breakdown.danger}✕</span>
               </div>
             )}
           </div>
@@ -1262,7 +1262,7 @@ function InsightsTab({ observations, analysis, siteName }) {
             ))}
           </div>
           <div style={{ marginTop: 10, fontSize: 9.5, color: 'var(--text-muted)', fontStyle: 'italic' }}>
-            Every sentence is computed from this site's real Water Rangers observations — nothing invented.
+            Every sentence is computed from this site's real Water Rangers observations — nothing invented. “Health” compares readings to <strong>general guideline ranges</strong>, not an official safety rating — see the note at the bottom.
           </div>
         </div>
       </div>
