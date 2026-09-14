@@ -1187,13 +1187,13 @@ function computeSeasonality(trends) {
   return out.slice(0, 7)
 }
 
-// teal(low) → amber → red(high) cell colour for the heatmap, alpha by intensity
+// Clean cool→warm heat colour via HSL hue rotation (blue → red). Going through
+// hue space avoids the muddy grey-brown you get when you blend teal→red in RGB.
+// Low = calm blue, high = warm red; readable dark text sits on top.
 function heatColor(norm) {
-  const lo = [20, 184, 166], hi = [239, 68, 68]
-  const r = Math.round(lo[0] + (hi[0] - lo[0]) * norm)
-  const g = Math.round(lo[1] + (hi[1] - lo[1]) * norm)
-  const b = Math.round(lo[2] + (hi[2] - lo[2]) * norm)
-  return `rgba(${r},${g},${b},${0.18 + norm * 0.55})`
+  const hue = 212 - norm * 204      // 212 (blue) → 8 (red)
+  const light = 78 - norm * 20      // lighter at low, deeper at high
+  return `hsl(${hue}, 72%, ${light}%)`
 }
 
 function InsightsTab({ observations, analysis, siteName }) {
@@ -1337,7 +1337,7 @@ function InsightsTab({ observations, analysis, siteName }) {
                       const a = s.avgs[m]
                       if (a == null) return <td key={m} style={{ background: 'var(--bg)', borderRadius: 5, color: 'var(--text-muted)', textAlign: 'center', opacity: .4 }}>·</td>
                       const norm = s.mx === s.mn ? 0.5 : (a - s.mn) / (s.mx - s.mn)
-                      return <td key={m} title={`${MONTHS[m]}: ${(+a.toFixed(2))} ${s.unit.replace(/_/g, '/')}`} style={{ background: heatColor(norm), borderRadius: 5, textAlign: 'center', color: 'var(--text)', fontWeight: 600, padding: '4px 5px' }}>{+a.toFixed(a >= 100 ? 0 : 1)}</td>
+                      return <td key={m} title={`${MONTHS[m]}: ${(+a.toFixed(2))} ${s.unit.replace(/_/g, '/')} — ${norm >= 0.66 ? 'among its highest' : norm <= 0.33 ? 'among its lowest' : 'mid-range'} for this parameter`} style={{ background: heatColor(norm), borderRadius: 5, textAlign: 'center', color: '#0f2233', fontWeight: 700, padding: '5px 6px' }}>{+a.toFixed(a >= 100 ? 0 : 1)}</td>
                     })}
                   </tr>
                 ))}
@@ -1387,6 +1387,11 @@ function InsightsTab({ observations, analysis, siteName }) {
             })}
           </div>
         )}
+      </div>
+
+      {/* Accuracy + liability note — protects us and is honest about what this is. */}
+      <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.55, background: 'var(--bg)', border: '1px dashed var(--border)', borderRadius: 8, padding: '10px 12px' }}>
+        <strong style={{ color: 'var(--text)' }}>About this analysis.</strong> The measurements are collected by community volunteers and published by <a href="https://data.waterrangers.com" target="_blank" rel="noreferrer" style={{ color: '#14b8a6' }}>Water Rangers</a>; we show them as recorded and do not alter values. The scores, ranges, trends and links on this page are <em>computed automatically to help you explore the data</em> — they are educational aids, not laboratory results or official water-safety determinations. The “safe range” bands are general guideline values and can differ from the rules that apply to a specific water body or jurisdiction. Always confirm against the original Water Rangers record and your local authority before making any health, drinking-water, or regulatory decision.
       </div>
     </div>
   )
