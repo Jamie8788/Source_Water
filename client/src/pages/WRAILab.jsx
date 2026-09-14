@@ -17,6 +17,7 @@ import {
   Loader, BarChart2, MapPin, Search, ExternalLink,
   Sparkles, CheckCircle2, AlertCircle, XCircle, Info, ArrowUpRight, ArrowDownRight, Minus,
   Volume2, VolumeX, Calendar, ShieldAlert, HeartPulse,
+  Gauge, Link2, Award, Clock, Waypoints,
 } from 'lucide-react'
 import { getAllLocations, getLocationObservations } from '../api/waterRangers'
 import api from '../utils/api'
@@ -1026,6 +1027,214 @@ IMPORTANT: This is REAL data loaded directly from Water Rangers API for this spe
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// INSIGHTS TAB — features Water Rangers does NOT provide, computed purely from
+// the real observations we already pulled. No AI calls, nothing fabricated.
+// Two headline tools researchers/students actually need when judging a site:
+//   1. a Monitoring Report Card (is this dataset trustworthy & usable?)
+//   2. Parameter Correlations   (how do the measurements move together?)
+// Everything is a checkable fact about the real data, shown with its sample
+// size, so it reads as honest science — the reason a funder/researcher stays.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Which QA states count as "reviewed" vs raw. WR stamps each observation's
+// `checked` field; anything approved / QC'd / reviewed / verified counts.
+function isReviewedStatus(s) { return /approv|qc|complete|review|verif/.test(String(s || '').toLowerCase()) }
+const daysBetween = (a, b) => Math.abs(new Date(a) - new Date(b)) / 86400000
+
+// A research-readiness scorecard. Every field is a real, checkable fact about
+// the data; WR never surfaces these together. Sub-scores are shown openly so
+// the grade is transparent, not a black box.
+function computeReportCard(observations, analysis) {
+  const dates = observations.map(o => o.observed_at).filter(Boolean).map(d => new Date(d)).sort((a, b) => a - b)
+  if (dates.length < 2) return null
+  const first = dates[0], last = dates[dates.length - 1]
+  const spanDays = Math.max(1, daysBetween(first, last))
+  const spanYears = spanDays / 365
+  const gaps = []
+  for (let i = 1; i < dates.length; i++) gaps.push(daysBetween(dates[i - 1], dates[i]))
+  const sortedGaps = [...gaps].sort((a, b) => a - b)
+  const medianGap = sortedGaps.length ? sortedGaps[Math.floor(sortedGaps.length / 2)] : null
+  const longestGap = gaps.length ? Math.max(...gaps) : null
+  const daysSinceLast = daysBetween(last, new Date())
+  const reviewed = observations.filter(o => isReviewedStatus(o.checked)).length
+  const qaPct = Math.round((reviewed / observations.length) * 100)
+  const paramCount = analysis.trends.length
+
+  // Transparent 0–100 sub-scores (shown as bars in the UI).
+  const factors = [
+    { key: 'Records',    score: Math.min(100, Math.round(observations.length / 50 * 100)), detail: `${observations.length} sampling visits`, ideal: '50+ is excellent' },
+    { key: 'Time span',  score: Math.min(100, Math.round(spanYears / 3 * 100)),           detail: spanYears >= 1 ? `${spanYears.toFixed(1)} years` : `${Math.round(spanDays)} days`, ideal: '3+ years is excellent' },
+    { key: 'Recency',    score: daysSinceLast <= 90 ? 100 : daysSinceLast <= 180 ? 70 : daysSinceLast <= 365 ? 40 : 15, detail: `last reading ${Math.round(daysSinceLast)} days ago`, ideal: 'under 90 days = actively monitored' },
+    { key: 'Regularity', score: medianGap == null ? 50 : medianGap <= 35 ? 100 : medianGap <= 95 ? 70 : medianGap <= 190 ? 40 : 20, detail: medianGap == null ? 'n/a' : `typically every ${Math.round(medianGap)} days`, ideal: 'monthly or better' },
+    { key: 'QA review',  score: qaPct, detail: `${qaPct}% reviewed/approved`, ideal: 'higher = more trustworthy' },
+    { key: 'Breadth',    score: Math.min(100, Math.round(paramCount / 8 * 100)), detail: `${paramCount} parameters tracked`, ideal: '8+ gives a full picture' },
+  ]
+  const score = Math.round(factors.reduce((s, f) => s + f.score, 0) / factors.length)
+  const grade = score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 40 ? 'D' : 'F'
+  const verdict = score >= 70
+    ? 'Strong, research-grade record — well suited to trend analysis and citation.'
+    : score >= 55
+      ? 'Usable record with some gaps — good for context, note the limitations below.'
+      : 'Sparse or dated record — treat findings as indicative, not conclusive.'
+  return { score, grade, verdict, factors, first, last, spanYears, spanDays, medianGap, longestGap, daysSinceLast, qaPct, reviewed, paramCount, observations: observations.length }
+}
+
+function pearson(xs, ys) {
+  const n = xs.length
+  if (n < 4) return null
+  const mx = xs.reduce((s, v) => s + v, 0) / n, my = ys.reduce((s, v) => s + v, 0) / n
+  let sxy = 0, sxx = 0, syy = 0
+  for (let i = 0; i < n; i++) { const dx = xs[i] - mx, dy = ys[i] - my; sxy += dx * dy; sxx += dx * dx; syy += dy * dy }
+  if (sxx === 0 || syy === 0) return null
+  return sxy / Math.sqrt(sxx * syy)
+}
+
+// Correlate every pair of parameters that were measured on the same visits.
+// Returns the strongest relationships, each with its sample size (n) so the
+// reader can judge how much to trust it. This is the classic thing WR hides:
+// it shows each parameter alone and never how they move together.
+function computeCorrelations(trends) {
+  const maps = trends.map(t => {
+    const m = new Map()
+    t.points.forEach(p => { const k = new Date(p.date).toISOString().slice(0, 10); if (!m.has(k)) m.set(k, p.value) })
+    return { param: t.param, unit: t.unit, map: m }
+  })
+  const pairs = []
+  for (let i = 0; i < maps.length; i++) for (let j = i + 1; j < maps.length; j++) {
+    const A = maps[i], B = maps[j]
+    const xs = [], ys = []
+    for (const [k, v] of A.map) if (B.map.has(k)) { xs.push(v); ys.push(B.map.get(k)) }
+    const r = pearson(xs, ys)
+    if (r == null) continue
+    pairs.push({ a: A.param, b: B.param, r: +r.toFixed(2), n: xs.length })
+  }
+  return pairs.filter(p => Math.abs(p.r) >= 0.2).sort((p, q) => Math.abs(q.r) - Math.abs(p.r)).slice(0, 8)
+}
+
+function correlationText(p) {
+  const A = p.a.replace(/_/g, ' '), B = p.b.replace(/_/g, ' ')
+  const mag = Math.abs(p.r)
+  const strength = mag >= 0.7 ? 'strong' : mag >= 0.4 ? 'moderate' : 'weak'
+  const dir = p.r > 0 ? 'rise and fall together' : 'move in opposite directions'
+  let note = ''
+  const set = (p.a + ' ' + p.b).toLowerCase()
+  if (/temp/.test(set) && /oxygen/.test(set) && p.r < 0) note = ' This is the classic signal that warmer water holds less oxygen.'
+  else if (/conduct/.test(set) && /(hardness|salinity|chloride|tds)/.test(set) && p.r > 0) note = ' Both track dissolved minerals/salts, so they usually rise together.'
+  else if (/phosph/.test(set) && /oxygen/.test(set) && p.r < 0) note = ' Nutrient enrichment feeding algae can pull oxygen down.'
+  return `A ${strength} relationship: as one goes up, the two ${dir} (r = ${p.r}, n = ${p.n} shared visits).${note}`
+}
+
+function InsightsTab({ observations, analysis, siteName }) {
+  const card = useMemo(() => computeReportCard(observations, analysis), [observations, analysis])
+  const corr = useMemo(() => computeCorrelations(analysis.trends), [analysis.trends])
+  const gradeColor = (g) => ({ A: '#10b981', B: '#22c55e', C: '#f59e0b', D: '#f97316', F: '#ef4444' }[g] || '#6366f1')
+  const barColor = (s) => s >= 80 ? '#10b981' : s >= 55 ? '#f59e0b' : '#ef4444'
+
+  if (!card) return <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: 12 }}>Not enough dated observations at {siteName} to build insights yet.</div>
+
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      {/* intro — set expectations honestly */}
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', background: 'rgba(167,139,250,.06)', border: '1px solid rgba(167,139,250,.16)', borderRadius: 8, padding: '8px 11px', lineHeight: 1.5 }}>
+        <Sparkles size={12} style={{ verticalAlign: -2, marginRight: 4, color: '#a78bfa' }} />
+        Computed live from this site's real Water Rangers observations — no AI, nothing invented. These are the checks a researcher runs before trusting a dataset, in one place.
+      </div>
+
+      {/* ── MONITORING REPORT CARD ── */}
+      <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <Gauge size={16} color="#a78bfa" />
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>Monitoring Report Card</h3>
+          <span style={{ fontSize: 9.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>research-readiness · not on Water Rangers</span>
+        </div>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* grade badge */}
+          <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 96 }}>
+            <div style={{ width: 76, height: 76, borderRadius: '50%', display: 'grid', placeItems: 'center', background: `conic-gradient(${gradeColor(card.grade)} ${card.score * 3.6}deg, var(--border) 0deg)` }}>
+              <div style={{ width: 62, height: 62, borderRadius: '50%', background: 'var(--card-bg)', display: 'grid', placeItems: 'center' }}>
+                <div style={{ fontSize: 26, fontWeight: 900, color: gradeColor(card.grade), lineHeight: 1 }}>{card.grade}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}><strong style={{ color: 'var(--text)' }}>{card.score}</strong>/100</div>
+          </div>
+          {/* factor bars */}
+          <div style={{ flex: 1, minWidth: 240, display: 'grid', gap: 6 }}>
+            {card.factors.map(f => (
+              <div key={f.key} title={`Ideal: ${f.ideal}`}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 2 }}>
+                  <span style={{ color: 'var(--text)', fontWeight: 600 }}>{f.key}</span>
+                  <span style={{ color: 'var(--text-muted)' }}>{f.detail}</span>
+                </div>
+                <div style={{ height: 6, borderRadius: 6, background: 'var(--border)', overflow: 'hidden' }}>
+                  <div style={{ width: `${f.score}%`, height: '100%', background: barColor(f.score), borderRadius: 6 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--text)', lineHeight: 1.5, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 11px' }}>
+          <strong>Verdict:</strong> {card.verdict}
+        </div>
+        {/* key facts row */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 6, marginTop: 10 }}>
+          {[
+            { icon: Calendar, label: 'Span', value: card.spanYears >= 1 ? `${card.spanYears.toFixed(1)} yrs` : `${Math.round(card.spanDays)} d` },
+            { icon: Clock, label: 'Last reading', value: `${Math.round(card.daysSinceLast)} d ago` },
+            { icon: Waypoints, label: 'Typical cadence', value: card.medianGap == null ? 'n/a' : `~${Math.round(card.medianGap)} d` },
+            { icon: AlertTriangle, label: 'Longest gap', value: card.longestGap == null ? 'n/a' : `${Math.round(card.longestGap)} d` },
+            { icon: ShieldAlert, label: 'QA reviewed', value: `${card.qaPct}%` },
+            { icon: BarChart2, label: 'Parameters', value: card.paramCount },
+          ].map(s => (
+            <div key={s.label} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 9px' }}>
+              <div style={{ fontSize: 8.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.04em', display: 'flex', alignItems: 'center', gap: 3 }}><s.icon size={10} /> {s.label}</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text)', marginTop: 1 }}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── PARAMETER CORRELATIONS ── */}
+      <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <Link2 size={16} color="#14b8a6" />
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>How the measurements move together</h3>
+          <span style={{ fontSize: 9.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>parameter correlations · not on Water Rangers</span>
+        </div>
+        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
+          Water Rangers shows each parameter on its own. Here we line up readings taken on the same visits and measure how strongly pairs track each other (Pearson r, from −1 to +1). <em>Correlation is not proof of cause</em> — but it's where real analysis starts.
+        </div>
+        {corr.length === 0 ? (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '10px 0' }}>No parameter pairs share enough same-day readings yet (need at least 4). As more observations are logged, relationships will appear here.</div>
+        ) : (
+          <div style={{ display: 'grid', gap: 7 }}>
+            {corr.map((p, i) => {
+              const c = p.r > 0 ? '#ef4444' : '#3b82f6'
+              const pct = Math.round(Math.abs(p.r) * 100)
+              return (
+                <div key={i} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 11px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', textTransform: 'capitalize' }}>{p.a.replace(/_/g, ' ')}</span>
+                    <span style={{ fontSize: 12, color: c }}>{p.r > 0 ? '↑↑' : '↑↓'}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', textTransform: 'capitalize' }}>{p.b.replace(/_/g, ' ')}</span>
+                    <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: c, background: `${c}14`, padding: '1px 7px', borderRadius: 5 }}>r = {p.r > 0 ? '+' : ''}{p.r}</span>
+                  </div>
+                  {/* strength bar, centered at 0 */}
+                  <div style={{ position: 'relative', height: 5, background: 'var(--border)', borderRadius: 5, marginBottom: 5 }}>
+                    <div style={{ position: 'absolute', left: '50%', top: -1, bottom: -1, width: 1, background: 'var(--text-muted)', opacity: .4 }} />
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, borderRadius: 5, background: c, [p.r > 0 ? 'left' : 'right']: '50%', width: `${pct / 2}%` }} />
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.45 }}>{correlationText(p)}</div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function WRAILab() {
   const [locations, setLocations] = useState([])
   const [locsLoading, setLocsLoading] = useState(true)
@@ -1091,6 +1300,7 @@ export default function WRAILab() {
 
   const TABS = [
     { id: 'anomalies', label: 'Anomaly Detection', icon: AlertTriangle, color: '#ef4444', count: anomalies.length },
+    { id: 'insights', label: 'Insights', icon: Gauge, color: '#a78bfa' },
     { id: 'trends', label: 'Trends', icon: TrendingUp, color: '#14b8a6', count: trends.length },
     { id: 'charts', label: 'Charts', icon: BarChart2, color: '#6366f1' },
     { id: 'ai', label: 'Research AI', icon: Brain, color: '#a78bfa' },
@@ -1103,7 +1313,7 @@ export default function WRAILab() {
           <Brain size={20} color="#a78bfa" /> AI Lab
         </h1>
         <p style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 2 }}>
-          Pick a monitoring site → get full analysis, anomalies, trends, and AI-powered research
+          Pick a monitoring site → anomalies, a research-readiness report card, parameter correlations, trends, and AI-powered research — built on Water Rangers data, with analysis they don't provide.
         </p>
       </div>
 
@@ -1268,6 +1478,11 @@ export default function WRAILab() {
                   </div>
                 )}
 
+                {/* INSIGHTS — report card + correlations (computed, no AI, WR doesn't have it) */}
+                {tab === 'insights' && (
+                  <InsightsTab observations={observations} analysis={analysis} siteName={selectedSite.name} />
+                )}
+
                 {/* CHARTS — community-readable: safe-range bands, anomaly dots, plain English */}
                 {tab === 'charts' && (
                   <ChartsTab trends={trends} siteName={selectedSite.name}
@@ -1300,7 +1515,7 @@ export default function WRAILab() {
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
             <Brain size={32} style={{ margin: '0 auto 10px', opacity: .3 }} />
             <div style={{ fontSize: 14, fontWeight: 700 }}>Select a monitoring site to analyze</div>
-            <div style={{ fontSize: 12, marginTop: 4 }}>Search from {locations.length.toLocaleString()} sites — get anomalies, trends, charts, and AI research</div>
+            <div style={{ fontSize: 12, marginTop: 4 }}>Search from {locations.length.toLocaleString()} sites — anomalies, a monitoring report card, parameter correlations, trends, charts, and AI research</div>
           </div>
         )}
       </div>
