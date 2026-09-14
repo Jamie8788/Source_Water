@@ -1063,12 +1063,12 @@ function computeReportCard(observations, analysis) {
 
   // Transparent 0–100 sub-scores (shown as bars in the UI).
   const factors = [
-    { key: 'Records',    score: Math.min(100, Math.round(observations.length / 50 * 100)), detail: `${observations.length} sampling visits`, ideal: '50+ is excellent' },
-    { key: 'Time span',  score: Math.min(100, Math.round(spanYears / 3 * 100)),           detail: spanYears >= 1 ? `${spanYears.toFixed(1)} years` : `${Math.round(spanDays)} days`, ideal: '3+ years is excellent' },
-    { key: 'Recency',    score: daysSinceLast <= 90 ? 100 : daysSinceLast <= 180 ? 70 : daysSinceLast <= 365 ? 40 : 15, detail: `last reading ${Math.round(daysSinceLast)} days ago`, ideal: 'under 90 days = actively monitored' },
-    { key: 'Regularity', score: medianGap == null ? 50 : medianGap <= 35 ? 100 : medianGap <= 95 ? 70 : medianGap <= 190 ? 40 : 20, detail: medianGap == null ? 'n/a' : `typically every ${Math.round(medianGap)} days`, ideal: 'monthly or better' },
-    { key: 'QA review',  score: qaPct, detail: `${qaPct}% reviewed/approved`, ideal: 'higher = more trustworthy' },
-    { key: 'Breadth',    score: Math.min(100, Math.round(paramCount / 8 * 100)), detail: `${paramCount} parameters tracked`, ideal: '8+ gives a full picture' },
+    { key: 'How much data',        score: Math.min(100, Math.round(observations.length / 50 * 100)), detail: `${observations.length} visits`, ideal: 'More visits = a fuller picture. 50+ is excellent.' },
+    { key: 'How long it’s watched', score: Math.min(100, Math.round(spanYears / 3 * 100)),           detail: spanYears >= 1 ? `${spanYears.toFixed(1)} years` : `${Math.round(spanDays)} days`, ideal: 'Longer history = you can see real change. 3+ years is excellent.' },
+    { key: 'Checked recently?',    score: daysSinceLast <= 90 ? 100 : daysSinceLast <= 180 ? 70 : daysSinceLast <= 365 ? 40 : 15, detail: `${Math.round(daysSinceLast)} days ago`, ideal: 'Under 90 days means it’s still being actively watched.' },
+    { key: 'On a regular schedule?', score: medianGap == null ? 50 : medianGap <= 35 ? 100 : medianGap <= 95 ? 70 : medianGap <= 190 ? 40 : 20, detail: medianGap == null ? 'n/a' : `every ~${Math.round(medianGap)} days`, ideal: 'Regular, evenly-spaced checks are more trustworthy. Monthly or better is great.' },
+    { key: 'Double-checked by an expert?', score: qaPct, detail: `${qaPct}%`, ideal: 'The share of readings a dataset admin reviewed/approved. Higher = more trustworthy.' },
+    { key: 'How many things measured', score: Math.min(100, Math.round(paramCount / 8 * 100)), detail: `${paramCount} tests`, ideal: 'More tests (temp, oxygen, pH…) = a fuller health picture. 8+ is excellent.' },
   ]
   const score = Math.round(factors.reduce((s, f) => s + f.score, 0) / factors.length)
   const grade = score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 40 ? 'D' : 'F'
@@ -1112,17 +1112,24 @@ function computeCorrelations(trends) {
   return pairs.filter(p => Math.abs(p.r) >= 0.2).sort((p, q) => Math.abs(q.r) - Math.abs(p.r)).slice(0, 8)
 }
 
+function strengthWord(r) {
+  const m = Math.abs(r)
+  return m >= 0.7 ? 'Very strong link' : m >= 0.5 ? 'Strong link' : m >= 0.35 ? 'Moderate link' : 'Slight link'
+}
+
+// Plain-language sentence a volunteer can read — no stats words up front.
 function correlationText(p) {
   const A = p.a.replace(/_/g, ' '), B = p.b.replace(/_/g, ' ')
-  const mag = Math.abs(p.r)
-  const strength = mag >= 0.7 ? 'strong' : mag >= 0.4 ? 'moderate' : 'weak'
-  const dir = p.r > 0 ? 'rise and fall together' : 'move in opposite directions'
+  const s = p.r > 0
+    ? `When ${A} goes up, ${B} usually goes up too — and when one falls, the other falls.`
+    : `When ${A} goes up, ${B} usually goes down — they pull in opposite directions.`
   let note = ''
   const set = (p.a + ' ' + p.b).toLowerCase()
-  if (/temp/.test(set) && /oxygen/.test(set) && p.r < 0) note = ' This is the classic signal that warmer water holds less oxygen.'
-  else if (/conduct/.test(set) && /(hardness|salinity|chloride|tds)/.test(set) && p.r > 0) note = ' Both track dissolved minerals/salts, so they usually rise together.'
-  else if (/phosph/.test(set) && /oxygen/.test(set) && p.r < 0) note = ' Nutrient enrichment feeding algae can pull oxygen down.'
-  return `A ${strength} relationship: as one goes up, the two ${dir} (r = ${p.r}, n = ${p.n} shared visits).${note}`
+  if (/temp/.test(set) && /oxygen/.test(set) && p.r < 0) note = ' Makes sense: warmer water holds less oxygen for fish.'
+  else if (/conduct/.test(set) && /(hardness|salinity|chloride|tds|alkalin)/.test(set) && p.r > 0) note = ' Makes sense: both go up when there are more dissolved minerals/salts in the water.'
+  else if (/air.*temp/.test(set) && /water.*temp/.test(set) && p.r > 0) note = ' Makes sense: the water follows the weather.'
+  else if (/phosph/.test(set) && /oxygen/.test(set) && p.r < 0) note = ' This can happen when nutrients feed algae that use up oxygen.'
+  return `${s}${note}`
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -1153,7 +1160,7 @@ function computeSiteStory(observations, analysis, card, corr, health, siteName) 
   }
   if (corr.length) {
     const c = corr[0]
-    bits.push(`Strongest relationship in the data: ${c.a.replace(/_/g, ' ')} and ${c.b.replace(/_/g, ' ')} ${c.r > 0 ? 'rise and fall together' : 'move in opposite directions'} (r = ${c.r > 0 ? '+' : ''}${c.r}).`)
+    bits.push(`The two measurements most closely linked here are ${c.a.replace(/_/g, ' ')} and ${c.b.replace(/_/g, ' ')} — they ${c.r > 0 ? 'rise and fall together' : 'move in opposite directions'}.`)
   }
   if (observations.length < 12 || card.spanYears < 0.5) bits.push(`This is still a short record, so read trends as early signals, not firm conclusions.`)
   return bits
@@ -1207,6 +1214,11 @@ function InsightsTab({ observations, analysis, siteName }) {
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
+      {/* plain intro for first-time / non-scientist readers */}
+      <div style={{ fontSize: 11.5, color: 'var(--text)', background: 'rgba(20,184,166,.06)', border: '1px solid rgba(20,184,166,.18)', borderRadius: 8, padding: '9px 12px', lineHeight: 1.55 }}>
+        <strong>New here?</strong> This page reads all of a site's water tests and explains, in plain words, <em>how much you can trust the data</em> and <em>what stands out</em> — so you don't have to make sense of hundreds of numbers yourself. Start with the <strong>Site Story</strong> below; everything under it is the detail behind it.
+      </div>
+
       {/* ── SITE STORY — auto-written plain-English briefing (the hero) ── */}
       <div style={{ borderRadius: 14, padding: 1, background: `linear-gradient(135deg, ${hTone}66, ${hTone}22 45%, transparent)` }}>
         <div style={{ background: 'var(--card-bg)', borderRadius: 13, padding: 16 }}>
@@ -1248,6 +1260,9 @@ function InsightsTab({ observations, analysis, siteName }) {
           <Gauge size={16} color="#a78bfa" />
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>Monitoring Report Card</h3>
           <span style={{ fontSize: 9.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>research-readiness · not on Water Rangers</span>
+        </div>
+        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
+          Like a report card for the <em>monitoring</em> (not the water itself): a quick A–F on how complete and trustworthy this site's record is. Each bar is one thing that makes data reliable — greener &amp; fuller is better.
         </div>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
           {/* grade badge */}
@@ -1339,11 +1354,12 @@ function InsightsTab({ observations, analysis, siteName }) {
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>How the measurements move together</h3>
           <span style={{ fontSize: 9.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>parameter correlations · not on Water Rangers</span>
         </div>
-        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
-          Water Rangers shows each parameter on its own. Here we line up readings taken on the same visits and measure how strongly pairs track each other (Pearson r, from −1 to +1). <em>Correlation is not proof of cause</em> — but it's where real analysis starts.
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
+          Which measurements tend to change <strong>together</strong>? That's a clue that one might affect the other — a great starting point for a question or a science-fair project. <em>A link is not proof one causes the other</em> — but it's where real investigation begins.
+          <span style={{ display: 'block', marginTop: 4, fontSize: 10 }}>(The small <span style={{ fontFamily: 'monospace' }}>r</span> number is the science score for how tight the link is: <span style={{ fontFamily: 'monospace' }}>+1</span> = move up together perfectly, <span style={{ fontFamily: 'monospace' }}>−1</span> = perfect opposites, <span style={{ fontFamily: 'monospace' }}>0</span> = no link.)</span>
         </div>
         {corr.length === 0 ? (
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '10px 0' }}>No parameter pairs share enough same-day readings yet (need at least 4). As more observations are logged, relationships will appear here.</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '10px 0' }}>Not enough readings taken on the same days yet to spot links (we need at least 4). As more visits are logged, relationships will show up here.</div>
         ) : (
           <div style={{ display: 'grid', gap: 7 }}>
             {corr.map((p, i) => {
@@ -1355,14 +1371,17 @@ function InsightsTab({ observations, analysis, siteName }) {
                     <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', textTransform: 'capitalize' }}>{p.a.replace(/_/g, ' ')}</span>
                     <span style={{ fontSize: 12, color: c }}>{p.r > 0 ? '↑↑' : '↑↓'}</span>
                     <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', textTransform: 'capitalize' }}>{p.b.replace(/_/g, ' ')}</span>
-                    <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: c, background: `${c}14`, padding: '1px 7px', borderRadius: 5 }}>r = {p.r > 0 ? '+' : ''}{p.r}</span>
+                    <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 800, color: c, background: `${c}14`, padding: '2px 8px', borderRadius: 20 }}>{strengthWord(p.r)}</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: 9.5, color: 'var(--text-muted)' }} title="r = correlation score · n = shared visits">r={p.r > 0 ? '+' : ''}{p.r} · n={p.n}</span>
+                    </span>
                   </div>
                   {/* strength bar, centered at 0 */}
                   <div style={{ position: 'relative', height: 5, background: 'var(--border)', borderRadius: 5, marginBottom: 5 }}>
                     <div style={{ position: 'absolute', left: '50%', top: -1, bottom: -1, width: 1, background: 'var(--text-muted)', opacity: .4 }} />
                     <div style={{ position: 'absolute', top: 0, bottom: 0, borderRadius: 5, background: c, [p.r > 0 ? 'left' : 'right']: '50%', width: `${pct / 2}%` }} />
                   </div>
-                  <div style={{ fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.45 }}>{correlationText(p)}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text)', lineHeight: 1.45 }}>{correlationText(p)}</div>
                 </div>
               )
             })}
