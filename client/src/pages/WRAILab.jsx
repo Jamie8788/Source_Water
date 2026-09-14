@@ -1180,11 +1180,24 @@ function computeSeasonality(trends) {
     }
     const months = Object.keys(byMonth).map(Number).sort((a, b) => a - b)
     if (months.length < 3) continue
-    const avgs = {}; let mn = Infinity, mx = -Infinity
-    for (const m of months) { const a = byMonth[m].sum / byMonth[m].count; avgs[m] = a; mn = Math.min(mn, a); mx = Math.max(mx, a) }
-    out.push({ param: t.param, unit: t.unit, avgs, mn, mx })
+    const avgs = {}; let mn = Infinity, mx = -Infinity, peakM = months[0], lowM = months[0]
+    for (const m of months) {
+      const a = byMonth[m].sum / byMonth[m].count; avgs[m] = a
+      if (a > mx) { mx = a; peakM = m }
+      if (a < mn) { mn = a; lowM = m }
+    }
+    out.push({ param: t.param, unit: t.unit, avgs, mn, mx, peakM, lowM })
   }
   return out.slice(0, 7)
+}
+
+// A plain sentence describing a parameter's yearly shape — so the coloured
+// grid isn't the only thing a reader has to interpret.
+function seasonalSentence(s) {
+  const u = (s.unit || '').replace(/_/g, '/')
+  const rel = s.mx === 0 ? 0 : (s.mx - s.mn) / (Math.abs(s.mx) || 1)
+  if (rel < 0.15) return `Stays fairly steady all year (around ${+((s.mn + s.mx) / 2).toFixed(1)} ${u}).`
+  return `Highest in ${MONTHS[s.peakM]} (~${+s.mx.toFixed(1)} ${u}), lowest in ${MONTHS[s.lowM]} (~${+s.mn.toFixed(1)} ${u}).`
 }
 
 // Clean cool→warm heat colour via HSL hue rotation (blue → red). Going through
@@ -1318,31 +1331,41 @@ function InsightsTab({ observations, analysis, siteName }) {
             <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>Seasonal pattern</h3>
             <span style={{ fontSize: 9.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>month-by-month averages · not on Water Rangers</span>
           </div>
-          <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
-            Each row is a parameter; each cell is its average for that month. Colour runs <span style={{ color: '#14b8a6', fontWeight: 700 }}>teal (low)</span> → <span style={{ color: '#ef4444', fontWeight: 700 }}>red (high)</span> <em>within each row</em>, so you can see when a parameter peaks across the year.
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, lineHeight: 1.5 }}>
+            The typical value of each test in each month, so you can see when it peaks across the year (e.g. water warmest in summer).
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ borderCollapse: 'separate', borderSpacing: 3, fontSize: 10.5 }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, padding: '2px 6px' }}>Parameter</th>
-                  {monthsPresent.map(m => <th key={m} style={{ color: 'var(--text-muted)', fontWeight: 600, padding: '2px 4px', minWidth: 34 }}>{MONTHS[m]}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {seasons.map(s => (
-                  <tr key={s.param}>
-                    <td style={{ color: 'var(--text)', fontWeight: 600, textTransform: 'capitalize', whiteSpace: 'nowrap', paddingRight: 8 }}>{s.param.replace(/_/g, ' ')}</td>
-                    {monthsPresent.map(m => {
-                      const a = s.avgs[m]
-                      if (a == null) return <td key={m} style={{ background: 'var(--bg)', borderRadius: 5, color: 'var(--text-muted)', textAlign: 'center', opacity: .4 }}>·</td>
-                      const norm = s.mx === s.mn ? 0.5 : (a - s.mn) / (s.mx - s.mn)
-                      return <td key={m} title={`${MONTHS[m]}: ${(+a.toFixed(2))} ${s.unit.replace(/_/g, '/')} — ${norm >= 0.66 ? 'among its highest' : norm <= 0.33 ? 'among its lowest' : 'mid-range'} for this parameter`} style={{ background: heatColor(norm), borderRadius: 5, textAlign: 'center', color: '#0f2233', fontWeight: 700, padding: '5px 6px' }}>{+a.toFixed(a >= 100 ? 0 : 1)}</td>
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5, fontStyle: 'italic' }}>
+            ⚠️ Colour just shows each test's own <span style={{ color: '#c2410c', fontWeight: 700 }}>high</span> (warm) vs <span style={{ color: '#1d6fa5', fontWeight: 700 }}>low</span> (cool) months — <strong>not</strong> safe vs unsafe. A red box only means "highest month for this test."
+          </div>
+          <div style={{ display: 'grid', gap: 9 }}>
+            {seasons.map(s => (
+              <div key={s.param} style={{ borderBottom: '1px solid var(--border)', paddingBottom: 9 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
+                  <span style={{ color: 'var(--text)', fontSize: 12.5, fontWeight: 700, textTransform: 'capitalize' }}>{s.param.replace(/_/g, ' ')}</span>
+                  <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>{seasonalSentence(s)}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {monthsPresent.map(m => {
+                    const a = s.avgs[m]
+                    if (a == null) return (
+                      <div key={m} style={{ minWidth: 46, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 7, padding: '4px 6px', opacity: .5 }}>
+                        <div style={{ fontSize: 8.5, color: 'var(--text-muted)' }}>{MONTHS[m]}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>–</div>
+                      </div>
+                    )
+                    const norm = s.mx === s.mn ? 0.5 : (a - s.mn) / (s.mx - s.mn)
+                    const isPeak = m === s.peakM, isLow = m === s.lowM
+                    return (
+                      <div key={m} title={`${MONTHS[m]}: ${(+a.toFixed(2))} ${s.unit.replace(/_/g, '/')}`} style={{ minWidth: 46, textAlign: 'center', background: heatColor(norm), borderRadius: 7, padding: '4px 6px', boxShadow: (isPeak || isLow) ? `0 0 0 2px ${isPeak ? '#c2410c' : '#1d6fa5'}` : 'none' }}>
+                        <div style={{ fontSize: 8.5, color: '#0f2233', opacity: .75, fontWeight: 600 }}>{MONTHS[m]}</div>
+                        <div style={{ fontSize: 12.5, color: '#0f2233', fontWeight: 800 }}>{+a.toFixed(a >= 100 ? 0 : 1)}</div>
+                      </div>
+                    )
+                  })}
+                  <div style={{ fontSize: 9, color: 'var(--text-muted)', alignSelf: 'center', marginLeft: 2 }}>{(s.unit || '').replace(/_/g, '/')}</div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
