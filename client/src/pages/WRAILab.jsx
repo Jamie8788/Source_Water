@@ -1125,20 +1125,121 @@ function correlationText(p) {
   return `A ${strength} relationship: as one goes up, the two ${dir} (r = ${p.r}, n = ${p.n} shared visits).${note}`
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// Auto-write a plain-English briefing from the real numbers — NO AI. This is
+// the "so what?" layer: it reads the whole record and says what actually
+// matters, so a community member or reviewer doesn't have to decode hundreds
+// of rows themselves. Every sentence is derived from computed facts.
+function computeSiteStory(observations, analysis, card, corr, health, siteName) {
+  const bits = []
+  const cadence = card.medianGap == null ? null : Math.round(card.medianGap)
+  const spanTxt = card.spanYears >= 1 ? `${card.spanYears.toFixed(1)} years` : `${Math.round(card.spanDays)} days`
+  const cadenceTxt = cadence == null ? '' : cadence <= 10 ? ' (roughly weekly)' : cadence <= 40 ? ' (roughly monthly)' : ''
+  bits.push(`${siteName} has ${observations.length} sampling visits across ${spanTxt}${cadence != null ? `, about every ${cadence} days${cadenceTxt}` : ''}. ${card.qaPct}% of records are QA-reviewed, and the latest reading is ${Math.round(card.daysSinceLast)} day${Math.round(card.daysSinceLast) === 1 ? '' : 's'} old.`)
+
+  if (health.score != null) {
+    const { safe, warn, danger } = health.breakdown
+    const total = safe + warn + danger
+    const concerns = health.items.filter(i => i.status.tone !== 'safe').map(i => i.param.replace(/_/g, ' '))
+    if (danger + warn === 0) bits.push(`All ${total} parameters that have a safety standard are currently within range — no active red flags.`)
+    else bits.push(`${safe} of ${total} standard-tracked parameters sit within safe limits. Worth watching: ${concerns.slice(0, 3).join(', ')}${concerns.length > 3 ? ` and ${concerns.length - 3} more` : ''}.`)
+  }
+
+  const moving = analysis.trends.filter(t => t.count >= 4 && t.trend !== 'stable')
+  if (moving.length) {
+    const top = moving.slice().sort((a, b) => Math.abs(b.max - b.min) - Math.abs(a.max - a.min))[0]
+    bits.push(`${top.param.replace(/_/g, ' ')} is ${top.trend} over the record (ranging ${top.min}–${top.max} ${top.unit.replace(/_/g, '/')}).`)
+  }
+  if (corr.length) {
+    const c = corr[0]
+    bits.push(`Strongest relationship in the data: ${c.a.replace(/_/g, ' ')} and ${c.b.replace(/_/g, ' ')} ${c.r > 0 ? 'rise and fall together' : 'move in opposite directions'} (r = ${c.r > 0 ? '+' : ''}${c.r}).`)
+  }
+  if (observations.length < 12 || card.spanYears < 0.5) bits.push(`This is still a short record, so read trends as early signals, not firm conclusions.`)
+  return bits
+}
+
+// Monthly averages per parameter — the raw material for a seasonality heatmap.
+// WR plots a flat scatter; showing the month-by-month pattern is genuinely new.
+function computeSeasonality(trends) {
+  const out = []
+  for (const t of trends) {
+    if (t.count < 6) continue
+    const byMonth = {}
+    for (const p of t.points) {
+      const m = new Date(p.date).getMonth()
+      if (!byMonth[m]) byMonth[m] = { sum: 0, count: 0 }
+      byMonth[m].sum += p.value; byMonth[m].count++
+    }
+    const months = Object.keys(byMonth).map(Number).sort((a, b) => a - b)
+    if (months.length < 3) continue
+    const avgs = {}; let mn = Infinity, mx = -Infinity
+    for (const m of months) { const a = byMonth[m].sum / byMonth[m].count; avgs[m] = a; mn = Math.min(mn, a); mx = Math.max(mx, a) }
+    out.push({ param: t.param, unit: t.unit, avgs, mn, mx })
+  }
+  return out.slice(0, 7)
+}
+
+// teal(low) → amber → red(high) cell colour for the heatmap, alpha by intensity
+function heatColor(norm) {
+  const lo = [20, 184, 166], hi = [239, 68, 68]
+  const r = Math.round(lo[0] + (hi[0] - lo[0]) * norm)
+  const g = Math.round(lo[1] + (hi[1] - lo[1]) * norm)
+  const b = Math.round(lo[2] + (hi[2] - lo[2]) * norm)
+  return `rgba(${r},${g},${b},${0.18 + norm * 0.55})`
+}
+
 function InsightsTab({ observations, analysis, siteName }) {
   const card = useMemo(() => computeReportCard(observations, analysis), [observations, analysis])
   const corr = useMemo(() => computeCorrelations(analysis.trends), [analysis.trends])
+  const health = useMemo(() => computeHealthScore(analysis.trends), [analysis.trends])
+  const seasons = useMemo(() => computeSeasonality(analysis.trends), [analysis.trends])
+  const story = useMemo(() => card ? computeSiteStory(observations, analysis, card, corr, health, siteName) : [], [observations, analysis, card, corr, health, siteName])
   const gradeColor = (g) => ({ A: '#10b981', B: '#22c55e', C: '#f59e0b', D: '#f97316', F: '#ef4444' }[g] || '#6366f1')
   const barColor = (s) => s >= 80 ? '#10b981' : s >= 55 ? '#f59e0b' : '#ef4444'
 
   if (!card) return <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: 12 }}>Not enough dated observations at {siteName} to build insights yet.</div>
 
+  const hs = health.score
+  const hTone = hs == null ? '#6366f1' : hs >= 85 ? '#10b981' : hs >= 60 ? '#f59e0b' : '#ef4444'
+  const hVerdict = hs == null ? 'No safety standard' : hs >= 85 ? 'Healthy' : hs >= 60 ? 'Watch' : 'Concern'
+  const monthsPresent = [...new Set(seasons.flatMap(s => Object.keys(s.avgs).map(Number)))].sort((a, b) => a - b)
+
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      {/* intro — set expectations honestly */}
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', background: 'rgba(167,139,250,.06)', border: '1px solid rgba(167,139,250,.16)', borderRadius: 8, padding: '8px 11px', lineHeight: 1.5 }}>
-        <Sparkles size={12} style={{ verticalAlign: -2, marginRight: 4, color: '#a78bfa' }} />
-        Computed live from this site's real Water Rangers observations — no AI, nothing invented. These are the checks a researcher runs before trusting a dataset, in one place.
+      {/* ── SITE STORY — auto-written plain-English briefing (the hero) ── */}
+      <div style={{ borderRadius: 14, padding: 1, background: `linear-gradient(135deg, ${hTone}66, ${hTone}22 45%, transparent)` }}>
+        <div style={{ background: 'var(--card-bg)', borderRadius: 13, padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 10, background: `${hTone}1e`, display: 'grid', placeItems: 'center' }}>
+                <HeartPulse size={18} color={hTone} />
+              </div>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 900, color: 'var(--text)', lineHeight: 1.1 }}>Site Story</div>
+                <div style={{ fontSize: 9.5, color: 'var(--text-muted)' }}>auto-written from the data · no AI</div>
+              </div>
+            </div>
+            {hs != null && (
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 7, background: `${hTone}14`, border: `1px solid ${hTone}40`, borderRadius: 20, padding: '4px 12px' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: hTone, boxShadow: `0 0 8px ${hTone}` }} />
+                <span style={{ fontSize: 12, fontWeight: 800, color: hTone }}>{hVerdict}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {hs}/100 health · {health.breakdown.safe}✓ {health.breakdown.warn}◐ {health.breakdown.danger}✕</span>
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'grid', gap: 7 }}>
+            {story.map((s, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, lineHeight: 1.5, color: 'var(--text)' }}>
+                <span style={{ flexShrink: 0, marginTop: 6, width: 5, height: 5, borderRadius: '50%', background: hTone }} />
+                <span>{s}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 10, fontSize: 9.5, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+            Every sentence is computed from this site's real Water Rangers observations — nothing invented.
+          </div>
+        </div>
       </div>
 
       {/* ── MONITORING REPORT CARD ── */}
@@ -1193,6 +1294,43 @@ function InsightsTab({ observations, analysis, siteName }) {
           ))}
         </div>
       </div>
+
+      {/* ── SEASONALITY HEATMAP ── */}
+      {seasons.length > 0 && monthsPresent.length >= 3 && (
+        <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Calendar size={16} color="#f59e0b" />
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>Seasonal pattern</h3>
+            <span style={{ fontSize: 9.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>month-by-month averages · not on Water Rangers</span>
+          </div>
+          <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
+            Each row is a parameter; each cell is its average for that month. Colour runs <span style={{ color: '#14b8a6', fontWeight: 700 }}>teal (low)</span> → <span style={{ color: '#ef4444', fontWeight: 700 }}>red (high)</span> <em>within each row</em>, so you can see when a parameter peaks across the year.
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'separate', borderSpacing: 3, fontSize: 10.5 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, padding: '2px 6px' }}>Parameter</th>
+                  {monthsPresent.map(m => <th key={m} style={{ color: 'var(--text-muted)', fontWeight: 600, padding: '2px 4px', minWidth: 34 }}>{MONTHS[m]}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {seasons.map(s => (
+                  <tr key={s.param}>
+                    <td style={{ color: 'var(--text)', fontWeight: 600, textTransform: 'capitalize', whiteSpace: 'nowrap', paddingRight: 8 }}>{s.param.replace(/_/g, ' ')}</td>
+                    {monthsPresent.map(m => {
+                      const a = s.avgs[m]
+                      if (a == null) return <td key={m} style={{ background: 'var(--bg)', borderRadius: 5, color: 'var(--text-muted)', textAlign: 'center', opacity: .4 }}>·</td>
+                      const norm = s.mx === s.mn ? 0.5 : (a - s.mn) / (s.mx - s.mn)
+                      return <td key={m} title={`${MONTHS[m]}: ${(+a.toFixed(2))} ${s.unit.replace(/_/g, '/')}`} style={{ background: heatColor(norm), borderRadius: 5, textAlign: 'center', color: 'var(--text)', fontWeight: 600, padding: '4px 5px' }}>{+a.toFixed(a >= 100 ? 0 : 1)}</td>
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* ── PARAMETER CORRELATIONS ── */}
       <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
