@@ -1320,17 +1320,28 @@ export const shoreScene = {
       ctx.fillStyle = '#20262c'; ctx.beginPath(); ctx.arc(0, 6, 2.2, 0, TAU); ctx.fill()
       ctx.fillStyle = (t % 1) < 0.5 ? '#ff6b6b' : '#3a2020'; ctx.beginPath(); ctx.arc(6, -4, 1.2, 0, TAU); ctx.fill()
       ctx.restore()
-      person2(ctx, { x: 92, y: 848, h: 112, skin: 2, top: 1, bottom: 2, hairStyle: 'cap', hair: 0, vest: true, armR: { u: 1.15, f: 1.0 }, armL: { u: 1.1, f: 1.05 }, nod: Math.sin(t * 0.5) * 0.6 })
-      ctx.save(); ctx.translate(92 + 12, 848 - 58)
-      ctx.fillStyle = '#20262c'; ctx.beginPath(); ctx.roundRect(-6, 0, 12, 6, 1.5); ctx.fill()
-      ctx.fillStyle = '#3a4650'; ctx.beginPath(); ctx.arc(-3, 3, 1.3, 0, TAU); ctx.arc(3, 3, 1.3, 0, TAU); ctx.fill()
-      ctx.strokeStyle = '#20262c'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(-5, -4); ctx.moveTo(4, 0); ctx.lineTo(5, -4); ctx.stroke()
+      // shoreline photo-monitoring: raises the camera, shoots, lowers it.
+      // The camera is drawn AT THE RETURNED WRIST, not at a guessed offset —
+      // that mismatch is why props used to hang in the air beside the hand.
+      const shoot = (t * 0.32) % 1
+      const raise = shoot < 0.55 ? Math.sin(shoot / 0.55 * Math.PI) : 0   // 0→1→0
+      const camR = person2(ctx, { x: 92, y: 848, h: 112, skin: 2, top: 1, bottom: 2, hairStyle: 'cap', hair: 0, vest: true, armR: { u: 0.62 + raise * 0.62, f: 0.55 + raise * 0.52 }, armL: { u: 0.58 + raise * 0.58, f: 0.6 + raise * 0.5 }, nod: Math.sin(t * 0.5) * 0.6 - raise * 0.35 })
+      ctx.save(); ctx.translate(camR.nearWrist.x, camR.nearWrist.y - 3)
+      ctx.fillStyle = '#20262c'; ctx.beginPath(); ctx.roundRect(-6, -3, 12, 6, 1.5); ctx.fill()
+      ctx.fillStyle = '#3a4650'; ctx.beginPath(); ctx.arc(-3, 0, 1.3, 0, TAU); ctx.arc(3, 0, 1.3, 0, TAU); ctx.fill()
+      ctx.strokeStyle = '#20262c'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-4, -3); ctx.lineTo(-5, -7); ctx.moveTo(4, -3); ctx.lineTo(5, -7); ctx.stroke()
+      // shutter flash at the top of the raise
+      if (raise > 0.93) { ctx.fillStyle = 'rgba(255,248,214,0.75)'; ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.fill() }
       ctx.restore()
 
       // ── shoreline transect: two researchers stretch a measuring tape ──
+      // Both were frozen. Now they work the tape: a slow pull-taut / ease
+      // cycle, and the far end crouches to read the mark, then straightens.
       const trA = 560, trB = 780, trY = 852
-      person2(ctx, { x: trA, y: trY, h: 108, skin: 4, top: 3, bottom: 2, hairStyle: 'long', hair: 1, vest: true, armR: { u: 0.9, f: 0.6 }, armL: { u: 0.5, f: 0.4 }, nod: 0.5 })
-      person2(ctx, { x: trB, y: trY + 4, h: 104, skin: 0, top: 6, bottom: 0, hairStyle: 'cap', hair: 0, vest: true, flip: true, armR: { u: 0.85, f: 0.5 }, armL: { u: 0.5, f: 0.4 }, nod: t * 0.5 })
+      const taut = Math.sin(t * 0.55) * 0.5 + 0.5          // 0..1 tension cycle
+      const readDip = Math.max(0, Math.sin(t * 0.37 - 0.8)) // periodic look-down
+      person2(ctx, { x: trA, y: trY, h: 108, skin: 4, top: 3, bottom: 2, hairStyle: 'long', hair: 1, vest: true, armR: { u: 0.78 + taut * 0.22, f: 0.6 - taut * 0.16 }, armL: { u: 0.5 + taut * 0.1, f: 0.4 }, nod: 0.5 + readDip * 0.5 })
+      person2(ctx, { x: trB, y: trY + 4, h: 104, skin: 0, top: 6, bottom: 0, hairStyle: 'cap', hair: 0, vest: true, flip: true, armR: { u: 0.74 + taut * 0.2, f: 0.5 - taut * 0.14 }, armL: { u: 0.5, f: 0.4 }, nod: t * 0.5, lean: readDip * 0.12 })
       ctx.strokeStyle = '#f2c832'; ctx.lineWidth = 1.6
       ctx.beginPath(); ctx.moveTo(trA + 14, trY - 40); ctx.lineTo(trB - 14, trY + 4 - 40); ctx.stroke()
       ctx.fillStyle = '#c0402e'; ctx.beginPath(); ctx.arc(trA + 15, trY - 40, 3.4, 0, TAU); ctx.fill() // tape reel
@@ -1338,9 +1349,13 @@ export const shoreScene = {
       for (let i = 1; i < 4; i++) { const fx = trA + (trB - trA) * i / 4; ctx.beginPath(); ctx.moveTo(fx, trY + 4); ctx.lineTo(fx, trY - 6); ctx.stroke(); ctx.fillStyle = '#c0402e'; ctx.fillRect(fx, trY - 7, 3, 2) }
 
       // ── eDNA / bacteria sample sealed into a sample bag ──
-      const edX = 1258, edY = 850, seal = Math.sin(t * 2) * 0.1
-      person2(ctx, { x: edX, y: edY, h: 104, skin: 1, top: 4, bottom: 2, hairStyle: 'bun', hair: 2, vest: true, armR: { u: 0.95 + seal, f: 1.0 }, armL: { u: 0.85 - seal, f: 1.05 }, nod: 0.6 })
-      ctx.save(); ctx.translate(edX + 11, edY - 52)
+      // Purposeful loop: hold the bag up, press the seal shut, lower it.
+      // Bag is anchored to the wrist so it travels with the hand.
+      const edX = 1258, edY = 850
+      const edC = (t * 0.28) % 1
+      const seal = edC < 0.5 ? Math.sin(edC / 0.5 * Math.PI) * 0.22 : 0
+      const edR = person2(ctx, { x: edX, y: edY, h: 104, skin: 1, top: 4, bottom: 2, hairStyle: 'bun', hair: 2, vest: true, armR: { u: 0.95 + seal, f: 1.0 + seal * 0.5 }, armL: { u: 0.85 + seal * 0.7, f: 1.05 + seal * 0.6 }, nod: 0.6 - seal * 0.5 })
+      ctx.save(); ctx.translate(edR.nearWrist.x - 4, edR.nearWrist.y - 6)
       ctx.fillStyle = 'rgba(222,236,240,0.9)'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(8, 0); ctx.lineTo(7, 12); ctx.lineTo(1, 12); ctx.closePath(); ctx.fill()
       ctx.fillStyle = 'rgba(150,200,180,0.6)'; ctx.fillRect(1.5, 6, 5, 5)
       ctx.fillStyle = '#c0a040'; ctx.fillRect(0, -1.5, 8, 2)
@@ -1349,13 +1364,27 @@ export const shoreScene = {
       // ── a researcher trains a volunteer (points out to the water) ──
       const tgX = 300, tgY = 856, pointA = Math.sin(t * 0.7)
       person2(ctx, { x: tgX, y: tgY, h: 110, skin: 3, top: 1, bottom: 2, hairStyle: 'short', hair: 0, vest: true, armR: { u: 1.2 + pointA * 0.3, f: 0.2 }, armL: { u: 0.5, f: 0.4 }, nod: t * 1.1 })
-      person2(ctx, { x: tgX + 34, y: tgY + 4, h: 94, skin: 4, top: 8, bottom: 0, hairStyle: 'long', hair: 4, flip: true, armR: { u: 0.4, f: 0.5 }, armL: { u: 0.35, f: 0.5 }, nod: Math.sin(t * 0.8) * 0.8 })
+      // the volunteer being trained: follows the point, then jots it down on a
+      // clipboard — was frozen with both arms pinned at the same angle
+      const noteC = (t * 0.26) % 1
+      const jot = noteC < 0.4 ? Math.sin(noteC / 0.4 * Math.PI) : 0
+      const tgR = person2(ctx, { x: tgX + 34, y: tgY + 4, h: 94, skin: 4, top: 8, bottom: 0, hairStyle: 'long', hair: 4, flip: true, armR: { u: 0.52 + jot * 0.42, f: 0.62 + jot * 0.45 }, armL: { u: 0.62 + jot * 0.2, f: 0.9 }, nod: Math.sin(t * 0.8) * 0.8 + jot * 0.4 })
+      // clipboard rides in the supporting hand
+      ctx.save(); ctx.translate(tgR.nearWrist.x, tgR.nearWrist.y + 1); ctx.rotate(-0.25)
+      ctx.fillStyle = '#d9cfb6'; ctx.beginPath(); ctx.roundRect(-5, -7, 10, 13, 1.5); ctx.fill()
+      ctx.fillStyle = '#8a7a58'; ctx.fillRect(-5, -7, 10, 2.4)
+      ctx.strokeStyle = 'rgba(80,70,50,0.5)'; ctx.lineWidth = 0.7
+      for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(-3, -2 + i * 3); ctx.lineTo(3, -2 + i * 3); ctx.stroke() }
+      ctx.restore()
 
       // kids skipping stones + guardian (left)
       const skT = (t + 2.4) % 8
       const windup = skT < 0.5 ? Math.sin(skT / 0.5 * Math.PI) : 0
       person2(ctx, { x: 300, y: shoreY(300) + 42, h: 62, skin: 4, top: 0, bottom: 0, hairStyle: 'short', hair: 1, armR: { u: 0.3 - windup * 1.3, f: 0.25 - windup * 0.3 }, armL: { u: 0.2, f: 0.15 }, lean: windup * 0.08 })
-      person2(ctx, { x: 258, y: shoreY(258) + 48, h: 96, skin: 1, top: 3, bottom: 3, hairStyle: 'long', hair: 4, armR: { u: 0.2, f: 0.15 }, armL: { u: 0.35, f: 0.25 }, nod: t * 0.8 })
+      // guardian watching the kids — shifts weight, and waves/calls out when
+      // a stone is thrown (was standing perfectly still with pinned arms)
+      const wave = Math.max(0, Math.sin(t * 0.6 - 0.4))
+      person2(ctx, { x: 258, y: shoreY(258) + 48, h: 96, skin: 1, top: 3, bottom: 3, hairStyle: 'long', hair: 4, armR: { u: 0.24 + windup * 0.9 + wave * 0.5, f: 0.18 + wave * 0.5 }, armL: { u: 0.36 + wave * 0.12, f: 0.26 }, nod: t * 0.8, lean: wave * 0.04 })
       if (skT > 0.5 && skT < 1.8) {
         const sp2 = (skT - 0.5) / 1.3
         const sx = 315 - sp2 * 250

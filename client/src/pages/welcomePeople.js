@@ -177,6 +177,20 @@ export function drawPerson(ctx, o) {
     if (!armLA) armLA = { s: 0.1 - idleArm * 0.8, e: 0.16 }
   }
 
+  // ── EVERY figure breathes, including ones the scene poses explicitly ──
+  // The idle life above only filled in arms when a caller gave none, so any
+  // figure with explicit arm angles (most of the crowd — the samplers, the
+  // tablet readers, the pair on the transect) was drawn with mathematically
+  // frozen arms and read as a statue. Here we add a small, per-figure micro
+  // drift to whatever angles ended up chosen, so nobody is ever perfectly
+  // still. Amplitude is deliberately tiny (~2°) so a held prop stays in the
+  // hand — props are positioned from the returned wrist, so they drift WITH
+  // the hand rather than separating from it.
+  const microA = Math.sin(t * 0.9 + ph0) * 0.038 + Math.sin(t * 0.41 + ph0 * 2.1) * 0.016
+  const microB = Math.sin(t * 0.78 + ph0 * 1.4 + 1.1) * 0.038 + Math.sin(t * 0.33 + ph0) * 0.014
+  if (armLA) armLA = { s: armLA.s + microA, e: armLA.e + microA * 0.45 }
+  if (armRA) armRA = { s: armRA.s + microB, e: armRA.e + microB * 0.45 }
+
   bobY = walkBob * s + (pose.type === 'walk' ? 0 : idleBreath * s * 0.4)
   if (pose.type !== 'walk') torsoLean += idleSway
   const shByAdj = shY + hipDrop
