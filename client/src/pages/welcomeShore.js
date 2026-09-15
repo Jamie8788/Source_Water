@@ -399,32 +399,39 @@ export const shoreScene = {
       ctx.restore()
     })
 
-    // clouds — billowy clusters of soft puffs (not flat ovals): cooler tops,
-    // a warm sun-lit underside, irregular silhouettes, slow independent drift.
+    // clouds — sunset cloud BANKS: each is a cluster of horizontally-stretched
+    // puffs, not big round blobs. Round blobs at this radius read as vague
+    // purple washes; stretching each puff wide-and-flat (and tightening the
+    // falloff so there's an actual body before the fade) gives the streaky,
+    // layered look real sunset stratus has over a lake.
     par(10, () => {
       // deterministic lump layout per cloud (dx·r, dy·r, radius scale)
-      const PUFFS = [[0, 0, 1.0], [-0.58, 0.14, 0.64], [0.52, 0.12, 0.70], [-0.2, -0.2, 0.6], [0.24, -0.16, 0.54], [0.86, 0.2, 0.44]]
+      const PUFFS = [[0, 0, 1.0], [-0.58, 0.14, 0.64], [0.52, 0.12, 0.70], [-0.2, -0.2, 0.6], [0.24, -0.16, 0.54], [0.86, 0.2, 0.44],
+                     [-0.95, 0.22, 0.38], [0.14, 0.26, 0.5], [-0.42, -0.1, 0.44], [1.18, 0.26, 0.3]]
       s.clouds.forEach((c) => {
         c.x += c.v * dt; if (c.x - c.r > VW + 320) c.x = -c.r - 320
         const tint = c.warm ? [124, 102, 122] : [98, 90, 122]
-        // body — overlapping cool puffs build an uneven billow
+        // body — overlapping wide, flat puffs build an uneven layered bank
         for (const [dx, dy, rs] of PUFFS) {
           const px = c.x + dx * c.r * 0.92
-          const py = c.y + dy * c.r * 0.42
-          const pr = c.r * rs * (0.5 + c.sq * 1.2)
-          const g = ctx.createRadialGradient(px, py - pr * 0.25, pr * 0.1, px, py, pr)
-          g.addColorStop(0, `rgba(${tint[0]},${tint[1]},${tint[2]},0.46)`)
-          g.addColorStop(0.68, `rgba(${tint[0]},${tint[1]},${tint[2]},0.24)`)
+          const py = c.y + dy * c.r * 0.34
+          const pr = c.r * rs * (0.34 + c.sq * 0.9)
+          ctx.save(); ctx.translate(px, py); ctx.scale(2.1, 0.5)
+          const g = ctx.createRadialGradient(0, -pr * 0.22, pr * 0.12, 0, 0, pr)
+          g.addColorStop(0, `rgba(${tint[0]},${tint[1]},${tint[2]},0.40)`)
+          g.addColorStop(0.5, `rgba(${tint[0]},${tint[1]},${tint[2]},0.26)`)
+          g.addColorStop(0.82, `rgba(${tint[0]},${tint[1]},${tint[2]},0.10)`)
           g.addColorStop(1, `rgba(${tint[0]},${tint[1]},${tint[2]},0)`)
           ctx.fillStyle = g
-          ctx.beginPath(); ctx.arc(px, py, pr, 0, TAU); ctx.fill()
+          ctx.beginPath(); ctx.arc(0, 0, pr, 0, TAU); ctx.fill()
+          ctx.restore()
         }
         // warm sun-lit underside, brighter on the sun side (right)
-        const uy = c.y + c.r * 0.34
+        const uy = c.y + c.r * 0.22
         const lg = ctx.createRadialGradient(c.x + c.r * 0.3, uy, 0, c.x + c.r * 0.3, uy, c.r * 0.95)
-        lg.addColorStop(0, 'rgba(255,198,134,0.30)'); lg.addColorStop(1, 'rgba(255,198,134,0)')
+        lg.addColorStop(0, 'rgba(255,198,134,0.26)'); lg.addColorStop(1, 'rgba(255,198,134,0)')
         ctx.fillStyle = lg
-        ctx.beginPath(); ctx.ellipse(c.x + c.r * 0.3, uy, c.r * 0.95, c.r * 0.42, 0, 0, TAU); ctx.fill()
+        ctx.beginPath(); ctx.ellipse(c.x + c.r * 0.3, uy, c.r * 1.25, c.r * 0.26, 0, 0, TAU); ctx.fill()
       })
     })
 
@@ -868,21 +875,47 @@ export const shoreScene = {
         ctx.beginPath(); ctx.ellipse(cx, cy, rw, rw * 0.34, 0.1, 0, TAU); ctx.stroke()
       }
       ctx.restore()
-      // fish gliding through the shallows
+      // fish gliding through the shallows — the body UNDULATES (a wave that
+      // travels head→tail with amplitude growing aft) instead of being a rigid
+      // oval with a flapping triangle, and the turn is eased rather than an
+      // instant mirror-flip: easing the drawn facing through zero reads as the
+      // fish banking away from the viewer and coming back the other way.
       for (const f of s.fish) {
         f.x += f.sp * f.dir * dt
         if (f.x > 700) { f.x = 700; f.dir = -1 }
         if (f.x < -60) { f.x = -60; f.dir = 1 }
-        const fy = shoreY(f.x) - 46 - f.lane * 16
-        const wag = Math.sin(t * 6 + f.ph) * 3.4
-        ctx.save(); ctx.translate(f.x, fy); ctx.scale(f.dir, 1)
-        ctx.fillStyle = 'rgba(52,68,64,0.42)'
-        ctx.beginPath(); ctx.ellipse(2, 5, 11, 2.6, 0, 0, TAU); ctx.fill() // bottom shadow
-        ctx.fillStyle = 'rgba(94,120,112,0.6)'
-        ctx.beginPath(); ctx.ellipse(0, 0, 13, 4, 0, 0, TAU); ctx.fill()
-        ctx.beginPath(); ctx.moveTo(-12, 0); ctx.lineTo(-19, wag - 4); ctx.lineTo(-19, wag + 4); ctx.closePath(); ctx.fill()
+        if (f.face === undefined) f.face = f.dir
+        f.face += (f.dir - f.face) * Math.min(1, dt * 2.6)
+        const turning = 1 - Math.min(1, Math.abs(f.face))   // 0 = straight, 1 = side-on
+        const fy = shoreY(f.x) - 46 - f.lane * 16 + Math.sin(t * 1.1 + f.ph) * 1.5
+        // tail beats faster when swimming hard, slower while turning
+        const beat = t * (5.4 + f.sp * 0.12) + f.ph
+        const midY = Math.sin(beat - 0.8) * 1.6 * (1 - turning * 0.5)
+        const tailY = Math.sin(beat - 1.7) * 4.4 * (1 - turning * 0.5)
+        const fsx = Math.abs(f.face) < 0.1 ? 0.1 * (f.face < 0 ? -1 : 1) : f.face
+        ctx.save(); ctx.translate(f.x, fy); ctx.scale(fsx, 1)
+        // soft shadow on the bed, following the body
+        ctx.fillStyle = 'rgba(52,68,64,0.34)'
+        ctx.beginPath(); ctx.ellipse(1, 6, 11, 2.4, 0, 0, TAU); ctx.fill()
+        // flexing body: nose (+x) → tail base (−x), bowed through the mid wave
+        ctx.fillStyle = 'rgba(94,120,112,0.62)'
+        ctx.beginPath()
+        ctx.moveTo(13, 0)
+        ctx.quadraticCurveTo(1, midY - 4.4, -11, tailY)
+        ctx.quadraticCurveTo(1, midY + 4.4, 13, 0)
+        ctx.closePath(); ctx.fill()
+        // forked tail at the swung base
+        ctx.beginPath()
+        ctx.moveTo(-11, tailY); ctx.lineTo(-19, tailY - 4.6); ctx.lineTo(-15.5, tailY); ctx.lineTo(-19, tailY + 4.6)
+        ctx.closePath(); ctx.fill()
+        // dorsal fin rides the mid wave; pectoral flicks with the beat
+        ctx.fillStyle = 'rgba(70,96,90,0.55)'
+        ctx.beginPath(); ctx.moveTo(-1, midY - 3.6); ctx.lineTo(5, midY - 7.4); ctx.lineTo(6, midY - 3.8); ctx.closePath(); ctx.fill()
+        ctx.beginPath(); ctx.ellipse(4, 2.2, 3.2, 1.1, Math.sin(beat) * 0.5, 0, TAU); ctx.fill()
+        // back sheen + eye
         ctx.fillStyle = 'rgba(220,235,230,0.3)'
-        ctx.beginPath(); ctx.ellipse(2, -1.4, 6, 1.3, 0, 0, TAU); ctx.fill()
+        ctx.beginPath(); ctx.ellipse(3, midY - 1.4, 6, 1.3, 0, 0, TAU); ctx.fill()
+        ctx.fillStyle = 'rgba(12,20,22,0.55)'; ctx.beginPath(); ctx.arc(9, -0.7, 0.9, 0, TAU); ctx.fill()
         ctx.restore()
       }
       ctx.restore()
