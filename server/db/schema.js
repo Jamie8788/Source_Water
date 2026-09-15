@@ -724,6 +724,24 @@ async function initSchema() {
       )
     `)
 
+    // Prompt log: what users actually ask our AI, across every tab. Written
+    // fire-and-forget from the AI endpoints (never blocks a response), for
+    // product analytics — which questions are common, which tab, which
+    // provider answered, and whether it succeeded.
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS ai_prompts (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT,
+        source TEXT,
+        prompt TEXT,
+        provider TEXT,
+        ok INTEGER NOT NULL DEFAULT 1,
+        site TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_ai_prompts_created ON ai_prompts (created_at DESC)`)
+
     console.log('[schema] PostgreSQL schema ready')
   } else {
     // ── SQLite schema (local dev only) ───────────────────────────────────────
@@ -1124,6 +1142,18 @@ async function initSchema() {
         usage_date TEXT NOT NULL,
         count INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (user_id, usage_date)
+      )
+    `)
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS ai_prompts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        source TEXT,
+        prompt TEXT,
+        provider TEXT,
+        ok INTEGER NOT NULL DEFAULT 1,
+        site TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `)
     console.log('[schema] SQLite schema ready')

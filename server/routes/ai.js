@@ -1,7 +1,15 @@
 const router = require('express').Router()
 const db = require('../db/connection')
 const { requireAuth } = require('../middleware/auth')
+const { logAiPrompt } = require('../utils/aiLog')
 const crypto = require('crypto')
+
+// Pull the latest user message out of a chat messages[] array for logging.
+const lastUserMsg = (messages) => {
+  if (!Array.isArray(messages)) return ''
+  for (let i = messages.length - 1; i >= 0; i--) if (messages[i]?.role !== 'assistant' && messages[i]?.role !== 'system') return messages[i]?.content || ''
+  return messages[messages.length - 1]?.content || ''
+}
 
 // ── Microsoft Edge TTS (free, no API key, neural kid voice) ─────────────────
 // Voice: en-US-AnaNeural = cute young girl voice, perfect for Nibi mascot
@@ -173,6 +181,7 @@ router.post('/public-chat', async (req, res) => {
     const result = await callAI(messages)
     if (!result) return res.json({ reply: "I'm having a moment — please try again!" })
     res.json({ reply: result.text, model: result.model })
+    logAiPrompt({ userId: null, source: 'ask-water-public', prompt: lastUserMsg(messages), provider: result.model, ok: true })
   } catch (err) {
     console.error('public-chat error:', err)
     res.json({ reply: "I'm having a moment — please try again!" })
@@ -202,6 +211,7 @@ router.post('/chat', requireAuth, async (req, res) => {
     try { db.prepare('INSERT OR REPLACE INTO ai_cache (query_hash, response) VALUES (?, ?)').run(cacheKey, result.text) } catch {}
 
     res.json({ reply: result.text, model: result.model })
+    logAiPrompt({ userId: req.user?.id, source: 'ask-water', prompt: lastUserMsg(messages), provider: result.model, ok: true })
   } catch (err) {
     console.error('AI chat error:', err)
     res.json({ reply: "I'm having a moment — please try again!" })
@@ -215,6 +225,7 @@ router.post('/analyze', requireAuth, async (req, res) => {
     const prompt = `Analyze this water quality dataset "${filename}":\n${JSON.stringify(stats)}\n\nProvide: 1) Key findings with specific numbers 2) Water quality assessment vs WHO/EPA standards 3) Potential concerns 4) Recommended actions. Be concise and practical.`
     const result = await callAI([{ role: 'system', content: SYSTEM }, { role: 'user', content: prompt }])
     res.json({ analysis: result?.text || 'Analysis unavailable.' })
+    logAiPrompt({ userId: req.user?.id, source: 'analyze-dataset', prompt: `[dataset: ${filename}]`, provider: result?.model, ok: !!result })
   } catch {
     res.json({ analysis: 'Analysis error. Please try again.' })
   }

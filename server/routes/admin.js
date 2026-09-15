@@ -91,6 +91,33 @@ router.get('/activity-log', requireAuth, requireAdmin, async (req, res) => {
   res.json({ logs, total: parseInt(totalRow?.c ?? 0) })
 })
 
+// GET /api/admin/ai-prompts — what users are asking our AI, across every tab.
+// Admin-only. Returns a recent feed plus lightweight aggregates (by tab, by
+// day, and the busiest users) so we can see demand at a glance.
+router.get('/ai-prompts', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { limit = 100, offset = 0, source, q } = req.query
+    let where = 'WHERE 1=1'
+    const params = []
+    if (source) { where += ' AND p.source = ?'; params.push(source) }
+    if (q) { where += ' AND p.prompt LIKE ?'; params.push('%' + q + '%') }
+
+    const feedSql = `SELECT p.id, p.user_id, p.source, p.prompt, p.provider, p.ok, p.site, p.created_at,
+                            u.username, u.display_name
+                     FROM ai_prompts p LEFT JOIN users u ON CAST(u.id AS TEXT) = p.user_id
+                     ${where} ORDER BY p.created_at DESC LIMIT ? OFFSET ?`
+    const [feed, totalRow, byTab] = await Promise.all([
+      db.all(feedSql, [...params, parseInt(limit), parseInt(offset)]),
+      db.get(`SELECT COUNT(*) as c FROM ai_prompts p ${where}`, params),
+      db.all('SELECT source, COUNT(*) as c FROM ai_prompts GROUP BY source ORDER BY c DESC', []),
+    ])
+    res.json({ prompts: feed, total: parseInt(totalRow?.c ?? 0), byTab })
+  } catch (e) {
+    console.error('[admin/ai-prompts]', e.message)
+    res.status(500).json({ error: 'Could not load AI prompts.' })
+  }
+})
+
 // GET /PUT /api/admin/settings
 router.get('/settings', requireAuth, requireAdmin, async (req, res) => {
   const settings = await db.all('SELECT * FROM site_settings', [])

@@ -7,6 +7,7 @@ const router = require('express').Router()
 const rateLimit = require('express-rate-limit')
 const db = require('../db/connection')
 const { requireAuth } = require('../middleware/auth')
+const { logAiPrompt } = require('../utils/aiLog')
 
 const WR_BASE = 'https://data.waterrangers.com'
 const API_KEY = process.env.WATERRANGERS_API_KEY || process.env.VITE_WATERRANGERS_API_KEY
@@ -800,6 +801,8 @@ USER QUESTION: ${question}`
       console.log(`[WR Agent] ${result.provider} response OK`)
     } catch (e) {
       console.log('[WR Agent] all AI providers failed:', e.message)
+      // record the attempt (failed) — fire-and-forget, never blocks
+      logAiPrompt({ userId, source: 'wetlab-agent', prompt: question, provider: null, ok: false, site: siteName || 'global' })
       // The AI never answered — give the reserved drop back so an outage
       // doesn't cost the user one of their daily questions.
       await refundDrop(userId)
@@ -821,6 +824,8 @@ USER QUESTION: ${question}`
         remaining: drop?.remaining ?? null,
       },
     })
+    // record the successful question AFTER responding — fire-and-forget
+    logAiPrompt({ userId, source: 'wetlab-agent', prompt: question, provider: result.provider, ok: true, site: siteName || 'global' })
 
   } catch (e) {
     console.error('[WR Agent] Error:', e)
