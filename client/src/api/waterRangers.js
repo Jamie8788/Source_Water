@@ -49,11 +49,20 @@ export async function getLocations(opts = {}) {
   return { raw: data, items: norm(data, 'locations'), page }
 }
 
-// Bulk: load ALL locations (server caches for 30min)
+// Bulk: load ALL locations (server caches for 30min). Cached in memory for the
+// life of the SPA session so navigating between the Map and Observations tabs
+// doesn't re-download and re-parse the full ~10MB payload every time — that
+// was the "sites take minutes to load" on every visit. First load hits the
+// (warm) server; every visit after is instant. clearLocationsCache() forces a
+// fresh pull if ever needed.
+let _allLocationsCache = null
 export async function getAllLocations() {
+  if (_allLocationsCache && _allLocationsCache.length) return _allLocationsCache
   const { data } = await api.get('/wr/locations-all')
-  return data.locations || []
+  _allLocationsCache = data.locations || []
+  return _allLocationsCache
 }
+export const clearLocationsCache = () => { _allLocationsCache = null }
 
 export const getLocation = (id) => wrGet(`/locations/${id}`)
 export const getLocationObservations = (id, opts = {}) =>

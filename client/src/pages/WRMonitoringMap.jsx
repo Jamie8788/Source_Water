@@ -559,28 +559,33 @@ export default function WRMonitoringMap() {
   })
   const withPhotos = allLocations.filter(l => l.reference_photo_url).length
 
-  // Tablet auto-switch: heatmap when zoomed out (cheap canvas pass over all
-  // points), dots once zoomed past ~level 8 (regional view). Manual toggle
-  // turns auto off. Desktop ignores all this and uses viewMode directly.
+  // Tablet auto-switch kept for reference, but heat/dots is now decided by how
+  // many markers the viewport actually holds (below) — works the same on
+  // desktop and tablet.
   const TABLET_DOTS_ZOOM = 8
-  const showHeat = (IS_TABLET && tabletAuto)
-    ? mapZoom < TABLET_DOTS_ZOOM
-    : viewMode === 'heat'
 
-  // Markers handed to the cluster group. On a tablet we feed ONLY the
-  // markers inside the current viewport, so markercluster builds a tiny
-  // tree (fast) instead of clustering all 9,500 every pinch. Desktop gets
-  // the full set unchanged (IS_TABLET false → mappable as-is). Heatmap
-  // always uses the full set since canvas handles it cheaply.
+  // Only render markers INSIDE the current viewport — on desktop too, not just
+  // tablet. Rendering all ~9,471 sites as React marker components froze the
+  // page on load and made every Compare/select re-render all of them (the
+  // "hangs for minutes" bug). Viewport-filtering cuts that to what's actually
+  // on screen — a few hundred — so the map loads fast and clicks stay snappy.
+  // Before the first pan/zoom settles (mapBounds null) we render no dots and
+  // let the heatmap cover the world view.
   const dotsSource = useMemo(() => {
-    if (IS_TABLET && mapBounds) {
-      return mappable.filter(l => {
-        const lat = parseFloat(l.latitude), lng = parseFloat(l.longitude)
-        return mapBounds.contains([lat, lng])
-      })
-    }
-    return mappable
+    if (!mapBounds) return []
+    return mappable.filter(l => {
+      const lat = parseFloat(l.latitude), lng = parseFloat(l.longitude)
+      return Number.isFinite(lat) && Number.isFinite(lng) && mapBounds.contains([lat, lng])
+    })
   }, [mappable, mapBounds])
+
+  // Heat vs dots: honour the user's explicit toggle. But in dots mode, when the
+  // viewport still holds a huge number of sites (zoomed way out, or first
+  // paint), fall back to the cheap canvas heatmap so we never try to mount
+  // thousands of markers. Zoom in and clickable dots appear automatically.
+  const TOO_MANY_DOTS = 1200
+  const showHeat = viewMode === 'heat'
+    || (viewMode === 'dots' && (!mapBounds || dotsSource.length > TOO_MANY_DOTS))
 
   // Heatmap points — MEMOIZED so leaflet.heat isn't destroyed and rebuilt
   // over thousands of points on every pan (that rebuild was the tablet pan
@@ -768,21 +773,22 @@ export default function WRMonitoringMap() {
           })}
         </div>
 
-        {/* View mode: dots vs heatmap. Highlight reflects what's actually
-            on screen (showHeat) so the tablet auto-switch stays honest.
-            Tapping either turns the tablet auto-switch off (explicit choice). */}
+        {/* View mode: dots vs heatmap. Highlight reflects the user's CHOICE
+            (viewMode), not the auto-state — in Dots mode the map shows a
+            heatmap while zoomed way out (too many to render) and swaps to
+            clickable dots as you zoom in. */}
         <div style={{ display: 'flex', gap: 4, padding: 3, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8 }}>
-          <button onClick={() => { setTabletAuto(false); setViewMode('dots') }} title="Show individual sites as dots (clustered when zoomed out)" style={{
+          <button onClick={() => { setTabletAuto(false); setViewMode('dots') }} title="Show individual sites as dots (zoom in to see them; density heatmap when zoomed way out)" style={{
             display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5,
-            background: !showHeat ? 'rgba(99,102,241,.18)' : 'transparent',
-            color: !showHeat ? '#a78bfa' : 'var(--text-muted)',
-            border: '1px solid ' + (!showHeat ? 'rgba(99,102,241,.45)' : 'transparent'), cursor: 'pointer',
+            background: viewMode === 'dots' ? 'rgba(99,102,241,.18)' : 'transparent',
+            color: viewMode === 'dots' ? '#a78bfa' : 'var(--text-muted)',
+            border: '1px solid ' + (viewMode === 'dots' ? 'rgba(99,102,241,.45)' : 'transparent'), cursor: 'pointer',
           }}><Layers size={11}/> Dots</button>
           <button onClick={() => { setTabletAuto(false); setViewMode('heat') }} title="Show monitoring density as a heatmap" style={{
             display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5,
-            background: showHeat ? 'rgba(239,68,68,.18)' : 'transparent',
-            color: showHeat ? '#fca5a5' : 'var(--text-muted)',
-            border: '1px solid ' + (showHeat ? 'rgba(239,68,68,.45)' : 'transparent'), cursor: 'pointer',
+            background: viewMode === 'heat' ? 'rgba(239,68,68,.18)' : 'transparent',
+            color: viewMode === 'heat' ? '#fca5a5' : 'var(--text-muted)',
+            border: '1px solid ' + (viewMode === 'heat' ? 'rgba(239,68,68,.45)' : 'transparent'), cursor: 'pointer',
           }}><Flame size={11}/> Heatmap</button>
         </div>
 
