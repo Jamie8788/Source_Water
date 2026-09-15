@@ -228,8 +228,9 @@ const organizationsStore = makeBulkStore({ name: 'organizations-all', path: '/or
 // Warm the caches shortly after boot so the very first real user is fast too.
 // Delayed a few seconds so it doesn't compete with app startup.
 setTimeout(() => {
-  console.log('[WR] warming datasets + organizations caches…')
+  console.log('[WR] warming datasets + organizations + locations caches…')
   datasetsStore.warm(); organizationsStore.warm()
+  try { refreshLocations() } catch (e) { console.error('[WR] locations warm failed:', e.message) }
 }, 4000)
 
 // GET /api/wr/locations — single page (backwards compat)
@@ -243,98 +244,90 @@ router.get('/locations', async (req, res) => {
   }
 })
 
-// GET /api/wr/locations-all — BULK: ALL locations with PARALLEL fetching + 1hr cache
-// Fetches 10 pages at a time in parallel — 9,444 locations in ~15 seconds, not 90
+// GET /api/wr/locations-all — the full ~9,471-site list for the map.
+// Now stale-while-revalidate, so 1,000+ concurrent users never wait, even at
+// the hourly boundary: a warm copy is served instantly; when it goes stale we
+// STILL return it immediately and refresh once in the background; a cold cache
+// hit by N users triggers exactly ONE upstream load (dedup) that everyone
+// shares. Empty results are never cached, and the last-good copy is served if
+// a refresh fails. All in-memory — carries to Hostinger unchanged.
 let allLocationsCache = { data: null, ts: 0 }
-const ALL_LOC_TTL = 60 * 60 * 1000 // 1 hour cache
-let loadingInProgress = null // prevent duplicate loads
+const ALL_LOC_TTL = 60 * 60 * 1000 // 1 hour freshness window
+let loadingInProgress = null       // the one in-flight load (dedup)
+
+// Resilient loader: skips any page that fails after retries so a single bad
+// page never zeroes the map ("rather have 9,400 than zero"), and waits out
+// Water Rangers rate limits instead of bailing.
+async function loadAllLocations() {
+  const all = []
+  pageLoop: for (let page = 1; page <= 110; page++) {
+    if (wrRateLimitedUntil > Date.now()) {
+      const waitMs = Math.min(wrRateLimitedUntil - Date.now() + 500, 5 * 60_000)
+      console.log(`[WR] locations rate-limited at page ${page}, waiting ${Math.ceil(waitMs / 1000)}s (have ${all.length})`)
+      await new Promise(r => setTimeout(r, waitMs))
+    }
+    let pageOK = false
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        const data = await wrFetch('/locations.json', { page, per_page: 100 })
+        const items = Array.isArray(data) ? data : []
+        if (items.length === 0) { pageOK = true; break pageLoop }
+        all.push(...items)
+        if (page % 10 === 0) console.log(`[WR] locations page ${page}: total ${all.length}`)
+        pageOK = true
+        break
+      } catch (e) {
+        if (String(e.message).includes('429') || wrRateLimitedUntil > Date.now()) {
+          const waitMs = Math.min((wrRateLimitedUntil - Date.now()) + 500, 5 * 60_000)
+          if (waitMs > 0) { console.log(`[WR] locations page ${page} 429 — sleeping ${Math.ceil(waitMs / 1000)}s`); await new Promise(r => setTimeout(r, waitMs)) }
+          continue
+        }
+        console.log(`[WR] locations page ${page} attempt ${attempt} failed: ${e.message}`)
+        if (attempt < 4) await new Promise(r => setTimeout(r, 1000 * attempt))
+      }
+    }
+    if (!pageOK) console.log(`[WR] locations page ${page} skipped after retries`)
+  }
+  return all
+}
+
+// Deduped background refresh — one at a time; never caches empty; keeps the
+// last-good copy on failure.
+function refreshLocations() {
+  if (loadingInProgress) return loadingInProgress
+  loadingInProgress = loadAllLocations()
+    .then(all => {
+      if (all.length > 0) { allLocationsCache = { data: all, ts: Date.now() }; console.log(`[WR] locations cached ${all.length} for 1hr`) }
+      else console.log('[WR] locations loaded 0 — NOT caching (will retry next request)')
+      return all
+    })
+    .catch(e => { console.error('[WR] locations refresh failed:', e.message); return allLocationsCache.data || [] })
+    .finally(() => { loadingInProgress = null })
+  return loadingInProgress
+}
 
 router.get('/locations-all', async (req, res) => {
   try {
-    // Return cache if fresh AND non-empty. An empty cache (e.g. from a
-    // load that ran during a hard rate-limit window) should not stick.
-    if (allLocationsCache.data && allLocationsCache.data.length > 0 && Date.now() - allLocationsCache.ts < ALL_LOC_TTL) {
-      console.log(`[WR] Returning cached ${allLocationsCache.data.length} locations`)
-      res.json({ locations: allLocationsCache.data, cached: true, count: allLocationsCache.data.length })
-      return
+    const now = Date.now()
+    const has = allLocationsCache.data && allLocationsCache.data.length > 0
+    const fresh = has && (now - allLocationsCache.ts < ALL_LOC_TTL)
+    if (fresh) {
+      return res.json({ locations: allLocationsCache.data, cached: true, count: allLocationsCache.data.length })
     }
-
-    // If another request is already loading, wait for it
-    if (loadingInProgress) {
-      console.log('[WR] Waiting for existing load...')
-      const result = await loadingInProgress
-      return res.json({ locations: result, cached: true, count: result.length })
+    if (has) {
+      // STALE-WHILE-REVALIDATE: hand back the slightly-old copy instantly and
+      // refresh in the background (deduped). No user waits at the hourly mark.
+      refreshLocations()
+      return res.json({ locations: allLocationsCache.data, cached: true, stale: true, count: allLocationsCache.data.length })
     }
-
-    console.log('[WR] Loading ALL 9,444+ locations (sequential for reliability)...')
-    loadingInProgress = (async () => {
-      const all = []
-      // Sequential — slower but guarantees every page loads
-      pageLoop: for (let page = 1; page <= 100; page++) {
-        // CRITICAL: the bulk locations fetch is what makes the entire
-        // map work. We do NOT bail on 429 here — we wait the rate-limit
-        // window out and continue. If the breaker is open, sleep until
-        // it closes, then resume. Better to take 2 min to load than to
-        // serve a 0-site map for an hour.
-        if (wrRateLimitedUntil > Date.now()) {
-          const waitMs = Math.min(wrRateLimitedUntil - Date.now() + 500, 5 * 60_000)
-          console.log(`[WR] bulk fetch hit rate-limit at page ${page}, waiting ${Math.ceil(waitMs / 1000)}s for breaker to close (have ${all.length} so far)`)
-          await new Promise(r => setTimeout(r, waitMs))
-        }
-        let pageOK = false
-        for (let attempt = 1; attempt <= 4; attempt++) {
-          try {
-            const data = await wrFetch('/locations.json', { page, per_page: 100 })
-            const items = Array.isArray(data) ? data : []
-            if (items.length === 0) {
-              console.log(`[WR] Page ${page}: empty — done! Total: ${all.length}`)
-              pageOK = true
-              break pageLoop
-            }
-            all.push(...items)
-            if (page % 10 === 0) console.log(`[WR] Page ${page}: total ${all.length}`)
-            pageOK = true
-            break
-          } catch (e) {
-            // 429 — wait for the deadline WR told us about, then retry.
-            if (String(e.message).includes('429') || wrRateLimitedUntil > Date.now()) {
-              const waitMs = Math.min((wrRateLimitedUntil - Date.now()) + 500, 5 * 60_000)
-              if (waitMs > 0) {
-                console.log(`[WR] Page ${page} attempt ${attempt} hit 429 — sleeping ${Math.ceil(waitMs / 1000)}s before retry`)
-                await new Promise(r => setTimeout(r, waitMs))
-              }
-              continue
-            }
-            console.log(`[WR] Page ${page} attempt ${attempt} failed: ${e.message}`)
-            if (attempt < 4) await new Promise(r => setTimeout(r, 1000 * attempt))
-          }
-        }
-        // If a single page exhausted retries without 429, skip it but keep going.
-        // We'd rather have 9,400 of 9,484 locations than zero.
-        if (!pageOK) console.log(`[WR] Page ${page} skipped after retries`)
-      }
-      return all
-    })()
-
-    const all = await loadingInProgress
-    loadingInProgress = null
-    // CRITICAL: never cache an empty bulk response. If the WR API was
-    // rate-limited the whole time and we got back 0 locations, leaving
-    // the empty array in the cache poisons the next hour for every user.
-    // Better to let the next request retry a fresh fetch.
-    if (all.length > 0) {
-      allLocationsCache = { data: all, ts: Date.now() }
-      console.log(`[WR] Loaded ${all.length} total locations, cached for 1hr`)
-    } else {
-      console.log(`[WR] Loaded 0 locations — NOT caching empty result so next request can retry`)
-    }
-    res.json({ locations: all, cached: false, count: all.length })
+    // COLD (server just booted / first ever load): must wait once, but all
+    // concurrent requests share the SAME single load — no stampede on WR.
+    const all = await refreshLocations()
+    if (all.length > 0) return res.json({ locations: all, cached: false, count: all.length })
+    return res.status(502).json({ error: 'Water Rangers locations are temporarily unavailable. Please try again in a moment.' })
   } catch (e) {
-    console.error('[WR] bulk locations error:', e.message)
-    // Return partial cache if available
-    if (allLocationsCache.data) {
-      return res.json({ locations: allLocationsCache.data, cached: true, count: allLocationsCache.data.length, partial: true })
-    }
+    console.error('[WR] locations-all error:', e.message)
+    if (allLocationsCache.data) return res.json({ locations: allLocationsCache.data, cached: true, count: allLocationsCache.data.length, partial: true })
     res.status(502).json({ error: e.message })
   }
 })
