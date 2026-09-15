@@ -155,7 +155,7 @@ function OverviewPanel() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>Platform Activity — Last 30 Days</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Users, posts, observations, AI queries</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>New signups &amp; observations per day — live from the database</div>
           </div>
           <button style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, background: 'var(--border)', padding: '5px 12px', borderRadius: 8, border: 'none', cursor: 'pointer' }}>
             <Download style={{ width: 12, height: 12 }}/> Export
@@ -167,36 +167,41 @@ function OverviewPanel() {
   )
 }
 
-/* ── Mini Activity Chart ── */
+/* ── Mini Activity Chart — REAL daily counts from the DB (no fake data) ── */
 function ActivityChart() {
-  const data = [12,19,8,24,31,18,27,42,35,28,19,38,44,52,41,36,48,55,62,49,58,71,64,53,67,78,69,55,72,85]
-  const data2 = [5,8,4,11,14,9,13,19,16,12,8,17,20,24,18,15,22,26,29,22,27,34,30,24,31,37,33,26,34,41]
-  const max = Math.max(...data)
+  const [series, setSeries] = useState(null) // null = loading
+  useEffect(() => {
+    api.get('/admin/activity-series?days=30')
+      .then(r => setSeries(r.data?.days || []))
+      .catch(() => setSeries([]))
+  }, [])
+
+  if (series === null) return <div style={{ height: 80, display: 'flex', alignItems: 'center', color: 'var(--text-muted)', fontSize: 12 }}><RefreshCw size={13} className="animate-spin" style={{ marginRight: 6 }}/> Loading real activity…</div>
+
+  const data = series.map(d => d.users)
+  const data2 = series.map(d => d.obs)
+  const total = data.reduce((a, b) => a + b, 0) + data2.reduce((a, b) => a + b, 0)
+  const max = Math.max(1, ...data, ...data2) // avoid divide-by-zero on a quiet 30 days
+  const pts = (arr) => arr.length < 2 ? '' : arr.map((v, i) => `${(i / (arr.length - 1)) * 100},${60 - (v / max) * 55}`).join(' ')
+
+  if (total === 0) return (
+    <div style={{ height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 12, textAlign: 'center' }}>
+      No new signups or observations in the last 30 days yet — this fills in as real activity happens.
+    </div>
+  )
 
   return (
     <div style={{ position: 'relative', height: 80 }}>
       <svg width="100%" height="80" style={{ overflow: 'visible' }} preserveAspectRatio="none" viewBox={`0 0 100 60`}>
-        <defs>
-          <linearGradient id="ag1" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#6366f1" stopOpacity="0.3"/>
-            <stop offset="100%" stopColor="#6366f1" stopOpacity="0"/>
-          </linearGradient>
-          <linearGradient id="ag2" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#14b8a6" stopOpacity="0.3"/>
-            <stop offset="100%" stopColor="#14b8a6" stopOpacity="0"/>
-          </linearGradient>
-        </defs>
-        <polyline points={data.map((v, i) => `${(i / (data.length - 1)) * 100},${60 - (v / max) * 55}`).join(' ')}
-          fill="none" stroke="#6366f1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        <polyline points={data2.map((v, i) => `${(i / (data2.length - 1)) * 100},${60 - (v / max) * 55}`).join(' ')}
-          fill="none" stroke="#14b8a6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        <polyline points={pts(data)} fill="none" stroke="#6366f1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        <polyline points={pts(data2)} fill="none" stroke="#14b8a6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
       <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)' }}>
-          <div style={{ width: 20, height: 2, background: '#6366f1', borderRadius: 1 }}/>Users online
+          <div style={{ width: 20, height: 2, background: '#6366f1', borderRadius: 1 }}/>New users / day
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)' }}>
-          <div style={{ width: 20, height: 2, background: '#14b8a6', borderRadius: 1 }}/>Observations
+          <div style={{ width: 20, height: 2, background: '#14b8a6', borderRadius: 1 }}/>New observations / day
         </div>
       </div>
     </div>

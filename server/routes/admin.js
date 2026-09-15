@@ -6,6 +6,41 @@ const upload = require('../middleware/upload')
 // GET /api/admin/stats
 // Single query: collapses 10 COUNT(*)s into ONE round-trip so the pg pool
 // only consumes one client per request (was 10 — exhausted Supabase pooler).
+// GET /api/admin/activity-series — REAL daily counts for the last N days,
+// powering the Overview chart. Computed in JS from row timestamps so it works
+// on both Postgres and SQLite. No fabricated data.
+router.get('/activity-series', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const days = Math.min(90, Math.max(7, parseInt(req.query.days) || 30))
+    const since = new Date(Date.now() - (days - 1) * 86400000)
+    since.setHours(0, 0, 0, 0)
+    const sinceISO = since.toISOString()
+    const [users, obs] = await Promise.all([
+      db.all('SELECT created_at FROM users WHERE created_at >= ?', [sinceISO]).catch(() => []),
+      db.all('SELECT observed_at FROM observations WHERE observed_at >= ?', [sinceISO]).catch(() => []),
+    ])
+    // Build an ordered bucket per day
+    const buckets = []
+    const idx = {}
+    for (let i = 0; i < days; i++) {
+      const d = new Date(since.getTime() + i * 86400000).toISOString().slice(0, 10)
+      idx[d] = i; buckets.push({ day: d, users: 0, obs: 0 })
+    }
+    const bump = (rows, key, field) => rows.forEach(r => {
+      const v = r[key]; if (!v) return
+      const d = new Date(v).toISOString().slice(0, 10)
+      if (idx[d] != null) buckets[idx[d]][field]++
+    })
+    bump(users, 'created_at', 'users')
+    bump(obs, 'observed_at', 'obs')
+    res.json({ days: buckets })
+  } catch (e) {
+    console.error('[admin/activity-series]', e.message)
+    res.json({ days: [] })
+  }
+})
+
+// GET /api/admin/stats
 router.get('/stats', requireAuth, requireAdmin, async (req, res) => {
   try {
     const row = await db.get(`
