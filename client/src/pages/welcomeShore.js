@@ -1373,11 +1373,15 @@ export const shoreScene = {
         }
       }
 
-      // walkers + dog crossing the beach diagonally
+      // walkers + dog crossing the beach diagonally.
+      // Stride is locked to DISTANCE travelled, not raw time — otherwise the
+      // legs cycle far faster than the body drifts and it reads as "walking on
+      // the spot"/moonwalking. One full leg cycle now advances the body ~52px
+      // so the feet appear to plant on the sand.
       const wq = ((t * 0.024) % 1.3) - 0.12
       const wx = lerp(1120, 70, clamp(wq, 0, 1))
       const wy = shoreY(wx) + 54 // always on sand, below the waterline
-      const wph = t * 4.2
+      const wph = (1120 - wx) / 26 * Math.PI
       if (wq > -0.1 && wq < 1.1) {
         person2(ctx, { x: wx, y: wy, h: 100, skin: 2, top: 1, bottom: 0, hairStyle: 'short', hair: 1, flip: true, walk: wph })
         person2(ctx, { x: wx + 34, y: wy + 6, h: 94, skin: 0, top: 5, bottom: 3, hairStyle: 'long', hair: 0, flip: true, walk: wph + 1.2 })
@@ -1393,7 +1397,7 @@ export const shoreScene = {
         ctx.save(); ctx.translate(-11, -15); ctx.rotate(Math.sin(t * 9) * 0.4 - 0.7)
         ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-8, -6); ctx.stroke(); ctx.restore()
         for (let i = 0; i < 4; i++) {
-          const ph = t * 7.4 + i * (Math.PI / 2)
+          const ph = (1120 - wx) / 11 * Math.PI + i * (Math.PI / 2)
           ctx.beginPath(); ctx.moveTo(-8 + i * 5.4, -7); ctx.lineTo(-8 + i * 5.4 + Math.sin(ph) * 2.6, 0); ctx.stroke()
         }
         ctx.fillStyle = '#241812'; ctx.beginPath(); ctx.arc(14.6, -18.6, 1, 0, TAU); ctx.fill()
