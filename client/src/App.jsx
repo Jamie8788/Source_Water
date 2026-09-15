@@ -73,6 +73,14 @@ function QuizCreatorGuard() {
   return <Outlet />
 }
 
+// Feature gate: admin can turn a tab off per-role/per-user (Admin → Access
+// Control). If this user isn't allowed the feature, bounce to the dashboard.
+// Defaults to allowed while access is still loading, so nothing flickers.
+function Feat({ k, children }) {
+  const { canFeature } = useAuth()
+  return canFeature(k) ? children : <Navigate to="/dashboard" replace />
+}
+
 function AppRoutes() {
   const { user } = useAuth()
   return (
@@ -86,29 +94,28 @@ function AppRoutes() {
 
         {/* All protected pages share ONE persistent Layout instance */}
         <Route element={<ProtectedLayout />}>
-          <Route path="/dashboard"  element={<Dashboard />} />
-          <Route path="/ask-water"  element={<AskWater />} />
+          <Route path="/dashboard"  element={<Feat k="dashboard"><Dashboard /></Feat>} />
+          <Route path="/ask-water"  element={<Feat k="ask-water"><AskWater /></Feat>} />
           <Route path="/map"        element={<MapPage />} />
           <Route path="/geoanalytics" element={<GeoAnalytics />} />
-          <Route path="/monitoring"   element={<WRMonitoringMap />} />
-          {/* Testing phase: these four feature tabs are open to all signed-in
-              users. To re-gate any of them to admins-only, wrap it back in
-              <AdminGated admin={<Page/>} fallback={<ComingSoon .../>} /> —
-              the helper and ComingSoon import are kept below for that. */}
-          <Route path="/explorer"     element={<WRDataExplorer />} />
-          <Route path="/ai-lab"       element={<WRAILab />} />
+          <Route path="/monitoring"   element={<Feat k="monitoring"><WRMonitoringMap /></Feat>} />
+          {/* Feature tabs are visible to all signed-in users by default, and
+              an admin can turn any of them off per-role or per-user from
+              Admin → Access Control. <Feat k="..."> enforces that live. */}
+          <Route path="/explorer"     element={<Feat k="explorer"><WRDataExplorer /></Feat>} />
+          <Route path="/ai-lab"       element={<Feat k="ai-lab"><WRAILab /></Feat>} />
           <Route path="/methods"      element={<WRMethods />} />
-          <Route path="/social"     element={<Social />} />
-          <Route path="/quiz"       element={<QuizMe />} />
-          <Route path="/resources"  element={<Resources />} />
-          <Route path="/projects"   element={<Projects />} />
-          <Route path="/analysis"   element={<Analysis />} />
-          <Route path="/reports"    element={<Reports />} />
-          <Route path="/alerts"     element={<Alerts />} />
-          <Route path="/weather"    element={<Weather />} />
-          <Route path="/games"      element={<Games />} />
-          <Route path="/research"      element={<ResearchHub />} />
-          <Route path="/quick-actions" element={<QuickActions />} />
+          <Route path="/social"     element={<Feat k="social"><Social /></Feat>} />
+          <Route path="/quiz"       element={<Feat k="quiz"><QuizMe /></Feat>} />
+          <Route path="/resources"  element={<Feat k="resources"><Resources /></Feat>} />
+          <Route path="/projects"   element={<Feat k="projects"><Projects /></Feat>} />
+          <Route path="/analysis"   element={<Feat k="analysis"><Analysis /></Feat>} />
+          <Route path="/reports"    element={<Feat k="reports"><Reports /></Feat>} />
+          <Route path="/alerts"     element={<Feat k="alerts"><Alerts /></Feat>} />
+          <Route path="/weather"    element={<Feat k="weather"><Weather /></Feat>} />
+          <Route path="/games"      element={<Feat k="games"><Games /></Feat>} />
+          <Route path="/research"      element={<Feat k="research"><ResearchHub /></Feat>} />
+          <Route path="/quick-actions" element={<Feat k="quick"><QuickActions /></Feat>} />
           <Route path="/about/storyline"     element={<AboutStoryline />} />
           <Route path="/about/this-platform" element={<AboutThisPlatform />} />
           <Route path="/about/collaborators" element={<AboutCollaborators />} />

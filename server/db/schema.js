@@ -742,6 +742,25 @@ async function initSchema() {
     `)
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_ai_prompts_created ON ai_prompts (created_at DESC)`)
 
+    // Access control: which features (tabs) each role / individual user may
+    // use. Opt-out model — absence of a row means allowed. Enforced live.
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS access_rules (
+        role TEXT NOT NULL,
+        feature TEXT NOT NULL,
+        allowed INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (role, feature)
+      )
+    `)
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS access_overrides (
+        user_id TEXT NOT NULL,
+        feature TEXT NOT NULL,
+        allowed INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (user_id, feature)
+      )
+    `)
+
     console.log('[schema] PostgreSQL schema ready')
   } else {
     // ── SQLite schema (local dev only) ───────────────────────────────────────
@@ -1154,6 +1173,18 @@ async function initSchema() {
         ok INTEGER NOT NULL DEFAULT 1,
         site TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS access_rules (
+        role TEXT NOT NULL, feature TEXT NOT NULL, allowed INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (role, feature)
+      )
+    `)
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS access_overrides (
+        user_id TEXT NOT NULL, feature TEXT NOT NULL, allowed INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (user_id, feature)
       )
     `)
     console.log('[schema] SQLite schema ready')

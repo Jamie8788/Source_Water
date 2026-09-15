@@ -86,6 +86,16 @@ const NAV_GROUPS = [
 
 const STANDALONE = []
 
+// Maps a nav item's route to its access-control feature key. Items without an
+// entry here (e.g. About pages) are always shown.
+const PATH_FEATURE = {
+  '/dashboard': 'dashboard', '/quick-actions': 'quick', '/ask-water': 'ask-water',
+  '/monitoring': 'monitoring', '/alerts': 'alerts', '/social': 'social',
+  '/resources': 'resources', '/quiz': 'quiz', '/games': 'games',
+  '/explorer': 'explorer', '/ai-lab': 'ai-lab', '/weather': 'weather',
+  '/reports': 'reports', '/analysis': 'analysis', '/projects': 'projects', '/research': 'research',
+}
+
 /* ─── Claim-admin helper ─────────────────────────────────────────── */
 // Only renders when the server confirms no admin exists yet. This stops the
 // button from showing up for regular users whose username happens to contain
@@ -255,7 +265,7 @@ function NavItem({ item, active, collapsed, onClick, onSubNav }) {
 }
 
 /* ─── Section group ─────────────────────────────────────────────── */
-function SectionGroup({ group, open, onToggle, location, navigate, collapsed, isAdmin }) {
+function SectionGroup({ group, open, onToggle, location, navigate, collapsed, isAdmin, canFeature }) {
   const anyActive = group.items.some(i => location.pathname === i.path)
   const count = group.items.length
 
@@ -325,10 +335,9 @@ function SectionGroup({ group, open, onToggle, location, navigate, collapsed, is
         opacity: open || collapsed ? 1 : 0,
       }}>
         {group.items
-          // Hide adminOnly items for non-admins. Per Elaine #78 the
-          // Alerts page should disappear from the sidebar entirely
-          // for regular users until the feature is ready.
-          .filter(item => !item.adminOnly || isAdmin)
+          // Hide adminOnly items for non-admins, and hide any feature an admin
+          // has turned off for this user/role (Admin → Access Control).
+          .filter(item => (!item.adminOnly || isAdmin) && (!PATH_FEATURE[item.path] || canFeature(PATH_FEATURE[item.path])))
           .map(item => (
           <NavItem
             key={item.path}
@@ -347,7 +356,7 @@ function SectionGroup({ group, open, onToggle, location, navigate, collapsed, is
 /* ─── Main sidebar ──────────────────────────────────────────────── */
 const LS_SIDEBAR_THEME = 'sw_sidebar_theme'
 export default function Sidebar({ collapsed, onToggle }) {
-  const { user, logout, isAdmin, isQuizCreator } = useAuth()
+  const { user, logout, isAdmin, isQuizCreator, canFeature } = useAuth()
   const { play } = useSound()
   const { colorKey, setColorKey, mode, toggleMode, themes, lightVariant, setLightVariant, variants } = useTheme()
   const location = useLocation()
@@ -543,6 +552,7 @@ export default function Sidebar({ collapsed, onToggle }) {
               navigate={go}
               collapsed={collapsed}
               isAdmin={isAdmin}
+              canFeature={canFeature}
             />
           ))}
 

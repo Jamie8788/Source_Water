@@ -27,6 +27,20 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const isRegisteringRef = useRef(false)
 
+  // ── Feature access map (which tabs this user may use) ──
+  // Loaded from the server after sign-in and refreshed when the user changes.
+  // null = not loaded yet; we treat "unknown" as allowed so tabs never flicker
+  // hidden and a glitch can't lock anyone out. The server is the real gate.
+  const [access, setAccess] = useState(null)
+  const refreshAccess = useCallback(async () => {
+    try { const r = await api.get('/access/me'); setAccess(r.data?.features || {}) }
+    catch { setAccess({}) }
+  }, [])
+  useEffect(() => {
+    if (user) refreshAccess()
+    else setAccess(null)
+  }, [user?.id, user?.role, refreshAccess])
+
   const fetchProfile = useCallback(async (sbUser, token) => {
     const cached = JSON.parse(localStorage.getItem('sw_user') || '{}')
     // Supabase user_metadata is the ultimate fallback — persists across DB wipes and logouts
@@ -216,6 +230,11 @@ export function AuthProvider({ children }) {
       isAdmin: !!user?.is_admin,
       isResearcher: !!user?.is_admin || user?.role === 'Researcher',
       isQuizCreator: !!user?.is_admin || ['Teacher','Professor','Researcher','SOURCE Water team member'].includes(user?.role),
+      access,
+      refreshAccess,
+      // canFeature(key): is this tab allowed for the current user? Admins always
+      // yes; unknown/not-yet-loaded defaults to yes (opt-out, matches server).
+      canFeature: (key) => !!user?.is_admin || !access || access[key] !== false,
     }}>
       {children}
     </AuthContext.Provider>

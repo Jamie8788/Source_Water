@@ -1873,6 +1873,136 @@ function AITrackingPanel() {
   )
 }
 
+/* ── Access Control: turn tabs on/off per role, with per-user overrides ── */
+function AccessControlPanel() {
+  const [data, setData] = useState(null) // { features, roles, rules, overrides }
+  const [users, setUsers] = useState([])
+  const [sel, setSel] = useState(null)   // selected user for override
+  const [userSearch, setUserSearch] = useState('')
+  const [saving, setSaving] = useState('')
+
+  const load = () => api.get('/access/admin').then(r => setData(r.data)).catch(() => {})
+  useEffect(() => { load(); api.get('/users').then(r => setUsers(r.data?.users || r.data || [])).catch(() => {}) }, [])
+
+  if (!data) return <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: 12 }}><RefreshCw size={14} className="animate-spin"/> Loading…</div>
+
+  const ruleMap = {}; data.rules.forEach(r => { ruleMap[r.role + '|' + r.feature] = Number(r.allowed) ? 1 : 0 })
+  const roleAllowed = (role, feat) => { const v = ruleMap[role + '|' + feat]; return v == null ? true : !!v }
+  const toggleRole = async (role, feat) => {
+    const next = !roleAllowed(role, feat)
+    setSaving(role + '|' + feat)
+    ruleMap[role + '|' + feat] = next ? 1 : 0
+    setData({ ...data })
+    try { await api.put('/access/admin/role', { role, feature: feat, allowed: next }) } catch {}
+    setSaving('')
+  }
+
+  const ovMap = {}; data.overrides.forEach(o => { ovMap[String(o.user_id) + '|' + o.feature] = Number(o.allowed) ? 1 : 0 })
+  const userOv = (uid, feat) => { const v = ovMap[String(uid) + '|' + feat]; return v == null ? null : !!v }
+  const setUserOv = async (uid, feat, val) => {
+    setSaving('u' + uid + feat)
+    const key = String(uid) + '|' + feat
+    if (val === null) delete ovMap[key]; else ovMap[key] = val ? 1 : 0
+    data.overrides = Object.entries(ovMap).map(([k, a]) => { const [user_id, feature] = k.split('|'); return { user_id, feature, allowed: a } })
+    setData({ ...data })
+    try { await api.put('/access/admin/user', { user_id: uid, feature: feat, allowed: val }) } catch {}
+    setSaving('')
+  }
+
+  const uFiltered = userSearch ? users.filter(u => (u.username || '').toLowerCase().includes(userSearch.toLowerCase()) || (u.display_name || '').toLowerCase().includes(userSearch.toLowerCase())).slice(0, 8) : []
+
+  const Toggle = ({ on, onClick, busy }) => (
+    <button onClick={onClick} disabled={busy} title={on ? 'Allowed — click to block' : 'Blocked — click to allow'} style={{
+      width: 42, height: 23, borderRadius: 20, border: 'none', cursor: busy ? 'wait' : 'pointer', position: 'relative',
+      background: on ? '#10b981' : 'var(--border)', transition: 'background .15s', flexShrink: 0,
+    }}>
+      <span style={{ position: 'absolute', top: 2.5, left: on ? 21 : 2.5, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left .15s', boxShadow: '0 1px 3px rgba(0,0,0,.3)' }}/>
+    </button>
+  )
+
+  return (
+    <div>
+      <div style={{ marginBottom: 6 }}>
+        <h2 style={{ fontSize: 17, fontWeight: 800, color: 'var(--text)', margin: 0 }}>Access Control</h2>
+        <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '4px 0 0' }}>Turn each tab on or off per role. Changes apply <strong>instantly</strong> — the next page a user opens obeys the new rule. Admins always see everything. A tab with no rule set is on by default.</p>
+      </div>
+
+      {/* ROLE MATRIX */}
+      <div style={{ overflowX: 'auto', marginTop: 14, border: '1px solid var(--border)', borderRadius: 12 }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12.5, minWidth: 640 }}>
+          <thead>
+            <tr style={{ background: 'var(--card-bg)' }}>
+              <th style={{ textAlign: 'left', padding: '10px 12px', color: 'var(--text-muted)', fontWeight: 600, position: 'sticky', left: 0, background: 'var(--card-bg)' }}>Tab / feature</th>
+              {data.roles.map(role => <th key={role} style={{ padding: '10px 8px', color: 'var(--text-muted)', fontWeight: 600, fontSize: 11 }}>{role.replace(' member', '').replace('SOURCE Water team', 'SW Team')}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {data.features.map(f => (
+              <tr key={f.key} style={{ borderTop: '1px solid var(--border)' }}>
+                <td style={{ padding: '9px 12px', color: 'var(--text)', fontWeight: 600, position: 'sticky', left: 0, background: 'var(--bg)' }}>{f.label}</td>
+                {data.roles.map(role => (
+                  <td key={role} style={{ padding: '9px 8px', textAlign: 'center' }}>
+                    <div style={{ display: 'flex', justifyContent: 'center' }}>
+                      <Toggle on={roleAllowed(role, f.key)} busy={saving === role + '|' + f.key} onClick={() => toggleRole(role, f.key)}/>
+                    </div>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* PER-USER OVERRIDE */}
+      <div style={{ marginTop: 22 }}>
+        <h3 style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)', margin: '0 0 4px' }}>Override one specific user</h3>
+        <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '0 0 10px' }}>Search a user to allow or block individual tabs for just them — this beats their role default.</p>
+        <div style={{ position: 'relative', maxWidth: 360 }}>
+          <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}/>
+          <input value={userSearch} onChange={e => setUserSearch(e.target.value)} placeholder="Search users by name…"
+            style={{ width: '100%', padding: '7px 9px 7px 28px', borderRadius: 8, fontSize: 12, background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text)', boxSizing: 'border-box', outline: 'none' }}/>
+          {uFiltered.length > 0 && !sel && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, marginTop: 4, zIndex: 5, maxHeight: 220, overflowY: 'auto' }}>
+              {uFiltered.map(u => (
+                <div key={u.id} onClick={() => { setSel(u); setUserSearch(u.display_name || u.username) }} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12.5, color: 'var(--text)', borderBottom: '1px solid var(--border)' }}>
+                  {u.display_name || u.username} <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>· {u.role || 'Community member'}{u.is_admin ? ' · admin' : ''}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {sel && (
+          <div style={{ marginTop: 12, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <strong style={{ color: 'var(--text)' }}>{sel.display_name || sel.username}</strong>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{sel.role || 'Community member'}{sel.is_admin ? ' · admin (sees everything)' : ''}</span>
+              <button onClick={() => { setSel(null); setUserSearch('') }} style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer' }}>✕ close</button>
+            </div>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {data.features.map(f => {
+                const ov = userOv(sel.id, f.key)
+                const Btn = ({ label, active, color, val }) => (
+                  <button onClick={() => setUserOv(sel.id, f.key, val)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 7, cursor: 'pointer',
+                    background: active ? color + '20' : 'transparent', color: active ? color : 'var(--text-muted)', border: '1px solid ' + (active ? color + '55' : 'var(--border)') }}>{label}</button>
+                )
+                return (
+                  <div key={f.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ flex: 1, fontSize: 12.5, color: 'var(--text)' }}>{f.label}</span>
+                    <Btn label="Default" active={ov === null} color="#64748b" val={null}/>
+                    <Btn label="Allow" active={ov === true} color="#10b981" val={true}/>
+                    <Btn label="Block" active={ov === false} color="#ef4444" val={false}/>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /* ── MAIN ── */
 const TABS = [
   { key: 'overview',    label: 'Overview',    icon: BarChart2 },
@@ -1885,6 +2015,7 @@ const TABS = [
   { key: 'content',     label: 'CMS Content', icon: FileText },
   { key: 'activity',    label: 'Activity Log', icon: Activity },
   { key: 'aitracking',  label: 'AI Tracking', icon: Eye },
+  { key: 'access',      label: 'Access Control', icon: Lock },
 ]
 
 export default function AdminPage() {
@@ -1947,6 +2078,7 @@ export default function AdminPage() {
         {tab === 'content'   && <ContentPanel/>}
         {tab === 'activity'  && <ActivityPanel/>}
         {tab === 'aitracking' && <AITrackingPanel/>}
+        {tab === 'access'     && <AccessControlPanel/>}
       </div>
 
       <style>{`
