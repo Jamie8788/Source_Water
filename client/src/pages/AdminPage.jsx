@@ -1754,6 +1754,120 @@ function DatabasePanel() {
   )
 }
 
+/* ── AI Tracking: what users ask our AI, across every tab (admin-only) ── */
+const AI_SOURCES = [
+  { key: '', label: 'All tabs' },
+  { key: 'wetlab-agent', label: 'Wet Lab' },
+  { key: 'ask-water', label: 'Ask Water' },
+  { key: 'ask-water-public', label: 'Ask Water (public)' },
+  { key: 'analyze-dataset', label: 'Dataset analyze' },
+]
+const SOURCE_LABEL = { 'wetlab-agent': 'Wet Lab', 'ask-water': 'Ask Water', 'ask-water-public': 'Ask Water (public)', 'analyze-dataset': 'Dataset analyze' }
+
+function AITrackingPanel() {
+  const [rows, setRows] = useState([])
+  const [byTab, setByTab] = useState([])
+  const [total, setTotal] = useState(0)
+  const [source, setSource] = useState('')
+  const [q, setQ] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [offset, setOffset] = useState(0)
+  const LIMIT = 100
+
+  const load = (reset = true) => {
+    setLoading(true)
+    const off = reset ? 0 : offset
+    const params = new URLSearchParams({ limit: LIMIT, offset: off })
+    if (source) params.set('source', source)
+    if (q.trim()) params.set('q', q.trim())
+    api.get('/admin/ai-prompts?' + params.toString())
+      .then(r => {
+        const p = r.data?.prompts || []
+        setRows(reset ? p : rows.concat(p))
+        setTotal(r.data?.total || 0)
+        setByTab(r.data?.byTab || [])
+        setOffset(off + p.length)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }
+  useEffect(() => { load(true) /* eslint-disable-next-line */ }, [source])
+
+  const fmt = (d) => { try { return new Date(d).toLocaleString() } catch { return d } }
+
+  return (
+    <div>
+      {/* header + summary */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+        <h2 style={{ fontSize: 17, fontWeight: 800, color: 'var(--text)', margin: 0 }}>AI Tracking</h2>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{total.toLocaleString()} questions logged · admin-only</span>
+        <button onClick={() => load(true)} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: '#6366f1', background: 'rgba(99,102,241,.08)', border: '1px solid rgba(99,102,241,.2)', borderRadius: 8, padding: '5px 11px', cursor: 'pointer' }}>
+          <RefreshCw size={12}/> Refresh
+        </button>
+      </div>
+      <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '0 0 14px' }}>Every question users ask the AI, across all tabs. Logged after each answer is sent, so it never slows the assistant.</p>
+
+      {/* by-tab breakdown */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        {byTab.map(b => (
+          <div key={b.source || 'unknown'} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 13px' }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text)' }}>{Number(b.c).toLocaleString()}</div>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{SOURCE_LABEL[b.source] || b.source || 'unknown'}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* filters */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {AI_SOURCES.map(s => (
+            <button key={s.key} onClick={() => setSource(s.key)} style={{
+              fontSize: 11.5, fontWeight: 600, padding: '5px 11px', borderRadius: 8, cursor: 'pointer',
+              background: source === s.key ? 'rgba(99,102,241,.14)' : 'var(--card-bg)',
+              color: source === s.key ? '#6366f1' : 'var(--text-muted)',
+              border: '1px solid ' + (source === s.key ? 'rgba(99,102,241,.3)' : 'var(--border)'),
+            }}>{s.label}</button>
+          ))}
+        </div>
+        <form onSubmit={e => { e.preventDefault(); load(true) }} style={{ position: 'relative', flex: 1, minWidth: 180 }}>
+          <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}/>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search question text…"
+            style={{ width: '100%', padding: '7px 9px 7px 28px', borderRadius: 8, fontSize: 12, background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text)', boxSizing: 'border-box', outline: 'none' }}/>
+        </form>
+      </div>
+
+      {/* feed */}
+      {loading && rows.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: 12 }}><RefreshCw size={14} className="animate-spin"/> Loading…</div>
+      ) : rows.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: 12 }}>No AI questions logged yet.</div>
+      ) : (
+        <div style={{ display: 'grid', gap: 6 }}>
+          {rows.map(r => (
+            <div key={r.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderLeft: `3px solid ${r.ok ? '#10b981' : '#ef4444'}`, borderRadius: 9, padding: '9px 12px' }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 4, fontSize: 10.5, color: 'var(--text-muted)' }}>
+                <span style={{ fontWeight: 700, color: '#6366f1' }}>{SOURCE_LABEL[r.source] || r.source || 'unknown'}</span>
+                <span>·</span>
+                <span>{r.display_name || r.username || (r.user_id ? 'user ' + r.user_id : 'anonymous')}</span>
+                {r.site && r.site !== 'global' && <><span>·</span><span>📍 {r.site}</span></>}
+                {r.provider && <><span>·</span><span>{r.provider}</span></>}
+                {!r.ok && <span style={{ color: '#ef4444', fontWeight: 700 }}>· failed</span>}
+                <span style={{ marginLeft: 'auto' }}>{fmt(r.created_at)}</span>
+              </div>
+              <div style={{ fontSize: 12.5, color: 'var(--text)', lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{r.prompt || <em style={{ color: 'var(--text-muted)' }}>(empty)</em>}</div>
+            </div>
+          ))}
+          {rows.length < total && (
+            <button onClick={() => load(false)} disabled={loading} style={{ margin: '8px auto 0', display: 'block', fontSize: 12, fontWeight: 600, color: '#6366f1', background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 16px', cursor: 'pointer' }}>
+              {loading ? 'Loading…' : `Load more (${rows.length} of ${total.toLocaleString()})`}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ── MAIN ── */
 const TABS = [
   { key: 'overview',    label: 'Overview',    icon: BarChart2 },
@@ -1765,6 +1879,7 @@ const TABS = [
   { key: 'sponsors',    label: 'Sponsors',    icon: ImageIcon },
   { key: 'content',     label: 'CMS Content', icon: FileText },
   { key: 'activity',    label: 'Activity Log', icon: Activity },
+  { key: 'aitracking',  label: 'AI Tracking', icon: Eye },
 ]
 
 export default function AdminPage() {
@@ -1826,6 +1941,7 @@ export default function AdminPage() {
         {tab === 'sponsors'  && <SponsorsPanel/>}
         {tab === 'content'   && <ContentPanel/>}
         {tab === 'activity'  && <ActivityPanel/>}
+        {tab === 'aitracking' && <AITrackingPanel/>}
       </div>
 
       <style>{`
