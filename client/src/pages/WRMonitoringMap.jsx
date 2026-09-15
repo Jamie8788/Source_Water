@@ -7,7 +7,7 @@
  * - Filters: country, water body type, parameter, active/dormant
  * - CSV export
  */
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { MapContainer, TileLayer, CircleMarker, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import MarkerClusterGroup from 'react-leaflet-cluster'
@@ -110,17 +110,17 @@ function getParamExplain(param) {
 // missing the small inline pill. The button's label and colour reflect
 // the current compare state (no A picked → "Compare", A picked but not
 // this → "Compare with A", this is A or B → check + label).
-function SiteCircleMarker({ site, compareA, compareB, onSelect, onCompare }) {
+// Memoised so a Compare/select click only re-renders the 1–2 markers whose
+// isA/isB actually changed — NOT all ~9,471 (that full re-render was the
+// "hangs for minutes" freeze). Props are kept primitive (isA/isB booleans,
+// stable callbacks) so React.memo can skip the untouched markers.
+const SiteCircleMarker = memo(function SiteCircleMarker({ site, isA, isB, onSelect, onCompare }) {
   const color = BODY_COLORS[site.water_body_type] || BODY_COLORS.other
-  const isA = compareA?.id === site.id
-  const isB = compareB?.id === site.id
   const compareLabel = isA ? '✓ Comparing as Site A'
     : isB ? '✓ Comparing as Site B'
-    : compareA && !compareB ? `Compare with ${compareA.name.slice(0, 22)}${compareA.name.length > 22 ? '…' : ''}`
     : '⇄ Compare this site'
   const compareBg = isA ? '#60a5fa'
     : isB ? '#34d399'
-    : compareA && !compareB ? 'linear-gradient(135deg,#60a5fa,#3b82f6)'
     : 'linear-gradient(135deg,#6366f1,#7c3aed)'
   return (
     <CircleMarker center={[parseFloat(site.latitude), parseFloat(site.longitude)]}
@@ -165,7 +165,7 @@ function SiteCircleMarker({ site, compareA, compareB, onSelect, onCompare }) {
       </Popup>
     </CircleMarker>
   )
-}
+})
 
 function FitBounds({ locations }) {
   const map = useMap()
@@ -329,8 +329,16 @@ export default function WRMonitoringMap() {
   // A's observations are already loaded by the deep-dive flow when A is the
   // currently-selected site, but we re-fetch defensively so Compare works
   // even if A was picked without ever opening the deep-dive panel.
+  // Refs mirror the compare state so pickForCompare can be a STABLE callback
+  // (empty deps). If it changed identity on every compare, every marker would
+  // get a new onCompare prop and React.memo couldn't skip them — bringing the
+  // freeze back. With a stable callback, only the 1–2 markers whose isA/isB
+  // flips actually re-render.
+  const compareARef = useRef(null); compareARef.current = compareA
+  const compareBRef = useRef(null); compareBRef.current = compareB
   const pickForCompare = useCallback(async (loc) => {
-    if (!compareA) {
+    const A = compareARef.current, B = compareBRef.current
+    if (!A) {
       setCompareA(loc); setCompareB(null); setObsA([]); setObsB([])
       setObsCmpLoading(true)
       try {
@@ -343,7 +351,7 @@ export default function WRMonitoringMap() {
       finally { setObsCmpLoading(false) }
       return
     }
-    if (compareA && !compareB && loc.id !== compareA.id) {
+    if (A && !B && loc.id !== A.id) {
       setCompareB(loc)
       setObsCmpLoading(true)
       try {
@@ -372,7 +380,7 @@ export default function WRMonitoringMap() {
       setObsA(items)
     } catch { setObsA([]) }
     finally { setObsCmpLoading(false) }
-  }, [compareA, compareB])
+  }, [])
   const clearCompare = () => { setCompareA(null); setCompareB(null); setObsA([]); setObsB([]); setDeepDiveOpen(false) }
 
   // Load this user's personal waypoints (scoped server-side by user_id)
@@ -559,33 +567,26 @@ export default function WRMonitoringMap() {
   })
   const withPhotos = allLocations.filter(l => l.reference_photo_url).length
 
-  // Tablet auto-switch kept for reference, but heat/dots is now decided by how
-  // many markers the viewport actually holds (below) — works the same on
-  // desktop and tablet.
+  // Tablet auto-switch: heatmap when zoomed out, dots once zoomed past ~level
+  // 8. Desktop uses the user's viewMode directly (dots stay dots).
   const TABLET_DOTS_ZOOM = 8
+  const showHeat = (IS_TABLET && tabletAuto)
+    ? mapZoom < TABLET_DOTS_ZOOM
+    : viewMode === 'heat'
 
-  // Only render markers INSIDE the current viewport — on desktop too, not just
-  // tablet. Rendering all ~9,471 sites as React marker components froze the
-  // page on load and made every Compare/select re-render all of them (the
-  // "hangs for minutes" bug). Viewport-filtering cuts that to what's actually
-  // on screen — a few hundred — so the map loads fast and clicks stay snappy.
-  // Before the first pan/zoom settles (mapBounds null) we render no dots and
-  // let the heatmap cover the world view.
+  // On tablet we viewport-filter so the cluster tree stays tiny. Desktop shows
+  // the full set clustered (that always worked — the freeze was NOT here, it
+  // was all markers re-rendering on every Compare click, fixed by memoising
+  // SiteCircleMarker below).
   const dotsSource = useMemo(() => {
-    if (!mapBounds) return []
-    return mappable.filter(l => {
-      const lat = parseFloat(l.latitude), lng = parseFloat(l.longitude)
-      return Number.isFinite(lat) && Number.isFinite(lng) && mapBounds.contains([lat, lng])
-    })
+    if (IS_TABLET && mapBounds) {
+      return mappable.filter(l => {
+        const lat = parseFloat(l.latitude), lng = parseFloat(l.longitude)
+        return mapBounds.contains([lat, lng])
+      })
+    }
+    return mappable
   }, [mappable, mapBounds])
-
-  // Heat vs dots: honour the user's explicit toggle. But in dots mode, when the
-  // viewport still holds a huge number of sites (zoomed way out, or first
-  // paint), fall back to the cheap canvas heatmap so we never try to mount
-  // thousands of markers. Zoom in and clickable dots appear automatically.
-  const TOO_MANY_DOTS = 1200
-  const showHeat = viewMode === 'heat'
-    || (viewMode === 'dots' && (!mapBounds || dotsSource.length > TOO_MANY_DOTS))
 
   // Heatmap points — MEMOIZED so leaflet.heat isn't destroyed and rebuilt
   // over thousands of points on every pan (that rebuild was the tablet pan
@@ -917,7 +918,7 @@ export default function WRMonitoringMap() {
               {dotsSource.map(site => (
                 <SiteCircleMarker
                   key={site.id} site={site}
-                  compareA={compareA} compareB={compareB}
+                  isA={compareA?.id === site.id} isB={compareB?.id === site.id}
                   onSelect={setSelected} onCompare={pickForCompare}
                 />
               ))}
