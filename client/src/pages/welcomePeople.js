@@ -124,21 +124,26 @@ export function drawPerson(ctx, o) {
 
   if (pose.type === 'walk') {
     const ph = pose.phase || 0
-    // pendulum walk: each leg is ONE smooth limb swinging from the hip; a
-    // small forward bow reads as a soft knee, never a mechanical joint.
-    const LEGLEN = 46
+    // Articulated walk: thigh swings from the hip and the knee FLEXES through
+    // swing-through, so the leg reads as a real jointed limb instead of a
+    // straight stick. Stance leg stays near-straight and carries the weight.
     const mk = (p, hipX) => {
-      const thigh = Math.sin(p) * 0.3
-      const lift = Math.max(0, Math.sin(p - 0.5)) * 4 // foot clears on fore-swing
-      const ax = hipX + Math.sin(thigh) * LEGLEN
-      const ay = hipY + Math.cos(thigh) * LEGLEN - lift
-      return { hip: [hipX, hipY], ankle: [ax, ay], bow: 2 + Math.max(0, thigh) * 8 }
+      const thigh = Math.sin(p) * 0.42
+      const knee = Math.max(0, Math.sin(p - 0.9)) * 0.95   // bends as it lifts through
+      const kneePt = seg(hipX, hipY, thigh, 24)
+      const anklePt = seg(kneePt[0], kneePt[1], thigh - knee, 22)
+      return { hip: [hipX, hipY], knee: kneePt, ankle: anklePt }
     }
     legs = [mk(ph + Math.PI, -2.6), mk(ph, 2.6)] // far leg first
-    torsoLean = 0.04
+    torsoLean = 0.05
     walkBob = Math.abs(Math.sin(ph)) * 2.0
-    if (!armRA) armRA = { s: Math.sin(ph + Math.PI) * 0.34, e: 0.18 }
-    if (!armLA) armLA = { s: Math.sin(ph) * 0.34, e: 0.18 }
+    // Arms counter-swing the legs with a real amplitude (was ±0.34 = barely
+    // moved, which is what made the walk look robotic), plus elbow flex that
+    // peaks as the arm comes forward. The FAR arm swings less: a wide far-arm
+    // swing crosses behind the torso and only its hand pokes out below the
+    // hem, which reads as a disembodied blob.
+    if (!armRA) armRA = { s: Math.sin(ph + Math.PI) * 0.78, e: 0.22 + Math.max(0, Math.sin(ph + Math.PI)) * 0.42 }
+    if (!armLA) armLA = { s: Math.sin(ph) * 0.40, e: 0.20 + Math.max(0, Math.sin(ph)) * 0.24 }
   } else if (pose.type === 'kneel') {
     // squat/crouch: hips low, both feet planted, shins angled back under the
     // body — reads clearly as crouching to sample (no broken joints).
@@ -211,15 +216,23 @@ export function drawPerson(ctx, o) {
   drawLeg(legs[0], true)
 
   // far arm (behind torso)
+  // Shoulders sit at the SILHOUETTE EDGE (torso half-width is 12.5). They used
+  // to be at ±10, i.e. inside the jacket, so the whole upper arm was hidden
+  // behind the torso and only the hand ball poked out below the hem — figures
+  // read as "missing an arm with a hand floating next to it". At ±12.5 the arm
+  // runs down the body's edge and stays visible.
+  const SHOULDER_X = 13.4
   const drawArm = (A, far) => {
     const jc = far ? shade(jacket, -26) : jacket
-    const sx = far ? -10 : 10
+    const sx = far ? -SHOULDER_X : SHOULDER_X
     const elbow = seg(sx, shByAdj + 3, A.s, 16)
     const wrist = seg(elbow[0], elbow[1], A.s + A.e, 14)
+    // small shoulder cap rounds the joint without reading as a shoulder pad
+    ball(sx, shByAdj + 3.5, 3.3, jc)
     limb(sx, shByAdj + 3, elbow[0], elbow[1], 3.8, 3.1, jc)
     // cuff + hand
     limb(elbow[0], elbow[1], wrist[0], wrist[1], 3.1, 2.7, jc)
-    ball(wrist[0], wrist[1], 2.9, skin)
+    ball(wrist[0], wrist[1], 3.1, far ? shade(skin, -10) : skin)
     return wrist
   }
   drawArm(armLA, true)
