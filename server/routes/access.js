@@ -40,9 +40,10 @@ router.put('/admin/role', requireAuth, requireAdmin, async (req, res) => {
   const { role, feature, allowed } = req.body || {}
   if (!ROLES.includes(role) || !FEATURE_KEYS.has(feature)) return res.status(400).json({ error: 'bad role/feature' })
   try {
-    await db.run(
+    await db.get(
       `INSERT INTO access_rules (role, feature, allowed) VALUES (?, ?, ?)
-       ON CONFLICT (role, feature) DO UPDATE SET allowed = ?`,
+       ON CONFLICT (role, feature) DO UPDATE SET allowed = ?
+       RETURNING role`,
       [role, feature, allowed ? 1 : 0, allowed ? 1 : 0]
     )
     invalidate()
@@ -59,9 +60,10 @@ router.put('/admin/user', requireAuth, requireAdmin, async (req, res) => {
     if (allowed === null || allowed === undefined) {
       await db.run('DELETE FROM access_overrides WHERE user_id = ? AND feature = ?', [String(user_id), feature])
     } else {
-      await db.run(
+      await db.get(
         `INSERT INTO access_overrides (user_id, feature, allowed) VALUES (?, ?, ?)
-         ON CONFLICT (user_id, feature) DO UPDATE SET allowed = ?`,
+         ON CONFLICT (user_id, feature) DO UPDATE SET allowed = ?
+         RETURNING user_id`,
         [String(user_id), feature, allowed ? 1 : 0, allowed ? 1 : 0]
       )
     }
