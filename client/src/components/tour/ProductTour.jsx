@@ -24,17 +24,19 @@ const STEPS = [
   { route: '/dashboard', target: 'dash-livesite', interactive: true, title: 'Dashboard — your live site',
     body: 'Pin one station as your “live site” and its latest pH, dissolved oxygen, temperature and conductivity stay on your dashboard, with a coloured bar showing where each reading sits against guideline ranges. Your choice is remembered on this device.',
     tip: 'Click “Change site” and pick a station near you.' },
+  { route: '/monitoring', target: 'map-filters', interactive: true,
+    waitFor: '[data-tour="map-search"]', waitPause: 500,
+    title: 'Site Map — filters and search',
+    body: 'The live map of 9,400+ Water Rangers stations. Dots are coloured by water-body type — river, lake, pond, wetland — and cluster into numbered circles as you zoom out. The search and all the filters live behind this button.',
+    tip: 'Click “Filters” to open the search and filter panel — I’ll wait.' },
   { route: '/monitoring', target: 'map-search', interactive: true,
     waitFor: '[data-tour="map-detail"]', waitPause: 900,
     title: 'Site Map — find a station',
-    body: 'The live map of 9,400+ Water Rangers stations. Dots are coloured by water-body type — river, lake, pond, wetland — and cluster into numbered circles as you zoom out.',
-    tip: 'Search a place (try “creek”), then click a station to open it — I’ll wait.' },
+    body: 'Beside this search you can narrow the map by country, water-body type, parameter measured, and active vs dormant stations. The map tools also let you switch base maps, measure distances, drop private field waypoints and turn on the community Stories layer.',
+    tip: 'Type a place (try “creek”), then click a station on the map to open it — I’ll wait.' },
   { route: '/monitoring', target: 'map-detail', title: 'Site Map — inside a station',
     body: 'This is the station’s record: where it is, the water body, which parameters it measures and its latest readings. From here you can compare it against another station, or open it in the Wet Lab for the full analysis.',
     tip: 'Scroll the panel to see every parameter this station measures.' },
-  { route: '/monitoring', target: 'map-filters', title: 'Site Map — filters and layers',
-    body: 'Filters narrow the map by country, water-body type, parameter measured, and active vs dormant stations. The map tools also let you switch base maps, measure distances, drop your own private field waypoints, and turn on the community Stories layer — local context you won’t find on Water Rangers’ own map.',
-    tip: 'Open Filters and try limiting it to one water-body type.' },
   { route: '/ask-water', target: 'ask-input', interactive: true,
     waitFor: '[data-tour="ask-answer"]', waitPause: 1600,
     title: 'Ask Water (AI)',
@@ -128,8 +130,25 @@ export default function ProductTour() {
   // ring/card stranded at a stale position (the earlier bug).
   useEffect(() => {
     if (!active || !s) return
+    // Clear any previous highlight IMMEDIATELY. Without this the last step's
+    // ring lingered over blank space while the new target was being looked for
+    // (or forever, if it was never found) — the "empty box in the middle of
+    // nowhere" and the card anchoring itself to it.
+    setRect(null)
     if (s.route && location.pathname !== s.route) return
-    if (!s.target) { setRect(null); return }
+    if (!s.target) return
+
+    // A target that exists but is collapsed/hidden (e.g. inside a closed panel)
+    // must NOT be highlighted — we'd ring an invisible box.
+    const isUsable = (el) => {
+      if (!el || !el.isConnected) return false
+      const r = el.getBoundingClientRect()
+      if (r.width < 4 || r.height < 4) return false
+      const cs = getComputedStyle(el)
+      if (cs.visibility === 'hidden' || cs.display === 'none') return false
+      if (el.offsetParent === null && cs.position !== 'fixed') return false
+      return true
+    }
 
     let el = null, tries = 0, raf = 0, cleanupAction = null, cancelled = false
 
@@ -181,8 +200,9 @@ export default function ProductTour() {
     const loop = () => {
       if (cancelled) return
       if (el) {
-        const r = el.getBoundingClientRect()
-        if (r.width > 0 || r.height > 0) {
+        if (!isUsable(el)) { setRect(null) }          // it got hidden/removed
+        else {
+          const r = el.getBoundingClientRect()
           setRect(prev => (prev && prev.top === r.top && prev.left === r.left && prev.width === r.width && prev.height === r.height) ? prev : r)
         }
       }
@@ -191,15 +211,17 @@ export default function ProductTour() {
 
     const find = () => {
       if (cancelled) return
-      el = document.querySelector(selectorFor(s.target))
-      if (el) {
+      const found = document.querySelector(selectorFor(s.target))
+      if (found && isUsable(found)) {
+        el = found
         try { el.scrollIntoView({ block: 'center', inline: 'nearest' }) } catch {}
         attach(el)
         raf = requestAnimationFrame(loop)
-      } else if (tries++ < 120) {
+      } else if (tries++ < 150) {
+        // keep looking — the user may still be opening the panel it lives in
         raf = requestAnimationFrame(find)
       } else {
-        setRect(null) // graceful centred card
+        setRect(null) // graceful centred card, text still shown
       }
     }
     find()
@@ -300,17 +322,19 @@ export default function ProductTour() {
     // couldn't type in the very field the tour was pointing at. Only the card
     // (and the dimmer on non-interactive steps) opts back in.
     <div style={{ position: 'fixed', top: 0, left: 0, width: u(vw), height: u(vh), zIndex: 2147483000, pointerEvents: 'none' }}>
-      {/* Dimmer / click control. Interactive steps keep the page clickable. */}
-      <div style={{ position: 'absolute', inset: 0, background: hasRect ? 'transparent' : 'rgba(15,23,42,0.62)', pointerEvents: s?.interactive ? 'none' : 'auto' }} />
+      {/* Dimmer. NEVER captures clicks — a tour that traps you is worse than no
+          tour. Every step leaves the whole page usable; only the card is
+          clickable on top of it. */}
+      <div style={{ position: 'absolute', inset: 0, background: hasRect ? 'transparent' : 'rgba(15,23,42,0.45)', pointerEvents: 'none' }} />
 
       {hasRect && (
         <div style={{
           position: 'absolute', top: u(rect.top - PAD * z), left: u(rect.left - PAD * z),
           width: u(rect.width + PAD * 2 * z), height: u(rect.height + PAD * 2 * z),
           borderRadius: 12, pointerEvents: 'none',
-          // Interactive steps dim far less: you need to READ what you just did
-          // (the AI's answer, the filtered list) while the step is still open.
-          boxShadow: `0 0 0 9999px rgba(15,23,42,${s?.interactive ? 0.3 : 0.62}), 0 0 0 3px #38bdf8, 0 0 22px 4px rgba(56,189,248,0.7)`,
+          // Light dim throughout: you need to READ what you just did (the AI's
+          // answer, the filtered list) while the step is still open.
+          boxShadow: `0 0 0 9999px rgba(15,23,42,${s?.interactive ? 0.28 : 0.45}), 0 0 0 3px #38bdf8, 0 0 22px 4px rgba(56,189,248,0.7)`,
         }} />
       )}
 
