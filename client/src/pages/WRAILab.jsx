@@ -1310,7 +1310,8 @@ function InsightsTab({ observations, analysis, siteName }) {
               </div>
             </div>
             {hs != null && (
-              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 7, background: `${hTone}14`, border: `1px solid ${hTone}40`, borderRadius: 20, padding: '4px 12px' }}>
+              <div title={`How this number works: for each test that has a general guideline range, we take the SITE'S LATEST reading and score it — inside the range = 100, borderline = 60, well outside = 15 — then average them. Here: ${health.breakdown.safe} inside, ${health.breakdown.warn} borderline, ${health.breakdown.danger} outside → ${hs}/100. It rates the latest readings against general guidelines, not an official safety rating.`}
+                style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 7, background: `${hTone}14`, border: `1px solid ${hTone}40`, borderRadius: 20, padding: '4px 12px', cursor: 'help' }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: hTone, boxShadow: `0 0 8px ${hTone}` }} />
                 <span style={{ fontSize: 12, fontWeight: 800, color: hTone }}>{hVerdict}</span>
                 <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {hs}/100 vs guidelines · {health.breakdown.safe}✓ {health.breakdown.warn}◐ {health.breakdown.danger}✕</span>
@@ -1325,7 +1326,12 @@ function InsightsTab({ observations, analysis, siteName }) {
               </div>
             ))}
           </div>
-          <div style={{ marginTop: 10, fontSize: 9.5, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+          {hs != null && (
+            <div style={{ marginTop: 10, fontSize: 10, color: 'var(--text)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', lineHeight: 1.5 }}>
+              <strong>How the {hs}/100 is worked out:</strong> for every test that has a general guideline range, we take this site's <strong>latest</strong> reading and give it a mark — <span style={{ color: '#10b981', fontWeight: 700 }}>inside the range = 100</span>, <span style={{ color: '#f59e0b', fontWeight: 700 }}>borderline = 60</span>, <span style={{ color: '#ef4444', fontWeight: 700 }}>well outside = 15</span> — then average them. Right now: <strong>{health.breakdown.safe}</strong> inside ✓, <strong>{health.breakdown.warn}</strong> borderline ◐, <strong>{health.breakdown.danger}</strong> outside ✕. Tests with no published guideline (e.g. conductivity) aren't scored.
+            </div>
+          )}
+          <div style={{ marginTop: 8, fontSize: 9.5, color: 'var(--text-muted)', fontStyle: 'italic' }}>
             Every sentence is computed from this site's real Water Rangers observations — nothing invented. “Health” compares readings to <strong>general guideline ranges</strong>, not an official safety rating — see the note at the bottom.
           </div>
         </div>
@@ -1399,7 +1405,7 @@ function InsightsTab({ observations, analysis, siteName }) {
             The typical value of each test in each month, so you can see when it peaks across the year (e.g. water warmest in summer).
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5, fontStyle: 'italic' }}>
-            ⚠️ Colour just shows each test's own <span style={{ color: '#c2410c', fontWeight: 700 }}>high</span> (warm) vs <span style={{ color: '#1d6fa5', fontWeight: 700 }}>low</span> (cool) months — <strong>not</strong> safe vs unsafe. A red box only means "highest month for this test."
+            ⚠️ Colour just shows each test's own <span style={{ color: '#c2410c', fontWeight: 700 }}>high</span> (warm) vs <span style={{ color: '#1d6fa5', fontWeight: 700 }}>low</span> (cool) months — <strong>not</strong> safe vs unsafe. A red box only means "highest month for this test." A <span style={{ fontWeight: 700 }}>dashed “–” box</span> means this test simply wasn't logged in that month at this site (not a zero — just no visit).
           </div>
           <div style={{ display: 'grid', gap: 9 }}>
             {seasons.map(s => (
@@ -1412,7 +1418,7 @@ function InsightsTab({ observations, analysis, siteName }) {
                   {monthsPresent.map(m => {
                     const a = s.avgs[m]
                     if (a == null) return (
-                      <div key={m} style={{ minWidth: 46, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 7, padding: '4px 6px', opacity: .5 }}>
+                      <div key={m} title={`${MONTHS[m]}: no ${s.param.replace(/_/g, ' ')} reading logged this month at this site`} style={{ minWidth: 46, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 7, padding: '4px 6px', opacity: .5, cursor: 'help' }}>
                         <div style={{ fontSize: 8.5, color: 'var(--text-muted)' }}>{MONTHS[m]}</div>
                         <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>–</div>
                       </div>
