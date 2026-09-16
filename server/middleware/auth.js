@@ -7,6 +7,11 @@ const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY)
   : null
 
 const requireAuth = async (req, res, next) => {
+  // Idempotent: if an earlier middleware (e.g. requireFeature) already
+  // authenticated this request, don't re-verify the token. This keeps a
+  // mount-level feature gate + a route-level requireAuth to ONE auth pass,
+  // so gating never doubles the Supabase/JWT cost per request.
+  if (req.user) return next()
   const token = req.headers.authorization?.split(' ')[1]
   if (!token) return res.status(401).json({ error: 'No token provided' })
 
@@ -68,6 +73,25 @@ const requireResearcher = (req, res, next) => {
   next()
 }
 
+// requireFeature(key): hard server-side enforcement for a feature tab. The
+// client already hides disabled tabs, but this stops a denied user from
+// reaching the tab's API directly. It authenticates first (populating
+// req.user, which a later requireAuth then reuses for free), then blocks with
+// 403 only when the access resolver says this non-admin user is denied. Opt-out
+// model means the common case (no rule set) passes through untouched, and any
+// resolver error fails OPEN so a glitch never locks the app.
+const { canAccess } = require('../access/store')
+const requireFeature = (key) => (req, res, next) => {
+  requireAuth(req, res, async () => {
+    try {
+      if (await canAccess(req.user, key)) return next()
+      return res.status(403).json({ error: 'This feature is not available for your account.', feature: key })
+    } catch (_) {
+      return next() // fail open
+    }
+  })
+}
+
 const logActivity = (action, targetType) => (req, res, next) => {
   const orig = res.json.bind(res)
   res.json = (body) => {
@@ -82,4 +106,4 @@ const logActivity = (action, targetType) => (req, res, next) => {
   next()
 }
 
-module.exports = { requireAuth, requireAdmin, requireResearcher, logActivity }
+module.exports = { requireAuth, requireAdmin, requireResearcher, requireFeature, logActivity }

@@ -82,17 +82,26 @@ if (uploadsDir2 !== uploadsDir && fs.existsSync(uploadsDir2)) {
   app.use('/uploads', express.static(uploadsDir2))
 }
 
+// Hard server-side feature enforcement. The client hides disabled tabs, but
+// these gates stop a denied user from hitting the tab's API directly. Applied
+// only to mounts where EVERY endpoint is behind auth and maps to exactly ONE
+// feature — so unauthenticated/public routes and shared data APIs are never
+// affected, and the opt-out default (no rule = allowed) leaves the common case
+// untouched. requireFeature authenticates once; the route's own requireAuth
+// then reuses req.user for free.
+const { requireFeature } = require('./middleware/auth')
+
 // API Routes
 app.use('/api/auth',        require('./routes/auth'))
 app.use('/api/users',       require('./routes/users'))
-app.use('/api/posts',       require('./routes/posts'))
-app.use('/api/messages',    require('./routes/messages'))
-app.use('/api/quizzes',     require('./routes/quizzes'))
+app.use('/api/posts',       requireFeature('social'),  require('./routes/posts'))
+app.use('/api/messages',    requireFeature('social'),  require('./routes/messages'))
+app.use('/api/quizzes',     requireFeature('quiz'),    require('./routes/quizzes'))
 app.use('/api/sites',       require('./routes/sites'))
 app.use('/api/ai',          require('./routes/ai'))
 app.use('/api/import',      require('./routes/import'))
-app.use('/api/resources',   require('./routes/resources'))
-app.use('/api/projects',    require('./routes/projects'))
+app.use('/api/resources',   requireFeature('resources'), require('./routes/resources'))
+app.use('/api/projects',    requireFeature('projects'),  require('./routes/projects'))
 app.use('/api/leaderboard', require('./routes/leaderboard'))
 app.use('/api/admin',       require('./routes/admin'))
 app.use('/api/sponsors',    require('./routes/sponsors'))
@@ -101,10 +110,10 @@ app.use('/api/research',    require('./routes/research'))
 app.use('/api/upload',         require('./routes/upload'))
 app.use('/api/notifications', require('./routes/notifications'))
 app.use('/api/geoai',          require('./routes/geoai'))  // 🌍 GeoAI — isolated microservice
-app.use('/api/wr',             require('./routes/waterrangers'))  // Water Rangers API proxy
-app.use('/api/alert-watches',  require('./routes/alert-watches')) // user-defined threshold rules
-app.use('/api/waypoints',      require('./routes/waypoints'))     // per-user field pins on the map
-app.use('/api/map-stories',    require('./routes/mapStories'))    // shared community-context layer on the map
+app.use('/api/wr',             require('./routes/waterrangers'))  // Water Rangers API proxy (shared by monitoring/explorer/ai-lab)
+app.use('/api/alert-watches',  requireFeature('alerts'),     require('./routes/alert-watches')) // user-defined threshold rules
+app.use('/api/waypoints',      requireFeature('monitoring'), require('./routes/waypoints'))     // per-user field pins on the map
+app.use('/api/map-stories',    requireFeature('monitoring'), require('./routes/mapStories'))    // shared community-context layer on the map
 app.use('/api/access',         require('./routes/access'))        // per-role / per-user feature access control
 
 // Health check

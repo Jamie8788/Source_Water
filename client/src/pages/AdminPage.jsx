@@ -1876,13 +1876,32 @@ function AITrackingPanel() {
 /* ── Access Control: turn tabs on/off per role, with per-user overrides ── */
 function AccessControlPanel() {
   const [data, setData] = useState(null) // { features, roles, rules, overrides }
-  const [users, setUsers] = useState([])
+  const [results, setResults] = useState([]) // server-side user search results
+  const [searching, setSearching] = useState(false)
   const [sel, setSel] = useState(null)   // selected user for override
   const [userSearch, setUserSearch] = useState('')
   const [saving, setSaving] = useState('')
+  const [audit, setAudit] = useState([])
 
   const load = () => api.get('/access/admin').then(r => setData(r.data)).catch(() => {})
-  useEffect(() => { load(); api.get('/users').then(r => setUsers(r.data?.users || r.data || [])).catch(() => {}) }, [])
+  const loadAudit = () => api.get('/access/admin/audit', { params: { limit: 30 } }).then(r => setAudit(r.data?.audit || [])).catch(() => {})
+  useEffect(() => { load(); loadAudit() }, [])
+
+  // Server-side, debounced user search — never loads the whole users table, so
+  // this stays fast at 1,000s of users. Fires only while a query is typed and
+  // no user is picked yet.
+  useEffect(() => {
+    const q = userSearch.trim()
+    if (sel || q.length < 1) { setResults([]); setSearching(false); return }
+    setSearching(true)
+    const t = setTimeout(() => {
+      api.get('/access/admin/users', { params: { search: q, limit: 8 } })
+        .then(r => setResults(r.data?.users || []))
+        .catch(() => setResults([]))
+        .finally(() => setSearching(false))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [userSearch, sel])
 
   if (!data) return <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: 12 }}><RefreshCw size={14} className="animate-spin"/> Loading…</div>
 
@@ -1893,7 +1912,7 @@ function AccessControlPanel() {
     setSaving(role + '|' + feat)
     ruleMap[role + '|' + feat] = next ? 1 : 0
     setData({ ...data })
-    try { await api.put('/access/admin/role', { role, feature: feat, allowed: next }) } catch {}
+    try { await api.put('/access/admin/role', { role, feature: feat, allowed: next }); loadAudit() } catch {}
     setSaving('')
   }
 
@@ -1905,11 +1924,9 @@ function AccessControlPanel() {
     if (val === null) delete ovMap[key]; else ovMap[key] = val ? 1 : 0
     data.overrides = Object.entries(ovMap).map(([k, a]) => { const [user_id, feature] = k.split('|'); return { user_id, feature, allowed: a } })
     setData({ ...data })
-    try { await api.put('/access/admin/user', { user_id: uid, feature: feat, allowed: val }) } catch {}
+    try { await api.put('/access/admin/user', { user_id: uid, feature: feat, allowed: val }); loadAudit() } catch {}
     setSaving('')
   }
-
-  const uFiltered = userSearch ? users.filter(u => (u.username || '').toLowerCase().includes(userSearch.toLowerCase()) || (u.display_name || '').toLowerCase().includes(userSearch.toLowerCase())).slice(0, 8) : []
 
   const Toggle = ({ on, onClick, busy }) => (
     <button onClick={onClick} disabled={busy} title={on ? 'Allowed — click to block' : 'Blocked — click to allow'} style={{
@@ -1959,11 +1976,14 @@ function AccessControlPanel() {
         <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '0 0 10px' }}>Search a user to allow or block individual tabs for just them — this beats their role default.</p>
         <div style={{ position: 'relative', maxWidth: 360 }}>
           <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}/>
-          <input value={userSearch} onChange={e => setUserSearch(e.target.value)} placeholder="Search users by name…"
+          <input value={userSearch} onChange={e => setUserSearch(e.target.value)} placeholder="Search users by name or email…"
             style={{ width: '100%', padding: '7px 9px 7px 28px', borderRadius: 8, fontSize: 12, background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text)', boxSizing: 'border-box', outline: 'none' }}/>
-          {uFiltered.length > 0 && !sel && (
+          {searching && <RefreshCw size={12} className="animate-spin" style={{ position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}/>}
+          {!sel && userSearch.trim() && (results.length > 0 || !searching) && (
             <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, marginTop: 4, zIndex: 5, maxHeight: 220, overflowY: 'auto' }}>
-              {uFiltered.map(u => (
+              {results.length === 0 && !searching
+                ? <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-muted)' }}>No users found.</div>
+                : results.map(u => (
                 <div key={u.id} onClick={() => { setSel(u); setUserSearch(u.display_name || u.username) }} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12.5, color: 'var(--text)', borderBottom: '1px solid var(--border)' }}>
                   {u.display_name || u.username} <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>· {u.role || 'Community member'}{u.is_admin ? ' · admin' : ''}</span>
                 </div>
@@ -1996,6 +2016,41 @@ function AccessControlPanel() {
                 )
               })}
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* AUDIT LOG — who changed which access, when. Real rows from the DB. */}
+      <div style={{ marginTop: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <Clock size={14} style={{ color: 'var(--text-muted)' }}/>
+          <h3 style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)', margin: 0 }}>Recent access changes</h3>
+          <button onClick={loadAudit} title="Refresh" style={{ marginLeft: 'auto', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><RefreshCw size={13}/></button>
+        </div>
+        <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '0 0 10px' }}>Every change here is logged with who made it and when — a real audit trail.</p>
+        {audit.length === 0
+          ? <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '8px 0' }}>No changes logged yet.</div>
+          : (
+          <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+            {audit.map(a => {
+              const featLabel = (data.features.find(f => f.key === a.feature) || {}).label || a.feature
+              const who = a.admin_name || ('admin #' + a.admin_id)
+              const target = a.target_type === 'role' ? a.target : (a.target_name || ('user #' + a.target))
+              const verb = a.allowed == null ? 'reset to default' : (Number(a.allowed) ? 'allowed' : 'blocked')
+              const color = a.allowed == null ? '#64748b' : (Number(a.allowed) ? '#10b981' : '#ef4444')
+              const when = a.created_at ? new Date(a.created_at.replace(' ', 'T') + (String(a.created_at).includes('Z') ? '' : 'Z')) : null
+              return (
+                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid var(--border)', fontSize: 12 }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 6, background: color + '20', color, flexShrink: 0 }}>{verb}</span>
+                  <span style={{ color: 'var(--text)' }}>
+                    <strong>{featLabel}</strong> for {a.target_type === 'role' ? 'role ' : ''}<strong>{target}</strong>
+                  </span>
+                  <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: 11, textAlign: 'right', flexShrink: 0 }}>
+                    {who}{when ? ' · ' + when.toLocaleString() : ''}
+                  </span>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

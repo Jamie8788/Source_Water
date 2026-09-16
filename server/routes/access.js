@@ -2,7 +2,36 @@ const router = require('express').Router()
 const db = require('../db/connection')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 const { FEATURES, FEATURE_KEYS, ROLES } = require('../access/features')
-const { accessMap, invalidate } = require('../access/store')
+const { accessMap, signalChange } = require('../access/store')
+
+// Fire-and-forget audit write: who changed what, when. Never blocks the
+// response (matches the app's logging pattern) and swallows its own errors so
+// a logging glitch can never fail a save. For user targets we resolve the
+// username cheaply so the audit view reads cleanly without a join.
+function logAudit(req, { target_type, target, feature, allowed }) {
+  ;(async () => {
+    try {
+      let target_name = null
+      if (target_type === 'user') {
+        const u = await db.get(
+          'SELECT username, display_name FROM users WHERE CAST(id AS TEXT) = ?',
+          [String(target)]
+        ).catch(() => null)
+        target_name = u ? (u.display_name || u.username) : null
+      }
+      await db.run(
+        `INSERT INTO access_audit (admin_id, admin_name, target_type, target, target_name, feature, allowed)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          String(req.user?.id ?? ''),
+          req.user?.display_name || req.user?.username || null,
+          target_type, String(target), target_name, feature,
+          allowed === null || allowed === undefined ? null : (allowed ? 1 : 0),
+        ]
+      )
+    } catch (_) { /* non-fatal */ }
+  })()
+}
 
 // GET /api/access/me — the current user's feature→allowed map. The client
 // calls this once on load (and after login) to know which tabs to show.
@@ -35,6 +64,58 @@ router.get('/admin', requireAuth, requireAdmin, async (req, res) => {
   }
 })
 
+// GET /api/access/admin/users?search=&limit=&offset= — paginated, searchable
+// user list for the per-user override tool. Scales to 1,000s of users because
+// it filters and pages IN THE DATABASE (never ships the whole users table to
+// the browser). Returns the total match count so the UI can paginate.
+router.get('/admin/users', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const q = String(req.query.search || '').trim().toLowerCase()
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50)
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0)
+
+    let where = ''
+    const args = []
+    if (q) {
+      // Match username / display name / email, case-insensitive.
+      where = `WHERE LOWER(username) LIKE ? OR LOWER(COALESCE(display_name,'')) LIKE ? OR LOWER(COALESCE(email,'')) LIKE ?`
+      const like = `%${q}%`
+      args.push(like, like, like)
+    }
+
+    const countRow = await db.get(`SELECT COUNT(*) AS n FROM users ${where}`, args)
+    const total = Number(countRow?.n || 0)
+
+    const rows = await db.all(
+      `SELECT id, username, display_name, email, role, is_admin
+       FROM users ${where}
+       ORDER BY LOWER(COALESCE(display_name, username)) ASC
+       LIMIT ? OFFSET ?`,
+      [...args, limit, offset]
+    )
+    res.json({ users: rows, total, limit, offset })
+  } catch (e) {
+    console.error('[access/admin/users]', e.message)
+    res.status(500).json({ error: 'Could not search users.' })
+  }
+})
+
+// GET /api/access/admin/audit?limit= — recent access changes (who/what/when).
+router.get('/admin/audit', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200)
+    const rows = await db.all(
+      `SELECT id, admin_id, admin_name, target_type, target, target_name, feature, allowed, created_at
+       FROM access_audit ORDER BY id DESC LIMIT ?`,
+      [limit]
+    )
+    res.json({ audit: rows })
+  } catch (e) {
+    console.error('[access/admin/audit]', e.message)
+    res.status(500).json({ error: 'Could not load audit log.' })
+  }
+})
+
 // PUT /api/access/admin/role  { role, feature, allowed }
 router.put('/admin/role', requireAuth, requireAdmin, async (req, res) => {
   const { role, feature, allowed } = req.body || {}
@@ -46,7 +127,8 @@ router.put('/admin/role', requireAuth, requireAdmin, async (req, res) => {
        RETURNING role`,
       [role, feature, allowed ? 1 : 0, allowed ? 1 : 0]
     )
-    invalidate()
+    await signalChange()
+    logAudit(req, { target_type: 'role', target: role, feature, allowed })
     res.json({ ok: true })
   } catch (e) { console.error('[access/role]', e.message); res.status(500).json({ error: 'save failed' }) }
 })
@@ -67,7 +149,8 @@ router.put('/admin/user', requireAuth, requireAdmin, async (req, res) => {
         [String(user_id), feature, allowed ? 1 : 0, allowed ? 1 : 0]
       )
     }
-    invalidate()
+    await signalChange()
+    logAudit(req, { target_type: 'user', target: user_id, feature, allowed })
     res.json({ ok: true })
   } catch (e) { console.error('[access/user]', e.message); res.status(500).json({ error: 'save failed' }) }
 })

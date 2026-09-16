@@ -760,6 +760,33 @@ async function initSchema() {
         PRIMARY KEY (user_id, feature)
       )
     `)
+    // Cross-instance cache signal. A single row 'version' whose counter is
+    // bumped whenever an admin changes a rule. Every app instance polls this
+    // tiny PK lookup at most every few seconds and reloads its in-memory
+    // access cache only when the number moved — so a revoke propagates to
+    // ALL instances within seconds, with no Redis (migration-safe, Postgres
+    // only). See server/access/store.js.
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS access_meta (
+        k TEXT PRIMARY KEY,
+        v BIGINT NOT NULL DEFAULT 0
+      )
+    `)
+    // Audit trail: who changed which feature for which role/user, and when.
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS access_audit (
+        id SERIAL PRIMARY KEY,
+        admin_id TEXT,
+        admin_name TEXT,
+        target_type TEXT,
+        target TEXT,
+        target_name TEXT,
+        feature TEXT,
+        allowed INTEGER,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_access_audit_created ON access_audit (created_at DESC)`)
 
     console.log('[schema] PostgreSQL schema ready')
   } else {
@@ -1187,6 +1214,26 @@ async function initSchema() {
         PRIMARY KEY (user_id, feature)
       )
     `)
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS access_meta (
+        k TEXT PRIMARY KEY,
+        v INTEGER NOT NULL DEFAULT 0
+      )
+    `)
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS access_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        admin_id TEXT,
+        admin_name TEXT,
+        target_type TEXT,
+        target TEXT,
+        target_name TEXT,
+        feature TEXT,
+        allowed INTEGER,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_access_audit_created ON access_audit (created_at DESC)`)
     console.log('[schema] SQLite schema ready')
   }
 }
