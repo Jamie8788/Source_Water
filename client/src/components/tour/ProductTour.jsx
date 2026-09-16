@@ -125,6 +125,18 @@ export default function ProductTour() {
     if (s.route && location.pathname !== s.route) navigate(s.route)
   }, [active, step]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // FOLLOW THE USER. If they navigate away mid-step — which is exactly what a
+  // tip like "click any site to jump to it on the map" asks them to do — don't
+  // sit there showing the old page's card, and don't drag them back. Jump to
+  // the first step that belongs to the page they actually landed on.
+  // (Our own navigate() above lands on s.route, so it never triggers this.)
+  useEffect(() => {
+    if (!active || !s || !s.route) return
+    if (location.pathname === s.route) return
+    const idx = STEPS.findIndex(st => st.route === location.pathname)
+    if (idx >= 0 && idx !== step) setStep(idx)
+  }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Find the target, then KEEP the rect synced to it every frame while the step
   // is active — so smooth-scroll, lazy content and layout shifts can't leave the
   // ring/card stranded at a stale position (the earlier bug).
