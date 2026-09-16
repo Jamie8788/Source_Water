@@ -222,7 +222,7 @@ function QuizBrowser({ onSelect }) {
 
       {/* ── Category filter ── */}
       {cats.length > 1 && (
-        <div style={{display:'flex',gap:6,marginBottom:10,flexWrap:'wrap'}}>
+        <div data-tour="quiz-filters" style={{display:'flex',gap:6,marginBottom:10,flexWrap:'wrap'}}>
           {cats.map(c => (
             <button key={c} onClick={() => setCat(c)} style={{
               padding:'3px 12px', borderRadius:99, fontSize:12, fontWeight:600, cursor:'pointer',

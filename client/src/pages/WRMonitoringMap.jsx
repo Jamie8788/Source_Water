@@ -638,7 +638,7 @@ export default function WRMonitoringMap() {
             {loading ? 'Loading all Water Rangers sites...' : `${allLocations.length.toLocaleString()} real monitoring sites · ${mappable.length.toLocaleString()} shown`}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 4 }}>
+        <div data-tour="map-filters" style={{ display: 'flex', gap: 4 }}>
           <button onClick={() => setShowFilters(f => !f)} style={{
             display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px',
             background: showFilters ? 'rgba(99,102,241,.12)' : 'rgba(255,255,255,.04)',

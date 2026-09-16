@@ -82,7 +82,7 @@ function YourActivity() {
   const totalForBar = Math.max(1, sources.reduce((s, x) => s + (data.points_by_source[x.key] || 0), 0))
   const monthName = new Date().toLocaleString('default', { month: 'long' })
   return (
-    <div className="card p-5">
+    <div className="card p-5" data-tour="dash-activity">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-bold flex items-center gap-2" style={{ color: 'var(--text)' }}>
           <Activity className="w-4 h-4 text-indigo-500"/> Your Activity · {monthName}
@@ -161,7 +161,7 @@ function TrendingSites({ locations }) {
     .slice(0, 5)
   if (top.length === 0) return null
   return (
-    <div className="card p-5">
+    <div className="card p-5" data-tour="dash-sites">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-bold flex items-center gap-2" style={{ color: 'var(--text)' }}>
           <TrendingUp className="w-4 h-4 text-emerald-500"/> Recently Active Sites

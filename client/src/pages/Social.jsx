@@ -181,7 +181,7 @@ function ReactorsModal({ postId, initialType=null, onClose }) {
             <X className="w-4 h-4" style={{color:'var(--text-muted)'}}/>
           </button>
         </div>
-        <div className="px-3 py-2 flex gap-1 overflow-x-auto border-b" style={{borderColor:'var(--border)'}}>
+        <div data-tour="social-tabs" className="px-3 py-2 flex gap-1 overflow-x-auto border-b" style={{borderColor:'var(--border)'}}>
           <button onClick={()=>setTab('all')}
             className="px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all"
             style={{background: tab==='all'?'rgba(99,102,241,0.12)':'transparent',
@@ -1866,7 +1866,7 @@ export default function Social() {
               )}
             </div>
 
-            <PostComposer user={user} onPost={handlePost} onStory={()=>setCreating(true)}/>
+            <div data-tour="social-composer"><PostComposer user={user} onPost={handlePost} onStory={()=>setCreating(true)}/></div>
 
             {loading ? (
               <div className="space-y-4">

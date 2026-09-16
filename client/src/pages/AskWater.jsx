@@ -482,7 +482,7 @@ export default function AskWater() {
           </motion.button>
         </div>
 
-        <div style={{display:'flex',gap:8,marginTop:20}}>
+        <div data-tour="ask-voice" style={{display:'flex',gap:8,marginTop:20}}>
           <button onClick={toggleVoice} style={{background:voiceOn?'rgba(99,102,241,.12)':'rgba(255,255,255,.04)',border:`1px solid ${voiceOn?'rgba(99,102,241,.35)':'rgba(255,255,255,.09)'}`,borderRadius:10,padding:'7px 13px',cursor:'pointer',color:voiceOn?'#c4b5fd':'rgba(255,255,255,.3)',fontSize:12,fontWeight:600,display:'flex',alignItems:'center',gap:6,transition:'all .2s'}}>
             {voiceOn?<Volume2 size={13}/>:<VolumeX size={13}/>}{voiceOn?'Voice On':'Voice Off'}
           </button>

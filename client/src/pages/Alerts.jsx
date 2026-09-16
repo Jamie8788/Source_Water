@@ -1277,7 +1277,7 @@ function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, o
   return (
     <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 14, padding: '16px 18px', marginBottom: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
-        <div>
+        <div data-tour="alerts-watches">
           <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--text)' }}>My Watches</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
             Custom thresholds on real monitoring sites. Each watch reads the latest observation and fires an alert if your condition is met.
