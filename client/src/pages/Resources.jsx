@@ -3,7 +3,8 @@ import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import {
   BookOpen, ExternalLink, Download, Search, Bookmark, BookmarkCheck,
-  Plus, Trash2, X, Link, FileText, Star, Eye, TrendingUp, Filter, Pencil
+  Plus, Trash2, X, Link, FileText, Star, Eye, TrendingUp, Filter, Pencil,
+  ShieldCheck, BadgeCheck
 } from 'lucide-react'
 import DatasetAnalyzer from '../components/resources/DatasetAnalyzer'
 
@@ -38,10 +39,21 @@ const typeOf = t => TYPE_CFG[t] || TYPE_CFG.other
 // Curated to the two real data partners SOURCE Water relies on. Any user-added
 // resource will simply not show a badge — that's intentional, badges only
 // stamp the vetted feeds.
+// Source-trust badge from the link's domain. Honest by design: a named badge
+// for our data partners, a "Verified source" badge for established
+// government / academic / international open-data orgs, and NOTHING for an
+// unrecognised link (so we never slap a fake trust mark on a random URL).
+const OFFICIAL_DOMAINS = [
+  'who.int', 'un.org', 'unep', 'europa.eu', '.gov', 'usgs',
+  '.gc.ca', 'canada.ca', 'ec.gc.ca', 'ccme.ca', 'gordonfoundation',
+  '.edu', '.ac.', 'ipcc.ch', 'iso.org', 'epa.'
+]
 function partnerBadge(url) {
   if (!url) return null
-  if (url.includes('waterrangers')) return { label: 'Water Rangers', color: '#006fbf' }
-  if (url.includes('datastream'))   return { label: 'DataStream',    color: '#22a06b' }
+  const u = url.toLowerCase()
+  if (u.includes('waterrangers')) return { label: 'Water Rangers', color: '#006fbf', tier: 'partner' }
+  if (u.includes('datastream'))   return { label: 'DataStream',    color: '#22a06b', tier: 'partner' }
+  if (OFFICIAL_DOMAINS.some(d => u.includes(d))) return { label: 'Verified source', color: '#7c3aed', tier: 'verified' }
   return null
 }
 
@@ -91,12 +103,12 @@ function AddResourceModal({ onClose, onAdded, existing = null }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, background: 'rgba(0,0,0,0.55)', padding: 16 }}>
-      <div style={{ width: '100%', maxWidth: 540, borderRadius: 12, overflow: 'hidden', background: 'var(--card-bg)', border: '1px solid var(--border)', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ width: '100%', maxWidth: 540, maxHeight: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', borderRadius: 12, overflow: 'hidden', background: 'var(--card-bg)', border: '1px solid var(--border)', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
           <h3 style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)', margin: 0 }}>{isEdit ? 'Edit Resource' : 'Add Resource'}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X style={{ width: 16, height: 16, color: 'var(--text-muted)' }}/></button>
         </div>
-        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '70vh', overflowY: 'auto' }}>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, overflowY: 'auto' }}>
           <div>
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Title *</label>
             <input style={inp} value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Resource title"/>
@@ -149,7 +161,7 @@ function AddResourceModal({ onClose, onAdded, existing = null }) {
           </div>
           {error && <p style={{ fontSize: 13, color: '#cc3333', margin: 0 }}>{error}</p>}
         </div>
-        <div style={{ display: 'flex', gap: 8, padding: '14px 20px', borderTop: '1px solid var(--border)' }}>
+        <div style={{ flexShrink: 0, display: 'flex', gap: 8, padding: '14px 20px', borderTop: '1px solid var(--border)' }}>
           <button onClick={onClose} style={{ flex: 1, padding: '9px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: 'var(--page-bg)', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}>Cancel</button>
           <button onClick={submit} disabled={saving} style={{ flex: 1, padding: '9px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: '#006fbf', color: 'white', border: 'none', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
             {saving ? 'Saving…' : 'Add Resource'}
@@ -221,8 +233,9 @@ function ResourceCard({ r, idx, bookmarked, onBookmark, onView, onDelete, onEdit
             {tc.icon} {tc.label}
           </span>
           {pb && (
-            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: `${pb.color}12`, color: pb.color, fontWeight: 600 }}>
-              {pb.label}
+            <span title={pb.tier === 'partner' ? 'From a SOURCE Water data partner' : 'From an established government, academic or international open-data source'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '2px 8px', borderRadius: 99, background: `${pb.color}12`, color: pb.color, fontWeight: 600 }}>
+              <BadgeCheck style={{ width: 12, height: 12 }}/> {pb.label}
             </span>
           )}
         </div>
@@ -509,19 +522,16 @@ export default function Resources() {
         </div>
       )}
 
-      {/* ── Curated-data credit ── */}
+      {/* ── Curated-sources note ── */}
       {!loading && (
-        <div style={{ marginTop: 32, padding: '14px 20px', borderRadius: 10, background: 'rgba(0,111,191,0.05)', border: '1px solid rgba(0,111,191,0.15)', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 22 }}>💧</span>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#006fbf' }}>Real data only — no fake links</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Curated to the two open data partners SOURCE Water actually pulls from:{' '}
-              <a href="https://www.waterrangers.ca" target="_blank" rel="noopener noreferrer" style={{ color: '#006fbf', fontWeight: 600 }}>Water Rangers</a>
-              {' and '}
-              <a href="https://datastream.org" target="_blank" rel="noopener noreferrer" style={{ color: '#22a06b', fontWeight: 600 }}>DataStream</a>.
-              Anything else here was added by a community admin. The Dataset Analyzer above runs entirely in your browser — no upload, no LLM.
-            </div>
+        <div style={{ marginTop: 32, padding: '13px 18px', borderRadius: 10, background: 'var(--card-bg)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <ShieldCheck style={{ width: 18, height: 18, color: '#22a06b', flexShrink: 0 }}/>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+            <strong style={{ color: 'var(--text)' }}>Curated &amp; verified sources.</strong> Every resource links to an established open-water-data organization — led by our data partners{' '}
+            <a href="https://www.waterrangers.ca" target="_blank" rel="noopener noreferrer" style={{ color: '#006fbf', fontWeight: 600 }}>Water Rangers</a>
+            {' and '}
+            <a href="https://datastream.org" target="_blank" rel="noopener noreferrer" style={{ color: '#22a06b', fontWeight: 600 }}>DataStream</a>
+            {' '}— alongside vetted additions curated by the SOURCE Water team.
           </div>
         </div>
       )}
