@@ -13,6 +13,7 @@ import { useCMS } from '../../context/CMSContext'
 import GlobalDMPanel from '../chat/GlobalDMPanel'
 import SponsorStrip from './SponsorStrip'
 import FeedbackButton from './FeedbackButton'
+import ProductTour from '../tour/ProductTour'
 
 // Legacy shim so any page still importing useCms doesn't break
 export { useCMS as useCms }
@@ -139,6 +140,9 @@ export default function Layout({ children }) {
 
       {/* Global feedback button */}
       <FeedbackButton />
+
+      {/* Interactive guided tour (self-contained; renders only its launcher until started) */}
+      <ProductTour />
     </div>
   )
 }

@@ -158,6 +158,7 @@ function NavItem({ item, active, collapsed, onClick, onSubNav }) {
   return (
     <div>
       <button
+        data-tour={`nav:${item.path}`}
         onClick={() => onClick(item.path)}
         title={collapsed ? item.label : undefined}
         onMouseEnter={() => setHov(true)}
