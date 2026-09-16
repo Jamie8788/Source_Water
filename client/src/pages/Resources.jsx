@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import {
   BookOpen, ExternalLink, Download, Search, Bookmark, BookmarkCheck,
   Plus, Trash2, X, Link, FileText, Star, Eye, TrendingUp, Filter, Pencil,
-  ShieldCheck, BadgeCheck
+  ShieldCheck, BadgeCheck, ArrowRight, CheckCircle2, Circle, Compass, RotateCcw
 } from 'lucide-react'
 import DatasetAnalyzer from '../components/resources/DatasetAnalyzer'
 
@@ -286,11 +287,207 @@ function ResourceCard({ r, idx, bookmarked, onBookmark, onView, onDelete, onEdit
   )
 }
 
+// ── Guided Learning Paths ─────────────────────────────────────────────────────
+// The thing a flat link library (Water Rangers / DataStream) can't do: a
+// journey that mixes a REAL curated resource ('read') with a REAL action inside
+// SOURCE Water ('do' → an actual tab). Every 'read' points at a genuine partner
+// page; every 'do' routes to a real route in this app. Progress is per-viewer
+// in localStorage (migration-safe — no server, no Redis).
+const LEARNING_PATHS = [
+  {
+    id: 'newcomer', emoji: '🌱', color: '#22a06b', level: 'Beginner',
+    title: 'New to water monitoring',
+    subtitle: 'From “what is water quality?” to reading a real site in 5 steps.',
+    steps: [
+      { kind: 'read', title: 'What water quality actually means', desc: 'Plain-language intro to the parameters and why they matter.', url: 'https://www.waterrangers.ca/learn' },
+      { kind: 'read', title: 'How the tests work', desc: 'The Water Rangers test-kit guide: pH, oxygen, turbidity, and more.', url: 'https://www.waterrangers.ca/equipment' },
+      { kind: 'do',   title: 'See a real monitoring site', desc: 'Open the live Site Map and pick a station near you.', to: '/monitoring', cta: 'Open Site Map' },
+      { kind: 'do',   title: 'Read a site’s data story', desc: 'Let the Wet Lab explain a site’s readings in plain words.', to: '/ai-lab', cta: 'Open Wet Lab' },
+      { kind: 'do',   title: 'Test what you learned', desc: 'Take a short quiz and earn your first points.', to: '/quiz', cta: 'Go to Quiz' },
+    ],
+  },
+  {
+    id: 'analyst', emoji: '🔬', color: '#006fbf', level: 'Intermediate',
+    title: 'Explore the data like a scientist',
+    subtitle: 'Go from raw readings to trends, correlations and a report.',
+    steps: [
+      { kind: 'do',   title: 'Dive into the data', desc: 'Browse observations and parameters in the Data Explorer.', to: '/explorer', cta: 'Open Explorer' },
+      { kind: 'read', title: 'How open water data is structured', desc: 'DataStream’s schema & download guide — the WQX-aligned columns.', url: 'https://datastream.org/en-ca/info/data-schema' },
+      { kind: 'do',   title: 'Find trends & correlations', desc: 'Use the Wet Lab’s Insights + Trends on a real site.', to: '/ai-lab', cta: 'Open Wet Lab' },
+      { kind: 'do',   title: 'Build a report', desc: 'Turn what you found into a shareable report.', to: '/reports', cta: 'Open Reports' },
+    ],
+  },
+  {
+    id: 'guardian', emoji: '🛡️', color: '#7c3aed', level: 'Community action',
+    title: 'Protect your local water',
+    subtitle: 'Turn awareness into action for the water near you.',
+    steps: [
+      { kind: 'do',   title: 'Find water near you', desc: 'Locate monitoring sites and community stories on the map.', to: '/monitoring', cta: 'Open Site Map' },
+      { kind: 'do',   title: 'Set a pollution alert', desc: 'Create a threshold watch so you’re warned when something changes.', to: '/alerts', cta: 'Open Alerts' },
+      { kind: 'read', title: 'Learn from frontline stories', desc: 'Real community science stories from Water Rangers.', url: 'https://www.waterrangers.ca/blog' },
+      { kind: 'do',   title: 'Rally your community', desc: 'Share what you found and start a conversation.', to: '/social', cta: 'Open Community' },
+    ],
+  },
+  {
+    id: 'educator', emoji: '🎓', color: '#d97706', level: 'For educators',
+    title: 'Teach with real water data',
+    subtitle: 'Bring live, local water science into your classroom.',
+    steps: [
+      { kind: 'read', title: 'Free training materials', desc: 'Water Rangers’ learning hub — protocols and lesson-ready material.', url: 'https://www.waterrangers.ca/learn' },
+      { kind: 'do',   title: 'Explore quizzes to assign', desc: 'See the quiz library students can take.', to: '/quiz', cta: 'Open Quizzes' },
+      { kind: 'do',   title: 'Show the AI Lab in action', desc: 'Demonstrate anomalies, trends and plain-English insights.', to: '/ai-lab', cta: 'Open Wet Lab' },
+      { kind: 'read', title: 'Build data literacy', desc: 'How to read and cite open water-quality data (DataStream).', url: 'https://datastream.org/en-ca/info/data-schema' },
+    ],
+  },
+]
+
+function loadPathProgress() {
+  try { return JSON.parse(localStorage.getItem('sw_lp_progress') || '{}') || {} } catch { return {} }
+}
+function savePathProgress(p) {
+  try { localStorage.setItem('sw_lp_progress', JSON.stringify(p)) } catch { /* private mode — non-fatal */ }
+}
+
+function LearningPaths({ resources, onOpenResource, navigate }) {
+  const [progress, setProgress] = useState(loadPathProgress)
+  const [openId, setOpenId] = useState(null)
+
+  const doneCount = (id) => Object.values(progress[id] || {}).filter(Boolean).length
+  const markDone = (id, i) => {
+    setProgress(prev => {
+      const next = { ...prev, [id]: { ...(prev[id] || {}), [i]: true } }
+      savePathProgress(next)
+      return next
+    })
+  }
+  const toggleStep = (id, i) => {
+    setProgress(prev => {
+      const cur = { ...(prev[id] || {}) }
+      cur[i] = !cur[i]
+      const next = { ...prev, [id]: cur }
+      savePathProgress(next)
+      return next
+    })
+  }
+  const resetPath = (id) => {
+    setProgress(prev => { const next = { ...prev, [id]: {} }; savePathProgress(next); return next })
+  }
+
+  // A 'read' step opens the matching real resource (counts a view) if we have
+  // it loaded, otherwise the known partner URL directly.
+  const openStep = (path, step, i) => {
+    if (step.kind === 'do' && step.to) {
+      markDone(path.id, i)
+      navigate(step.to)
+      return
+    }
+    const match = (resources || []).find(r => (r.external_url || '') && step.url && (r.external_url === step.url || r.external_url.replace(/\/$/, '') === step.url.replace(/\/$/, '')))
+    markDone(path.id, i)
+    if (match) onOpenResource(match)
+    else window.open(step.url, '_blank', 'noopener')
+  }
+
+  const open = LEARNING_PATHS.find(p => p.id === openId)
+
+  return (
+    <div style={{ marginBottom: 26 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <Compass style={{ width: 17, height: 17, color: '#006fbf' }} />
+        <h2 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text)', margin: 0 }}>Guided Learning Paths</h2>
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: '#006fbf', background: 'rgba(0,111,191,0.1)', padding: '2px 8px', borderRadius: 99 }}>start here</span>
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px', lineHeight: 1.5 }}>
+        Short journeys that mix a curated resource with a real action inside SOURCE Water — so you finish by <em>doing</em>, not just reading. Your progress is saved on this device.
+      </p>
+
+      {/* Path cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(250px,1fr))', gap: 12 }}>
+        {LEARNING_PATHS.map(p => {
+          const done = doneCount(p.id), total = p.steps.length
+          const pct = Math.round(done / total * 100)
+          const complete = done >= total
+          const isOpen = openId === p.id
+          return (
+            <button key={p.id} onClick={() => setOpenId(isOpen ? null : p.id)} className="res-card" style={{
+              textAlign: 'left', cursor: 'pointer', background: `linear-gradient(135deg, var(--card-bg), ${p.color}0a)`,
+              border: `1.5px solid ${isOpen ? p.color : p.color + '33'}`, borderRadius: 12, padding: '14px 16px',
+              display: 'flex', flexDirection: 'column', gap: 8, transition: 'box-shadow .18s, transform .18s, border-color .18s',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 22 }}>{p.emoji}</span>
+                <span style={{ fontSize: 10, fontWeight: 800, color: p.color, background: `${p.color}15`, padding: '2px 8px', borderRadius: 99, letterSpacing: '.03em' }}>{p.level}</span>
+                {complete && <CheckCircle2 style={{ width: 16, height: 16, color: '#22a06b', marginLeft: 'auto' }} />}
+              </div>
+              <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--text)', lineHeight: 1.3 }}>{p.title}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.45 }}>{p.subtitle}</div>
+              {/* progress */}
+              <div style={{ marginTop: 2 }}>
+                <div style={{ height: 6, background: 'var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${pct}%`, background: complete ? '#22a06b' : p.color, transition: 'width .3s' }} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }}>
+                  <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{done} of {total} done</span>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: complete ? '#22a06b' : p.color, display: 'flex', alignItems: 'center', gap: 3 }}>
+                    {complete ? 'Completed' : isOpen ? 'Hide steps' : done > 0 ? 'Continue' : 'Start'} <ArrowRight style={{ width: 12, height: 12, transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }} />
+                  </span>
+                </div>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Expanded steps for the selected path */}
+      {open && (
+        <div style={{ marginTop: 12, border: `1.5px solid ${open.color}44`, borderRadius: 12, background: 'var(--card-bg)', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', background: `${open.color}0d`, borderBottom: `1px solid ${open.color}22` }}>
+            <span style={{ fontSize: 18 }}>{open.emoji}</span>
+            <strong style={{ fontSize: 13.5, color: 'var(--text)' }}>{open.title}</strong>
+            <button onClick={() => resetPath(open.id)} title="Reset this path" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 11 }}>
+              <RotateCcw style={{ width: 12, height: 12 }} /> Reset
+            </button>
+            <button onClick={() => setOpenId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X style={{ width: 15, height: 15 }} /></button>
+          </div>
+          <div style={{ padding: '6px 8px' }}>
+            {open.steps.map((s, i) => {
+              const isDone = !!(progress[open.id] || {})[i]
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 11, padding: '11px 10px', borderBottom: i < open.steps.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                  <button onClick={() => toggleStep(open.id, i)} title={isDone ? 'Mark as not done' : 'Mark as done'} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0, marginTop: 1 }}>
+                    {isDone ? <CheckCircle2 style={{ width: 20, height: 20, color: '#22a06b' }} /> : <Circle style={{ width: 20, height: 20, color: 'var(--text-muted)' }} />}
+                  </button>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.04em', color: s.kind === 'do' ? open.color : '#64748b', background: s.kind === 'do' ? `${open.color}15` : 'var(--border)', padding: '1px 6px', borderRadius: 5 }}>
+                        {s.kind === 'do' ? 'DO IT' : 'READ'}
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', textDecoration: isDone ? 'line-through' : 'none', opacity: isDone ? 0.6 : 1 }}>{s.title}</span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.45, marginTop: 2 }}>{s.desc}</div>
+                  </div>
+                  <button onClick={() => openStep(open, s, i)} style={{
+                    flexShrink: 0, alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, cursor: 'pointer',
+                    padding: '6px 12px', borderRadius: 8, border: `1px solid ${open.color}`, color: s.kind === 'do' ? '#fff' : open.color, background: s.kind === 'do' ? open.color : 'transparent',
+                  }}>
+                    {s.kind === 'do' ? (s.cta || 'Go') : 'Open'}
+                    {s.kind === 'do' ? <ArrowRight style={{ width: 13, height: 13 }} /> : <ExternalLink style={{ width: 12, height: 12 }} />}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 const TYPES = ['All Types', 'guide', 'dataset', 'document', 'link', 'video', 'report']
 
 export default function Resources() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [resources,  setResources]  = useState([])
   const [bookmarks,  setBookmarks]  = useState(new Set())
   const [search,     setSearch]     = useState('')
@@ -424,6 +621,9 @@ export default function Resources() {
           </div>
         </div>
       )}
+
+      {/* ── Guided Learning Paths (unique to SOURCE Water) ── */}
+      {!loading && <LearningPaths resources={resources} onOpenResource={openResource} navigate={navigate} />}
 
       {/* ── Search ── */}
       <div style={{ position: 'relative', marginBottom: 12 }}>
