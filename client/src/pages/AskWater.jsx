@@ -538,7 +538,7 @@ export default function AskWater() {
         </div>
 
         <div style={{display:'flex',gap:8,marginTop:12,flexShrink:0}}>
-          <input value={input} onChange={e=>setInput(e.target.value)}
+          <input data-tour="ask-input" value={input} onChange={e=>setInput(e.target.value)}
             onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage(input)}}}
             placeholder="Ask about water quality, lakes, ecosystems…"
             style={{flex:1,padding:'11px 16px',background:'rgba(255,255,255,.055)',border:'1px solid rgba(99,102,241,.28)',borderRadius:13,color:'rgba(255,255,255,.9)',fontSize:13.5,outline:'none',boxSizing:'border-box',transition:'border-color .2s'}}

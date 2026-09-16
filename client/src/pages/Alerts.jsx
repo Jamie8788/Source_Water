@@ -1289,7 +1289,7 @@ function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, o
             <RefreshCw style={{ width: 13, height: 13, animation: checking ? 'spin 1s linear infinite' : 'none' }}/>
             Check now
           </button>
-          <button onClick={() => setAdding(a => !a)}
+          <button data-tour="alerts-add" onClick={() => setAdding(a => !a)}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: 'none', background: '#6366f1', color: '#fff' }}>
             <Plus style={{ width: 13, height: 13 }}/>
             {adding ? 'Cancel' : 'Add watch'}

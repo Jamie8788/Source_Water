@@ -390,7 +390,7 @@ function LearningPaths({ resources, onOpenResource, navigate }) {
   const open = LEARNING_PATHS.find(p => p.id === openId)
 
   return (
-    <div style={{ marginBottom: 26 }}>
+    <div data-tour="learning-paths" style={{ marginBottom: 26 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <Compass style={{ width: 17, height: 17, color: '#006fbf' }} />
         <h2 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text)', margin: 0 }}>Guided Learning Paths</h2>

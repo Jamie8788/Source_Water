@@ -753,7 +753,7 @@ ${context}` },
           <div>
             <div style={{ position: 'relative', marginBottom: 8 }}>
               <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input value={locSearch} onChange={e => setLocSearch(e.target.value)}
+              <input data-tour="explorer-search" value={locSearch} onChange={e => setLocSearch(e.target.value)}
                 placeholder="Search 9,444 sites..."
                 style={{ width: '100%', padding: '7px 8px 7px 28px', borderRadius: 8, fontSize: 11, background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text)', boxSizing: 'border-box', outline: 'none' }} />
             </div>

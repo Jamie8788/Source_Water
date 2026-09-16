@@ -388,7 +388,7 @@ function LiveWaterQuality({ wrAll, navigate }) {
             </span>
           )}
         </h3>
-        <button onClick={() => setPicking(p => !p)} className="text-xs font-semibold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">
+        <button data-tour="dash-livesite" onClick={() => setPicking(p => !p)} className="text-xs font-semibold text-indigo-500 hover:text-indigo-700 flex items-center gap-1">
           Change site <ChevronRight className="w-3 h-3"/>
         </button>
       </div>

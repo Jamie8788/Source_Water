@@ -697,7 +697,7 @@ export default function WRMonitoringMap() {
         }}>
           <div>
             <label style={{ fontSize: 9, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Search</label>
-            <input value={searchText} onChange={e => setSearchText(e.target.value)} placeholder="Name, water body, country..."
+            <input data-tour="map-search" value={searchText} onChange={e => setSearchText(e.target.value)} placeholder="Name, water body, country..."
               style={{ width: '100%', padding: '5px 7px', borderRadius: 6, fontSize: 11, background: 'rgba(0,0,0,.12)', border: '1px solid var(--border)', color: 'var(--text)', boxSizing: 'border-box' }} />
           </div>
           <div>

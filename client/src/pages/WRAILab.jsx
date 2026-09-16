@@ -1746,7 +1746,7 @@ export default function WRAILab() {
         <div>
           <div style={{ position: 'relative', marginBottom: 6 }}>
             <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-            <input value={locSearch} onChange={e => setLocSearch(e.target.value)} placeholder="Search sites..."
+            <input data-tour="ailab-search" value={locSearch} onChange={e => setLocSearch(e.target.value)} placeholder="Search sites..."
               style={{ width: '100%', padding: '7px 8px 7px 26px', borderRadius: 8, fontSize: 11, background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text)', boxSizing: 'border-box', outline: 'none' }} />
           </div>
           {locsLoading ? (

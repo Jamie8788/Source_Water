@@ -214,6 +214,7 @@ function QuizBrowser({ onSelect }) {
       {/* ── Search ── */}
       <d2l-input-search
         ref={searchRef}
+        data-tour="quiz-search"
         label="Search quizzes"
         placeholder="Search by title or description..."
         style={{display:'block', marginBottom:12}}
