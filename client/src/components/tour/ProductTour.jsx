@@ -88,10 +88,25 @@ export default function ProductTour() {
     const attach = (node) => {
       if (!s.interactive || !node) return
       const tag = node.tagName
-      const isField = tag === 'INPUT' || tag === 'TEXTAREA' || node.getAttribute?.('contenteditable') === 'true'
-      // Inputs: let the user actually type and explore — they advance with Next.
+      const isField = tag === 'INPUT' || tag === 'TEXTAREA' || node.getAttribute?.('contenteditable') === 'true' || tag?.includes('-')
+      if (isField) {
+        // Wait for the user to ACTUALLY search: they type, we let them see the
+        // results, then the tour moves on. Enter jumps ahead immediately.
+        let t
+        const onInput = () => {
+          const v = (node.value ?? node.textContent ?? '').toString()
+          clearTimeout(t)
+          if (v.trim().length >= 2) t = setTimeout(() => { if (!cancelled) next() }, 1500)
+        }
+        const onKey = (e) => {
+          if (e.key === 'Enter') { clearTimeout(t); setTimeout(() => { if (!cancelled) next() }, 400) }
+        }
+        node.addEventListener('input', onInput)
+        node.addEventListener('keydown', onKey)
+        cleanupAction = () => { clearTimeout(t); node.removeEventListener('input', onInput); node.removeEventListener('keydown', onKey) }
+        return
+      }
       // Buttons/panels: doing the real click advances the tour.
-      if (isField) return
       const handler = () => setTimeout(() => { if (!cancelled) next() }, 260)
       node.addEventListener('click', handler, { once: true })
       cleanupAction = () => node.removeEventListener('click', handler)
@@ -155,38 +170,55 @@ export default function ProductTour() {
   const PAD = 7
   const hasRect = rect && (rect.width > 0 || rect.height > 0)
   const vw = window.innerWidth, vh = window.innerHeight
-  const cardW = Math.min(CARD_W, vw - 24)
-  const clampX = (x) => Math.max(12, Math.min(x, vw - cardW - 12))
-  const clampY = (y) => Math.max(12, Math.min(y, vh - CARD_H - 12))
+
+  // ── Zoom compensation ──────────────────────────────────────────────────
+  // Accessibility settings put CSS `zoom` on <html>. getBoundingClientRect()
+  // returns SCREEN coordinates, but this overlay lives inside that zoomed root,
+  // so any px we set gets multiplied by the zoom — which is what pushed the
+  // spotlight off its element (the further down/right, the bigger the drift).
+  // We do all the maths in screen space, then divide by z when rendering.
+  const z = (() => {
+    const v = parseFloat(getComputedStyle(document.documentElement).zoom)
+    return (v && isFinite(v) && v > 0) ? v : 1
+  })()
+  const u = (n) => n / z                       // screen px → our (zoomed) px
+
+  const cardW = Math.min(CARD_W, vw / z - 24)  // card width in zoomed units
+  const scW = cardW * z, scH = CARD_H * z      // its size on screen
+  const clampX = (x) => Math.max(12, Math.min(x, vw - scW - 12))
+  const clampY = (y) => Math.max(12, Math.min(y, vh - scH - 12))
 
   // 4-way placement: pick the side of the target with the most room, then align
   // the card to the target's centre and clamp to the viewport. `arrow` points
   // the caret back at the target.
+  // All placement maths below is in SCREEN space (same space as `rect`), then
+  // converted with u() at render time.
   let cardStyle, arrow = null
   if (hasRect) {
     const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2
     const below = vh - rect.bottom, above = rect.top, right = vw - rect.right, left = rect.left
-    if (below >= CARD_H + GAP || below >= above && below >= 160) {
-      const top = rect.bottom + GAP, lx = clampX(cx - cardW / 2)
-      cardStyle = { top, left: lx, width: cardW }
-      arrow = { side: 'top', offset: Math.max(14, Math.min(cx - lx, cardW - 14)) }
-    } else if (above >= CARD_H + GAP || above >= 160) {
-      const top = clampY(rect.top - GAP - CARD_H), lx = clampX(cx - cardW / 2)
-      cardStyle = { top, left: lx, width: cardW }
-      arrow = { side: 'bottom', offset: Math.max(14, Math.min(cx - lx, cardW - 14)) }
-    } else if (right >= cardW + GAP) {
-      const lx = rect.right + GAP, top = clampY(cy - CARD_H / 2)
-      cardStyle = { top, left: lx, width: cardW }
-      arrow = { side: 'left', offset: Math.max(14, Math.min(cy - top, CARD_H - 14)) }
-    } else if (left >= cardW + GAP) {
-      const lx = rect.left - GAP - cardW, top = clampY(cy - CARD_H / 2)
-      cardStyle = { top, left: lx, width: cardW }
-      arrow = { side: 'right', offset: Math.max(14, Math.min(cy - top, CARD_H - 14)) }
+    const gap = GAP * z
+    if (below >= scH + gap) {
+      const top = rect.bottom + gap, lx = clampX(cx - scW / 2)
+      cardStyle = { top: u(top), left: u(lx), width: cardW }
+      arrow = { side: 'top', offset: u(Math.max(16, Math.min(cx - lx, scW - 16))) }
+    } else if (above >= scH + gap) {
+      const top = clampY(rect.top - gap - scH), lx = clampX(cx - scW / 2)
+      cardStyle = { top: u(top), left: u(lx), width: cardW }
+      arrow = { side: 'bottom', offset: u(Math.max(16, Math.min(cx - lx, scW - 16))) }
+    } else if (right >= scW + gap) {
+      const lx = rect.right + gap, top = clampY(cy - scH / 2)
+      cardStyle = { top: u(top), left: u(lx), width: cardW }
+      arrow = { side: 'left', offset: u(Math.max(16, Math.min(cy - top, scH - 16))) }
+    } else if (left >= scW + gap) {
+      const lx = rect.left - gap - scW, top = clampY(cy - scH / 2)
+      cardStyle = { top: u(top), left: u(lx), width: cardW }
+      arrow = { side: 'right', offset: u(Math.max(16, Math.min(cy - top, scH - 16))) }
     } else {
-      cardStyle = { top: '50%', left: '50%', width: cardW, transform: 'translate(-50%,-50%)' }
+      cardStyle = { top: u((vh - scH) / 2), left: u((vw - scW) / 2), width: cardW }
     }
   } else {
-    cardStyle = { top: '50%', left: '50%', width: cardW, transform: 'translate(-50%,-50%)' }
+    cardStyle = { top: u((vh - scH) / 2), left: u((vw - scW) / 2), width: cardW }
   }
 
   const arrowStyle = arrow && (() => {
@@ -198,14 +230,14 @@ export default function ProductTour() {
   })()
 
   const overlay = (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 2147483000 }}>
+    <div style={{ position: 'fixed', top: 0, left: 0, width: u(vw), height: u(vh), zIndex: 2147483000 }}>
       {/* Dimmer / click control. Interactive steps keep the page clickable. */}
       <div style={{ position: 'absolute', inset: 0, background: hasRect ? 'transparent' : 'rgba(15,23,42,0.62)', pointerEvents: s?.interactive ? 'none' : 'auto' }} />
 
       {hasRect && (
         <div style={{
-          position: 'absolute', top: rect.top - PAD, left: rect.left - PAD,
-          width: rect.width + PAD * 2, height: rect.height + PAD * 2,
+          position: 'absolute', top: u(rect.top - PAD * z), left: u(rect.left - PAD * z),
+          width: u(rect.width + PAD * 2 * z), height: u(rect.height + PAD * 2 * z),
           borderRadius: 12, pointerEvents: 'none',
           boxShadow: '0 0 0 9999px rgba(15,23,42,0.62), 0 0 0 3px #38bdf8, 0 0 22px 4px rgba(56,189,248,0.7)',
         }} />
