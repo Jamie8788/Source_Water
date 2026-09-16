@@ -583,7 +583,7 @@ export default function Resources() {
       {/* ── Dataset Analyzer ── purely client-side stats / charts /
           anomalies / correlations for any CSV from WR, DataStream, or
           a community member's own field log. No LLM, no upload.       */}
-      {!loading && <DatasetAnalyzer />}
+      {!loading && <div data-tour="res-analyzer"><DatasetAnalyzer /></div>}
 
       {/* ── Featured resources ── */}
       {!loading && featured.length > 0 && (
@@ -626,7 +626,7 @@ export default function Resources() {
       {!loading && <LearningPaths resources={resources} onOpenResource={openResource} navigate={navigate} />}
 
       {/* ── Search ── */}
-      <div style={{ position: 'relative', marginBottom: 12 }}>
+      <div data-tour="res-search" style={{ position: 'relative', marginBottom: 12 }}>
         <Search style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', width: 15, height: 15, color: 'var(--text-muted)' }}/>
         <input
           ref={searchRef}
@@ -647,7 +647,7 @@ export default function Resources() {
       </div>
 
       {/* ── Category filters ── */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+      <div data-tour="res-filters" style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
         {categories.map(c => {
           const active = category === c
           const cc = c === 'all' ? '#494c4e' : catColor(c)
@@ -665,7 +665,7 @@ export default function Resources() {
       </div>
 
       {/* ── Type filters ── */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
+      <div data-tour="res-types" style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
         {TYPES.map(t => {
           const active = typeFilter === t
           const tc = t === 'All Types' ? null : typeOf(t)

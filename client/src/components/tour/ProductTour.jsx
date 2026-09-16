@@ -25,17 +25,29 @@ const STEPS = [
     body: 'A friendly AI you can type or speak to about the data or water in general.',
     tip: 'Click here and ask “What causes algae blooms?”, then press send.' },
   { route: '/ai-lab', target: 'ailab-search', interactive: true, title: 'Wet Lab — the smart part',
-    body: 'Anomalies, a trust score, trends, correlations and “what to investigate” for any site.',
-    tip: 'Search a site here, then open its Insights tab.' },
+    body: 'This is the analysis Water Rangers and DataStream don’t give you. First, pick a site to analyse.',
+    tip: 'Type a site name here (try “creek”) — the list filters as you type, then click one.' },
+  { route: '/ai-lab', target: 'ailab-tabs', title: 'Wet Lab — the five views',
+    body: 'Once a site is picked, these tabs are the analysis: Anomaly Detection flags readings that stand out; Insights writes a plain-English Site Story with a trust score, what changed since last visit, whether it’s getting better or worse, and what to investigate; Trends shows each parameter over time; Charts plots them; Research AI answers questions about that site.',
+    tip: 'Open Insights — it’s the one that explains the site in plain words.' },
   { route: '/explorer', target: 'explorer-search', interactive: true, title: 'Dive into Data',
     body: 'The raw record behind the charts — every observation and parameter.',
     tip: 'Search any of 9,400+ sites here to browse its history.' },
   { route: '/quiz', target: 'quiz-search', interactive: true, title: 'Quiz Yourself',
     body: 'Short quizzes that teach water science and earn you points.',
     tip: 'Find a quiz here (or scroll the list) and start it.' },
-  { route: '/resources', target: 'learning-paths', interactive: true, title: 'Resources + Learning Paths',
-    body: 'Curated, verified guides — plus guided journeys that end with you using the platform.',
-    tip: 'Open a Learning Path and follow its “DO IT” steps.' },
+  { route: '/resources', target: 'res-analyzer', title: 'Resources — Dataset Analyzer',
+    body: 'Before the library itself: drop any CSV from Water Rangers, DataStream or your own field log and get instant stats, anomalies, time-series and correlations. It runs entirely in your browser — nothing is uploaded and no AI is involved, so you can use sensitive data safely.',
+    tip: 'Drag a CSV in, or click “Or paste CSV text” to try it.' },
+  { route: '/resources', target: 'learning-paths', interactive: true, title: 'Guided Learning Paths',
+    body: 'Four journeys — Beginner, Intermediate, Community action and Educators. Each mixes a curated guide (READ) with a real action inside the platform (DO IT), tracks your progress, and remembers it on this device.',
+    tip: 'Click a path to expand its steps, then tick them off as you go.' },
+  { route: '/resources', target: 'res-search', interactive: true, title: 'Finding a resource',
+    body: 'The library itself — every entry is a real, verified source. Cards show a badge for where it came from: our partners (Water Rangers, DataStream) or a purple “Verified source” for government, academic and international bodies.',
+    tip: 'Type a keyword here — the grid filters instantly.' },
+  { route: '/resources', target: 'res-filters', title: 'Filter by topic and format',
+    body: 'This row filters by CATEGORY — Datasets, Community Science, Water Quality, Data Literacy, Field Work, Safety, Indigenous Water Rights, Ecology. The row underneath filters by TYPE — Guide, Dataset, Document, Link, Video, Report. They combine, so you can ask for “Datasets that are Reports”, and the count tells you how many matched.',
+    tip: 'Click a category, then a type, to narrow the list.' },
   { route: '/alerts', target: 'alerts-add', interactive: true, title: 'Alerts',
     body: 'Get warned automatically when a site crosses a threshold you care about.',
     tip: 'Click here to create a watch — a site, a parameter, and a limit.' },
@@ -230,7 +242,11 @@ export default function ProductTour() {
   })()
 
   const overlay = (
-    <div style={{ position: 'fixed', top: 0, left: 0, width: u(vw), height: u(vh), zIndex: 2147483000 }}>
+    // pointerEvents:'none' is essential — this container spans the whole
+    // viewport, so with the default 'auto' it swallowed every click and you
+    // couldn't type in the very field the tour was pointing at. Only the card
+    // (and the dimmer on non-interactive steps) opts back in.
+    <div style={{ position: 'fixed', top: 0, left: 0, width: u(vw), height: u(vh), zIndex: 2147483000, pointerEvents: 'none' }}>
       {/* Dimmer / click control. Interactive steps keep the page clickable. */}
       <div style={{ position: 'absolute', inset: 0, background: hasRect ? 'transparent' : 'rgba(15,23,42,0.62)', pointerEvents: s?.interactive ? 'none' : 'auto' }} />
 
