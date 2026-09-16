@@ -33,12 +33,32 @@ export function AuthProvider({ children }) {
   // hidden and a glitch can't lock anyone out. The server is the real gate.
   const [access, setAccess] = useState(null)
   const refreshAccess = useCallback(async () => {
-    try { const r = await api.get('/access/me'); setAccess(r.data?.features || {}) }
-    catch { setAccess({}) }
+    try {
+      const r = await api.get('/access/me')
+      const next = r.data?.features || {}
+      // Only replace state when the map actually changed, so the periodic
+      // re-check below doesn't re-render the whole app every tick.
+      setAccess(prev => (prev && JSON.stringify(prev) === JSON.stringify(next)) ? prev : next)
+    } catch { setAccess(prev => prev || {}) }
   }, [])
   useEffect(() => {
-    if (user) refreshAccess()
-    else setAccess(null)
+    if (!user) { setAccess(null); return }
+    refreshAccess()
+    // Live updates without a page refresh: an admin toggling a tab (e.g. hiding
+    // Ask Water for Community members) should reach signed-in users on its own.
+    // We re-check every 30s AND the moment the user returns to the tab — so the
+    // change shows up within ~30s in the background, or instantly on focus,
+    // instead of only after a manual reload. Client-only (no websockets/Redis),
+    // so it carries over to Hostinger unchanged.
+    const iv = setInterval(refreshAccess, 30000)
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshAccess() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      clearInterval(iv)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
   }, [user?.id, user?.role, refreshAccess])
 
   const fetchProfile = useCallback(async (sbUser, token) => {
