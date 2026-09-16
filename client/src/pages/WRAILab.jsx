@@ -1117,19 +1117,83 @@ function strengthWord(r) {
   return m >= 0.7 ? 'Very strong link' : m >= 0.5 ? 'Strong link' : m >= 0.35 ? 'Moderate link' : 'Slight link'
 }
 
-// Plain-language sentence a volunteer can read — no stats words up front.
+// Classify a raw parameter name into a category we can reason about. Keeps the
+// explanation logic readable and robust to naming ("water_temperature",
+// "Water Temp", "watertemp" all map to the same tag).
+function corrTag(name) {
+  const s = String(name).toLowerCase()
+  if (/air.*temp|temp.*air/.test(s)) return 'airtemp'
+  if (/water.*temp|temp.*water|(^|[^a-z])temp/.test(s)) return 'watertemp'
+  if (/oxygen|(^|[^a-z])do([^a-z]|$)|dissolved.o/.test(s)) return 'oxygen'
+  if (/conduct/.test(s)) return 'conductivity'
+  if (/ammoni/.test(s)) return 'ammonia'
+  if (/phosph/.test(s)) return 'phosphate'
+  if (/nitrate|nitrogen/.test(s)) return 'nitrate'
+  if (/nitrite/.test(s)) return 'nitrite'
+  if (/chlorophyll/.test(s)) return 'chlorophyll'
+  if (/turbid|secchi|clarity/.test(s)) return 'turbidity'
+  if (/chloride|salin/.test(s)) return 'chloride'
+  if (/hardness/.test(s)) return 'hardness'
+  if (/alkalin/.test(s)) return 'alkalinity'
+  if (/tds|dissolved.solid/.test(s)) return 'tds'
+  if (/\bph\b|acid/.test(s)) return 'ph'
+  if (/coli|ecoli|e\.?\s?coli|bacteri/.test(s)) return 'bacteria'
+  return 'other'
+}
+
+// Real, parameter-specific reasons two measurements tend to move together.
+// Keyed by the two tags (order-independent). Each returns an HONEST note for
+// the given direction — a genuine mechanism where science has one, or a plain
+// "they share a source / this is seasonal" where it doesn't. Never invents
+// causation: correlation ≠ cause, and the card already says so.
+function corrReason(t1, t2, positive) {
+  const key = [t1, t2].sort().join('|')
+  const R = {
+    'airtemp|watertemp': () => positive && ' Expected: the water tracks the weather — sun and warm air heat it, cold snaps cool it. Normal, not a problem.',
+    'oxygen|watertemp': () => !positive && ' Real cause: warm water simply can’t hold as much dissolved oxygen as cold water, so oxygen drops as it warms. It’s why fish get stressed in summer.',
+    'airtemp|oxygen': () => !positive && ' Same idea as water temperature: warmer conditions mean the water holds less oxygen.',
+    'ammonia|conductivity': () => positive && ' Likely meaning: conductivity counts the dissolved ions in the water, and ammonia often arrives with sewage, manure or fertiliser runoff that also adds other salts — so they climb together. A joint rise can be a fingerprint of that pollution, worth checking upstream.',
+    'ammonia|phosphate': () => positive && ' Worth a look: ammonia and phosphate are both plant nutrients from the same sources — fertiliser, manure, sewage. Rising together is the classic signature of nutrient pollution (the fuel for algae blooms).',
+    'nitrate|phosphate': () => positive && ' Worth a look: nitrate and phosphate are the two main nutrients behind algae growth, usually from the same runoff/sewage sources — so together they flag nutrient loading.',
+    'ammonia|nitrate': () => positive && ' Both are forms of nitrogen pollution from the same sources (fertiliser, sewage, manure), so they often rise together.',
+    'ammonia|nitrite': () => positive && ' These are steps in the same nitrogen cycle — ammonia converts to nitrite — so they’re chemically linked.',
+    'conductivity|watertemp': () => positive && ' Part physics: ions move faster in warmer water, so conductivity naturally reads a little higher when the water is warm (some meters correct for this, some don’t).',
+    'conductivity|chloride': () => positive && ' Expected: chloride (road salt, etc.) is a dissolved salt, and conductivity is basically a tally of dissolved salts — more chloride, higher conductivity.',
+    'conductivity|hardness': () => positive && ' Expected: hardness minerals are dissolved ions, and conductivity measures dissolved ions — so they rise together.',
+    'conductivity|tds': () => positive && ' Expected: these measure almost the same thing — the amount of dissolved material in the water.',
+    'conductivity|alkalinity': () => positive && ' Expected: alkalinity comes from dissolved minerals, which also carry electrical current — so conductivity tracks it.',
+    'oxygen|phosphate': () => !positive && ' Possible mechanism: extra phosphate feeds algae and bacteria that consume oxygen as they grow and decay — the engine behind blooms and fish kills.',
+    'ammonia|oxygen': () => !positive && ' Possible mechanism: breaking down ammonia and the organic pollution it comes with uses up oxygen, so more ammonia can mean less oxygen.',
+    'turbidity|phosphate': () => positive && ' Common after rain: storm runoff washes in soil particles (cloudiness) with phosphate stuck to them — so they spike together.',
+    'turbidity|watertemp': () => positive && ' Often seasonal — warmer months bring more rain-driven runoff and biological activity that cloud the water.',
+    'chlorophyll|phosphate': () => positive && ' Direct link: phosphate is algae food and chlorophyll measures algae — more nutrient, more algae.',
+    'chlorophyll|nitrate': () => positive && ' Direct link: nitrate is algae food and chlorophyll measures algae growth.',
+  }
+  const fn = R[key]
+  const specific = fn ? fn() : ''
+  if (specific) return specific
+  // Honest fallback when there's no well-established direct mechanism.
+  const nutrients = new Set(['ammonia', 'phosphate', 'nitrate', 'nitrite'])
+  const temps = new Set(['airtemp', 'watertemp'])
+  if ((nutrients.has(t1) && temps.has(t2)) || (nutrients.has(t2) && temps.has(t1))) {
+    return ' Probably seasonal rather than one causing the other — warmer months often bring more runoff and biological activity, so temperature and nutrients can drift together across the year.'
+  }
+  return ' There isn’t an obvious reason one would drive the other, so this may be a shared seasonal pattern or a coincidence — a good thing to investigate, not a conclusion.'
+}
+
+// Plain-language explanation a volunteer can read — no stats words up front,
+// then a REAL reason tailored to these two measurements, then an honesty
+// caveat when the sample is small.
 function correlationText(p) {
   const A = p.a.replace(/_/g, ' '), B = p.b.replace(/_/g, ' ')
-  const s = p.r > 0
+  const positive = p.r > 0
+  const s = positive
     ? `When ${A} goes up, ${B} usually goes up too — and when one falls, the other falls.`
     : `When ${A} goes up, ${B} usually goes down — they pull in opposite directions.`
-  let note = ''
-  const set = (p.a + ' ' + p.b).toLowerCase()
-  if (/temp/.test(set) && /oxygen/.test(set) && p.r < 0) note = ' Makes sense: warmer water holds less oxygen for fish.'
-  else if (/conduct/.test(set) && /(hardness|salinity|chloride|tds|alkalin)/.test(set) && p.r > 0) note = ' Makes sense: both go up when there are more dissolved minerals/salts in the water.'
-  else if (/air.*temp/.test(set) && /water.*temp/.test(set) && p.r > 0) note = ' Makes sense: the water follows the weather.'
-  else if (/phosph/.test(set) && /oxygen/.test(set) && p.r < 0) note = ' This can happen when nutrients feed algae that use up oxygen.'
-  return `${s}${note}`
+  const note = corrReason(corrTag(p.a), corrTag(p.b), positive)
+  // Small samples are easy to fool — be upfront about it.
+  const caveat = p.n < 8 ? ` (Based on only ${p.n} visits measured on the same day, so treat this as a hint, not proof.)` : ''
+  return `${s}${note}${caveat}`
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']

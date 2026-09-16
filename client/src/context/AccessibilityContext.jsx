@@ -26,14 +26,21 @@ export function AccessibilityProvider({ children }) {
     localStorage.setItem('sw_a11y', JSON.stringify(settings))
     const root = document.documentElement
     const textPx = TEXT_SIZES[settings.textSize]
-    root.style.fontSize = textPx + 'px'
-    // Elaine: when text size grew, only the main page scaled — the
-    // sidebar was stuck because its inline styles use hardcoded px.
-    // Emit a scale factor (relative to the default index 2 = 18px) so
-    // the sidebar (and anything else that opts in) can multiply its
-    // own dimensions. See .sw-sidebar-root rule in index.css.
-    root.style.setProperty('--sw-text-scale', (textPx / TEXT_SIZES[defaults.textSize]).toFixed(4))
-    root.style.zoom = ZOOMS[settings.zoom] / 100
+    // Text scale relative to the default (index 2 = 18px). 1.0 at default,
+    // up to ~1.22 at the largest setting.
+    const textScale = textPx / TEXT_SIZES[defaults.textSize]
+    // Why this drives ZOOM, not just root font-size: almost all of the app's
+    // text is styled with hardcoded px in inline styles (e.g. fontSize: 12),
+    // which root font-size can't touch — so "Text Size" used to visibly change
+    // almost nothing, and users said text was still too small. Folding the text
+    // scale into the page zoom makes EVERY tab's text grow together, uniformly,
+    // and scales proportionally so tables/cards keep their layout (they just get
+    // bigger) instead of overflowing. The Zoom control multiplies on top.
+    // Keep the rem base fixed at the default and the sidebar var neutral so
+    // rem-based text and the opted-in sidebar don't get scaled a second time.
+    root.style.fontSize = TEXT_SIZES[defaults.textSize] + 'px'
+    root.style.setProperty('--sw-text-scale', '1')
+    root.style.zoom = ((ZOOMS[settings.zoom] / 100) * textScale).toFixed(4)
     root.style.lineHeight = LINE_SPACINGS[settings.lineSpacing]
     root.classList.toggle('high-contrast', settings.highContrast)
     root.classList.toggle('dyslexia-font', settings.dyslexiaFont)
