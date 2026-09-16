@@ -1910,9 +1910,14 @@ function AccessControlPanel() {
   const toggleRole = async (role, feat) => {
     const next = !roleAllowed(role, feat)
     setSaving(role + '|' + feat)
-    ruleMap[role + '|' + feat] = next ? 1 : 0
-    setData({ ...data })
-    try { await api.put('/access/admin/role', { role, feature: feat, allowed: next }); loadAudit() } catch {}
+    // Optimistic update must write to data.rules itself — ruleMap is rebuilt
+    // from data.rules on every render, so mutating the throwaway map didn't
+    // stick (the "toggle doesn't move until I leave and come back" bug).
+    const rules = data.rules.filter(r => !(r.role === role && r.feature === feat))
+    rules.push({ role, feature: feat, allowed: next ? 1 : 0 })
+    setData({ ...data, rules })
+    try { await api.put('/access/admin/role', { role, feature: feat, allowed: next }); loadAudit() }
+    catch { load() } // save failed → re-pull the real state from the server
     setSaving('')
   }
 
@@ -1920,11 +1925,13 @@ function AccessControlPanel() {
   const userOv = (uid, feat) => { const v = ovMap[String(uid) + '|' + feat]; return v == null ? null : !!v }
   const setUserOv = async (uid, feat, val) => {
     setSaving('u' + uid + feat)
-    const key = String(uid) + '|' + feat
-    if (val === null) delete ovMap[key]; else ovMap[key] = val ? 1 : 0
-    data.overrides = Object.entries(ovMap).map(([k, a]) => { const [user_id, feature] = k.split('|'); return { user_id, feature, allowed: a } })
-    setData({ ...data })
-    try { await api.put('/access/admin/user', { user_id: uid, feature: feat, allowed: val }); loadAudit() } catch {}
+    // Optimistic, non-mutating: drop any existing override for this (user,
+    // feature), then add the new one unless we're resetting to default.
+    const overrides = data.overrides.filter(o => !(String(o.user_id) === String(uid) && o.feature === feat))
+    if (val !== null) overrides.push({ user_id: String(uid), feature: feat, allowed: val ? 1 : 0 })
+    setData({ ...data, overrides })
+    try { await api.put('/access/admin/user', { user_id: uid, feature: feat, allowed: val }); loadAudit() }
+    catch { load() }
     setSaving('')
   }
 
