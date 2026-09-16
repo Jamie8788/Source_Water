@@ -95,7 +95,10 @@ const { requireFeature } = require('./middleware/auth')
 app.use('/api/auth',        require('./routes/auth'))
 app.use('/api/users',       require('./routes/users'))
 app.use('/api/posts',       requireFeature('social'),  require('./routes/posts'))
-app.use('/api/messages',    requireFeature('social'),  require('./routes/messages'))
+// NOTE: /api/messages (DMs) is intentionally NOT gated — the DM/unread badge
+// loads in the TopBar on every page, and "messages" isn't a toggleable tab.
+// Gating it under 'social' would kill a blocked user's DM badge app-wide.
+app.use('/api/messages',    require('./routes/messages'))
 app.use('/api/quizzes',     requireFeature('quiz'),    require('./routes/quizzes'))
 app.use('/api/sites',       require('./routes/sites'))
 app.use('/api/ai',          require('./routes/ai'))
