@@ -1010,7 +1010,7 @@ export default function WRMonitoringMap() {
           background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(6px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }} onClick={() => setSelected(null)}>
-          <div onClick={e => e.stopPropagation()} style={{
+          <div data-tour="map-detail" onClick={e => e.stopPropagation()} style={{
             background: 'var(--card-bg, #1e1e2e)', border: '1px solid var(--border)',
             borderRadius: 14, padding: 20, maxWidth: 520, width: '92%', maxHeight: '85vh', overflowY: 'auto',
           }}>

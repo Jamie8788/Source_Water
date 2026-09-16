@@ -177,7 +177,7 @@ function renderRichText(text) {
 function Bubble({ msg }) {
   const isUser = msg.role === 'user'
   return (
-    <motion.div initial={{opacity:0,y:14,scale:.96}} animate={{opacity:1,y:0,scale:1}} transition={{duration:.28,ease:[.34,1.2,.64,1]}}
+    <motion.div data-tour={isUser ? undefined : 'ask-answer'} initial={{opacity:0,y:14,scale:.96}} animate={{opacity:1,y:0,scale:1}} transition={{duration:.28,ease:[.34,1.2,.64,1]}}
       style={{display:'flex',gap:10,flexDirection:isUser?'row-reverse':'row',alignItems:'flex-end'}}>
       {!isUser&&<div style={{width:32,height:32,borderRadius:'50%',flexShrink:0,background:'linear-gradient(135deg,#6366f1,#14b8a6)',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:900,fontSize:13,color:'#fff',boxShadow:'0 0 12px rgba(99,102,241,.4)'}}>W</div>}
       <div style={{maxWidth:'82%',padding:'11px 15px',borderRadius:isUser?'18px 18px 4px 18px':'18px 18px 18px 4px',background:isUser?'linear-gradient(135deg,#6366f1,#4338ca)':'rgba(255,255,255,.055)',border:isUser?'none':'1px solid rgba(255,255,255,.09)',backdropFilter:'blur(12px)',color:'rgba(255,255,255,.93)',fontSize:13.5,lineHeight:1.68,boxShadow:isUser?'0 4px 20px rgba(99,102,241,.35)':'0 2px 12px rgba(0,0,0,.25)'}}>
@@ -520,7 +520,7 @@ export default function AskWater() {
           </motion.div>
         )}
 
-        <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:11,paddingRight:4,paddingBottom:6}}>
+        <div data-tour="ask-chat" style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:11,paddingRight:4,paddingBottom:6}}>
           <AnimatePresence initial={false}>
             {messages.map((m,i)=><Bubble key={i} msg={m}/>)}
           </AnimatePresence>

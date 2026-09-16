@@ -24,21 +24,33 @@ const STEPS = [
   { route: '/dashboard', target: 'dash-livesite', interactive: true, title: 'Dashboard — your live site',
     body: 'Pin one station as your “live site” and its latest pH, dissolved oxygen, temperature and conductivity stay on your dashboard, with a coloured bar showing where each reading sits against guideline ranges. Your choice is remembered on this device.',
     tip: 'Click “Change site” and pick a station near you.' },
-  { route: '/monitoring', target: 'map-search', interactive: true, title: 'Site Map — find a station',
+  { route: '/monitoring', target: 'map-search', interactive: true,
+    waitFor: '[data-tour="map-detail"]', waitPause: 900,
+    title: 'Site Map — find a station',
     body: 'The live map of 9,400+ Water Rangers stations. Dots are coloured by water-body type — river, lake, pond, wetland — and cluster into numbered circles as you zoom out.',
-    tip: 'Type a place or water body here (try “creek”), then click a result.' },
+    tip: 'Search a place (try “creek”), then click a station to open it — I’ll wait.' },
+  { route: '/monitoring', target: 'map-detail', title: 'Site Map — inside a station',
+    body: 'This is the station’s record: where it is, the water body, which parameters it measures and its latest readings. From here you can compare it against another station, or open it in the Wet Lab for the full analysis.',
+    tip: 'Scroll the panel to see every parameter this station measures.' },
   { route: '/monitoring', target: 'map-filters', title: 'Site Map — filters and layers',
     body: 'Filters narrow the map by country, water-body type, parameter measured, and active vs dormant stations. The map tools also let you switch base maps, measure distances, drop your own private field waypoints, and turn on the community Stories layer — local context you won’t find on Water Rangers’ own map.',
     tip: 'Open Filters and try limiting it to one water-body type.' },
-  { route: '/ask-water', target: 'ask-input', interactive: true, title: 'Ask Water (AI)',
+  { route: '/ask-water', target: 'ask-input', interactive: true,
+    waitFor: '[data-tour="ask-answer"]', waitPause: 1600,
+    title: 'Ask Water (AI)',
     body: 'A friendly AI you can type or speak to about the data or water in general. It has a daily free limit, and the Charts, Trends and Anomaly tools stay unlimited.',
-    tip: 'Click here and ask “What causes algae blooms?”, then press send.' },
+    tip: 'Ask “What causes algae blooms?” and press send — I’ll wait here while Water answers.' },
+  { route: '/ask-water', target: 'ask-chat', title: 'Ask Water — your answer',
+    body: 'That’s Water’s reply. Answers can cite our own monitoring data, and if Voice is on it reads them aloud. Keep asking follow-ups — the conversation has memory, so “what about in winter?” still makes sense.',
+    tip: 'Read the answer, then carry on when you’re ready.' },
   { route: '/ask-water', target: 'ask-voice', title: 'Ask Water — talk to it',
     body: 'Tap the microphone to speak your question instead of typing (Chrome or Edge). “Voice On” makes Water read answers back and tell fun facts — switch it off for silent reading. “Clear” starts a fresh conversation.',
     tip: 'Toggle Voice On/Off to set how chatty Water is.' },
-  { route: '/ai-lab', target: 'ailab-search', interactive: true, title: 'Wet Lab — the smart part',
+  { route: '/ai-lab', target: 'ailab-search', interactive: true,
+    waitFor: '[data-tour="ailab-tabs"]', waitPause: 900,
+    title: 'Wet Lab — the smart part',
     body: 'This is the analysis Water Rangers and DataStream don’t give you. First, pick a site to analyse.',
-    tip: 'Type a site name here (try “creek”) — the list filters as you type, then click one.' },
+    tip: 'Type a site name (try “creek”), then click one from the list — I’ll wait for it to load.' },
   { route: '/ai-lab', target: 'ailab-tabs', title: 'Wet Lab — the five views',
     body: 'Once a site is picked, these tabs are the analysis: Anomaly Detection flags readings that stand out; Insights writes a plain-English Site Story with a trust score, what changed since last visit, whether it’s getting better or worse, and what to investigate; Trends shows each parameter over time; Charts plots them; Research AI answers questions about that site.',
     tip: 'Open Insights — it’s the one that explains the site in plain words.' },
@@ -121,8 +133,25 @@ export default function ProductTour() {
 
     let el = null, tries = 0, raf = 0, cleanupAction = null, cancelled = false
 
+    // waitFor: don't advance on a timer — wait for the REAL result to show up
+    // (the AI's answer, the site detail that opens). We note how many matches
+    // exist when the step starts and advance once a new one appears, so the
+    // user sees what they just produced instead of being yanked onward.
+    let waitTimer = null
+    if (s.waitFor) {
+      const baseline = document.querySelectorAll(s.waitFor).length
+      waitTimer = setInterval(() => {
+        if (cancelled) return
+        if (document.querySelectorAll(s.waitFor).length > baseline) {
+          clearInterval(waitTimer)
+          setTimeout(() => { if (!cancelled) next() }, s.waitPause ?? 1200)
+        }
+      }, 400)
+    }
+
     const attach = (node) => {
       if (!s.interactive || !node) return
+      if (s.waitFor) return // the result watcher drives this step
       const tag = node.tagName
       const isField = tag === 'INPUT' || tag === 'TEXTAREA' || node.getAttribute?.('contenteditable') === 'true' || tag?.includes('-')
       if (isField) {
@@ -175,7 +204,7 @@ export default function ProductTour() {
     }
     find()
 
-    return () => { cancelled = true; cancelAnimationFrame(raf); cleanupAction?.() }
+    return () => { cancelled = true; cancelAnimationFrame(raf); clearInterval(waitTimer); cleanupAction?.() }
   }, [active, step, location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -279,7 +308,9 @@ export default function ProductTour() {
           position: 'absolute', top: u(rect.top - PAD * z), left: u(rect.left - PAD * z),
           width: u(rect.width + PAD * 2 * z), height: u(rect.height + PAD * 2 * z),
           borderRadius: 12, pointerEvents: 'none',
-          boxShadow: '0 0 0 9999px rgba(15,23,42,0.62), 0 0 0 3px #38bdf8, 0 0 22px 4px rgba(56,189,248,0.7)',
+          // Interactive steps dim far less: you need to READ what you just did
+          // (the AI's answer, the filtered list) while the step is still open.
+          boxShadow: `0 0 0 9999px rgba(15,23,42,${s?.interactive ? 0.3 : 0.62}), 0 0 0 3px #38bdf8, 0 0 22px 4px rgba(56,189,248,0.7)`,
         }} />
       )}
 
