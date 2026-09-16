@@ -1273,11 +1273,84 @@ function heatColor(norm) {
   return `hsl(${hue}, 72%, ${light}%)`
 }
 
+// ── Analyses unique to this tab (not on Water Rangers or DataStream) — every
+// number below is computed from THIS site's real readings. No AI, no invented
+// values. ───────────────────────────────────────────────────────────────────
+const capWord = s => String(s).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+const roundVal = v => (v == null || !isFinite(v)) ? '—' : +Number(v).toFixed(Math.abs(v) >= 100 ? 0 : 2)
+
+// 1) Health trajectory — is the water getting better, worse, or holding steady?
+// For each test with a guideline range we split its readings in half by time
+// and compare the share that sat INSIDE the range early vs recently.
+function computeTrajectory(trends) {
+  const items = []
+  for (const t of trends) {
+    const who = lookupWHO(t.param)
+    if (!who) continue
+    const s = cleanSeries(t.points)
+    if (s.length < 6) continue
+    const mid = Math.floor(s.length / 2)
+    const insidePct = arr => Math.round(arr.filter(p => statusOfValue(p.v, who).tone === 'safe').length / arr.length * 100)
+    const early = insidePct(s.slice(0, mid)), late = insidePct(s.slice(mid))
+    items.push({ param: t.param, unit: who.unit || t.unit || '', early, late, delta: late - early })
+  }
+  if (!items.length) return null
+  const avgDelta = Math.round(items.reduce((a, x) => a + x.delta, 0) / items.length)
+  const dir = avgDelta >= 8 ? 'improving' : avgDelta <= -8 ? 'declining' : 'steady'
+  return { dir, avgDelta, items: items.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)) }
+}
+
+// 2) What changed since the previous reading — per-test diff of the newest
+// reading vs the one before it, flagging any guideline edge it crossed.
+function computeLatestChanges(trends) {
+  const out = []
+  for (const t of trends) {
+    const s = cleanSeries(t.points)
+    if (s.length < 2) continue
+    const prev = s[s.length - 2], cur = s[s.length - 1]
+    const who = lookupWHO(t.param)
+    const diff = cur.v - prev.v
+    const rel = prev.v !== 0 ? Math.abs(diff / prev.v) : (diff !== 0 ? 1 : 0)
+    let crossed = null
+    if (who) {
+      const p = statusOfValue(prev.v, who).tone, c = statusOfValue(cur.v, who).tone
+      if (p === 'safe' && c !== 'safe') crossed = 'out'
+      else if (p !== 'safe' && c === 'safe') crossed = 'in'
+    }
+    out.push({ param: t.param, unit: who?.unit || t.unit || '', from: prev.v, to: cur.v, diff, rel, when: cur.t, crossed })
+  }
+  return out.filter(x => x.rel > 0.001).sort((a, b) => b.rel - a.rel).slice(0, 6)
+}
+
+// 3) "What to investigate" — conservative, fact-tied leads. Every item points
+// at a real computed observation and is phrased as a lead, never a verdict.
+function computeSignals(trends, health, corr, trajectory) {
+  const sig = []
+  for (const it of (health?.items || [])) {
+    if (it.status.tone === 'danger') sig.push({ tone: '#ef4444', text: `${capWord(it.param)} is reading well outside its general guideline right now (${roundVal(it.latest)} ${it.unit}, range ${it.who.min}–${it.who.max}). Confirm it against the original Water Rangers record and note recent weather or upstream activity.` })
+    else if (it.status.tone === 'warn') sig.push({ tone: '#f59e0b', text: `${capWord(it.param)} is sitting right at the edge of its guideline (${roundVal(it.latest)} ${it.unit}). Worth watching on the next visit.` })
+  }
+  const isNut = x => ['ammonia', 'phosph', 'nitrate', 'nitrite'].some(n => x.toLowerCase().includes(n))
+  for (const p of (corr || [])) {
+    if (p.r >= 0.6 && isNut(p.a) && isNut(p.b)) {
+      sig.push({ tone: '#14b8a6', text: `${capWord(p.a)} and ${capWord(p.b)} rise and fall together here (r=${p.r}) — a classic nutrient-pollution signature. Worth checking upstream for fertiliser, manure or sewage sources.` })
+      break
+    }
+  }
+  if (trajectory && trajectory.dir === 'declining') {
+    sig.push({ tone: '#f97316', text: `Fewer readings are landing inside guideline ranges lately than earlier in the record (down about ${Math.abs(trajectory.avgDelta)} points). Worth a closer look at the recent visits.` })
+  }
+  return sig.slice(0, 4)
+}
+
 function InsightsTab({ observations, analysis, siteName }) {
   const card = useMemo(() => computeReportCard(observations, analysis), [observations, analysis])
   const corr = useMemo(() => computeCorrelations(analysis.trends), [analysis.trends])
   const health = useMemo(() => computeHealthScore(analysis.trends), [analysis.trends])
   const seasons = useMemo(() => computeSeasonality(analysis.trends), [analysis.trends])
+  const trajectory = useMemo(() => computeTrajectory(analysis.trends), [analysis.trends])
+  const changes = useMemo(() => computeLatestChanges(analysis.trends), [analysis.trends])
+  const signals = useMemo(() => computeSignals(analysis.trends, health, corr, trajectory), [analysis.trends, health, corr, trajectory])
   const story = useMemo(() => card ? computeSiteStory(observations, analysis, card, corr, health, siteName) : [], [observations, analysis, card, corr, health, siteName])
   const gradeColor = (g) => ({ A: '#10b981', B: '#22c55e', C: '#f59e0b', D: '#f97316', F: '#ef4444' }[g] || '#6366f1')
   const barColor = (s) => s >= 80 ? '#10b981' : s >= 55 ? '#f59e0b' : '#ef4444'
@@ -1336,6 +1409,102 @@ function InsightsTab({ observations, analysis, siteName }) {
           </div>
         </div>
       </div>
+
+      {/* ── WHAT TO INVESTIGATE — fact-tied leads (unique to this tab) ── */}
+      {signals.length > 0 && (
+        <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <ShieldAlert size={16} color="#f59e0b" />
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>What to look into next</h3>
+            <span style={{ fontSize: 9.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>leads from the data · not on Water Rangers</span>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
+            Starting points a volunteer or researcher could act on — each one is tied to a real number on this page. These are <em>leads to check</em>, not conclusions.
+          </div>
+          <div style={{ display: 'grid', gap: 7 }}>
+            {signals.map((s, i) => (
+              <div key={i} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', background: 'var(--bg)', border: '1px solid var(--border)', borderLeft: `3px solid ${s.tone}`, borderRadius: 8, padding: '9px 11px' }}>
+                <Sparkles size={14} color={s.tone} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.45 }}>{s.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── WHAT CHANGED SINCE THE PREVIOUS READING (unique to this tab) ── */}
+      {changes.length > 0 && (
+        <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Clock size={16} color="#6366f1" />
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>What changed since the previous reading</h3>
+            <span style={{ fontSize: 9.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>latest vs the one before · not on Water Rangers</span>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
+            How each test moved between its two most recent readings — biggest movers first. A tag appears if a reading crossed into or out of its guideline range.
+          </div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            {changes.map((c, i) => {
+              const up = c.diff > 0
+              const Arrow = up ? ArrowUpRight : ArrowDownRight
+              const aColor = c.crossed === 'out' ? '#ef4444' : c.crossed === 'in' ? '#10b981' : 'var(--text-muted)'
+              const pct = Math.round(c.rel * 100)
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 11px' }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)', textTransform: 'capitalize', minWidth: 120 }}>{c.param.replace(/_/g, ' ')}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{roundVal(c.from)}</span>
+                  <Arrow size={14} color={aColor} />
+                  <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--text)' }}>{roundVal(c.to)} <span style={{ fontWeight: 400, fontSize: 10.5, color: 'var(--text-muted)' }}>{(c.unit || '').replace(/_/g, '/')}</span></span>
+                  <span style={{ fontSize: 10.5, color: aColor, fontWeight: 600 }}>{up ? '+' : ''}{roundVal(c.diff)} ({up ? '+' : '−'}{pct}%)</span>
+                  {c.crossed === 'out' && <span style={{ marginLeft: 'auto', fontSize: 9.5, fontWeight: 800, color: '#ef4444', background: '#ef444414', padding: '2px 8px', borderRadius: 20 }}>left guideline range</span>}
+                  {c.crossed === 'in' && <span style={{ marginLeft: 'auto', fontSize: 9.5, fontWeight: 800, color: '#10b981', background: '#10b98114', padding: '2px 8px', borderRadius: 20 }}>back in range</span>}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── HEALTH TRAJECTORY — better / worse over time (unique to this tab) ── */}
+      {trajectory && (
+        <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <TrendingUp size={16} color="#14b8a6" />
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>Is it getting better or worse?</h3>
+            <span style={{ fontSize: 9.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>early vs recent readings · not on Water Rangers</span>
+          </div>
+          {(() => {
+            const dirC = trajectory.dir === 'improving' ? '#10b981' : trajectory.dir === 'declining' ? '#ef4444' : '#64748b'
+            const dirWord = trajectory.dir === 'improving' ? 'Improving' : trajectory.dir === 'declining' ? 'Declining' : 'Holding steady'
+            return (
+              <>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
+                  We split each guideline test's readings in half by time and compare how often they sat <strong>inside</strong> the range early vs recently. Overall this site is{' '}
+                  <span style={{ color: dirC, fontWeight: 800 }}>{dirWord.toLowerCase()}</span>
+                  {trajectory.dir !== 'steady' && <> ({trajectory.avgDelta > 0 ? '+' : ''}{trajectory.avgDelta} points)</>}.
+                </div>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {trajectory.items.map((it, i) => {
+                    const c = it.delta >= 8 ? '#10b981' : it.delta <= -8 ? '#ef4444' : '#64748b'
+                    return (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 11px' }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)', textTransform: 'capitalize', minWidth: 120 }}>{it.param.replace(/_/g, ' ')}</span>
+                        <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{it.early}% inside</span>
+                        <ArrowUpRight size={13} color={c} style={{ transform: it.delta < 0 ? 'rotate(90deg)' : 'none' }} />
+                        <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--text)' }}>{it.late}% inside</span>
+                        <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, color: c }}>{it.delta > 0 ? '+' : ''}{it.delta} pts</span>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div style={{ marginTop: 8, fontSize: 9.5, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                  “Inside” = the share of that test's readings that fell within its general guideline range. Needs at least 6 readings per test; short records read as early signals, not proof.
+                </div>
+              </>
+            )
+          })()}
+        </div>
+      )}
 
       {/* ── MONITORING REPORT CARD ── */}
       <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
