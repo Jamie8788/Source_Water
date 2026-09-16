@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import api from '../utils/api'
 
@@ -32,6 +33,7 @@ export function AuthProvider({ children }) {
   // null = not loaded yet; we treat "unknown" as allowed so tabs never flicker
   // hidden and a glitch can't lock anyone out. The server is the real gate.
   const [access, setAccess] = useState(null)
+  const location = useLocation()
   const refreshAccess = useCallback(async () => {
     try {
       const r = await api.get('/access/me')
@@ -60,6 +62,10 @@ export function AuthProvider({ children }) {
       window.removeEventListener('focus', onVisible)
     }
   }, [user?.id, user?.role, refreshAccess])
+
+  // Re-check access on every navigation, so a tab an admin just revoked
+  // disappears on the user's very next click — not only after the 30s poll.
+  useEffect(() => { if (user) refreshAccess() }, [location.pathname])
 
   const fetchProfile = useCallback(async (sbUser, token) => {
     const cached = JSON.parse(localStorage.getItem('sw_user') || '{}')
