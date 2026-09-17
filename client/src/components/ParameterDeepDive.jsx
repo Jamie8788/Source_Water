@@ -427,7 +427,7 @@ Write 3 short paragraphs (each 2-3 sentences):
           {(() => {
             const pe = getPlainEnglish(paramKey || paramLabel)
             const wrp = getWRParameter(paramKey || paramLabel)
-            const theUnit = wrp?.unit || unit
+            const theUnit = wrp?.unit || meta?.unit || latest?.unit || ''
             const up = unitPlain(theUnit, paramKey || paramLabel)
             if (!pe?.plain && !up) return null
             return (
