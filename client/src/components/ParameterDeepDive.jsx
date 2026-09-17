@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { X, Download, Sparkles, AlertTriangle, TrendingUp, ChevronDown, RefreshCw, Maximize2, Minimize2 } from 'lucide-react'
 import { PARAM_META, classifyValue, latestValueFor, TONE_COLOR, matchParam } from '../utils/waterParams'
 import { getWRParameter, formatQaRange, WR_NA, WR_DOCS_URL } from '../utils/wrParameters'
+import { getPlainEnglish, unitPlain } from '../utils/plainEnglishParams'
 import api from '../utils/api'
 import MarkdownLite from './MarkdownLite'
 
@@ -419,6 +420,53 @@ Write 3 short paragraphs (each 2-3 sentences):
             </div>
           )}
 
+          {/* What this test actually is, and what its unit means. This is the
+              explainer that used to be crammed into the site-map list — it
+              belongs here, on the page you open for that parameter. Our own
+              plain-language layer; the WR facts stay attributed below. */}
+          {(() => {
+            const pe = getPlainEnglish(paramKey || paramLabel)
+            const wrp = getWRParameter(paramKey || paramLabel)
+            const theUnit = wrp?.unit || unit
+            const up = unitPlain(theUnit, paramKey || paramLabel)
+            if (!pe?.plain && !up) return null
+            return (
+              <div style={{ marginTop: 14, padding: '13px 15px', borderRadius: 10, background: '#f0f9ff', border: '1px solid #bae6fd' }}>
+                <strong style={{ display: 'block', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, color: '#0369a1' }}>
+                  📖 What this test is
+                </strong>
+                {pe?.plain && <p style={{ margin: '0 0 8px', fontSize: 14, lineHeight: 1.65, color: '#0c4a6e' }}>{pe.plain}</p>}
+                {up && (
+                  <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', padding: '9px 11px', borderRadius: 8, background: '#ffffff', border: '1px solid #e0f2fe' }}>
+                    <span style={{ fontSize: 13, fontWeight: 900, color: '#0369a1', flexShrink: 0, fontFamily: 'monospace' }}>{theUnit}</span>
+                    <span style={{ fontSize: 13, lineHeight: 1.6, color: '#334155' }}>{up}</span>
+                  </div>
+                )}
+                {pe?.whyCare && (
+                  <p style={{ margin: '8px 0 0', fontSize: 13, lineHeight: 1.6, color: '#0c4a6e' }}>
+                    <strong>Why it matters — </strong>{pe.whyCare}
+                  </p>
+                )}
+                {(pe?.highMeans || pe?.lowMeans) && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 8, marginTop: 9 }}>
+                    {pe?.highMeans && (
+                      <div style={{ padding: '9px 11px', borderRadius: 8, background: '#fff7ed', border: '1px solid #fed7aa' }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 800, color: '#c2410c', marginBottom: 3 }}>▲ WHEN IT READS HIGH</div>
+                        <div style={{ fontSize: 12.5, lineHeight: 1.55, color: '#7c2d12' }}>{pe.highMeans}</div>
+                      </div>
+                    )}
+                    {pe?.lowMeans && (
+                      <div style={{ padding: '9px 11px', borderRadius: 8, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 800, color: '#1d4ed8', marginBottom: 3 }}>▼ WHEN IT READS LOW</div>
+                        <div style={{ fontSize: 12.5, lineHeight: 1.55, color: '#1e3a8a' }}>{pe.lowMeans}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
           {/* Current value card */}
           <div style={{
             marginTop: 14, padding: 14, borderRadius: 10,
@@ -579,13 +627,52 @@ Write 3 short paragraphs (each 2-3 sentences):
             </Collapsible>
           )}
 
-          {/* How measured */}
-          {meta?.measured && (
-            <Collapsible icon="📏" title="How a volunteer measures this"
-              hint="What gear is used out in the field to take this reading.">
-              <p style={{ fontSize: 14, lineHeight: 1.65, color: '#334155', margin: 0 }}>{meta.measured}</p>
-            </Collapsible>
-          )}
+          {/* How measured — our field note PLUS the real Water Rangers
+              equipment list for this parameter (name + the range that kit can
+              actually read). Every item comes from wrParameters.js, which
+              mirrors Water Rangers' published supported-parameters page — no
+              invented kit, no invented ranges, and no images we can't source. */}
+          {(() => {
+            const wrp = getWRParameter(paramKey || paramLabel)
+            const kit = wrp?.equipment || []
+            if (!meta?.measured && !kit.length) return null
+            return (
+              <Collapsible icon="📏" title="How a volunteer measures this"
+                hint="The gear used in the field, and the range each kit can read.">
+                {meta?.measured && (
+                  <p style={{ fontSize: 14, lineHeight: 1.65, color: '#334155', margin: '0 0 12px' }}>{meta.measured}</p>
+                )}
+                {kit.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: .5, textTransform: 'uppercase', color: '#64748b', marginBottom: 7 }}>
+                      Water Rangers–listed equipment ({kit.length})
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(230px,1fr))', gap: 8 }}>
+                      {kit.map((e, i) => (
+                        <div key={i} style={{ padding: '10px 12px', borderRadius: 9, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                            <span style={{ fontSize: 15 }}>🔬</span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', lineHeight: 1.35 }}>{e.name}</span>
+                          </div>
+                          {e.range && (
+                            <div style={{ fontSize: 11.5, color: '#475569' }}>
+                              Reads <strong style={{ color: '#0f172a', fontFamily: 'monospace' }}>{e.range}{e.unit ? ` ${e.unit}` : ''}</strong>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: 9, fontSize: 11.5, color: '#64748b', lineHeight: 1.55 }}>
+                      Kit names and ranges are published by Water Rangers. Photos and how-to guides for each kit live on{' '}
+                      <a href="https://www.waterrangers.ca/equipment" target="_blank" rel="noreferrer" style={{ color: '#0ea5e9', textDecoration: 'underline' }}>
+                        their equipment guide
+                      </a>.
+                    </div>
+                  </>
+                )}
+              </Collapsible>
+            )
+          })()}
 
           <div style={{ marginTop: 24, padding: '12px 14px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 12, color: '#64748b', lineHeight: 1.55 }}>
             ℹ️ Numeric "needs review" / "issue detected" bands shown anywhere in this app come directly from{' '}

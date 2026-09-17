@@ -1121,17 +1121,15 @@ export default function WRMonitoringMap() {
                         onMouseEnter={e => { if (!siteObsLoading) e.currentTarget.style.background = 'rgba(99,102,241,0.12)' }}
                         onMouseLeave={e => e.currentTarget.style.background = 'rgba(99,102,241,0.04)'}
                       >
+                        {/* Keep the LIST scannable — one line per parameter.
+                            The full plain-English explainer, unit meaning and
+                            "why it matters" live on the parameter page you open
+                            by clicking, not crammed in here. */}
                         <span style={{ flex: 1, minWidth: 0 }}>
                           <span style={{ display: 'block' }}>{getParamExplain(p)}</span>
-                          {(pe?.plain || up) && (
-                            <span style={{ display: 'block', marginTop: 3, fontSize: 10, lineHeight: 1.5, opacity: 0.85 }}>
-                              {pe?.plain && <span>{pe.plain} </span>}
-                              {up && <span><strong style={{ color: 'var(--text)' }}>{wrUnit}</strong> = {up}</span>}
-                            </span>
-                          )}
-                          {pe?.whyCare && (
-                            <span style={{ display: 'block', marginTop: 3, fontSize: 10, lineHeight: 1.5, opacity: 0.7, fontStyle: 'italic' }}>
-                              Why it matters: {pe.whyCare}
+                          {up && (
+                            <span style={{ display: 'block', marginTop: 2, fontSize: 9.5, opacity: 0.7 }}>
+                              <strong style={{ color: 'var(--text)' }}>{wrUnit}</strong> — {up.split('—')[0].trim()}
                             </span>
                           )}
                         </span>
