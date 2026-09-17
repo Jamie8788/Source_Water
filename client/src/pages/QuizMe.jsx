@@ -271,7 +271,7 @@ function QuizBrowser({ onSelect }) {
           )}
         </div>
       ) : (
-        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:14}}>
+        <div data-tour="quiz-list" style={{display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:14}}>
           {visible.map((q, idx) => {
             const cat  = (q.category||'general').replace(/_/g,' ')
             const diff = normDiff(q.difficulty)

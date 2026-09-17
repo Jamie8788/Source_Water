@@ -1298,7 +1298,7 @@ function WatchesPanel({ watches, sites, options, onCreate, onDelete, onToggle, o
       </div>
 
       {adding && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, padding: 12, marginBottom: 12, background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 10 }}>
+        <div data-tour="alerts-form" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, padding: 12, marginBottom: 12, background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 10 }}>
           {/* Source toggle: search 9,400+ Water Rangers sites (default) or pick from already-adopted local list */}
           <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <button type="button" onClick={() => { setSource('wr'); setForm(f => ({ ...f, site_id: '' })) }}

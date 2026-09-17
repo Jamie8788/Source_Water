@@ -583,7 +583,9 @@ export default function Resources() {
       {/* ── Dataset Analyzer ── purely client-side stats / charts /
           anomalies / correlations for any CSV from WR, DataStream, or
           a community member's own field log. No LLM, no upload.       */}
-      {!loading && <div data-tour="res-analyzer"><DatasetAnalyzer /></div>}
+      {/* Dataset Analyzer removed before launch — we don't want users uploading
+          their own datasets here. The component is left in the codebase so it
+          can be switched back on later if that changes. */}
 
       {/* ── Featured resources ── */}
       {!loading && featured.length > 0 && (
