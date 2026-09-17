@@ -166,3 +166,27 @@ export function getPlainEnglish(rawName) {
 }
 
 export default PLAIN
+
+// ── Unit explainers ─────────────────────────────────────────────────────────
+// What a measurement unit actually means, in everyday words, so a reading like
+// "199 µS/cm" isn't gibberish. Education only — no thresholds, no verdicts.
+export const UNIT_PLAIN = {
+  'µs/cm': 'microsiemens per centimetre — how easily electricity passes through the water. More dissolved minerals and salts = a higher number.',
+  'us/cm': 'microsiemens per centimetre — how easily electricity passes through the water. More dissolved minerals and salts = a higher number.',
+  'mg/l': 'milligrams per litre — how much of the substance is dissolved in one litre of water. 1 mg/L is roughly one drop in a large bottle.',
+  'ppm':  'parts per million — how many parts of the substance sit in a million parts of water. For water, 1 ppm is about the same as 1 mg/L.',
+  'ntu':  'nephelometric turbidity units — how cloudy the water is, measured by how much light scatters off particles. Higher = murkier.',
+  '°c':   'degrees Celsius — water freezes at 0 and is warm to swim in around 20-25.',
+  'deg/c':'degrees Celsius — water freezes at 0 and is warm to swim in around 20-25.',
+  'deg_c':'degrees Celsius — water freezes at 0 and is warm to swim in around 20-25.',
+  'std/units': 'standard pH units — the 0-14 acidity scale, where 7 is neutral.',
+  'percent': 'percent saturation — how much oxygen the water holds compared with the most it could hold at that temperature. 100% means fully saturated.',
+  'cfu/100ml': 'colony-forming units per 100 millilitres — roughly how many live bacteria were counted in a small sample.',
+  'm': 'metres — a depth or distance measurement.',
+  'cm': 'centimetres — a depth or distance measurement.',
+}
+export function unitPlain(u) {
+  const k = String(u || '').toLowerCase().trim()
+  if (!k) return null
+  return UNIT_PLAIN[k] || null
+}

@@ -23,6 +23,7 @@ import {
 import { getAllLocations, getLocations, getLocationObservations } from '../api/waterRangers'
 import { matchParam } from '../utils/waterParams'
 import { getWRParameter, formatQaRange, WR_NA } from '../utils/wrParameters'
+import { getPlainEnglish, unitPlain } from '../utils/plainEnglishParams'
 import ParameterDeepDive from '../components/ParameterDeepDive'
 import { useAuth } from '../context/AuthContext'
 import api from '../utils/api'
@@ -1097,6 +1098,12 @@ export default function WRMonitoringMap() {
                   {selected.tested_parameters.map((p, i) => {
                     const mapped = matchParam(p)
                     const key = mapped || (p?.toLowerCase().replace(/\s+/g, '_'))
+                    // Our own plain-English layer on top of the Water Rangers
+                    // line: what this test actually is, and what its unit means.
+                    // WR facts stay attributed to WR; this sentence is ours.
+                    const pe = getPlainEnglish(key)
+                    const wrUnit = getWRParameter(p)?.unit
+                    const up = unitPlain(wrUnit)
                     return (
                       <button
                         key={i}
@@ -1104,9 +1111,9 @@ export default function WRMonitoringMap() {
                         disabled={siteObsLoading}
                         title={mapped ? 'Open full CCME deep-dive' : 'Open AI-powered analysis (no CCME band defined yet)'}
                         style={{
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8,
                           width: '100%', textAlign: 'left',
-                          fontSize: 11, color: 'var(--text-muted)', padding: '6px 8px',
+                          fontSize: 11, color: 'var(--text-muted)', padding: '7px 9px',
                           borderRadius: 6, border: '1px solid var(--border)',
                           background: 'rgba(99,102,241,0.04)',
                           cursor: siteObsLoading ? 'wait' : 'pointer',
@@ -1114,8 +1121,21 @@ export default function WRMonitoringMap() {
                         onMouseEnter={e => { if (!siteObsLoading) e.currentTarget.style.background = 'rgba(99,102,241,0.12)' }}
                         onMouseLeave={e => e.currentTarget.style.background = 'rgba(99,102,241,0.04)'}
                       >
-                        <span>{getParamExplain(p)}</span>
-                        <ChevronRight size={12} style={{ flexShrink: 0, opacity: 0.6 }} />
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ display: 'block' }}>{getParamExplain(p)}</span>
+                          {(pe?.plain || up) && (
+                            <span style={{ display: 'block', marginTop: 3, fontSize: 10, lineHeight: 1.5, opacity: 0.85 }}>
+                              {pe?.plain && <span>{pe.plain} </span>}
+                              {up && <span><strong style={{ color: 'var(--text)' }}>{wrUnit}</strong> = {up}</span>}
+                            </span>
+                          )}
+                          {pe?.whyCare && (
+                            <span style={{ display: 'block', marginTop: 3, fontSize: 10, lineHeight: 1.5, opacity: 0.7, fontStyle: 'italic' }}>
+                              Why it matters: {pe.whyCare}
+                            </span>
+                          )}
+                        </span>
+                        <ChevronRight size={12} style={{ flexShrink: 0, opacity: 0.6, marginTop: 2 }} />
                       </button>
                     )
                   })}

@@ -24,7 +24,7 @@ import api from '../utils/api'
 import { playNibiTTS } from '../utils/voice'
 import { matchParam } from '../utils/waterParams'
 import { getWRParameter, WR_DOCS_URL } from '../utils/wrParameters'
-import { getPlainEnglish } from '../utils/plainEnglishParams'
+import { getPlainEnglish, unitPlain } from '../utils/plainEnglishParams'
 import ParameterDeepDive from '../components/ParameterDeepDive'
 import MarkdownLite from '../components/MarkdownLite'
 
@@ -1287,23 +1287,6 @@ function heatColor(norm) {
 const capWord = s => String(s).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 const roundVal = v => (v == null || !isFinite(v)) ? '—' : +Number(v).toFixed(Math.abs(v) >= 100 ? 0 : 2)
 
-// Plain-English meaning of the measurement units, so a reading like
-// "199 µS/cm" isn't gibberish to someone new. Education only — no thresholds,
-// no verdicts, nothing invented.
-const UNIT_PLAIN = {
-  'µs/cm': 'microsiemens per centimetre — how easily electricity passes through the water. More dissolved minerals and salts = a higher number.',
-  'us/cm': 'microsiemens per centimetre — how easily electricity passes through the water. More dissolved minerals and salts = a higher number.',
-  'mg/l': 'milligrams per litre — how much of the substance is dissolved in one litre of water. 1 mg/L is roughly one drop in a large bottle.',
-  'ppm':  'parts per million — how many parts of the substance sit in a million parts of water. For water, 1 ppm is about the same as 1 mg/L.',
-  'ntu':  'nephelometric turbidity units — how cloudy the water is, measured by how much light scatters off particles. Higher = murkier.',
-  '°c':   'degrees Celsius — water freezes at 0 and is warm to swim in around 20-25.',
-  'deg/c':'degrees Celsius — water freezes at 0 and is warm to swim in around 20-25.',
-  'std/units': 'standard pH units — the 0-14 acidity scale, where 7 is neutral.',
-  '':     'the pH scale runs 0-14, where 7 is neutral, lower is acidic and higher is basic.',
-  'percent': 'percent saturation — how much oxygen the water holds compared with the most it could hold at that temperature. 100% means fully saturated.',
-  'cfu/100ml': 'colony-forming units per 100 millilitres — roughly how many live bacteria were counted in a small sample.',
-}
-const unitPlain = (u) => UNIT_PLAIN[String(u || '').toLowerCase().trim()] || null
 
 // 1) Health trajectory — is the water getting better, worse, or holding steady?
 // For each test with a guideline range we split its readings in half by time
