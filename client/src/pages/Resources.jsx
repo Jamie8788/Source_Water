@@ -729,11 +729,11 @@ export default function Resources() {
         <div style={{ marginTop: 32, padding: '13px 18px', borderRadius: 10, background: 'var(--card-bg)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
           <ShieldCheck style={{ width: 18, height: 18, color: '#22a06b', flexShrink: 0 }}/>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
-            <strong style={{ color: 'var(--text)' }}>Curated &amp; verified sources.</strong> Every resource links to an established open-water-data organization — led by our data partners{' '}
+            <strong style={{ color: 'var(--text)' }}>Curated &amp; verified sources.</strong> Every resource links to an established open-water-data organization, including the open datasets SOURCE Water draws on from{' '}
             <a href="https://www.waterrangers.ca" target="_blank" rel="noopener noreferrer" style={{ color: '#006fbf', fontWeight: 600 }}>Water Rangers</a>
             {' and '}
             <a href="https://datastream.org" target="_blank" rel="noopener noreferrer" style={{ color: '#22a06b', fontWeight: 600 }}>DataStream</a>
-            {' '}— alongside vetted additions curated by the SOURCE Water team.
+            {' '}— alongside other vetted sources curated by the SOURCE Water team.
           </div>
         </div>
       )}

@@ -193,7 +193,11 @@ export default function AskWater() {
   const [messages, setMessages] = useState([{role:'assistant',content:GREETING}])
   const [input,    setInput]    = useState('')
   const [status,   setStatus]   = useState('idle')
-  const [voiceOn,  setVoiceOn]  = useState(true)
+  // Voice is OFF until the user asks for it — Water used to start talking by
+  // itself every time the page opened. The choice is remembered per device.
+  const [voiceOn,  setVoiceOn]  = useState(() => {
+    try { return localStorage.getItem('sw_water_voice') === 'on' } catch { return false }
+  })
   const [interim,  setInterim]  = useState('')
   const [micErr,   setMicErr]   = useState('')
 
@@ -267,7 +271,10 @@ export default function AskWater() {
   },[stopAudio])
 
   // ── Greeting on mount ───────────────────────────────────────────────────────
+  // Only speak it if the user has actually turned Voice on. Otherwise the
+  // greeting is shown silently as the first message.
   useEffect(()=>{
+    if(!voiceRef.current) return
     const t=setTimeout(()=>speakText(GREETING),1200)
     return ()=>clearTimeout(t)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -389,7 +396,11 @@ export default function AskWater() {
   },[])
 
   const toggleListen=()=>{ status==='listening'?stopListeningClean():startListening() }
-  const toggleVoice=()=>setVoiceOn(v=>{ if(v) stopAudio(); return !v })
+  const toggleVoice=()=>setVoiceOn(v=>{
+    if(v) stopAudio()
+    try { localStorage.setItem('sw_water_voice', v ? 'off' : 'on') } catch {}
+    return !v
+  })
   const clearChat=()=>{
     stopAudio(); stopListeningClean()
     setMessages([{role:'assistant',content:GREETING}])
@@ -491,9 +502,6 @@ export default function AskWater() {
           </button>
         </div>
 
-        <p style={{fontSize:10,color:'rgba(255,255,255,.16)',textAlign:'center',marginTop:12,maxWidth:200,lineHeight:1.5}}>
-          Kid voice via StreamElements · Chrome/Edge for mic
-        </p>
       </div>
 
       {/* ── RIGHT: Chat ── */}
@@ -507,7 +515,10 @@ export default function AskWater() {
           </span>
         </div>
 
-        {messages.length<=1&&(
+        {/* Suggested questions stay visible for the whole conversation — they
+            used to vanish after the first question, leaving new users with a
+            blank prompt and nothing to click. */}
+        {(
           <motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} style={{display:'flex',flexWrap:'wrap',gap:7,marginBottom:14,flexShrink:0}}>
             {SUGGESTIONS.map(s=>(
               <motion.button key={s} onClick={()=>sendMessage(s)}

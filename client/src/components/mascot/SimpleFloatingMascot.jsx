@@ -69,7 +69,7 @@ function explainerForPath(pathname) {
   if (p.startsWith('/analysis'))   return "Deep-dive analysis on a single site or dataset."
   if (p.startsWith('/profile'))    return "Your XP, badges, and recent activity."
   if (p.startsWith('/admin'))      return "Site admin — users, CMS, settings, sponsors."
-  return "Hi! I'm Nibi. Click me anytime for a quick wave."
+  return "Hi! I'm Water. Click me anytime for a quick wave."
 }
 
 // Spontaneous moods Nibi cycles through to feel alive. Always returns to the
@@ -87,7 +87,7 @@ export default function SimpleFloatingMascot() {
     try { return localStorage.getItem(HIDE_KEY) === '1' } catch { return false }
   })
   // Speech-bubble visibility: shows for ~7s after each route change,
-  // then politely fades out. User can re-trigger by clicking Nibi.
+  // then politely fades out. User can re-trigger by clicking Water.
   const [bubbleOpen, setBubbleOpen] = useState(true)
   const reactionTimer = useRef(null)
   const spontaneousTimer = useRef(null)
@@ -218,7 +218,7 @@ export default function SimpleFloatingMascot() {
           animation: 'swFloat 5s ease-in-out infinite',
           position: 'relative',
         }}
-        title="Hi! I'm Nibi 💧 — click for a wave"
+        title="Hi! I'm Water 💧 — click for a wave"
       >
         <button
           onClick={onHide}
