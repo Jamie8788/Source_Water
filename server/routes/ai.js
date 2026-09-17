@@ -188,6 +188,25 @@ router.post('/public-chat', async (req, res) => {
   }
 })
 
+// POST /api/ai/log — record a question that was answered WITHOUT calling a
+// model. Ask Water short-circuits team-approved ("curated") answers on the
+// client for speed, which meant those questions never reached the server and
+// silently vanished from AI Tracking. This logs them so the admin feed shows
+// every question a user actually asked, whoever answered it.
+router.post('/log', (req, res) => {
+  const { prompt, source, provider } = req.body || {}
+  if (typeof prompt === 'string' && prompt.trim()) {
+    logAiPrompt({
+      userId: req.user?.id || null,
+      source: String(source || 'ask-water-public').slice(0, 40),
+      prompt,
+      provider: String(provider || 'curated').slice(0, 60),
+      ok: true,
+    })
+  }
+  res.json({ ok: true }) // fire-and-forget: never make the client wait
+})
+
 // POST /api/ai/chat
 router.post('/chat', requireAuth, async (req, res) => {
   try {

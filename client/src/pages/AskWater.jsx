@@ -309,6 +309,10 @@ export default function AskWater() {
     const curated = matchCustomAnswer(msg)
     if (curated) {
       setMessages(p=>[...p,{role:'assistant',content:curated,model:'curated'}])
+      // Curated answers never call a model, so log the question separately —
+      // otherwise these questions vanish from admin AI Tracking entirely.
+      // Fire-and-forget: it must not delay the reply.
+      api.post('/ai/log',{prompt:msg,source:'ask-water-public',provider:'curated'}).catch(()=>{})
       if (voiceRef.current) speakText(curated)
       else setStatus('idle')
       return

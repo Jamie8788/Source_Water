@@ -1101,15 +1101,23 @@ function computeCorrelations(trends) {
     return { param: t.param, unit: t.unit, map: m }
   })
   const pairs = []
+  // Coverage counters so the UI can be transparent about WHY a site shows few
+  // links — it's how often tests were run together, not a fault of the site.
+  let considered = 0, enoughOverlap = 0
   for (let i = 0; i < maps.length; i++) for (let j = i + 1; j < maps.length; j++) {
     const A = maps[i], B = maps[j]
+    considered++
     const xs = [], ys = []
     for (const [k, v] of A.map) if (B.map.has(k)) { xs.push(v); ys.push(B.map.get(k)) }
     const r = pearson(xs, ys)
     if (r == null) continue
+    enoughOverlap++
     pairs.push({ a: A.param, b: B.param, r: +r.toFixed(2), n: xs.length })
   }
-  return pairs.filter(p => Math.abs(p.r) >= 0.2).sort((p, q) => Math.abs(q.r) - Math.abs(p.r)).slice(0, 8)
+  const strong = pairs.filter(p => Math.abs(p.r) >= 0.2).sort((p, q) => Math.abs(q.r) - Math.abs(p.r))
+  const out = strong.slice(0, 8)
+  out.coverage = { considered, enoughOverlap, strong: strong.length, shown: out.length }
+  return out
 }
 
 function strengthWord(r) {
@@ -1670,6 +1678,11 @@ function InsightsTab({ observations, analysis, siteName }) {
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
           Which measurements tend to change <strong>together</strong>? That's a clue that one might affect the other — a great starting point for a question or a science-fair project. <em>A link is not proof one causes the other</em> — but it's where real investigation begins.
           <span style={{ display: 'block', marginTop: 4 }}>Only pairs measured on the <strong>same day</strong>, across at least 4 visits, can be compared — so a site that runs many tests each visit shows more links than one that runs a couple.</span>
+          {corr.coverage && (
+            <span style={{ display: 'block', marginTop: 6, fontSize: 10.5, color: 'var(--text)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 7, padding: '6px 9px' }}>
+              <strong>Coverage at this site:</strong> {corr.coverage.considered} possible test pair{corr.coverage.considered === 1 ? '' : 's'} · <strong>{corr.coverage.enoughOverlap}</strong> had enough same-day visits to compare · <strong>{corr.coverage.strong}</strong> showed a link worth reporting{corr.coverage.shown < corr.coverage.strong ? ` · showing the ${corr.coverage.shown} strongest` : ''}.
+            </span>
+          )}
           <span style={{ display: 'block', marginTop: 4, fontSize: 10 }}>(The small <span style={{ fontFamily: 'monospace' }}>r</span> number is the science score for how tight the link is: <span style={{ fontFamily: 'monospace' }}>+1</span> = move up together perfectly, <span style={{ fontFamily: 'monospace' }}>−1</span> = perfect opposites, <span style={{ fontFamily: 'monospace' }}>0</span> = no link.)</span>
         </div>
         {corr.length === 0 ? (
@@ -1708,7 +1721,7 @@ function InsightsTab({ observations, analysis, siteName }) {
 
       {/* Accuracy + liability note — protects us and is honest about what this is. */}
       <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.55, background: 'var(--bg)', border: '1px dashed var(--border)', borderRadius: 8, padding: '10px 12px' }}>
-        <strong style={{ color: 'var(--text)' }}>About this analysis.</strong> The measurements are collected by community volunteers and published by <a href="https://data.waterrangers.com" target="_blank" rel="noreferrer" style={{ color: '#14b8a6' }}>Water Rangers</a>; we show them as recorded and do not alter values. The scores, ranges, trends and links on this page are <em>computed automatically to help you explore the data</em> — they are educational aids, not laboratory results or official water-safety determinations. The “safe range” bands are general guideline values and can differ from the rules that apply to a specific water body or jurisdiction. Always confirm against the original Water Rangers record and your local authority before making any health, drinking-water, or regulatory decision.
+        <strong style={{ color: 'var(--text)' }}>About this analysis.</strong> The measurements are collected by community volunteers and published by <a href="https://data.waterrangers.com" target="_blank" rel="noreferrer" style={{ color: '#14b8a6' }}>Water Rangers</a>; we show them <em>as recorded</em> and never alter a value. <strong style={{ color: 'var(--text)' }}>Everything else on this page — the scores, the Site Story, trends, links and “what to investigate” — is SOURCE Water’s own automated analysis.</strong> It is not produced, reviewed or endorsed by Water Rangers, and should not be attributed to them. These are educational aids to help you explore the data, not laboratory results or official water-safety determinations. The “safe range” bands are general reference values, not Water Rangers’ own QA bands, and can differ from the rules that apply to a specific water body or jurisdiction. Always confirm against the original Water Rangers record and your local authority before making any health, drinking-water, or regulatory decision.
       </div>
     </div>
   )
