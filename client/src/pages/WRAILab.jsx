@@ -1817,7 +1817,7 @@ export default function WRAILab() {
             {/* Tabs */}
             <div data-tour="ailab-tabs" style={{ display: 'flex', gap: 2, marginBottom: 10, borderBottom: '1px solid var(--border)' }}>
               {TABS.map(t => (
-                <button key={t.id} onClick={() => setTab(t.id)} style={{
+                <button key={t.id} data-tour={`ailab-tab-${t.id}`} onClick={() => setTab(t.id)} style={{
                   display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px',
                   background: tab === t.id ? `${t.color}12` : 'transparent',
                   border: 'none', borderBottom: tab === t.id ? `2px solid ${t.color}` : '2px solid transparent',

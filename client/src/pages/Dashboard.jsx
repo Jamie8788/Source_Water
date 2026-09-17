@@ -378,7 +378,7 @@ function LiveWaterQuality({ wrAll, navigate }) {
   }, [query, ranked])
 
   return (
-    <div className="card p-5">
+    <div className="card p-5" data-tour="dash-livecard">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-bold text-gray-800 flex items-center gap-2">
           <Droplets className="w-4 h-4 text-indigo-500"/> Live Water Quality
@@ -395,7 +395,7 @@ function LiveWaterQuality({ wrAll, navigate }) {
 
       {picking && (
         <div className="mb-3">
-          <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search a site…"
+          <input data-tour="dash-picker" autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search a site…"
             className="w-full px-3 py-2 rounded-lg text-sm" style={{ border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text)', outline: 'none' }}/>
           <div className="mt-1 max-h-48 overflow-y-auto rounded-lg" style={{ border: '1px solid var(--border)' }}>
             {filtered.map(s => (
