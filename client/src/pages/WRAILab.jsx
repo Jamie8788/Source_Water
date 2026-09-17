@@ -1461,7 +1461,7 @@ function InsightsTab({ observations, analysis, siteName }) {
               const pct = Math.round(c.rel * 100)
               const pe = getPlainEnglish(c.param)
               const uname = (c.unit || '').replace(/_/g, '/')
-              const up_ = unitPlain(uname)
+              const up_ = unitPlain(uname, c.param)
               // Size of move, in words. Purely descriptive — it does NOT judge
               // whether the value itself is good or bad.
               const size = c.rel >= 0.5 ? 'a big jump' : c.rel >= 0.15 ? 'a clear move' : 'barely changed'

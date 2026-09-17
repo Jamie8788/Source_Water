@@ -1103,7 +1103,7 @@ export default function WRMonitoringMap() {
                     // WR facts stay attributed to WR; this sentence is ours.
                     const pe = getPlainEnglish(key)
                     const wrUnit = getWRParameter(p)?.unit
-                    const up = unitPlain(wrUnit)
+                    const up = unitPlain(wrUnit, key)
                     return (
                       <button
                         key={i}

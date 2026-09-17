@@ -180,13 +180,22 @@ export const UNIT_PLAIN = {
   'deg/c':'degrees Celsius — water freezes at 0 and is warm to swim in around 20-25.',
   'deg_c':'degrees Celsius — water freezes at 0 and is warm to swim in around 20-25.',
   'std/units': 'standard pH units — the 0-14 acidity scale, where 7 is neutral.',
-  'percent': 'percent saturation — how much oxygen the water holds compared with the most it could hold at that temperature. 100% means fully saturated.',
   'cfu/100ml': 'colony-forming units per 100 millilitres — roughly how many live bacteria were counted in a small sample.',
   'm': 'metres — a depth or distance measurement.',
   'cm': 'centimetres — a depth or distance measurement.',
 }
-export function unitPlain(u) {
+// unitPlain(unit, paramName?) — paramName matters for ambiguous units. A unit
+// of "percent" means oxygen SATURATION for dissolved oxygen, but would be a
+// wrong claim for anything else, so we only say that when we know it's oxygen.
+export function unitPlain(u, paramName) {
   const k = String(u || '').toLowerCase().trim()
   if (!k) return null
+  if (k === 'percent' || k === '%') {
+    const p = String(paramName || '').toLowerCase()
+    if (p.includes('oxygen') || p === 'do') {
+      return 'percent saturation — how much oxygen the water holds compared with the most it could hold at that temperature. 100% means fully saturated.'
+    }
+    return 'percent — parts per hundred.'
+  }
   return UNIT_PLAIN[k] || null
 }
