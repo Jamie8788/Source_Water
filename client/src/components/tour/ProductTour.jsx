@@ -38,13 +38,13 @@ const STEPS = [
     body: 'The live map of 9,400+ Water Rangers stations. Dots are coloured by water-body type — river, lake, pond, wetland — and cluster into numbered circles as you zoom out. The search and all the filters live behind this button.',
     tip: 'Click “Filters” to open the search and filter panel — I’ll wait.' },
   { route: '/monitoring', target: 'map-search', interactive: true,
-    waitFor: '[data-tour="map-detail"]', waitPause: 900,
-    title: 'Site Map — find a station',
+    waitFor: '[data-tour="map-result"]', waitPause: 1200,
+    title: 'Site Map — search & filter',
     body: 'Beside this search you can narrow the map by country, water-body type, parameter measured, and active vs dormant stations. The map tools also let you switch base maps, measure distances, drop private field waypoints and turn on the community Stories layer.',
-    tip: 'Type a place (try “creek”), then click a station on the map to open it — I’ll wait.' },
-  { route: '/monitoring', target: 'map-detail', title: 'Site Map — inside a station',
-    body: 'This is the station’s record: where it is, the water body, which parameters it measures and its latest readings. From here you can compare it against another station, or open it in the Wet Lab for the full analysis.',
-    tip: 'Scroll the panel to see every parameter this station measures.' },
+    tip: 'Type a place (try “creek” or a country) — the map narrows as you type. I’ll wait.' },
+  { route: '/monitoring', target: 'map-result', title: 'Site Map — your matches',
+    body: 'There’s your filter result — how many of the 9,485 stations match, with a chip for each active filter. The map now shows only those dots; each is coloured by water-body type, and clusters into numbered circles until you zoom in.',
+    tip: 'Zoom to your matches and click any dot to open its full record — parameters, latest readings, compare, and “open in Wet Lab”.' },
   { route: '/ask-water', target: 'ask-input', interactive: true,
     waitFor: '[data-tour="ask-answer"]', waitPause: 1600,
     title: 'Ask Water (AI)',
@@ -312,33 +312,24 @@ export default function ProductTour() {
   // the caret back at the target.
   // All placement maths below is in SCREEN space (same space as `rect`), then
   // converted with u() at render time.
+  const cx = hasRect ? rect.left + rect.width / 2 : 0
+  const cy = hasRect ? rect.top + rect.height / 2 : 0
+  const gap = GAP * z
+  const place = {
+    right:  () => { const lx = rect.right + gap;        if (lx + scW + 12 > vw) return null; return { style: { top: u(clampY(cy - scH / 2)), left: u(lx), width: cardW }, arrow: { side: 'left',   offset: u(Math.max(16, Math.min(cy - clampY(cy - scH / 2), scH - 16))) } } },
+    left:   () => { const lx = rect.left - gap - scW;   if (lx < 12) return null;              return { style: { top: u(clampY(cy - scH / 2)), left: u(lx), width: cardW }, arrow: { side: 'right',  offset: u(Math.max(16, Math.min(cy - clampY(cy - scH / 2), scH - 16))) } } },
+    below:  () => { const top = rect.bottom + gap;      if (top + scH + 12 > vh) return null;  return { style: { top: u(top), left: u(clampX(cx - scW / 2)), width: cardW }, arrow: { side: 'top',    offset: u(Math.max(16, Math.min(cx - clampX(cx - scW / 2), scW - 16))) } } },
+    above:  () => { const top = rect.top - gap - scH;    if (top < 12) return null;             return { style: { top: u(top), left: u(clampX(cx - scW / 2)), width: cardW }, arrow: { side: 'bottom', offset: u(Math.max(16, Math.min(cx - clampX(cx - scW / 2), scW - 16))) } } },
+  }
+  // On interactive steps the space right below an input is where the typed
+  // results appear — so put the card to the SIDE first and never bury them.
+  // Info steps read best directly below/above the thing they describe.
+  const order = s?.interactive ? ['right', 'left', 'above', 'below'] : ['below', 'above', 'right', 'left']
   let cardStyle, arrow = null
   if (hasRect) {
-    const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2
-    const below = vh - rect.bottom, above = rect.top, right = vw - rect.right, left = rect.left
-    const gap = GAP * z
-    if (below >= scH + gap) {
-      const top = rect.bottom + gap, lx = clampX(cx - scW / 2)
-      cardStyle = { top: u(top), left: u(lx), width: cardW }
-      arrow = { side: 'top', offset: u(Math.max(16, Math.min(cx - lx, scW - 16))) }
-    } else if (above >= scH + gap) {
-      const top = clampY(rect.top - gap - scH), lx = clampX(cx - scW / 2)
-      cardStyle = { top: u(top), left: u(lx), width: cardW }
-      arrow = { side: 'bottom', offset: u(Math.max(16, Math.min(cx - lx, scW - 16))) }
-    } else if (right >= scW + gap) {
-      const lx = rect.right + gap, top = clampY(cy - scH / 2)
-      cardStyle = { top: u(top), left: u(lx), width: cardW }
-      arrow = { side: 'left', offset: u(Math.max(16, Math.min(cy - top, scH - 16))) }
-    } else if (left >= scW + gap) {
-      const lx = rect.left - gap - scW, top = clampY(cy - scH / 2)
-      cardStyle = { top: u(top), left: u(lx), width: cardW }
-      arrow = { side: 'right', offset: u(Math.max(16, Math.min(cy - top, scH - 16))) }
-    } else {
-      cardStyle = { top: u((vh - scH) / 2), left: u((vw - scW) / 2), width: cardW }
-    }
-  } else {
-    cardStyle = { top: u((vh - scH) / 2), left: u((vw - scW) / 2), width: cardW }
+    for (const k of order) { const r = place[k](); if (r) { cardStyle = r.style; arrow = r.arrow; break } }
   }
+  if (!cardStyle) cardStyle = { top: u((vh - scH) / 2), left: u((vw - scW) / 2), width: cardW }
 
   const arrowStyle = arrow && (() => {
     const base = { position: 'absolute', width: 12, height: 12, background: 'var(--card-bg,#fff)', transform: 'rotate(45deg)' }
