@@ -1279,6 +1279,24 @@ function heatColor(norm) {
 const capWord = s => String(s).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 const roundVal = v => (v == null || !isFinite(v)) ? '—' : +Number(v).toFixed(Math.abs(v) >= 100 ? 0 : 2)
 
+// Plain-English meaning of the measurement units, so a reading like
+// "199 µS/cm" isn't gibberish to someone new. Education only — no thresholds,
+// no verdicts, nothing invented.
+const UNIT_PLAIN = {
+  'µs/cm': 'microsiemens per centimetre — how easily electricity passes through the water. More dissolved minerals and salts = a higher number.',
+  'us/cm': 'microsiemens per centimetre — how easily electricity passes through the water. More dissolved minerals and salts = a higher number.',
+  'mg/l': 'milligrams per litre — how much of the substance is dissolved in one litre of water. 1 mg/L is roughly one drop in a large bottle.',
+  'ppm':  'parts per million — how many parts of the substance sit in a million parts of water. For water, 1 ppm is about the same as 1 mg/L.',
+  'ntu':  'nephelometric turbidity units — how cloudy the water is, measured by how much light scatters off particles. Higher = murkier.',
+  '°c':   'degrees Celsius — water freezes at 0 and is warm to swim in around 20-25.',
+  'deg/c':'degrees Celsius — water freezes at 0 and is warm to swim in around 20-25.',
+  'std/units': 'standard pH units — the 0-14 acidity scale, where 7 is neutral.',
+  '':     'the pH scale runs 0-14, where 7 is neutral, lower is acidic and higher is basic.',
+  'percent': 'percent saturation — how much oxygen the water holds compared with the most it could hold at that temperature. 100% means fully saturated.',
+  'cfu/100ml': 'colony-forming units per 100 millilitres — roughly how many live bacteria were counted in a small sample.',
+}
+const unitPlain = (u) => UNIT_PLAIN[String(u || '').toLowerCase().trim()] || null
+
 // 1) Health trajectory — is the water getting better, worse, or holding steady?
 // For each test with a guideline range we split its readings in half by time
 // and compare the share that sat INSIDE the range early vs recently.
@@ -1442,6 +1460,7 @@ function InsightsTab({ observations, analysis, siteName }) {
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
             How each test moved between its two most recent readings — biggest movers first. A tag appears if a reading crossed into or out of its guideline range.
+            {' '}Only tests measured on <em>both</em> of the last two visits can be compared, which is why some sites show more rows than others.
           </div>
           <div style={{ display: 'grid', gap: 6 }}>
             {changes.map((c, i) => {
@@ -1449,15 +1468,32 @@ function InsightsTab({ observations, analysis, siteName }) {
               const Arrow = up ? ArrowUpRight : ArrowDownRight
               const aColor = c.crossed === 'out' ? '#ef4444' : c.crossed === 'in' ? '#10b981' : 'var(--text-muted)'
               const pct = Math.round(c.rel * 100)
+              const pe = getPlainEnglish(c.param)
+              const uname = (c.unit || '').replace(/_/g, '/')
+              const up_ = unitPlain(uname)
+              // Size of move, in words. Purely descriptive — it does NOT judge
+              // whether the value itself is good or bad.
+              const size = c.rel >= 0.5 ? 'a big jump' : c.rel >= 0.15 ? 'a clear move' : 'barely changed'
+              const sizeColor = c.rel >= 0.5 ? '#f59e0b' : c.rel >= 0.15 ? '#6366f1' : '#64748b'
               return (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 11px' }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)', textTransform: 'capitalize', minWidth: 120 }}>{c.param.replace(/_/g, ' ')}</span>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{roundVal(c.from)}</span>
-                  <Arrow size={14} color={aColor} />
-                  <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--text)' }}>{roundVal(c.to)} <span style={{ fontWeight: 400, fontSize: 10.5, color: 'var(--text-muted)' }}>{(c.unit || '').replace(/_/g, '/')}</span></span>
-                  <span style={{ fontSize: 10.5, color: aColor, fontWeight: 600 }}>{up ? '+' : ''}{roundVal(c.diff)} ({up ? '+' : '−'}{pct}%)</span>
-                  {c.crossed === 'out' && <span style={{ marginLeft: 'auto', fontSize: 9.5, fontWeight: 800, color: '#ef4444', background: '#ef444414', padding: '2px 8px', borderRadius: 20 }}>left guideline range</span>}
-                  {c.crossed === 'in' && <span style={{ marginLeft: 'auto', fontSize: 9.5, fontWeight: 800, color: '#10b981', background: '#10b98114', padding: '2px 8px', borderRadius: 20 }}>back in range</span>}
+                <div key={i} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)', textTransform: 'capitalize', minWidth: 120 }}>{c.param.replace(/_/g, ' ')}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{roundVal(c.from)}</span>
+                    <Arrow size={14} color={aColor} />
+                    <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--text)' }}>{roundVal(c.to)} <span title={up_ || undefined} style={{ fontWeight: 400, fontSize: 10.5, color: 'var(--text-muted)', cursor: up_ ? 'help' : 'default', borderBottom: up_ ? '1px dotted var(--text-muted)' : 'none' }}>{uname}</span></span>
+                    <span style={{ fontSize: 10.5, color: aColor, fontWeight: 600 }}>{up ? '+' : ''}{roundVal(c.diff)} ({up ? '+' : '−'}{pct}%)</span>
+                    <span style={{ fontSize: 9.5, fontWeight: 800, color: sizeColor, background: `${sizeColor}14`, padding: '2px 8px', borderRadius: 20 }}>{size}</span>
+                    {c.crossed === 'out' && <span style={{ marginLeft: 'auto', fontSize: 9.5, fontWeight: 800, color: '#ef4444', background: '#ef444414', padding: '2px 8px', borderRadius: 20 }}>left guideline range</span>}
+                    {c.crossed === 'in' && <span style={{ marginLeft: 'auto', fontSize: 9.5, fontWeight: 800, color: '#10b981', background: '#10b98114', padding: '2px 8px', borderRadius: 20 }}>back in range</span>}
+                  </div>
+                  {/* Plain-English: what this test is, and what its unit means. */}
+                  {(pe?.plain || up_) && (
+                    <div style={{ marginTop: 5, fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                      {pe?.plain && <span>{pe.plain} </span>}
+                      {up_ && <span><strong style={{ color: 'var(--text)' }}>{uname}</strong> = {up_}</span>}
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -1465,7 +1501,22 @@ function InsightsTab({ observations, analysis, siteName }) {
         </div>
       )}
 
-      {/* ── HEALTH TRAJECTORY — better / worse over time (unique to this tab) ── */}
+      {/* ── HEALTH TRAJECTORY — better / worse over time (unique to this tab) ──
+          When we can't compute it we SAY SO and explain what's missing, rather
+          than silently hiding the section and leaving the reader wondering. */}
+      {!trajectory && (
+        <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <TrendingUp size={16} color="#64748b" />
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>Is it getting better or worse?</h3>
+            <span style={{ fontSize: 9.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>early vs recent readings · not on Water Rangers</span>
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--text)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', lineHeight: 1.55 }}>
+            <strong>Not enough data at this site yet to say.</strong> To judge direction honestly we need a test that (a) has a general guideline range to measure against, and (b) has at least <strong>6 readings</strong> so we can compare the earlier half against the recent half. This site doesn’t have that yet, so we’d rather tell you than guess.
+            <div style={{ marginTop: 6, color: 'var(--text-muted)' }}>It fills in on its own as more visits are logged — nothing to fix.</div>
+          </div>
+        </div>
+      )}
       {trajectory && (
         <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -1618,10 +1669,14 @@ function InsightsTab({ observations, analysis, siteName }) {
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
           Which measurements tend to change <strong>together</strong>? That's a clue that one might affect the other — a great starting point for a question or a science-fair project. <em>A link is not proof one causes the other</em> — but it's where real investigation begins.
+          <span style={{ display: 'block', marginTop: 4 }}>Only pairs measured on the <strong>same day</strong>, across at least 4 visits, can be compared — so a site that runs many tests each visit shows more links than one that runs a couple.</span>
           <span style={{ display: 'block', marginTop: 4, fontSize: 10 }}>(The small <span style={{ fontFamily: 'monospace' }}>r</span> number is the science score for how tight the link is: <span style={{ fontFamily: 'monospace' }}>+1</span> = move up together perfectly, <span style={{ fontFamily: 'monospace' }}>−1</span> = perfect opposites, <span style={{ fontFamily: 'monospace' }}>0</span> = no link.)</span>
         </div>
         {corr.length === 0 ? (
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '10px 0' }}>Not enough readings taken on the same days yet to spot links (we need at least 4). As more visits are logged, relationships will show up here.</div>
+          <div style={{ fontSize: 11.5, color: 'var(--text)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', lineHeight: 1.55 }}>
+            <strong>No links to show at this site yet.</strong> To compare two measurements we need them recorded on the <em>same day</em>, on at least <strong>4 separate visits</strong>. Sites that test many things every visit produce lots of links; sites that test one or two things, or rotate which tests they run, produce few or none.
+            <div style={{ marginTop: 6, color: 'var(--text-muted)' }}>That’s why this list is longer on some sites than others — it reflects how the site is actually sampled, not a problem with the site.</div>
+          </div>
         ) : (
           <div style={{ display: 'grid', gap: 7 }}>
             {corr.map((p, i) => {
