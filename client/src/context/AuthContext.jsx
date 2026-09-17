@@ -34,7 +34,15 @@ export function AuthProvider({ children }) {
   // hidden and a glitch can't lock anyone out. The server is the real gate.
   const [access, setAccess] = useState(null)
   const location = useLocation()
-  const refreshAccess = useCallback(async () => {
+  const lastAccessRef = useRef(0)
+  // refreshAccess(force): fetches the feature map. Throttled to once per 15s for
+  // the "cheap" triggers (navigation, tab-focus) so tab-hopping doesn't spray
+  // /access/me at the server; `force` bypasses it for the moments that matter —
+  // login, a role change, and the guaranteed 60s heartbeat.
+  const refreshAccess = useCallback(async (force = false) => {
+    const now = Date.now()
+    if (!force && now - lastAccessRef.current < 15000) return
+    lastAccessRef.current = now
     try {
       const r = await api.get('/access/me')
       const next = r.data?.features || {}
@@ -45,14 +53,13 @@ export function AuthProvider({ children }) {
   }, [])
   useEffect(() => {
     if (!user) { setAccess(null); return }
-    refreshAccess()
+    refreshAccess(true)
     // Live updates without a page refresh: an admin toggling a tab (e.g. hiding
     // Ask Water for Community members) should reach signed-in users on its own.
-    // We re-check every 30s AND the moment the user returns to the tab — so the
-    // change shows up within ~30s in the background, or instantly on focus,
-    // instead of only after a manual reload. Client-only (no websockets/Redis),
-    // so it carries over to Hostinger unchanged.
-    const iv = setInterval(refreshAccess, 30000)
+    // A guaranteed 60s heartbeat, plus a throttled re-check when the user
+    // returns to the tab — so a change shows up within ~60s in the background,
+    // or on focus. Client-only (no websockets/Redis), carries over to Hostinger.
+    const iv = setInterval(() => refreshAccess(true), 60000)
     const onVisible = () => { if (document.visibilityState === 'visible') refreshAccess() }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
@@ -63,8 +70,8 @@ export function AuthProvider({ children }) {
     }
   }, [user?.id, user?.role, refreshAccess])
 
-  // Re-check access on every navigation, so a tab an admin just revoked
-  // disappears on the user's very next click — not only after the 30s poll.
+  // Re-check access on navigation (throttled) so a tab an admin just revoked
+  // disappears soon after — without a request on every single click.
   useEffect(() => { if (user) refreshAccess() }, [location.pathname])
 
   const fetchProfile = useCallback(async (sbUser, token) => {
