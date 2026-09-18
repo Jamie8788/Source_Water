@@ -545,7 +545,11 @@ Write 3 short paragraphs (each 2-3 sentences):
               if (ranges.length) {
                 lo = Math.min(...ranges.map(r => r[0])); hi = Math.max(...ranges.map(r => r[1]))
                 title = 'What the test kits can measure'
-                caption = `No guideline band is published for this parameter, so this bar shows the detection range of the kits Water Rangers lists (${lo}–${hi}${u}). It tells you whether a reading sits near the limit of what the equipment can even detect.`
+                // Deliberately says "reading range", not "detection limit". WR
+                // publishes what each kit can display; a limit of detection is a
+                // lab-determined figure we do not have. Claiming one from the
+                // other would be an over-reach a reviewer could rightly dispute.
+                caption = `No guideline band is published for this parameter, so this bar shows the reading range Water Rangers publishes for the kits used (${lo}–${hi}${u}). It shows where this value sits within what those kits can report — useful context when a reading lands at the very top or bottom of that range. It is not a safety threshold, and the range is not a limit of detection.`
               } else if (stats && stats.max > stats.min) {
                 lo = stats.min; hi = stats.max
                 title = "This site's recorded range"
