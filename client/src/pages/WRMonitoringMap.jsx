@@ -1130,7 +1130,7 @@ export default function WRMonitoringMap() {
             {selected.tested_parameters && selected.tested_parameters.length > 0 && (
               <div style={{ marginBottom: 12 }}>
                 <h4 style={{ color: 'var(--text)', fontSize: 12, fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>🧪 What's Monitored Here ({new Set(selected.tested_parameters.map(p => matchParam(p) || String(p).toLowerCase().replace(/\s+/g, '_'))).size} parameters)</span>
+                  <span>🧪 What's Monitored Here ({selected.tested_parameters.length} parameters)</span>
                   {siteObsLoading && <span style={{ fontSize: 9, fontWeight: 500, color: 'var(--text-muted)' }}>loading readings…</span>}
                   {!siteObsLoading && siteObs.length > 0 && <span style={{ fontSize: 9, fontWeight: 500, color: '#10b981' }}>{siteObs.length} readings loaded</span>}
                 </h4>
@@ -1140,16 +1140,15 @@ export default function WRMonitoringMap() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   {(() => {
                     // One clean, scannable row per parameter — icon badge, name,
-                    // unit pill, and a single-line description. De-duplicated so a
-                    // parameter measured with two instruments (e.g. temperature)
-                    // shows once instead of a confusing repeat.
-                    const seen = new Set()
+                    // unit pill, and a single-line description. We intentionally
+                    // do NOT de-duplicate: Water Rangers lists the same parameter
+                    // more than once when it was measured with different equipment,
+                    // and each entry is a real, distinct measurement. Collapsing
+                    // them would hide data, so every entry is shown.
                     const rows = []
                     selected.tested_parameters.forEach((p, i) => {
                       const mapped = matchParam(p)
                       const key = mapped || String(p).toLowerCase().replace(/\s+/g, '_')
-                      if (seen.has(key)) return
-                      seen.add(key)
                       const wr = getWRParameter(p)
                       const emoji = PARAM_EMOJI[key] || PARAM_EMOJI[wr?.key] || '📋'
                       const label = wr?.label || String(p).replace(/_/g, ' ')
