@@ -616,6 +616,23 @@ export default function WRMonitoringMap() {
     return mappable
   }, [mappable, mapBounds])
 
+  // Build the ~9,500 marker elements ONCE per data/selection change, not on
+  // every render. Background context updates (access heartbeat, message polls,
+  // etc.) re-render this component; without this memo each of those re-created
+  // all marker elements, which is what made the map progressively janky and
+  // laggy on zoom when the app was left open. Only compare-selection ids and the
+  // source list can change the markers, so those are the only deps.
+  const markerEls = useMemo(
+    () => dotsSource.map(site => (
+      <SiteCircleMarker
+        key={site.id} site={site}
+        isA={compareA?.id === site.id} isB={compareB?.id === site.id}
+        onSelect={setSelected} onCompare={pickForCompare}
+      />
+    )),
+    [dotsSource, compareA?.id, compareB?.id, pickForCompare]
+  )
+
   // Heatmap points — MEMOIZED so leaflet.heat isn't destroyed and rebuilt
   // over thousands of points on every pan (that rebuild was the tablet pan
   // lag). On tablet, also down-sample to ~2,000 points: a density heatmap
@@ -946,13 +963,7 @@ export default function WRMonitoringMap() {
                   coordinates always form a clickable cluster that spiderfies
                   into individual dots at full zoom, instead of stacking
                   unclickably on one pixel. */}
-              {dotsSource.map(site => (
-                <SiteCircleMarker
-                  key={site.id} site={site}
-                  isA={compareA?.id === site.id} isB={compareB?.id === site.id}
-                  onSelect={setSelected} onCompare={pickForCompare}
-                />
-              ))}
+              {markerEls}
             </MarkerClusterGroup>
           )}
 

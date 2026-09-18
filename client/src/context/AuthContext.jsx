@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import api from '../utils/api'
@@ -257,23 +257,31 @@ export function AuthProvider({ children }) {
     supabase.auth.updateUser({ data: updates }).catch(() => {})
   }, [])
 
+  // Memoized context value. Without this, every AuthProvider render (including
+  // the 60s access heartbeat, message polls, and every route change) produced a
+  // brand-new value object, forcing EVERY consumer — the 9,500-marker map
+  // included — to re-render. That background re-render churn is what made the
+  // map progressively janky when left open. Now the value reference only changes
+  // when something in it actually changes.
+  const ctxValue = useMemo(() => ({
+    user,
+    loading,
+    login,
+    register,
+    logout,
+    updateUser,
+    isAdmin: !!user?.is_admin,
+    isResearcher: !!user?.is_admin || user?.role === 'Researcher',
+    isQuizCreator: !!user?.is_admin || ['Teacher','Professor','Researcher','SOURCE Water team member'].includes(user?.role),
+    access,
+    refreshAccess,
+    // canFeature(key): is this tab allowed for the current user? Admins always
+    // yes; unknown/not-yet-loaded defaults to yes (opt-out, matches server).
+    canFeature: (key) => !!user?.is_admin || !access || access[key] !== false,
+  }), [user, loading, access, login, register, logout, updateUser, refreshAccess])
+
   return (
-    <AuthContext.Provider value={{
-      user,
-      loading,
-      login,
-      register,
-      logout,
-      updateUser,
-      isAdmin: !!user?.is_admin,
-      isResearcher: !!user?.is_admin || user?.role === 'Researcher',
-      isQuizCreator: !!user?.is_admin || ['Teacher','Professor','Researcher','SOURCE Water team member'].includes(user?.role),
-      access,
-      refreshAccess,
-      // canFeature(key): is this tab allowed for the current user? Admins always
-      // yes; unknown/not-yet-loaded defaults to yes (opt-out, matches server).
-      canFeature: (key) => !!user?.is_admin || !access || access[key] !== false,
-    }}>
+    <AuthContext.Provider value={ctxValue}>
       {children}
     </AuthContext.Provider>
   )
