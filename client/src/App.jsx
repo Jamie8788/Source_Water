@@ -11,6 +11,7 @@ import ComingSoon from './components/ComingSoon'
 const Welcome    = lazy(() => import('./pages/Welcome'))
 const Landing    = lazy(() => import('./pages/Landing'))
 const Onboarding = lazy(() => import('./pages/Onboarding'))
+const ResetPassword = lazy(() => import('./pages/ResetPassword'))
 const Dashboard  = lazy(() => import('./pages/Dashboard'))
 const AskWater   = lazy(() => import('./pages/AskWater'))
 const MapPage    = lazy(() => import('./pages/MapPage'))
@@ -91,6 +92,10 @@ function AppRoutes() {
         <Route path="/" element={user ? <Navigate to="/dashboard" replace /> : <Welcome />} />
         <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <Landing />} />
         <Route path="/onboarding" element={<Onboarding />} />
+        {/* Public — password-reset link from the email lands here. Must NOT be
+            gated behind login: the user is signing in precisely because they
+            forgot their password. */}
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* All protected pages share ONE persistent Layout instance */}
         <Route element={<ProtectedLayout />}>

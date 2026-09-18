@@ -6,6 +6,7 @@ import CMSField from '../components/cms/CMSField'
 import { Eye, EyeOff, Droplets, ChevronRight } from 'lucide-react'
 import NibiMascotImage from '../components/NibiMascotImage'
 import api from '../utils/api'
+import { supabase } from '../lib/supabase'
 
 /* ── Animated Water Canvas ── */
 function WaterCanvas() {
@@ -172,6 +173,7 @@ export default function Landing() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showPass, setShowPass] = useState(false)
+  const [forgotSent, setForgotSent] = useState(false)
   const [form, setForm] = useState({ identifier: '', password: '', username: '', email: '', display_name: '' })
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -221,6 +223,29 @@ export default function Landing() {
       navigate('/onboarding')
     } catch (err) { setError(authErrorText(err, 'Registration failed')) }
     finally { setLoading(false) }
+  }
+
+  // Password reset — Supabase Auth emails a secure, single-use, expiring link
+  // that lands on /reset-password. We never see or store the password. Uses the
+  // public anon key (no service-role key), so nothing privileged is exposed.
+  const handleForgot = async e => {
+    e.preventDefault(); setError(''); setLoading(true)
+    try {
+      const email = (form.identifier || '').trim()
+      if (!email || !email.includes('@')) {
+        setError('Enter the email address for your account.')
+        setLoading(false); return
+      }
+      const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      })
+      if (rErr) throw rErr
+      // Always show the same confirmation whether or not the email exists —
+      // this avoids leaking which addresses have accounts.
+      setForgotSent(true)
+    } catch (err) {
+      setError(authErrorText(err, 'Could not send the reset email. Please try again in a moment.'))
+    } finally { setLoading(false) }
   }
 
   return (
@@ -349,10 +374,10 @@ export default function Landing() {
               <Droplets className="w-8 h-8 text-white"/>
             </div>
             <h2 className="text-2xl font-black text-white">
-              {mode === 'login' ? 'Welcome back' : 'Join SOURCE Water'}
+              {mode === 'login' ? 'Welcome back' : mode === 'forgot' ? 'Reset your password' : 'Join SOURCE Water'}
             </h2>
             <p className="text-sm mt-1" style={{ color: '#64748b' }}>
-              {mode === 'login' ? 'Sign in to your account' : 'Create your free account today'}
+              {mode === 'login' ? 'Sign in to your account' : mode === 'forgot' ? "We'll email you a secure reset link" : 'Create your free account today'}
             </p>
           </div>
 
@@ -399,6 +424,12 @@ export default function Landing() {
                   {showPass ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
                 </button>
               </div>
+              <div className="text-right -mt-1">
+                <button type="button" onClick={() => { setMode('forgot'); setError(''); setForgotSent(false); set('identifier', form.identifier.includes('@') ? form.identifier : '') }}
+                  className="text-xs font-semibold hover:underline" style={{ color: '#818cf8' }}>
+                  Forgot password?
+                </button>
+              </div>
               {error && (
                 <div className="text-sm px-4 py-2.5 rounded-xl" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
                   ⚠️ {error}
@@ -410,6 +441,41 @@ export default function Landing() {
                 {loading ? 'Signing in...' : 'Sign In'}
               </button>
             </form>
+          ) : mode === 'forgot' ? (
+            forgotSent ? (
+              <div className="space-y-4">
+                <div className="text-sm px-4 py-3 rounded-xl" style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', color: '#6ee7b7', lineHeight: 1.5 }}>
+                  ✅ If an account exists for <strong>{form.identifier}</strong>, we've emailed a password reset link. Open it and choose a new password. The link expires shortly — check your spam folder if you don't see it in a minute.
+                </div>
+                <button type="button" onClick={() => { setMode('login'); setError(''); setForgotSent(false) }}
+                  className="w-full py-3 rounded-xl font-bold text-white transition-all hover:opacity-90"
+                  style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}>
+                  Back to Sign In
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleForgot} className="space-y-4">
+                <div>
+                  <label className="auth-label">Email</label>
+                  <input className="auth-input" type="email" value={form.identifier} onChange={e => set('identifier', e.target.value)}
+                    placeholder="your@email.com" required autoComplete="email"/>
+                </div>
+                {error && (
+                  <div className="text-sm px-4 py-2.5 rounded-xl" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
+                    ⚠️ {error}
+                  </div>
+                )}
+                <button type="submit" disabled={loading}
+                  className="w-full py-3 rounded-xl font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)', boxShadow: '0 4px 20px rgba(99,102,241,0.35)' }}>
+                  {loading ? 'Sending…' : 'Send reset link'}
+                </button>
+                <button type="button" onClick={() => { setMode('login'); setError('') }}
+                  className="w-full text-xs font-semibold" style={{ color: '#818cf8' }}>
+                  ← Back to Sign In
+                </button>
+              </form>
+            )
           ) : (
             <form onSubmit={handleRegister} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
