@@ -1050,12 +1050,18 @@ export default function WRMonitoringMap() {
         <div style={{
           position: 'fixed', inset: 0, zIndex: 1000,
           background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(6px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          // Top-anchored + scrollable overlay. Centering (align-items:center)
+          // pushed the top of a tall card ABOVE the viewport where it couldn't
+          // be scrolled to — the "cut off" bug. Anchoring from the top with a
+          // small gutter and letting the overlay scroll guarantees the header
+          // and Compare button are always reachable.
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+          padding: '3vh 16px', overflowY: 'auto',
         }} onClick={() => setSelected(null)}>
           <div data-tour="map-detail" onClick={e => e.stopPropagation()} style={{
             background: 'var(--card-bg, #1e1e2e)', border: '1px solid var(--border)',
-            borderRadius: 16, padding: '0 20px 20px', maxWidth: 540, width: '94%', maxHeight: '88vh', overflowY: 'auto',
-            boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+            borderRadius: 16, padding: '0 20px 20px', maxWidth: 540, width: '94%', maxHeight: '94vh', overflowY: 'auto',
+            boxShadow: '0 24px 60px rgba(0,0,0,0.45)', flexShrink: 0,
           }}>
             {/* Sticky header — stays pinned while the body scrolls, so the title
                 and close button are always reachable (the card used to scroll
