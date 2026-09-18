@@ -25,6 +25,12 @@ router.post('/register', limiter, async (req, res) => {
     if (username.length < 3) return res.status(400).json({ error: 'Username must be at least 3 characters' })
     if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' })
 
+    // Block re-registration with a banned email (admin-deleted users).
+    if (email) {
+      const banned = await db.get('SELECT 1 FROM banned_emails WHERE email = ?', [email]).catch(() => null)
+      if (banned) return res.status(403).json({ error: 'This email is not allowed to register.' })
+    }
+
     const hash = await bcrypt.hash(password, 10)
     const isAdmin = role === 'SOURCE Water team member'
 
@@ -105,6 +111,14 @@ router.get('/me', async (req, res) => {
         let localUser = await db.get('SELECT * FROM users WHERE email = ?', [sbUser.email])
         const isNewUser = !localUser
         if (isNewUser) {
+          // Enforce the ban list BEFORE auto-creating a row. Without this,
+          // a user deleted by an admin (whose Supabase Auth identity still
+          // exists) would get a brand-new account silently recreated on
+          // their next /me call — bypassing the ban entirely. This route
+          // is the main path every real user takes, so the check must live
+          // here too, not only in requireAuth.
+          const banned = await db.get('SELECT 1 FROM banned_emails WHERE email = ?', [sbUser.email]).catch(() => null)
+          if (banned) return res.status(403).json({ error: 'Account suspended' })
           const metaUsername = sbUser.user_metadata?.username
           const base = sbUser.email.split('@')[0].replace(/[^a-z0-9_]/gi, '')
           const suffix = Math.random().toString(36).slice(2, 6)
