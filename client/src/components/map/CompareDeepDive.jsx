@@ -136,6 +136,34 @@ function fmtNum(v, unit) {
   return `${formatted}${unit || ''}`
 }
 
+// Plain-English name for each health tone + what it means for the water.
+const TONE_LABEL = { safe: 'Healthy', warning: 'Caution', critical: 'Harmful', unknown: 'No band' }
+const TONE_MEANING = {
+  safe: 'good for fish, insects and plants',
+  warning: 'stressful for sensitive aquatic life',
+  critical: 'harmful — sensitive species start to die',
+}
+
+// A small colour key that explains the shaded zones under a chart, using only
+// the tones that actually appear for this parameter.
+function ZoneLegend({ meta }) {
+  if (!meta?.ranges?.length) return null
+  const order = ['safe', 'warning', 'critical']
+  const tones = order.filter(t => meta.ranges.some(r => r.tone === t))
+  if (!tones.length) return null
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 8 }}>
+      {tones.map(t => (
+        <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: '#cbd5e1' }}>
+          <span style={{ width: 12, height: 12, borderRadius: 3, background: TONE_COLOR[t], opacity: 0.85, flexShrink: 0 }} />
+          <strong style={{ color: '#e2e8f0' }}>{TONE_LABEL[t]}</strong>
+          <span style={{ color: '#94a3b8' }}>— {TONE_MEANING[t]}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 // ── chart: two-site overlay ────────────────────────────────────────────────
 
 function OverlayChart({ paramKey, seriesA, seriesB }) {
@@ -198,13 +226,14 @@ function OverlayChart({ paramKey, seriesA, seriesB }) {
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="auto" role="img"
       style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)' }}>
-      {/* CCME band shading (banded params only) */}
+      {/* CCME band shading (banded params only) — stronger fill so the
+          healthy / caution / harmful zones actually read at a glance. */}
       {meta?.ranges?.map((r, i) => {
         const yTop = yAt(Math.min(r.max, yMax))
         const yBot = yAt(Math.max(r.min, yMin))
         if (yBot <= yTop) return null
         return <rect key={i} x={padL} y={yTop} width={innerW} height={yBot - yTop}
-          fill={TONE_COLOR[r.tone]} opacity={0.10} />
+          fill={TONE_COLOR[r.tone]} opacity={r.tone === 'safe' ? 0.20 : 0.16} />
       })}
 
       {/* Lines */}
@@ -300,7 +329,7 @@ function SideStatsCard({ accent, name, stats, unit, paramKey, latestClassificati
           <StatBox
             label="Safe Range"
             value={safeRangeText || 'no standard'}
-            sub={paramKey ? 'SOURCE band' : '—'}
+            sub={paramKey ? 'CCME band' : '—'}
             color={safeRangeText ? '#a7f3d0' : '#94a3b8'}
           />
           <StatBox
@@ -417,21 +446,28 @@ function ParamCard({ param, obsA, obsB, siteA, siteB }) {
       background: 'rgba(15, 23, 42, 0.72)', border: '1px solid rgba(255,255,255,0.08)',
       marginBottom: 14,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4, flexWrap: 'wrap' }}>
         <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#fff' }}>{sectionTitle}</h3>
         {meta ? (
-          <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: 'rgba(99,102,241,0.18)', color: '#a78bfa', fontWeight: 800, letterSpacing: '0.04em' }}>
-            CCME band
+          <span title="CCME = Canadian Council of Ministers of the Environment. The shaded zones are their national guidelines for water that's healthy for fish and aquatic life."
+            style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: 'rgba(99,102,241,0.18)', color: '#a78bfa', fontWeight: 800, letterSpacing: '0.04em', cursor: 'help' }}>
+            CCME safe zones ⓘ
           </span>
         ) : (
-          <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: 'rgba(148,163,184,0.15)', color: '#94a3b8', fontWeight: 800, letterSpacing: '0.04em' }}>
-            raw value · no SOURCE band
+          <span title="Water Rangers reports this parameter, but there is no published CCME aquatic-life guideline band for it — so we show the raw readings without safe/unsafe shading."
+            style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: 'rgba(148,163,184,0.15)', color: '#94a3b8', fontWeight: 800, letterSpacing: '0.04em', cursor: 'help' }}>
+            raw value · no guideline band ⓘ
           </span>
         )}
         <span style={{ marginLeft: 'auto', fontSize: 11, color: '#94a3b8' }}>
           {seriesA.length} + {seriesB.length} reading{(seriesA.length + seriesB.length) !== 1 ? 's' : ''} · {unit?.trim() || 'unitless'}
         </span>
       </div>
+      {meta?.short && (
+        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12, lineHeight: 1.5 }}>
+          <strong style={{ color: '#cbd5e1' }}>What it measures:</strong> {meta.short}
+        </div>
+      )}
 
       <div style={{ marginBottom: 12 }}>
         <OverlayChart paramKey={param.paramKey} seriesA={seriesA} seriesB={seriesB} />
@@ -446,10 +482,11 @@ function ParamCard({ param, obsA, obsB, siteA, siteB }) {
           </span>
           {meta && (
             <span style={{ marginLeft: 'auto', fontSize: 10, color: '#94a3b8', fontStyle: 'italic' }}>
-              Shaded bands = SOURCE Water safety zones for this parameter
+              Shaded bands = CCME aquatic-life safe zones
             </span>
           )}
         </div>
+        <ZoneLegend meta={meta} />
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -509,6 +546,39 @@ function SiteHeaderCard({ site, accent, badge, obs }) {
             WR <ExternalLink size={11}/>
           </a>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ── "how to read this" explainer (shown once at the top) ───────────────────
+function HowToReadPanel({ siteA, siteB }) {
+  const Item = ({ swatch, title, children }) => (
+    <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+      <span style={{ marginTop: 3, flexShrink: 0 }}>{swatch}</span>
+      <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.5 }}>
+        <strong style={{ color: '#fff' }}>{title}</strong> {children}
+      </div>
+    </div>
+  )
+  const dot = (c) => <span style={{ display: 'inline-block', width: 13, height: 4, borderRadius: 2, background: c }} />
+  const sq = (c) => <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3, background: c, opacity: 0.85 }} />
+  return (
+    <div style={{
+      padding: 16, borderRadius: 14, marginBottom: 18,
+      background: 'linear-gradient(135deg, rgba(99,102,241,0.10), rgba(52,211,153,0.06))',
+      border: '1px solid rgba(99,102,241,0.28)',
+    }}>
+      <div style={{ fontSize: 12, fontWeight: 800, color: '#c4b5fd', letterSpacing: '0.06em', marginBottom: 12, textTransform: 'uppercase' }}>
+        📖 How to read this comparison
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+        <Item swatch={dot('#60a5fa')} title="Blue line =">{`${siteA?.name || 'Site A'}. Each dot is one real reading, oldest on the left, newest on the right.`}</Item>
+        <Item swatch={dot('#34d399')} title="Green line =">{`${siteB?.name || 'Site B'}, drawn on the same chart so you can see which site runs higher or lower.`}</Item>
+        <Item swatch={sq('#22c55e')} title="Coloured background zones =">the health guidelines. <strong style={{ color: '#86efac' }}>Green</strong> is healthy for aquatic life, <strong style={{ color: '#fcd34d' }}>amber</strong> is caution, <strong style={{ color: '#fca5a5' }}>red</strong> is harmful. A line sitting in the green band = good water.</Item>
+        <Item swatch={<span style={{ fontSize: 13 }}>🇨🇦</span>} title="What is CCME?">It stands for the <em>Canadian Council of Ministers of the Environment</em> — the national body that sets the official guidelines for what counts as healthy river and lake water. Those guidelines are where the coloured zones come from (not our own opinion).</Item>
+        <Item swatch={<span style={{ fontSize: 13 }}>📊</span>} title="The four stat boxes:"><strong>Latest</strong> = most recent reading. <strong>Safe Range</strong> = the healthy window. <strong>% Time Safe</strong> = how often this site stayed healthy. <strong>Trend/wk</strong> = whether it's rising or falling over time.</Item>
+        <Item swatch={<span style={{ fontSize: 13 }}>✦</span>} title="Bottom purple box">gives you the plain-English verdict for that parameter — which site is doing better and why.</Item>
       </div>
     </div>
   )
@@ -575,6 +645,8 @@ export default function CompareDeepDive({ open, siteA, siteB, obsA, obsB, onClos
             <SiteHeaderCard site={siteB} accent="#34d399" badge="SITE B" obs={obsB} />
           </div>
 
+          <HowToReadPanel siteA={siteA} siteB={siteB} />
+
           {loading && (
             <div style={{ padding: 12, marginBottom: 14, borderRadius: 10, background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.18)', color: '#a5b4fc', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Sparkles size={12}/> Loading observations from Water Rangers…
@@ -604,7 +676,7 @@ export default function CompareDeepDive({ open, siteA, siteB, obsA, obsB, onClos
 
           <div style={{ marginTop: 20, padding: 12, borderRadius: 10, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', fontSize: 11, color: '#94a3b8', lineHeight: 1.55 }}>
             All readings pulled live from the public Water Rangers API · charts overlay both sites' time series ·
-            stats are computed from the loaded observations · "% Time Safe" only computes for parameters with a published SOURCE Water band.
+            stats are computed from the loaded observations · "% Time Safe" only computes for parameters with a published CCME aquatic-life guideline band.
           </div>
         </div>
       </div>

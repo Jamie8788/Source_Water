@@ -341,6 +341,12 @@ export default function WRMonitoringMap() {
     const A = compareARef.current, B = compareBRef.current
     if (!A) {
       setCompareA(loc); setCompareB(null); setObsA([]); setObsB([])
+      // The search box is usually still holding the name of the site the
+      // user just picked, which filters the map down to that ONE site — so
+      // they can't see any other site to pick as B. Clear the search and
+      // close the popup so the whole map reappears for picking the 2nd site.
+      setSearchText('')
+      setSelected(null)
       setObsCmpLoading(true)
       try {
         const data = await getLocationObservations(loc.id, { perPage: 200 })

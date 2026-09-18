@@ -258,7 +258,7 @@ export default function CompareDrawer({
 
             <div style={{ marginTop: 12, fontSize: 11, color: '#94a3b8', lineHeight: 1.5 }}>
               Showing <strong style={{ color: '#cbd5e1' }}>{paramRows.length}</strong> parameter{paramRows.length !== 1 ? 's' : ''} returned by Water Rangers for these sites.
-              Green-highlighted column = the safer SOURCE Water band for that parameter (only computed for parameters with published bands).
+              Green-highlighted column = the site sitting in the healthier CCME aquatic-life band for that parameter (only computed for parameters with published guideline bands).
               "—" means no reading at that site for that parameter.
             </div>
           </div>
@@ -410,7 +410,7 @@ function ParamRow({ label, unit, a, ca, b, cb, winner, banded }) {
         <span style={{ wordBreak: 'break-word' }}>{label}</span>
         {!banded && (
           <span style={{ fontSize: 10, fontWeight: 500, color: '#64748b', marginTop: 2 }}>
-            raw value · no SOURCE band
+            raw value · no CCME band
           </span>
         )}
       </div>
