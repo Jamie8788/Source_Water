@@ -663,9 +663,12 @@ Write 3 short paragraphs (each 2-3 sentences):
                       ))}
                     </div>
                     <div style={{ marginTop: 9, fontSize: 11.5, color: '#64748b', lineHeight: 1.55 }}>
-                      Kit names and ranges are published by Water Rangers. Photos and how-to guides for each kit live on{' '}
-                      <a href="https://www.waterrangers.ca/equipment" target="_blank" rel="noreferrer" style={{ color: '#0ea5e9', textDecoration: 'underline' }}>
-                        their equipment guide
+                      Kit names and reading ranges come directly from Water Rangers'{' '}
+                      <a href="https://data.waterrangers.com/supported-parameters" target="_blank" rel="noreferrer" style={{ color: '#0ea5e9', textDecoration: 'underline' }}>
+                        supported-parameters reference
+                      </a>. To browse or buy the kits themselves, see the{' '}
+                      <a href="https://waterrangers.com/" target="_blank" rel="noreferrer" style={{ color: '#0ea5e9', textDecoration: 'underline' }}>
+                        Water Rangers website
                       </a>.
                     </div>
                   </>

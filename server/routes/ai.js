@@ -49,7 +49,7 @@ You know about:
 - Indigenous water rights and stewardship traditions of Anishinaabe peoples, including Baawaating (Sault Ste. Marie)
 - Field sampling procedures and best practices
 - Drinking-water science: how municipal treatment works (coagulation, filtration, disinfection), WHO / Health Canada / EPA parameter guidelines, why parameters matter, daily human intake (~2–2.5 L), source-water protection
-- Water Rangers community monitoring (waterrangers.ca)
+- Water Rangers community monitoring (waterrangers.com)
 - Climate change impacts on freshwater
 - Local challenges: mine drainage, agricultural runoff, road salt, invasive species, harmful algal blooms
 

@@ -299,8 +299,8 @@ const LEARNING_PATHS = [
     title: 'New to water monitoring',
     subtitle: 'From “what is water quality?” to reading a real site in 5 steps.',
     steps: [
-      { kind: 'read', title: 'What water quality actually means', desc: 'Plain-language intro to the parameters and why they matter.', url: 'https://www.waterrangers.ca/learn' },
-      { kind: 'read', title: 'How the tests work', desc: 'The Water Rangers test-kit guide: pH, oxygen, turbidity, and more.', url: 'https://www.waterrangers.ca/equipment' },
+      { kind: 'read', title: 'What water quality actually means', desc: 'Water Rangers’ supported-parameters reference: what each parameter is and why it matters.', url: 'https://data.waterrangers.com/supported-parameters' },
+      { kind: 'read', title: 'How the tests work', desc: 'Browse the Water Rangers test kits (pH, oxygen, turbidity, and more) on their site.', url: 'https://waterrangers.com/' },
       { kind: 'do',   title: 'See a real monitoring site', desc: 'Open the live Site Map and pick a station near you.', to: '/monitoring', cta: 'Open Site Map' },
       { kind: 'do',   title: 'Read a site’s data story', desc: 'Let the Wet Lab explain a site’s readings in plain words.', to: '/ai-lab', cta: 'Open Wet Lab' },
       { kind: 'do',   title: 'Test what you learned', desc: 'Take a short quiz and earn your first points.', to: '/quiz', cta: 'Go to Quiz' },
@@ -324,7 +324,7 @@ const LEARNING_PATHS = [
     steps: [
       { kind: 'do',   title: 'Find water near you', desc: 'Locate monitoring sites and community stories on the map.', to: '/monitoring', cta: 'Open Site Map' },
       { kind: 'do',   title: 'Set a pollution alert', desc: 'Create a threshold watch so you’re warned when something changes.', to: '/alerts', cta: 'Open Alerts' },
-      { kind: 'read', title: 'Learn from frontline stories', desc: 'Real community science stories from Water Rangers.', url: 'https://www.waterrangers.ca/blog' },
+      { kind: 'read', title: 'Learn from frontline stories', desc: 'Real community science stories from Water Rangers.', url: 'https://waterrangers.com/' },
       { kind: 'do',   title: 'Rally your community', desc: 'Share what you found and start a conversation.', to: '/social', cta: 'Open Community' },
     ],
   },
@@ -333,7 +333,7 @@ const LEARNING_PATHS = [
     title: 'Teach with real water data',
     subtitle: 'Bring live, local water science into your classroom.',
     steps: [
-      { kind: 'read', title: 'Free training materials', desc: 'Water Rangers’ learning hub — protocols and lesson-ready material.', url: 'https://www.waterrangers.ca/learn' },
+      { kind: 'read', title: 'Free training materials', desc: 'Water Rangers’ website — protocols, guides and lesson-ready material.', url: 'https://waterrangers.com/' },
       { kind: 'do',   title: 'Explore quizzes to assign', desc: 'See the quiz library students can take.', to: '/quiz', cta: 'Open Quizzes' },
       { kind: 'do',   title: 'Show the AI Lab in action', desc: 'Demonstrate anomalies, trends and plain-English insights.', to: '/ai-lab', cta: 'Open Wet Lab' },
       { kind: 'read', title: 'Build data literacy', desc: 'How to read and cite open water-quality data (DataStream).', url: 'https://datastream.org/en-ca/info/data-schema' },
@@ -730,7 +730,7 @@ export default function Resources() {
           <ShieldCheck style={{ width: 18, height: 18, color: '#22a06b', flexShrink: 0 }}/>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
             <strong style={{ color: 'var(--text)' }}>Curated &amp; verified sources.</strong> Every resource links to an established open-water-data organization, including the open datasets SOURCE Water draws on from{' '}
-            <a href="https://www.waterrangers.ca" target="_blank" rel="noopener noreferrer" style={{ color: '#006fbf', fontWeight: 600 }}>Water Rangers</a>
+            <a href="https://waterrangers.com/" target="_blank" rel="noopener noreferrer" style={{ color: '#006fbf', fontWeight: 600 }}>Water Rangers</a>
             {' and '}
             <a href="https://datastream.org" target="_blank" rel="noopener noreferrer" style={{ color: '#22a06b', fontWeight: 600 }}>DataStream</a>
             {' '}— alongside other vetted sources curated by the SOURCE Water team.
