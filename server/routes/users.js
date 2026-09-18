@@ -218,6 +218,13 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
       `INSERT INTO banned_emails (email, reason) VALUES (?, 'deleted by admin') ON CONFLICT DO NOTHING`,
       [target.email]
     ).catch(() => {})
+    // Also remove the Supabase-linked `profiles` row (keyed by auth email).
+    // The handle_new_user trigger inserts into profiles on every signup and
+    // only de-dupes on id — so an orphan profiles row left behind here makes a
+    // later re-signup with the same email fail with "Database error saving new
+    // user" (unique clash on email/username). Cleaning it keeps re-registration
+    // working. Guarded: the table only exists on the Supabase/Postgres side.
+    await db.run('DELETE FROM profiles WHERE email = ?', [target.email]).catch(() => {})
   }
 
   // Delete quiz questions before quizzes (FK chain)
