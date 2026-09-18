@@ -521,6 +521,47 @@ Write 3 short paragraphs (each 2-3 sentences):
             </Collapsible>
           )}
 
+          {/* Parameters with NO CCME band used to get no visual at all, which
+              made those pages look empty. Show the reading against the best
+              REAL range we have, clearly labelled so nothing is implied. */}
+          {!meta && (() => {
+            // NB: elsewhere in this file the pattern is `paramKey || paramLabel`,
+            // which only avoids a ReferenceError because paramKey is always
+            // truthy and short-circuits — paramLabel is scoped to the AI effect.
+            // Using an in-scope fallback here instead.
+            const wrp = getWRParameter(paramKey || meta?.label || '')
+            const u = displayUnit
+            const val = latest?.value
+            let lo = null, hi = null, title = null, caption = null
+            if (wrp?.qaSafe?.min != null && wrp?.qaSafe?.max != null) {
+              lo = wrp.qaSafe.min; hi = wrp.qaSafe.max
+              title = 'Water Rangers reference range'
+              caption = `Water Rangers flags readings outside ${lo}–${hi}${u} for review. That is their data-quality range, not a health threshold — no aquatic-life guideline is published for this parameter.`
+            } else {
+              const ranges = (wrp?.equipment || []).map(e => {
+                const m = String(e.range || '').match(/(-?\d+(?:\.\d+)?)\s*[–—-]\s*(-?\d+(?:\.\d+)?)/)
+                return m ? [parseFloat(m[1]), parseFloat(m[2])] : null
+              }).filter(Boolean)
+              if (ranges.length) {
+                lo = Math.min(...ranges.map(r => r[0])); hi = Math.max(...ranges.map(r => r[1]))
+                title = 'What the test kits can measure'
+                caption = `No guideline band is published for this parameter, so this bar shows the detection range of the kits Water Rangers lists (${lo}–${hi}${u}). It tells you whether a reading sits near the limit of what the equipment can even detect.`
+              } else if (stats && stats.max > stats.min) {
+                lo = stats.min; hi = stats.max
+                title = "This site's recorded range"
+                caption = `No guideline band and no kit range are published for this parameter, so this shows the spread of the ${stats.n} reading${stats.n === 1 ? '' : 's'} taken at this site.`
+              }
+            }
+            if (lo == null || hi == null || !(hi > lo)) return null
+            return (
+              <Collapsible icon="🎯" title="Where this reading falls"
+                hint="There are no colour-coded safety zones for this parameter, so we place the reading against the most meaningful published range we have — and name exactly which one it is.">
+                <ReferenceRangeBar lo={lo} hi={hi} value={val} unit={u} title={title} caption={caption}
+                  siteMin={stats?.min} siteMax={stats?.max} />
+              </Collapsible>
+            )
+          })()}
+
           {/* Full time-series chart — every reading dot-coloured by CCME tone */}
           {series.length >= 2 && (
             <Collapsible icon="📈" title={`Every reading over time (${series.length} samples)`}
@@ -686,6 +727,48 @@ Write 3 short paragraphs (each 2-3 sentences):
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Visual "where does this reading sit" for parameters that have NO CCME band.
+// Those pages were previously all text and looked empty next to pH or oxygen.
+// It never invents a threshold: it falls back through the real ranges we
+// actually have — the Water Rangers published reference range, then the
+// detection range of the kits used, then the site's own recorded spread — and
+// the caption always states which one is being shown.
+function ReferenceRangeBar({ lo, hi, value, unit, title, caption, siteMin, siteMax }) {
+  const f = v => !Number.isFinite(v) ? '—' : Math.abs(v) >= 100 ? v.toFixed(0) : String(+v.toFixed(2))
+  const span = Math.max(1e-9, hi - lo)
+  const pct = v => Math.max(0, Math.min(100, ((v - lo) / span) * 100))
+  const hasSpread = Number.isFinite(siteMin) && Number.isFinite(siteMax) && siteMax > siteMin
+  return (
+    <div>
+      <div style={{ fontSize: 11.5, fontWeight: 800, color: '#0f172a', marginBottom: 10 }}>{title}</div>
+      <div style={{ position: 'relative', height: 38, marginBottom: 4 }}>
+        <div style={{ position: 'absolute', top: 16, left: 0, right: 0, height: 10, borderRadius: 999, background: 'linear-gradient(90deg,#e0f2fe,#bae6fd,#7dd3fc)' }} />
+        {hasSpread && (
+          <div title="Range covered by every reading recorded at this site"
+            style={{ position: 'absolute', top: 16, height: 10, borderRadius: 999, background: 'rgba(14,165,233,0.55)',
+              left: `${pct(siteMin)}%`, width: `${Math.max(1.5, pct(siteMax) - pct(siteMin))}%` }} />
+        )}
+        {Number.isFinite(value) && (
+          <div style={{ position: 'absolute', top: 0, left: `${pct(value)}%`, transform: 'translateX(-50%)', textAlign: 'center' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap' }}>{f(value)}{unit}</div>
+            <div style={{ fontSize: 13, lineHeight: 1, color: '#0f172a' }}>▼</div>
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: '#64748b', fontFamily: 'ui-monospace, monospace' }}>
+        <span>{f(lo)}{unit}</span><span>{f(hi)}{unit}</span>
+      </div>
+      {hasSpread && (
+        <div style={{ marginTop: 8, fontSize: 11, color: '#0369a1', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 14, height: 8, borderRadius: 999, background: 'rgba(14,165,233,0.55)', flexShrink: 0 }} />
+          Darker band = every reading ever taken here ({f(siteMin)}–{f(siteMax)}{unit})
+        </div>
+      )}
+      <div style={{ marginTop: 8, fontSize: 11.5, color: '#475569', lineHeight: 1.55 }}>{caption}</div>
     </div>
   )
 }
