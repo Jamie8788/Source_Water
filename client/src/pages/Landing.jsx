@@ -187,10 +187,30 @@ export default function Landing() {
     return () => { cancelled = true }
   }, [])
 
+  // Auth errors arrive in two shapes: axios errors from our own API
+  // (err.response.data.error) and plain Errors thrown from Supabase Auth
+  // (err.message). Only reading the axios shape meant every Supabase reason —
+  // most importantly "User already registered" — was replaced by a useless
+  // generic string, so a user who simply forgot their password was told
+  // "Registration failed" with no idea what to do next.
+  const authErrorText = (err, fallback) => {
+    const raw = err?.response?.data?.error || err?.message || ''
+    if (/already registered|already been registered|user already exists/i.test(raw)) {
+      return 'That email already has an account. Use “Sign In” instead — if you forgot your password, use “Forgot password?” below or ask an admin to reset it.'
+    }
+    if (/invalid login credentials|invalid username or password/i.test(raw)) {
+      return 'Wrong email/username or password. If you forgot your password, use “Forgot password?” below.'
+    }
+    if (/password should be at least|password.*6 characters/i.test(raw)) {
+      return 'Password must be at least 6 characters.'
+    }
+    return raw || fallback
+  }
+
   const handleLogin = async e => {
     e.preventDefault(); setError(''); setLoading(true)
     try { await login(form.identifier, form.password); navigate('/dashboard') }
-    catch (err) { setError(err.response?.data?.error || 'Login failed') }
+    catch (err) { setError(authErrorText(err, 'Login failed')) }
     finally { setLoading(false) }
   }
 
@@ -199,7 +219,7 @@ export default function Landing() {
     try {
       await register({ username: form.username, email: form.email, password: form.password, display_name: form.display_name })
       navigate('/onboarding')
-    } catch (err) { setError(err.response?.data?.error || 'Registration failed') }
+    } catch (err) { setError(authErrorText(err, 'Registration failed')) }
     finally { setLoading(false) }
   }
 
