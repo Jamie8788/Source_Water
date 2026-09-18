@@ -7,7 +7,7 @@
  * - Filters: country, water body type, parameter, active/dormant
  * - CSV export
  */
-import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, memo, useDeferredValue } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { MapContainer, TileLayer, CircleMarker, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import MarkerClusterGroup from 'react-leaflet-cluster'
@@ -459,6 +459,10 @@ export default function WRMonitoringMap() {
   const [paramFilter, setParamFilter] = useState('')
   const [searchText, setSearchText] = useState(() => searchParams.get('q') || '')
   const [activeOnly, setActiveOnly] = useState(false)
+  // The text input updates `searchText` instantly (snappy typing), but the
+  // expensive filtering of ~9,500 sites + re-clustering runs against this
+  // deferred copy at a lower priority — so keystrokes never block the UI.
+  const deferredSearch = useDeferredValue(searchText)
 
   // Keep state and URL in sync — clearing the search drops ?q= from the URL too.
   useEffect(() => {
@@ -533,6 +537,19 @@ export default function WRMonitoringMap() {
   // Unique values for filters
   const countries = useMemo(() => [...new Set(allLocations.map(l => l.country).filter(Boolean))].sort(), [allLocations])
   const bodyTypes = useMemo(() => [...new Set(allLocations.map(l => l.water_body_type).filter(Boolean))].sort(), [allLocations])
+  // Precomputed once per data load. These counts were previously recomputed by
+  // filtering all ~9,500 sites for EVERY <option>, on EVERY render — roughly
+  // 9,500 × (countries + body types) scans per paint. Now a single pass.
+  const countryCounts = useMemo(() => {
+    const m = new Map()
+    for (const l of allLocations) if (l.country) m.set(l.country, (m.get(l.country) || 0) + 1)
+    return m
+  }, [allLocations])
+  const bodyCounts = useMemo(() => {
+    const m = new Map()
+    for (const l of allLocations) if (l.water_body_type) m.set(l.water_body_type, (m.get(l.water_body_type) || 0) + 1)
+    return m
+  }, [allLocations])
   const allParams = useMemo(() => {
     const s = new Set()
     allLocations.forEach(l => (l.tested_parameters || []).forEach(p => s.add(p)))
@@ -554,25 +571,29 @@ export default function WRMonitoringMap() {
         const yearAgo = new Date(); yearAgo.setFullYear(yearAgo.getFullYear() - 1)
         if (last < yearAgo) return false
       }
-      if (searchText) {
-        const s = searchText.toLowerCase()
+      if (deferredSearch) {
+        const s = deferredSearch.toLowerCase()
         if (!(l.name || '').toLowerCase().includes(s) && !(l.body_of_water || '').toLowerCase().includes(s) && !(l.country || '').toLowerCase().includes(s)) return false
       }
       return true
     })
-  }, [allLocations, countryFilter, bodyFilter, paramFilter, searchText, activeOnly])
+  }, [allLocations, countryFilter, bodyFilter, paramFilter, deferredSearch, activeOnly])
 
   // Only sites with a real, in-range coordinate can be plotted. WR has a
   // handful (≈7) with 0,0 or out-of-range junk coords — excluding them keeps
   // the cluster total honest and stops a phantom marker off the Gulf of
   // Guinea. `mappable.length` is what the header reports as "shown".
-  const mappable = filtered.filter(l => {
+  // Memoized: without this, `mappable` was a brand-new array on every render
+  // (pan, zoom, hover, select), so the dotsSource memo below saw a changed
+  // reference every time and rebuilt all ~9,500 marker elements — a major
+  // source of the interaction lag.
+  const mappable = useMemo(() => filtered.filter(l => {
     const lat = parseFloat(l.latitude), lng = parseFloat(l.longitude)
     return Number.isFinite(lat) && Number.isFinite(lng) &&
            lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 &&
            !(lat === 0 && lng === 0)
-  })
-  const withPhotos = allLocations.filter(l => l.reference_photo_url).length
+  }), [filtered])
+  const withPhotos = useMemo(() => allLocations.filter(l => l.reference_photo_url).length, [allLocations])
 
   // Tablet auto-switch: heatmap when zoomed out, dots once zoomed past ~level
   // 8. Desktop uses the user's viewMode directly (dots stay dots).
@@ -712,7 +733,7 @@ export default function WRMonitoringMap() {
             <select value={countryFilter} onChange={e => setCountryFilter(e.target.value)}
               style={{ width: '100%', padding: '5px 7px', borderRadius: 6, fontSize: 11, background: 'rgba(0,0,0,.12)', border: '1px solid var(--border)', color: 'var(--text)' }}>
               <option value="">All ({allLocations.length})</option>
-              {countries.map(c => <option key={c} value={c}>{c} ({allLocations.filter(l => l.country === c).length})</option>)}
+              {countries.map(c => <option key={c} value={c}>{c} ({countryCounts.get(c) || 0})</option>)}
             </select>
           </div>
           <div>
@@ -720,7 +741,7 @@ export default function WRMonitoringMap() {
             <select value={bodyFilter} onChange={e => setBodyFilter(e.target.value)}
               style={{ width: '100%', padding: '5px 7px', borderRadius: 6, fontSize: 11, background: 'rgba(0,0,0,.12)', border: '1px solid var(--border)', color: 'var(--text)' }}>
               <option value="">All types</option>
-              {bodyTypes.map(t => <option key={t} value={t}>{BODY_LABELS[t] || t} ({allLocations.filter(l => l.water_body_type === t).length})</option>)}
+              {bodyTypes.map(t => <option key={t} value={t}>{BODY_LABELS[t] || t} ({bodyCounts.get(t) || 0})</option>)}
             </select>
           </div>
           <div>
@@ -851,9 +872,12 @@ export default function WRMonitoringMap() {
         </div>
       )}
 
-      {/* Map — key changes on filter to force clean re-render */}
-      <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)', height: 500, marginBottom: compareA ? 220 : 10, position: 'relative', cursor: toolMode === 'story' ? 'crosshair' : 'auto' }}
-        key={`map-${countryFilter}-${bodyFilter}-${paramFilter}-${activeOnly}-${searchText}`}>
+      {/* Map — the container is kept MOUNTED across filter/search changes.
+          It used to be re-keyed on every filter and on every keystroke, which
+          tore down and rebuilt the entire Leaflet map (tiles, controls, and all
+          ~9,500 markers) each time — the cause of the search/zoom lag in the
+          demo. Markers now update reactively through dotsSource instead. */}
+      <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border)', height: 500, marginBottom: compareA ? 220 : 10, position: 'relative', cursor: toolMode === 'story' ? 'crosshair' : 'auto' }}>
         {loading && (
           <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 1000, background: 'rgba(0,0,0,.8)', color: 'white', padding: '8px 16px', borderRadius: 10, fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, maxWidth: 340, textAlign: 'center' }}>
             <RefreshCw size={12} className="animate-spin" /> {loadMsg || `Loading ${allLocations.length.toLocaleString()} sites...`}
