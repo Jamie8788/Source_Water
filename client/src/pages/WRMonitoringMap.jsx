@@ -1043,11 +1043,24 @@ export default function WRMonitoringMap() {
         }} onClick={() => setSelected(null)}>
           <div data-tour="map-detail" onClick={e => e.stopPropagation()} style={{
             background: 'var(--card-bg, #1e1e2e)', border: '1px solid var(--border)',
-            borderRadius: 14, padding: 20, maxWidth: 520, width: '92%', maxHeight: '85vh', overflowY: 'auto',
+            borderRadius: 16, padding: '0 20px 20px', maxWidth: 540, width: '94%', maxHeight: '88vh', overflowY: 'auto',
+            boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 10 }}>
-              <h2 style={{ color: 'var(--text)', fontSize: 16, fontWeight: 900, margin: 0, flex: 1 }}>{selected.name}</h2>
-              <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={16} /></button>
+            {/* Sticky header — stays pinned while the body scrolls, so the title
+                and close button are always reachable (the card used to scroll
+                them off-screen and feel "broken / cut off"). */}
+            <div style={{
+              position: 'sticky', top: 0, zIndex: 5,
+              background: 'var(--card-bg, #1e1e2e)',
+              margin: '0 -20px 14px', padding: '18px 20px 12px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10,
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <h2 style={{ color: 'var(--text)', fontSize: 18, fontWeight: 900, margin: 0, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selected.name}</h2>
+                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 3 }}>{[selected.body_of_water, selected.country].filter(Boolean).join(' · ') || '—'}</div>
+              </div>
+              <button onClick={() => setSelected(null)} aria-label="Close" style={{ flexShrink: 0, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'rgba(148,163,184,0.14)', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={16} /></button>
             </div>
 
             {/* Compare button — reachable straight from the detail modal so the
@@ -1117,56 +1130,63 @@ export default function WRMonitoringMap() {
             {selected.tested_parameters && selected.tested_parameters.length > 0 && (
               <div style={{ marginBottom: 12 }}>
                 <h4 style={{ color: 'var(--text)', fontSize: 12, fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>🧪 What's Monitored Here ({selected.tested_parameters.length} parameters)</span>
+                  <span>🧪 What's Monitored Here ({new Set(selected.tested_parameters.map(p => matchParam(p) || String(p).toLowerCase().replace(/\s+/g, '_'))).size} parameters)</span>
                   {siteObsLoading && <span style={{ fontSize: 9, fontWeight: 500, color: 'var(--text-muted)' }}>loading readings…</span>}
                   {!siteObsLoading && siteObs.length > 0 && <span style={{ fontSize: 9, fontWeight: 500, color: '#10b981' }}>{siteObs.length} readings loaded</span>}
                 </h4>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Sparkles size={10} color="#a78bfa" /> Click any parameter for full chart, CCME bands, anomalies, and AI analysis of this site
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {selected.tested_parameters.map((p, i) => {
-                    const mapped = matchParam(p)
-                    const key = mapped || (p?.toLowerCase().replace(/\s+/g, '_'))
-                    // Our own plain-English layer on top of the Water Rangers
-                    // line: what this test actually is, and what its unit means.
-                    // WR facts stay attributed to WR; this sentence is ours.
-                    const pe = getPlainEnglish(key)
-                    const wrUnit = getWRParameter(p)?.unit
-                    const up = unitPlain(wrUnit, key)
-                    return (
-                      <button
-                        key={i}
-                        onClick={() => setDeepDiveParam(key)}
-                        disabled={siteObsLoading}
-                        title={mapped ? 'Open full CCME deep-dive' : 'Open AI-powered analysis (no CCME band defined yet)'}
-                        style={{
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8,
-                          width: '100%', textAlign: 'left',
-                          fontSize: 11, color: 'var(--text-muted)', padding: '7px 9px',
-                          borderRadius: 6, border: '1px solid var(--border)',
-                          background: 'rgba(99,102,241,0.04)',
-                          cursor: siteObsLoading ? 'wait' : 'pointer',
-                        }}
-                        onMouseEnter={e => { if (!siteObsLoading) e.currentTarget.style.background = 'rgba(99,102,241,0.12)' }}
-                        onMouseLeave={e => e.currentTarget.style.background = 'rgba(99,102,241,0.04)'}
-                      >
-                        {/* Keep the LIST scannable — one line per parameter.
-                            The full plain-English explainer, unit meaning and
-                            "why it matters" live on the parameter page you open
-                            by clicking, not crammed in here. */}
-                        <span style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ display: 'block' }}>{getParamExplain(p)}</span>
-                          {up && (
-                            <span style={{ display: 'block', marginTop: 2, fontSize: 9.5, opacity: 0.7 }}>
-                              <strong style={{ color: 'var(--text)' }}>{wrUnit}</strong> — {up.split('—')[0].trim()}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  {(() => {
+                    // One clean, scannable row per parameter — icon badge, name,
+                    // unit pill, and a single-line description. De-duplicated so a
+                    // parameter measured with two instruments (e.g. temperature)
+                    // shows once instead of a confusing repeat.
+                    const seen = new Set()
+                    const rows = []
+                    selected.tested_parameters.forEach((p, i) => {
+                      const mapped = matchParam(p)
+                      const key = mapped || String(p).toLowerCase().replace(/\s+/g, '_')
+                      if (seen.has(key)) return
+                      seen.add(key)
+                      const wr = getWRParameter(p)
+                      const emoji = PARAM_EMOJI[key] || PARAM_EMOJI[wr?.key] || '📋'
+                      const label = wr?.label || String(p).replace(/_/g, ' ')
+                      const unit = wr?.unit ? String(wr.unit).trim() : ''
+                      const band = wr ? formatQaRange(wr.qaSafe, wr.unit) : null
+                      const desc = wr?.whatIsIt ? wr.whatIsIt
+                        : band ? `Water Rangers reference range ${band}`
+                        : 'No published guideline band'
+                      rows.push(
+                        <button
+                          key={key + '-' + i}
+                          onClick={() => setDeepDiveParam(key)}
+                          disabled={siteObsLoading}
+                          title={mapped ? 'Open full CCME deep-dive' : 'Open AI-powered analysis (no CCME band defined yet)'}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 11, width: '100%', textAlign: 'left',
+                            padding: '9px 11px', borderRadius: 11, border: '1px solid var(--border)',
+                            background: 'rgba(99,102,241,0.04)', cursor: siteObsLoading ? 'wait' : 'pointer',
+                            transition: 'background 0.15s, border-color 0.15s',
+                          }}
+                          onMouseEnter={e => { if (!siteObsLoading) { e.currentTarget.style.background = 'rgba(99,102,241,0.12)'; e.currentTarget.style.borderColor = 'rgba(129,140,248,0.5)' } }}
+                          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.04)'; e.currentTarget.style.borderColor = 'var(--border)' }}
+                        >
+                          <span style={{ flexShrink: 0, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, background: 'rgba(99,102,241,0.1)', fontSize: 18 }}>{emoji}</span>
+                          <span style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+                              {unit && <span style={{ flexShrink: 0, fontSize: 9.5, fontWeight: 700, fontFamily: 'ui-monospace, monospace', color: '#818cf8', background: 'rgba(99,102,241,0.14)', padding: '2px 7px', borderRadius: 999 }}>{unit}</span>}
                             </span>
-                          )}
-                        </span>
-                        <ChevronRight size={12} style={{ flexShrink: 0, opacity: 0.6, marginTop: 2 }} />
-                      </button>
-                    )
-                  })}
+                            <span style={{ display: 'block', marginTop: 3, fontSize: 10.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{desc}</span>
+                          </span>
+                          <ChevronRight size={15} style={{ flexShrink: 0, opacity: 0.5 }} />
+                        </button>
+                      )
+                    })
+                    return rows
+                  })()}
                 </div>
                 {siteObsError && (
                   <div style={{ marginTop: 6, fontSize: 10, color: '#fca5a5' }}>
