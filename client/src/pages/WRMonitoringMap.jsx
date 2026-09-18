@@ -233,6 +233,14 @@ export default function WRMonitoringMap() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [selected, setSelected] = useState(null)
+  // Press Escape to close the site detail card — one more easy way out besides
+  // the × button and clicking the dimmed backdrop.
+  useEffect(() => {
+    if (!selected) return
+    const onKey = e => { if (e.key === 'Escape') setSelected(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected])
   const [showFilters, setShowFilters] = useState(false)
 
   // ── Map tools (additive overlay — never touches WR data) ──
@@ -1060,7 +1068,7 @@ export default function WRMonitoringMap() {
         }} onClick={() => setSelected(null)}>
           <div data-tour="map-detail" onClick={e => e.stopPropagation()} style={{
             background: 'var(--card-bg, #1e1e2e)', border: '1px solid var(--border)',
-            borderRadius: 16, padding: '0 20px 20px', maxWidth: 540, width: '94%', maxHeight: '94vh', overflowY: 'auto',
+            borderRadius: 16, padding: '0 20px 20px', maxWidth: 680, width: '94%', maxHeight: '94vh', overflowY: 'auto',
             boxShadow: '0 24px 60px rgba(0,0,0,0.45)', flexShrink: 0,
           }}>
             {/* Sticky header — stays pinned while the body scrolls, so the title
@@ -1154,7 +1162,7 @@ export default function WRMonitoringMap() {
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Sparkles size={10} color="#a78bfa" /> Click any parameter for full chart, CCME bands, anomalies, and AI analysis of this site
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 6 }}>
                   {(() => {
                     // One clean, scannable row per parameter — icon badge, name,
                     // unit pill, and a single-line description. We intentionally
