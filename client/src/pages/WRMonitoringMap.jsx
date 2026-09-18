@@ -63,12 +63,18 @@ const KNOWN_BODY_TYPES = new Set([
 // NOTE: Carto's basemap CDN (basemaps.cartocdn.com) now requires an API key and
 // stamps "API KEY REQUIRED" across the tiles. Use Esri's free, no-key grey
 // canvas layers instead — same clean light/dark look, no key, no watermark.
+// maxNativeZoom = the deepest zoom each provider actually publishes tiles for.
+// Past it, Leaflet upscales the last real tile instead of requesting tiles that
+// don't exist — which is what produced the "Map data not yet available"
+// placeholders when zooming in. Esri's Canvas (light/dark) basemaps stop at 16,
+// World_Imagery goes to 19, OpenTopoMap to 17.
 const THEME_LAYERS = {
-  dark:      { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',  attribution: 'Tiles &copy; Esri', icon: Moon,     label: 'Dark' },
-  light:     { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri', icon: Sun,      label: 'Light' },
-  satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri', icon: MapIcon,  label: 'Satellite' },
-  topo:      { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attribution: '&copy; OpenTopoMap (CC-BY-SA)', icon: Mountain, label: 'Topo' },
+  dark:      { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',  attribution: 'Tiles &copy; Esri', icon: Moon,     label: 'Dark',      maxNativeZoom: 16 },
+  light:     { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri', icon: Sun,      label: 'Light',     maxNativeZoom: 16 },
+  satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles &copy; Esri', icon: MapIcon,  label: 'Satellite', maxNativeZoom: 19 },
+  topo:      { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attribution: '&copy; OpenTopoMap (CC-BY-SA)', icon: Mountain, label: 'Topo',      maxNativeZoom: 17 },
 }
+const MAP_MAX_ZOOM = 19
 
 // Decorative emoji prefixes per parameter category. The descriptive text
 // after the emoji is pulled from Water Rangers — never invented.
@@ -914,11 +920,13 @@ export default function WRMonitoringMap() {
             Click anywhere on the map to drop a story · Esc to cancel
           </div>
         )}
-        <MapContainer center={[45, -40]} zoom={3} style={{ height: '100%', width: '100%' }} scrollWheelZoom={true} preferCanvas={true}>
+        <MapContainer center={[45, -40]} zoom={3} maxZoom={MAP_MAX_ZOOM} style={{ height: '100%', width: '100%' }} scrollWheelZoom={true} preferCanvas={true}>
           <TileLayer
             key={theme}
             attribution={THEME_LAYERS[theme].attribution}
             url={THEME_LAYERS[theme].url}
+            maxZoom={MAP_MAX_ZOOM}
+            maxNativeZoom={THEME_LAYERS[theme].maxNativeZoom}
           />
           <FitBounds locations={mappable} />
           {IS_TABLET && <MapStateWatcher onChange={(z, b) => {
