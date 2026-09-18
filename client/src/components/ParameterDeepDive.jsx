@@ -532,6 +532,20 @@ Write 3 short paragraphs (each 2-3 sentences):
             const wrp = getWRParameter(paramKey || meta?.label || '')
             const u = displayUnit
             const val = latest?.value
+
+            // Best available source first: WR's own labelled interpretation
+            // bands. Far more meaningful than a kit's span — for alkalinity the
+            // kit union is 0–100,000 ppm, which pins every real reading at the
+            // far left and says nothing.
+            if (wrp?.bands?.length) {
+              return (
+                <Collapsible icon="🎯" title="Where this reading falls"
+                  hint="Water Rangers publishes named interpretation bands for this parameter. The highlighted band is where this site's latest reading sits.">
+                  <WRBandScale bands={wrp.bands} value={val} unit={u} />
+                </Collapsible>
+              )
+            }
+
             let lo = null, hi = null, title = null, caption = null
             if (wrp?.qaSafe?.min != null && wrp?.qaSafe?.max != null) {
               lo = wrp.qaSafe.min; hi = wrp.qaSafe.max
@@ -543,7 +557,14 @@ Write 3 short paragraphs (each 2-3 sentences):
                 return m ? [parseFloat(m[1]), parseFloat(m[2])] : null
               }).filter(Boolean)
               if (ranges.length) {
-                lo = Math.min(...ranges.map(r => r[0])); hi = Math.max(...ranges.map(r => r[1]))
+                // Use the NARROWEST kit range that actually contains the reading,
+                // not the union of every kit. Taking min/max across all kits
+                // produced spans like 0–100,000 ppm, which pinned the value at
+                // the far left and conveyed nothing.
+                const containing = ranges.filter(r => !Number.isFinite(val) || (val >= r[0] && val <= r[1]))
+                const pool = containing.length ? containing : ranges
+                const best = pool.reduce((a, b) => ((b[1] - b[0]) < (a[1] - a[0]) ? b : a))
+                lo = best[0]; hi = best[1]
                 title = 'What the test kits can measure'
                 // Deliberately says "reading range", not "detection limit". WR
                 // publishes what each kit can display; a limit of detection is a
@@ -730,6 +751,66 @@ Write 3 short paragraphs (each 2-3 sentences):
             . If Water Rangers does not publish a band for a parameter, the app says so — it never invents thresholds. Drinking-water guidelines are out of scope: this is a surface-water / aquatic-life platform.
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Water Rangers publishes its own interpretation bands for some parameters
+// (alkalinity: Very Low / Low / Moderate / High / Very High, with ranges).
+// Rendering them gives those parameters the same visual weight as CCME-banded
+// ones, in WR's own wording. Deliberately a neutral sequential palette rather
+// than green/amber/red: these are descriptive categories, NOT safety verdicts,
+// and colouring them like a hazard scale would imply a judgement WR never makes.
+function WRBandScale({ bands, value, unit }) {
+  const parsed = bands.map(b => {
+    const s = String(b.range || '')
+    const nums = (s.match(/-?\d+(?:\.\d+)?/g) || []).map(Number)
+    let lo = null, hi = null
+    if (/[≤<]/.test(s) && nums.length) { hi = nums[0] }
+    else if (/[≥>]/.test(s) && nums.length) { lo = nums[0] }
+    else if (nums.length >= 2) { lo = nums[0]; hi = nums[1] }
+    else if (nums.length === 1) { lo = nums[0]; hi = nums[0] }
+    return { ...b, lo, hi }
+  })
+  const activeIdx = !Number.isFinite(value) ? -1 : parsed.findIndex(p =>
+    (p.lo == null || value >= p.lo) && (p.hi == null || value <= p.hi))
+  const shades = ['#e0f2fe', '#bae6fd', '#7dd3fc', '#38bdf8', '#0ea5e9', '#0284c7']
+  return (
+    <div>
+      <div style={{ fontSize: 11.5, fontWeight: 800, color: '#0f172a', marginBottom: 10 }}>
+        Water Rangers interpretation bands
+      </div>
+      {Number.isFinite(value) && (
+        <div style={{ fontSize: 12, marginBottom: 8, color: '#0f172a' }}>
+          This reading — <strong>{value}{unit}</strong>
+          {activeIdx >= 0 && <> falls in Water Rangers&rsquo; <strong>&ldquo;{parsed[activeIdx].label}&rdquo;</strong> band</>}
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
+        {parsed.map((p, i) => {
+          const on = i === activeIdx
+          return (
+            <div key={i} style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                height: on ? 16 : 10, borderRadius: 4,
+                background: shades[Math.min(i, shades.length - 1)],
+                border: on ? '2px solid #0f172a' : '1px solid rgba(15,23,42,0.08)',
+                transition: 'height 0.15s',
+              }} />
+              <div style={{ marginTop: 5, fontSize: 9.5, fontWeight: on ? 800 : 600, color: on ? '#0f172a' : '#64748b', textAlign: 'center', lineHeight: 1.25 }}>
+                {p.label}
+              </div>
+              <div style={{ fontSize: 8.5, color: '#94a3b8', textAlign: 'center', fontFamily: 'ui-monospace, monospace', lineHeight: 1.2 }}>
+                {p.range}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ marginTop: 8, fontSize: 11.5, color: '#475569', lineHeight: 1.55 }}>
+        These are Water Rangers&rsquo; own interpretation categories for this parameter, shown in their wording and ranges.
+        They describe the level measured — they are not aquatic-life safety thresholds, and no CCME guideline band is published for this parameter.
       </div>
     </div>
   )
