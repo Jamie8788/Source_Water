@@ -86,7 +86,12 @@ export function AuthProvider({ children }) {
       const profile = r.data?.user || r.data
       const merged = toLocalUser(sbUser, {
         ...profile,
-        onboarding_completed: profile.onboarding_completed ?? cached.onboarding_completed ?? sbOnboarded,
+        // Treat onboarding as done if ANY source says so. Using `??` here was a
+        // bug: the server returns 0 (a number, not null) for a fresh row, so it
+        // short-circuited and never consulted the Supabase metadata that
+        // onboarding reliably sets — bouncing just-onboarded users back into the
+        // flow in an endless loop. `||` lets a truthy metadata/cache win.
+        onboarding_completed: (profile.onboarding_completed || cached.onboarding_completed || sbOnboarded) ? 1 : 0,
       })
       setUser(merged)
       localStorage.setItem('sw_user', JSON.stringify(merged))
@@ -113,7 +118,7 @@ export function AuthProvider({ children }) {
         return null
       }
       const fallback = toLocalUser(sbUser, {
-        onboarding_completed: cached.onboarding_completed ?? sbOnboarded,
+        onboarding_completed: (cached.onboarding_completed || sbOnboarded) ? 1 : 0,
       })
       setUser(fallback)
       localStorage.setItem('sw_user', JSON.stringify(fallback))

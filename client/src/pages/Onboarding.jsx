@@ -48,12 +48,21 @@ export default function Onboarding() {
 
   const finish = async () => {
     setLoading(true)
-    try {
-      await api.put('/users/me', { ...form, onboarding_completed: 1 })
-    } catch (_) {}
-    // Persist onboarding flag in Supabase metadata so it survives DB wipes + logouts
+    // Persist to Supabase metadata FIRST — this is the source the app falls back
+    // to, so setting it here guarantees the user is treated as onboarded even if
+    // the backend write below is slow, times out, or fails. Prevents the
+    // "stuck on setup / loops back" problem on cold starts and flaky networks.
     try {
       await supabase.auth.updateUser({ data: { onboarding_completed: true, ...form } })
+    } catch (_) {}
+    // Save the profile to the backend, but cap the wait: a free-tier cold start
+    // can take ~50s, and we must never trap the user on "Setting up…". After a
+    // few seconds we proceed regardless — the metadata above already covers us.
+    try {
+      await Promise.race([
+        api.put('/users/me', { ...form, onboarding_completed: 1 }),
+        new Promise(resolve => setTimeout(resolve, 6000)),
+      ])
     } catch (_) {}
     // Always mark complete locally so ProtectedLayout lets us through
     updateUser({ onboarding_completed: 1, ...form })
