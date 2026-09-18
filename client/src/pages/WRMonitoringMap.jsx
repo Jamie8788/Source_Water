@@ -8,6 +8,7 @@
  * - CSV export
  */
 import { useState, useEffect, useCallback, useMemo, useRef, memo, useDeferredValue } from 'react'
+import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 import { MapContainer, TileLayer, CircleMarker, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import MarkerClusterGroup from 'react-leaflet-cluster'
@@ -1054,9 +1055,15 @@ export default function WRMonitoringMap() {
       </div>
 
       {/* Detail modal */}
-      {selected && (
+      {/* Rendered through a PORTAL onto document.body. The page content sits
+          inside a wrapper that runs a CSS animation, and an animated element
+          creates its own stacking context — which trapped this overlay inside
+          it. That's why the fixed top bar (z-30) still painted over a z-1000
+          modal and clipped the card's title. Portaling to body escapes the
+          stacking context so the overlay truly covers the whole viewport. */}
+      {selected && createPortal((
         <div style={{
-          position: 'fixed', inset: 0, zIndex: 1000,
+          position: 'fixed', inset: 0, zIndex: 4000,
           background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(6px)',
           // Top-anchored + scrollable overlay. Centering (align-items:center)
           // pushed the top of a tall card ABOVE the viewport where it couldn't
@@ -1243,7 +1250,7 @@ export default function WRMonitoringMap() {
             )}
           </div>
         </div>
-      )}
+      ), document.body)}
 
       {/* Parameter deep-dive — slides in over the site modal when a chip is clicked */}
       {deepDiveParam && selected && (
