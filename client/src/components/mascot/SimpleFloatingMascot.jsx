@@ -213,12 +213,17 @@ export default function SimpleFloatingMascot() {
       <div
         onClick={onClick}
         style={{
-          pointerEvents: 'auto',
-          cursor: 'pointer',
+          // Click-through: the mascot is fixed at bottom-right, which is exactly
+          // where pages put their primary action button (e.g. the quiz "Next").
+          // With pointerEvents:'auto' she swallowed those clicks. Now clicks pass
+          // through to the control underneath; only her hide (×) button and the
+          // speech bubble stay interactive.
+          pointerEvents: 'none',
+          cursor: 'default',
           animation: 'swFloat 5s ease-in-out infinite',
           position: 'relative',
         }}
-        title="Hi! I'm Water 💧 — click for a wave"
+        title="Hi! I'm Water 💧"
       >
         <button
           onClick={onHide}
@@ -231,6 +236,7 @@ export default function SimpleFloatingMascot() {
             background: 'rgba(0,0,0,0.55)', color: '#fff',
             fontSize: 11, lineHeight: '16px', cursor: 'pointer',
             padding: 0, zIndex: 2,
+            pointerEvents: 'auto',   // stays clickable inside the click-through wrapper
           }}
         >
           ×

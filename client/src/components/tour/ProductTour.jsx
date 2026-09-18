@@ -414,7 +414,10 @@ export default function ProductTour() {
               <button onClick={back} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', padding: '8px 14px', borderRadius: 9, border: '1px solid var(--border, #e2e8f0)', background: 'transparent', color: 'var(--text, #0f172a)' }}><ArrowLeft style={{ width: 14, height: 14 }} /> Back</button>
             )}
             <button onClick={next} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 800, cursor: 'pointer', padding: '8px 16px', borderRadius: 9, border: 'none', background: '#006fbf', color: '#fff' }}>
-              {isLast ? <>Finish <Check style={{ width: 14, height: 14 }} /></> : <>{s?.interactive && hasRect ? 'Skip step' : 'Next'} <ArrowRight style={{ width: 14, height: 14 }} /></>}
+              {/* Always "Next". It used to read "Skip step" on interactive
+                  steps, which contradicted every tip (they all say "press
+                  Next") and made users think they were skipping content. */}
+              {isLast ? <>Finish <Check style={{ width: 14, height: 14 }} /></> : <>Next <ArrowRight style={{ width: 14, height: 14 }} /></>}
             </button>
           </div>
         </div>

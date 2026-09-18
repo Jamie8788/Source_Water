@@ -592,11 +592,13 @@ function ResearchMarkers({ center, zoom, containerSize, researchData, onSelect, 
         const pos = projectPoint(loc.lat, loc.lon, center, zoom, containerSize.w, containerSize.h, TAB_H)
         if (!pos) return null
         const rd    = researchData[loc.name]
-        const wqi   = rd?.water_quality_index?.index ?? rd?.wqi ?? 50
-        const color = wqiColor(wqi)
-        const risk  = rd ? wqiLabel(wqi) : '…'
+        // No fabricated default. This used to fall back to 50, which painted a
+        // mid-range score on sites we had no reading for.
+        const wqi   = rd?.water_quality_index?.index ?? rd?.wqi ?? null
+        const color = wqi != null ? wqiColor(wqi) : '#64748b'
+        const risk  = wqi != null ? wqiLabel(wqi) : '…'
         const isSelected = selected?.name === loc.name
-        const isHigh = wqi < 25
+        const isHigh = wqi != null && wqi < 25
         return (
           <div
             key={loc.name}
@@ -617,7 +619,7 @@ function ResearchMarkers({ center, zoom, containerSize, researchData, onSelect, 
                 color: '#f1f5f9', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
                 backdropFilter: 'blur(6px)',
               }}>
-                {loc.name} · WQI {wqi.toFixed ? wqi.toFixed(0) : wqi} · {risk}
+                {loc.name} · WQI {wqi != null ? (wqi.toFixed ? wqi.toFixed(0) : wqi) : 'no data'} · {risk}
               </div>
             )}
             {/* Slow rotating ring on all markers */}
@@ -777,7 +779,7 @@ function MarkerDetail({ loc, data, onClose }) {
           </div>
         )}
 
-        <div style={{ fontSize: 10, color: '#334155' }}>📡 NASA POWER · Open-Meteo · Backend ML · Live</div>
+        <div style={{ fontSize: 10, color: '#334155' }}>📡 NASA POWER · Open-Meteo · Live</div>
       </div>
     </div>
   )
@@ -1371,7 +1373,13 @@ function GreatLakesPanel() {
   ]
 
   // Derive WQI from real sensor values
+  // Rule-based condition score (NOT a published WQI). Starts at 100 and
+  // subtracts for each measured parameter outside its healthy range.
+  // IMPORTANT: returns null when we have no measurements at all. Previously it
+  // returned the untouched 100, which displayed a perfect score for lakes with
+  // no data — a fabricated number presented as a reading.
   function calcWQI(wtemp, doVal, turbidity) {
+    if (doVal == null && turbidity == null && wtemp == null) return null
     let score = 100
     if (doVal != null) score -= doVal < 5 ? 35 : doVal < 7 ? 15 : doVal < 9 ? 5 : 0
     if (turbidity != null) score -= turbidity > 100 ? 25 : turbidity > 30 ? 12 : turbidity > 10 ? 5 : 0
@@ -1379,14 +1387,16 @@ function GreatLakesPanel() {
     return Math.max(0, Math.round(score))
   }
 
-  // Generate ML insight text from real values
+  // Rule-based interpretation of the live measurements (not a trained model).
+  // Thresholds reference CCME freshwater aquatic-life guidance. Scope is
+  // surface water / aquatic life only — no drinking-water or treatment claims.
   function mlInsight(l, wtemp, doVal, turbidity, wvht, waterLevel) {
     if (doVal != null && doVal < 5)
-      return `Lake ${l.name} shows critically low dissolved oxygen (${doVal.toFixed(1)} mg/L — below 5 mg/L WHO minimum). Hypoxic conditions are active; fish kills and anaerobic decomposition are probable. Immediate monitoring of water intake facilities required.`
+      return `Lake ${l.name} shows critically low dissolved oxygen (${doVal.toFixed(1)} mg/L — below the CCME aquatic-life reference of roughly 5.5–6 mg/L). Hypoxic conditions are likely; fish stress and anaerobic decomposition become probable at this level. Closer monitoring of this gauge is warranted.`
     if (turbidity != null && turbidity > 80)
-      return `High turbidity detected in Lake ${l.name} inlet (${turbidity.toFixed(0)} NTU). This level typically indicates recent runoff or algal activity. Chlorophyll-a testing and cyanotoxin screening advised at water treatment plants.`
+      return `High turbidity at the Lake ${l.name} inlet gauge (${turbidity.toFixed(0)} NTU). Levels this high typically follow recent runoff or algal activity. Chlorophyll-a monitoring would help distinguish sediment from bloom.`
     if (wtemp != null && wtemp > 24)
-      return `Lake ${l.name} surface temperature is elevated (${wtemp.toFixed(1)}°C). Temperatures above 24°C accelerate cyanobacteria proliferation. Recommend chlorophyll-a monitoring and beach advisories for shoreline areas.`
+      return `Lake ${l.name} surface temperature is elevated (${wtemp.toFixed(1)}°C). Sustained temperatures above 24°C favour cyanobacteria proliferation and reduce oxygen solubility. Chlorophyll-a monitoring advised.`
     if (wtemp != null && wtemp < 2)
       return `Lake ${l.name} near-surface temperature is ${wtemp.toFixed(1)}°C — ice formation conditions. Water clarity typically peaks under ice cover. Prepare contingency plans for spring ice-out nutrient flush and increased runoff contamination risk.`
     const doStr = doVal != null ? ` DO at ${doVal.toFixed(1)} mg/L is ${doVal >= 9 ? 'excellent' : doVal >= 7 ? 'good' : 'acceptable'}.` : ''
@@ -1435,7 +1445,7 @@ function GreatLakesPanel() {
             const doVal = d.usgs?.do_mgl ?? null
             const turbidity = d.usgs?.turbidity ?? null
             const wqi = calcWQI(wtemp, doVal, turbidity)
-            const col = wqi>75?'#10b981':wqi>50?'#38bdf8':'#f59e0b'
+            const col = wqi==null?'#334155':wqi>75?'#10b981':wqi>50?'#38bdf8':'#f59e0b'
             return (
               <div key={l.id} onClick={() => setSelected(l.id)}
                 style={{ padding:'10px 12px', borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)', cursor:'pointer' }}
@@ -1457,7 +1467,7 @@ function GreatLakesPanel() {
                     </div>
                     <div style={{ textAlign:'center' }}>
                       <div style={{ fontSize:8, color:'#475569' }}>WQI</div>
-                      <div style={{ fontSize:13, fontWeight:700, color:col }}>{wqi}</div>
+                      <div style={{ fontSize:13, fontWeight:700, color:col }} title={wqi==null?'No measurements available for this lake right now':'Rule-based condition score from the measured parameters'}>{wqi != null ? wqi : (loading ? '…' : '–')}</div>
                     </div>
                   </div>
                 </div>
@@ -1559,7 +1569,7 @@ function GreatLakesPanel() {
 
             {/* SOURCE Water ML Insight */}
             <div style={{ padding:'10px 12px', borderRadius:10, background:'linear-gradient(135deg,rgba(99,102,241,0.07),rgba(56,189,248,0.05))', border:'1px solid rgba(99,102,241,0.2)', fontSize:10, color:'#64748b', lineHeight:1.7 }}>
-              <div style={{ fontSize:9, fontWeight:800, color:'#a5b4fc', marginBottom:4, letterSpacing:'0.05em' }}>SOURCE WATER · ML INSIGHT</div>
+              <div style={{ fontSize:9, fontWeight:800, color:'#a5b4fc', marginBottom:4, letterSpacing:'0.05em' }} title="Rule-based interpretation of the live measurements — not a trained model">SOURCE WATER · AUTOMATED INSIGHT</div>
               {mlInsight(l, wtemp, doVal, turbidity, wvht, waterLevel)}
             </div>
           </div>
