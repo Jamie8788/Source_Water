@@ -996,22 +996,29 @@ export default function WRMonitoringMap() {
         />
       </div>
 
-      <CompareDrawer
-        siteA={compareA} siteB={compareB}
-        obsA={obsA} obsB={obsB}
-        loading={obsCmpLoading}
-        onClose={clearCompare}
-        onClear={clearCompare}
-        onPickB={() => { setCompareA(null); setCompareB(null); setObsA([]); setObsB([]) }}
-        onOpenDeepDive={() => setDeepDiveOpen(true)}
-      />
-      <CompareDeepDive
-        open={deepDiveOpen && !!compareA && !!compareB}
-        siteA={compareA} siteB={compareB}
-        obsA={obsA} obsB={obsB}
-        loading={obsCmpLoading}
-        onClose={() => setDeepDiveOpen(false)}
-      />
+      {/* Portaled for the same reason as the site card: the page wrapper runs a
+          CSS animation, which creates a stacking context that traps any fixed
+          overlay rendered inside it regardless of its z-index. */}
+      {createPortal((
+        <CompareDrawer
+          siteA={compareA} siteB={compareB}
+          obsA={obsA} obsB={obsB}
+          loading={obsCmpLoading}
+          onClose={clearCompare}
+          onClear={clearCompare}
+          onPickB={() => { setCompareA(null); setCompareB(null); setObsA([]); setObsB([]) }}
+          onOpenDeepDive={() => setDeepDiveOpen(true)}
+        />
+      ), document.body)}
+      {createPortal((
+        <CompareDeepDive
+          open={deepDiveOpen && !!compareA && !!compareB}
+          siteA={compareA} siteB={compareB}
+          obsA={obsA} obsB={obsB}
+          loading={obsCmpLoading}
+          onClose={() => setDeepDiveOpen(false)}
+        />
+      ), document.body)}
       <StoryModal
         open={storyModal.open}
         mode={storyModal.mode}
@@ -1254,13 +1261,15 @@ export default function WRMonitoringMap() {
 
       {/* Parameter deep-dive — slides in over the site modal when a chip is clicked */}
       {deepDiveParam && selected && (
-        <ParameterDeepDive
-          paramKey={deepDiveParam}
-          observations={siteObs}
-          siteName={selected.name}
-          siteId={selected.id}
-          onClose={() => setDeepDiveParam(null)}
-        />
+        createPortal((
+          <ParameterDeepDive
+            paramKey={deepDiveParam}
+            observations={siteObs}
+            siteName={selected.name}
+            siteId={selected.id}
+            onClose={() => setDeepDiveParam(null)}
+          />
+        ), document.body)
       )}
     </div>
   )
