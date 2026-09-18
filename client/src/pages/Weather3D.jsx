@@ -1160,7 +1160,11 @@ function H2OIntelPanel({ weatherData, researchData }) {
 
       {!wx && <div style={{textAlign:'center',padding:'30px 0',color:'#334155',fontSize:13}}><div style={{fontSize:28,marginBottom:8}}>💧</div>Search a location to view weather-derived water indicators</div>}
 
-      {wx && subTab === 'models' && (
+      {/* Require the real driving measurement. The scores below substitute
+          defaults (15°C, 60% humidity, 5 km/h) when a field is missing, so
+          without a genuine temperature they would be computed from invented
+          inputs and shown as findings. */}
+      {wx?.current?.temperature_2m != null && subTab === 'models' && (
         <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
           {models.map(m => (
             <div key={m.label} style={{ padding:'9px 11px', borderRadius:10, background:`${m.level.color}0d`, border:`1px solid ${m.level.color}25` }}>
@@ -1466,8 +1470,8 @@ function GreatLakesPanel() {
                       <div style={{ fontSize:13, fontWeight:700, color: doVal!=null?(doVal>=8?'#10b981':'#f59e0b'):'#334155' }}>{doVal != null ? doVal.toFixed(1) : '–'}</div>
                     </div>
                     <div style={{ textAlign:'center' }}>
-                      <div style={{ fontSize:8, color:'#475569' }}>WQI</div>
-                      <div style={{ fontSize:13, fontWeight:700, color:col }} title={wqi==null?'No measurements available for this lake right now':'Rule-based condition score from the measured parameters'}>{wqi != null ? wqi : (loading ? '…' : '–')}</div>
+                      <div style={{ fontSize:8, color:'#475569' }}>COND</div>
+                      <div style={{ fontSize:13, fontWeight:700, color:col }} title={wqi==null?'No measurements available for this lake right now':'Condition score: our own rule-based score from the measured parameters. Not a published water-quality index.'}>{wqi != null ? wqi : (loading ? '…' : '–')}</div>
                     </div>
                   </div>
                 </div>
@@ -1558,7 +1562,7 @@ function GreatLakesPanel() {
                 { label:'Turbidity',          val: turbidity!=null ? `${turbidity.toFixed(0)} NTU` : '–',   icon:'🌊', color:turbColor },
                 { label:'Wave Height',        val: wvht!=null ? `${wvht.toFixed(2)} m` : '–',               icon:'〰️', color:'#a5b4fc' },
                 { label:'Volume',             val: l.vol,                                                    icon:'💠', color:'#64748b' },
-                { label:'WQI Score',          val:`${wqi}/100`,                                              icon:'📊', color:wqi>75?'#10b981':wqi>50?'#38bdf8':'#f59e0b' },
+                { label:'Condition Score',    val: wqi!=null ? `${wqi}/100` : '–',                           icon:'📊', color: wqi==null?'#64748b':wqi>75?'#10b981':wqi>50?'#38bdf8':'#f59e0b' },
               ].map(m=>(
                 <div key={m.label} style={{ padding:'7px 9px', borderRadius:9, background:`${m.color}0d`, border:`1px solid ${m.color}20` }}>
                   <div style={{ fontSize:8, color:'#475569' }}>{m.icon} {m.label}</div>
@@ -1619,7 +1623,7 @@ function MLResearchPanel({ weatherData, researchData }) {
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
           <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em' }}>5-Day WQI Heuristic</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em' }}>5-Day Weather-Derived Risk</div>
             <div style={{ fontSize: 8, color: '#334155', marginTop: 1 }}>Derived from forecast temp · humidity · precip · wind. Not a measurement.</div>
           </div>
           <div style={{ fontSize: 10, color: trend === 'worsening' ? '#ef4444' : trend === 'improving' ? '#10b981' : '#f59e0b', display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -1638,7 +1642,7 @@ function MLResearchPanel({ weatherData, researchData }) {
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
             <XAxis dataKey="day" tick={{ fill: '#475569', fontSize: 9 }} axisLine={false} tickLine={false}/>
             <YAxis domain={[0, 100]} tick={{ fill: '#475569', fontSize: 9 }} axisLine={false} tickLine={false}/>
-            <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 11 }} labelStyle={{ color: '#94a3b8' }} formatter={(v) => [v, 'WQI']}/>
+            <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 11 }} labelStyle={{ color: '#94a3b8' }} formatter={(v) => [v, 'Risk score']}/>
             <Area type="monotone" dataKey="wqi" stroke="#38bdf8" fill="url(#wqiGrad)" strokeWidth={2} dot={{ fill: '#38bdf8', r: 3 }}/>
           </AreaChart>
         </ResponsiveContainer>
@@ -1693,7 +1697,7 @@ function MLResearchPanel({ weatherData, researchData }) {
 
       {siteWQIs.length > 0 && (
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Research Site WQI Comparison</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Research Site Condition Comparison</div>
           {siteWQIs.sort((a, b) => a.wqi - b.wqi).map(s => (
             <div key={s.name} style={{ marginBottom: 5 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>
@@ -1722,7 +1726,7 @@ function MLResearchPanel({ weatherData, researchData }) {
       {/* Multi-site WQI bar chart */}
       {siteWQIs.length > 1 && (
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Site vs Site WQI Chart</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Site vs Site Condition Chart</div>
           <ResponsiveContainer width="100%" height={100}>
             <AreaChart data={siteWQIs} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
               <defs>
@@ -1734,7 +1738,7 @@ function MLResearchPanel({ weatherData, researchData }) {
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
               <XAxis dataKey="name" tick={{ fill: '#475569', fontSize: 8 }} axisLine={false} tickLine={false}/>
               <YAxis domain={[0, 100]} tick={{ fill: '#475569', fontSize: 8 }} axisLine={false} tickLine={false}/>
-              <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 11 }} formatter={(v) => [v.toFixed(0), 'WQI']}/>
+              <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 11 }} formatter={(v) => [v.toFixed(0), 'Condition']}/>
               <Area type="monotone" dataKey="wqi" stroke="#a78bfa" fill="url(#siteGrad)" strokeWidth={2} dot={{ fill: '#a78bfa', r: 3 }}/>
             </AreaChart>
           </ResponsiveContainer>
@@ -1806,7 +1810,7 @@ function CorrelationPanel({ data }) {
   ]
   return (
     <div>
-      <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Parameter Influence on WQI</div>
+      <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Weather Driver Influence on Risk Score</div>
       {params.map(p => (
         <div key={p.label} style={{ marginBottom: 7 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>
