@@ -1071,6 +1071,14 @@ function ScaleLegend({ meta, currentBandIndex, unit }) {
           )
         })}
       </div>
+      {/* Source attribution. These zones come from CCME (the Canadian national
+          aquatic-life guidelines) — waterParams.js is CCME-only by design. WR's
+          own test-kit pages show a simpler "common values" guide with slightly
+          different cut-offs, so stating the source here stops the difference
+          from reading as a contradiction to a reviewer who has both open. */}
+      <div style={{ marginTop: 4, fontSize: 11, color: '#64748b', lineHeight: 1.55, padding: '8px 10px', background: '#f1f5f9', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+        These zones follow <strong style={{ color: '#334155' }}>CCME aquatic-life guidelines</strong> — the Canadian national reference for healthy surface water. Water Rangers&rsquo; test-kit pages use their own simpler &ldquo;common values&rdquo; guide, so the exact cut-offs differ slightly. Both describe the same water from different published sources; neither is a drinking-water standard.
+      </div>
     </div>
   )
 }
