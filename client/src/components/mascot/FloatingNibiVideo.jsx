@@ -16,6 +16,12 @@
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
 
+// Chroma-key at ~20fps, not every animation frame. getImageData is a GPU→CPU
+// readback and the per-pixel loop is main-thread work; at 60fps it constantly
+// competes with the rest of the page (e.g. panning the map). 20fps is plenty
+// for a gentle corner wave and cuts the cost ~3x.
+const DRAW_INTERVAL_MS = 50
+
 // Single looping video the floating Nibi always plays. The waving
 // loop reads as "alive but not distracting".
 const LOOP_VIDEO = '/mascot-animations/Water_Mascot_Waving.mp4'
@@ -41,6 +47,8 @@ export default function FloatingNibiVideo({ mood = 'idle', size = 96 }) {
   const canvasRef = useRef(null)
   const videoRef = useRef(null)
   const rafRef = useRef(null)
+  const loopingRef = useRef(false)   // guards against multiple concurrent RAF loops
+  const lastDrawRef = useRef(0)
   const [videoReady, setVideoReady] = useState(false)
   const [bounce, setBounce] = useState(false)
 
@@ -52,14 +60,16 @@ export default function FloatingNibiVideo({ mood = 'idle', size = 96 }) {
     return () => clearTimeout(t)
   }, [mood])
 
-  const drawFrame = useCallback(() => {
+  const drawFrame = useCallback((ts) => {
+    if (!loopingRef.current) return          // loop was stopped — do not reschedule
+    rafRef.current = requestAnimationFrame(drawFrame)
     const video = videoRef.current
     const canvas = canvasRef.current
     if (!video || !canvas) return
-    if (video.paused || video.ended || video.readyState < 2) {
-      rafRef.current = requestAnimationFrame(drawFrame)
-      return
-    }
+    if (video.paused || video.ended || video.readyState < 2) return
+    // Throttle the expensive chroma-key to ~20fps.
+    if (ts && ts - lastDrawRef.current < DRAW_INTERVAL_MS) return
+    lastDrawRef.current = ts || performance.now()
     const ctx = canvas.getContext('2d', { willReadFrequently: true })
     const w = canvas.width
     const h = canvas.height
@@ -78,7 +88,21 @@ export default function FloatingNibiVideo({ mood = 'idle', size = 96 }) {
       }
     }
     ctx.putImageData(imgData, 0, 0)
+  }, [])
+
+  // Start the draw loop at most ONCE. Without this guard, every 'canplay' and
+  // every tab-focus started an additional RAF loop that was never cancelled, so
+  // the loops piled up over time and slowly froze the page — the root of the
+  // "leave it open for an hour and it gets stuck" report.
+  const startLoop = useCallback(() => {
+    if (loopingRef.current) return
+    loopingRef.current = true
     rafRef.current = requestAnimationFrame(drawFrame)
+  }, [drawFrame])
+
+  const stopLoop = useCallback(() => {
+    loopingRef.current = false
+    cancelAnimationFrame(rafRef.current)
   }, [])
 
   useEffect(() => {
@@ -94,7 +118,7 @@ export default function FloatingNibiVideo({ mood = 'idle', size = 96 }) {
     const onCanPlay = () => {
       setVideoReady(true)
       video.play().catch(() => {})
-      drawFrame()
+      startLoop()
     }
     const onError = () => {
       // Video failed (asset missing or codec issue) — leave the
@@ -106,13 +130,13 @@ export default function FloatingNibiVideo({ mood = 'idle', size = 96 }) {
     video.load()
 
     return () => {
-      cancelAnimationFrame(rafRef.current)
+      stopLoop()
       video.removeEventListener('canplay', onCanPlay)
       video.removeEventListener('error', onError)
       try { video.pause(); video.src = ''; video.load() } catch {}
       videoRef.current = null
     }
-  }, [drawFrame])
+  }, [startLoop, stopLoop])
 
   // Pause the RAF loop when the tab is hidden so a backgrounded tab
   // stops eating CPU.
@@ -122,15 +146,15 @@ export default function FloatingNibiVideo({ mood = 'idle', size = 96 }) {
       if (!video) return
       if (document.visibilityState === 'visible') {
         video.play().catch(() => {})
-        drawFrame()
+        startLoop()          // guarded — will not create a second loop
       } else {
-        cancelAnimationFrame(rafRef.current)
+        stopLoop()
         video.pause()
       }
     }
     document.addEventListener('visibilitychange', onVis)
     return () => document.removeEventListener('visibilitychange', onVis)
-  }, [drawFrame])
+  }, [startLoop, stopLoop])
 
   const glow = MOOD_GLOW[mood] || MOOD_GLOW.idle
   // Canvas internal resolution can be a bit larger than display size
