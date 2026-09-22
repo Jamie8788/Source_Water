@@ -11,8 +11,8 @@ import { useState, useEffect, useCallback, useMemo, useRef, memo, useDeferredVal
 import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 import { MapContainer, TileLayer, CircleMarker, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
-import MarkerClusterGroup from 'react-leaflet-cluster'
 import L from 'leaflet'
+import 'leaflet.markercluster' // side-effect: adds L.markerClusterGroup used by SitesClusterLayer
 import 'leaflet/dist/leaflet.css'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
@@ -229,6 +229,62 @@ function MapStateWatcher({ onChange }) {
     zoomend: () => onChange(map.getZoom(), map.getBounds()),
     moveend: () => onChange(map.getZoom(), map.getBounds()),
   })
+  return null
+}
+
+// Native Leaflet cluster layer. This is the whole reason the map is now fast at
+// every zoom: instead of React creating ~9,500 <CircleMarker> components (each
+// with a popup subtree) and reconciling them on every render — which froze the
+// map — we add plain L.circleMarker layers to an L.markerClusterGroup in one
+// bulk call. Leaflet does the clustering itself, exactly like the Water Rangers
+// map. Clicking a marker opens the rich detail card (onSelect); the Compare
+// button lives inside that card.
+function SitesClusterLayer({ sites, compareAId, compareBId, onSelect }) {
+  const map = useMap()
+  const groupRef = useRef(null)
+  const onSelectRef = useRef(onSelect)
+  onSelectRef.current = onSelect
+
+  useEffect(() => {
+    const group = L.markerClusterGroup({
+      chunkedLoading: true,
+      chunkInterval: 200,
+      chunkDelay: 50,
+      maxClusterRadius: 55,
+      showCoverageOnHover: false,
+      removeOutsideVisibleBounds: true,
+      spiderfyOnMaxZoom: true,
+    })
+    groupRef.current = group
+    map.addLayer(group)
+    return () => { map.removeLayer(group); groupRef.current = null }
+  }, [map])
+
+  useEffect(() => {
+    const group = groupRef.current
+    if (!group) return
+    group.clearLayers()
+    const markers = []
+    for (const site of sites) {
+      const lat = parseFloat(site.latitude), lng = parseFloat(site.longitude)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+      const isA = site.id === compareAId
+      const isB = site.id === compareBId
+      const color = BODY_COLORS[site.water_body_type] || BODY_COLORS.other
+      const m = L.circleMarker([lat, lng], {
+        radius: isA || isB ? 8 : 5,
+        fillColor: color,
+        color: isA ? '#60a5fa' : isB ? '#34d399' : color,
+        weight: isA || isB ? 2.5 : 1,
+        opacity: 0.9,
+        fillOpacity: 0.6,
+      })
+      m.on('click', () => onSelectRef.current?.(site))
+      markers.push(m)
+    }
+    group.addLayers(markers) // one bulk insert — the fast native path
+  }, [sites, compareAId, compareBId])
+
   return null
 }
 
@@ -611,36 +667,16 @@ export default function WRMonitoringMap() {
   const withPhotos = useMemo(() => allLocations.filter(l => l.reference_photo_url).length, [allLocations])
 
   const TABLET_DOTS_ZOOM = 8
-
-  // Viewport filtering for EVERY device (previously tablet-only). Rendering all
-  // ~9,500 markers into the cluster tree and re-clustering the whole set on each
-  // zoom is what froze the desktop map on zoom-out. We now only ever hand the
-  // cluster the markers currently on screen. Water Rangers' map is fast for the
-  // same reason — it never draws the whole world's markers at once.
-  const inView = useMemo(() => {
-    if (!mapBounds) return mappable
-    const out = []
-    for (const l of mappable) {
-      const lat = parseFloat(l.latitude), lng = parseFloat(l.longitude)
-      if (mapBounds.contains([lat, lng])) out.push(l)
-    }
-    return out
-  }, [mappable, mapBounds])
-
-  // Safety cap: even in view, if more than this many markers would be clustered
-  // (i.e. zoomed right out so the whole dataset is on screen), fall back to the
-  // canvas heatmap, which draws thousands of points cheaply. This is the single
-  // change that stops the zoom-out freeze.
-  const MARKER_CAP = 2500
-  const tooManyForDots = inView.length > MARKER_CAP
-
+  // Heatmap only when the user picks it, or the tablet auto-switch at low zoom.
+  // Dots/clusters stay dots at every zoom on desktop — like Water Rangers.
   const showHeat = viewMode === 'heat'
     || (IS_TABLET && tabletAuto && mapZoom < TABLET_DOTS_ZOOM)
-    || tooManyForDots
 
-  // Only build marker elements when we're actually showing dots and the set is
-  // manageable — never the full 9,500.
-  const dotsSource = useMemo(() => (showHeat ? [] : inView), [showHeat, inView])
+  // The full mappable set is handed straight to a NATIVE Leaflet cluster layer
+  // (see SitesClusterLayer). Leaflet clusters all ~9,500 points itself, fast, at
+  // every zoom — no React element is created per marker, which is what used to
+  // freeze the map. No viewport filtering needed.
+  const dotsSource = mappable
 
   // Build the ~9,500 marker elements ONCE per data/selection change, not on
   // every render. Background context updates (access heartbeat, message polls,
@@ -648,17 +684,6 @@ export default function WRMonitoringMap() {
   // all marker elements, which is what made the map progressively janky and
   // laggy on zoom when the app was left open. Only compare-selection ids and the
   // source list can change the markers, so those are the only deps.
-  const markerEls = useMemo(
-    () => dotsSource.map(site => (
-      <SiteCircleMarker
-        key={site.id} site={site}
-        isA={compareA?.id === site.id} isB={compareB?.id === site.id}
-        onSelect={setSelected} onCompare={pickForCompare}
-      />
-    )),
-    [dotsSource, compareA?.id, compareB?.id, pickForCompare]
-  )
-
   // Heatmap points — MEMOIZED so leaflet.heat isn't destroyed and rebuilt
   // over thousands of points on every pan (that rebuild was the tablet pan
   // lag). On tablet, also down-sample to ~2,000 points: a density heatmap
@@ -972,31 +997,18 @@ export default function WRMonitoringMap() {
               showHeat reflects the tablet auto-switch (heat when zoomed out)
               or the user's explicit toggle. dotsSource is viewport-limited
               on tablet so the cluster tree stays tiny. */}
+          {/* WR sites — heatmap OR native clustered dots, never both. The dots
+              path is a native Leaflet cluster (SitesClusterLayer) so all ~9,500
+              points cluster fast at every zoom, matching Water Rangers. */}
           {showHeat ? (
             <HeatLayer points={heatPoints} />
           ) : (
-            <MarkerClusterGroup
-              chunkedLoading
-              chunkInterval={IS_TABLET ? 60 : 200}
-              chunkDelay={IS_TABLET ? 20 : 50}
-              maxClusterRadius={IS_TABLET ? 140 : 55}
-              showCoverageOnHover={false}
-              removeOutsideVisibleBounds={true}
-              spiderfyOnMaxZoom={!IS_TABLET}
-              zoomToBoundsOnClick={true}
-            >
-              {/* One marker PER SITE — no combo "+N" pins. The combo pattern
-                  collapsed same-coordinate sites into a single marker, and
-                  markercluster's default count then counted that combo as 1,
-                  so cluster bubbles undershot the true total by ~1,250
-                  (Elaine: "7070+1190+12+3 doesn't add to 9,525"). With one
-                  marker per site the cluster count IS the site count.
-                  disableClusteringAtZoom was removed so sites at identical
-                  coordinates always form a clickable cluster that spiderfies
-                  into individual dots at full zoom, instead of stacking
-                  unclickably on one pixel. */}
-              {markerEls}
-            </MarkerClusterGroup>
+            <SitesClusterLayer
+              sites={dotsSource}
+              compareAId={compareA?.id}
+              compareBId={compareB?.id}
+              onSelect={setSelected}
+            />
           )}
 
           {/* Community stories — globally visible, additive */}
