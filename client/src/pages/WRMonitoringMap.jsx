@@ -610,26 +610,37 @@ export default function WRMonitoringMap() {
   }), [filtered])
   const withPhotos = useMemo(() => allLocations.filter(l => l.reference_photo_url).length, [allLocations])
 
-  // Tablet auto-switch: heatmap when zoomed out, dots once zoomed past ~level
-  // 8. Desktop uses the user's viewMode directly (dots stay dots).
   const TABLET_DOTS_ZOOM = 8
-  const showHeat = (IS_TABLET && tabletAuto)
-    ? mapZoom < TABLET_DOTS_ZOOM
-    : viewMode === 'heat'
 
-  // On tablet we viewport-filter so the cluster tree stays tiny. Desktop shows
-  // the full set clustered (that always worked — the freeze was NOT here, it
-  // was all markers re-rendering on every Compare click, fixed by memoising
-  // SiteCircleMarker below).
-  const dotsSource = useMemo(() => {
-    if (IS_TABLET && mapBounds) {
-      return mappable.filter(l => {
-        const lat = parseFloat(l.latitude), lng = parseFloat(l.longitude)
-        return mapBounds.contains([lat, lng])
-      })
+  // Viewport filtering for EVERY device (previously tablet-only). Rendering all
+  // ~9,500 markers into the cluster tree and re-clustering the whole set on each
+  // zoom is what froze the desktop map on zoom-out. We now only ever hand the
+  // cluster the markers currently on screen. Water Rangers' map is fast for the
+  // same reason — it never draws the whole world's markers at once.
+  const inView = useMemo(() => {
+    if (!mapBounds) return mappable
+    const out = []
+    for (const l of mappable) {
+      const lat = parseFloat(l.latitude), lng = parseFloat(l.longitude)
+      if (mapBounds.contains([lat, lng])) out.push(l)
     }
-    return mappable
+    return out
   }, [mappable, mapBounds])
+
+  // Safety cap: even in view, if more than this many markers would be clustered
+  // (i.e. zoomed right out so the whole dataset is on screen), fall back to the
+  // canvas heatmap, which draws thousands of points cheaply. This is the single
+  // change that stops the zoom-out freeze.
+  const MARKER_CAP = 2500
+  const tooManyForDots = inView.length > MARKER_CAP
+
+  const showHeat = viewMode === 'heat'
+    || (IS_TABLET && tabletAuto && mapZoom < TABLET_DOTS_ZOOM)
+    || tooManyForDots
+
+  // Only build marker elements when we're actually showing dots and the set is
+  // manageable — never the full 9,500.
+  const dotsSource = useMemo(() => (showHeat ? [] : inView), [showHeat, inView])
 
   // Build the ~9,500 marker elements ONCE per data/selection change, not on
   // every render. Background context updates (access heartbeat, message polls,
@@ -915,6 +926,11 @@ export default function WRMonitoringMap() {
             <RefreshCw size={12} className="animate-spin" /> {loadMsg || `Loading ${allLocations.length.toLocaleString()} sites...`}
           </div>
         )}
+        {!loading && showHeat && viewMode !== 'heat' && (
+          <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 1000, background: 'rgba(2,6,23,.82)', backdropFilter: 'blur(6px)', color: '#e2e8f0', padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600, border: '1px solid rgba(255,255,255,.12)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            🔥 Density view — <strong style={{ color: '#fff' }}>zoom in</strong> to see individual sites
+          </div>
+        )}
         {toolMode === 'story' && (
           <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 1000, background: 'rgba(34,197,94,.95)', color: 'white', padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700 }}>
             Click anywhere on the map to drop a story · Esc to cancel
@@ -929,15 +945,14 @@ export default function WRMonitoringMap() {
             maxNativeZoom={THEME_LAYERS[theme].maxNativeZoom}
           />
           <FitBounds locations={mappable} />
-          {IS_TABLET && <MapStateWatcher onChange={(z, b) => {
-            // Only re-render when something that matters changed. Panning the
-            // heatmap (zoom unchanged, below the dots threshold) updates
-            // nothing → no React re-render → Leaflet just translates its
-            // canvas. Bounds are tracked only in dots mode, where they drive
-            // the viewport marker filter.
+          {/* Now on every device: desktop needs the viewport bounds too, so the
+              cluster only ever holds on-screen markers. Bounds updates are
+              guarded to only fire React state when the values actually change,
+              so panning the heatmap stays free. */}
+          <MapStateWatcher onChange={(z, b) => {
             setMapZoom(prev => (prev === z ? prev : z))
-            if (z >= TABLET_DOTS_ZOOM) setMapBounds(b)
-          }} />}
+            setMapBounds(prev => (prev && prev.equals(b) ? prev : b))
+          }} />
           <FitStoriesOnShow stories={stories} visible={storiesVisible} />
           <MapToolsLayer
             mode={toolMode}
