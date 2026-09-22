@@ -14,9 +14,12 @@ import MarkdownLite from './MarkdownLite'
 // change or the user clicks Regenerate. This is the main cost-saver here.
 const AI_TTL = 24 * 60 * 60 * 1000
 const aiMemCache = new Map()
+// Bump when the explainer PROMPT changes so users stop getting the old
+// (blander) cached text and regenerate against the new insight-led prompt.
+const AI_PROMPT_VER = 'v2-insight'
 function aiCacheKey(siteId, paramKey, series) {
   const last = series.length ? series[series.length - 1].value : ''
-  return `ddai:${siteId || 'site'}:${paramKey}:${series.length}:${last}`
+  return `ddai:${AI_PROMPT_VER}:${siteId || 'site'}:${paramKey}:${series.length}:${last}`
 }
 function readAiCache(key) {
   if (aiMemCache.has(key)) return aiMemCache.get(key)
@@ -169,6 +172,101 @@ export default function ParameterDeepDive({ paramKey, observations, onClose, sit
     return out
   }, [series, stats, paramKey, meta])
 
+  // ── Local, zero-cost analytics ("signals") ──────────────────────────────────
+  // Everything here is computed from the real readings in the browser — no AI
+  // call, no invented numbers. It powers (a) an instant "what stands out" strip
+  // the user sees even if the AI is slow/unavailable, and (b) a grounded prompt
+  // so the AI writes about THIS site's specific behaviour instead of generic
+  // textbook facts. This is the core of "show what's actually happening here
+  // without spending tokens".
+  const signals = useMemo(() => {
+    if (!series.length || !stats) return null
+    const vals = series.map(s => s.value)
+    const n = vals.length
+    const out = { n }
+
+    // Where the latest reading sits inside this site's own history.
+    if (n >= 4 && latest) {
+      const below = vals.filter(v => v < latest.value).length
+      out.latestPct = Math.round((below / n) * 100)
+      out.latestIsMax = latest.value >= stats.max && stats.max > stats.min
+      out.latestIsMin = latest.value <= stats.min && stats.max > stats.min
+    }
+
+    // Volatility, unit-free, so we can say "stable" vs "swingy" honestly.
+    if (stats.mean !== 0) out.cv = Math.abs(stats.sigma / stats.mean)
+
+    // Dated points for trend + seasonality.
+    const dated = series
+      .filter(s => s.at && Number.isFinite(new Date(s.at).getTime()))
+      .map(s => ({ t: new Date(s.at).getTime(), v: s.value, m: new Date(s.at).getMonth() }))
+
+    // Least-squares linear trend over time + Pearson r so we only claim a
+    // trend when the points actually line up.
+    if (dated.length >= 4) {
+      const t0 = dated[0].t
+      const xs = dated.map(d => (d.t - t0) / 86400000) // days since first sample
+      const ys = dated.map(d => d.v)
+      const mx = xs.reduce((a, b) => a + b, 0) / xs.length
+      const my = ys.reduce((a, b) => a + b, 0) / ys.length
+      let sxy = 0, sxx = 0, syy = 0
+      for (let i = 0; i < xs.length; i++) {
+        sxy += (xs[i] - mx) * (ys[i] - my)
+        sxx += (xs[i] - mx) ** 2
+        syy += (ys[i] - my) ** 2
+      }
+      if (sxx > 0 && syy > 0) {
+        const slopePerDay = sxy / sxx
+        const spanDays = xs[xs.length - 1] - xs[0]
+        const r = sxy / Math.sqrt(sxx * syy)
+        out.trend = {
+          perYear: slopePerDay * 365,
+          total: slopePerDay * spanDays,
+          r,
+          dir: slopePerDay > 0 ? 'rising' : slopePerDay < 0 ? 'falling' : 'flat',
+          strong: Math.abs(r) >= 0.4, // only surface a trend chip when r is decent
+        }
+      }
+    }
+
+    // Recent third vs earliest third — catches a step change a straight-line
+    // trend can miss.
+    if (n >= 6) {
+      const k = Math.max(2, Math.floor(n / 3))
+      const early = vals.slice(0, k)
+      const recent = vals.slice(-k)
+      const em = early.reduce((a, b) => a + b, 0) / early.length
+      const rm = recent.reduce((a, b) => a + b, 0) / recent.length
+      out.shift = { early: em, recent: rm, deltaPct: em !== 0 ? ((rm - em) / Math.abs(em)) * 100 : null }
+    }
+
+    // Seasonality — warm months (Apr–Sep) vs cold, only if both are sampled.
+    if (dated.length >= 6) {
+      const warm = dated.filter(d => d.m >= 3 && d.m <= 8).map(d => d.v)
+      const cold = dated.filter(d => d.m < 3 || d.m > 8).map(d => d.v)
+      if (warm.length >= 2 && cold.length >= 2) {
+        const wm = warm.reduce((a, b) => a + b, 0) / warm.length
+        const cm = cold.reduce((a, b) => a + b, 0) / cold.length
+        const base = Math.abs((wm + cm) / 2) || 1
+        out.season = { warm: wm, cold: cm, warmN: warm.length, coldN: cold.length, relDiff: Math.abs(wm - cm) / base }
+      }
+    }
+
+    // Band distribution for mapped (CCME-scaled) parameters — how often this
+    // site has sat in each safety tone.
+    if (meta) {
+      const counts = {}
+      for (const v of vals) {
+        const c = classifyValue(paramKey, v)
+        const t = c?.tone || 'unknown'
+        counts[t] = (counts[t] || 0) + 1
+      }
+      out.bands = counts
+    }
+
+    return out
+  }, [series, stats, meta, paramKey, latest])
+
   // Fetch a real AI summary tailored to this parameter + this site's actual readings.
   // Calls /api/ai/public-chat (no auth, used by Reports etc). NEVER show canned/fake text —
   // if the call fails, surface the error to the user instead of inventing something.
@@ -221,20 +319,60 @@ export default function ParameterDeepDive({ paramKey, observations, onClose, sit
       : `Water Rangers does not publish a parameter entry that matches "${paramLabel}". Treat this analysis as trend-only and explicitly tell the volunteer that no Water Rangers reference range exists for this parameter.`
 
     const sys = [
-      `You are a freshwater scientist explaining a Water Rangers community-science reading in plain English.`,
+      `You are a freshwater scientist giving a sharp, specific read on ONE parameter at ONE monitoring site for a community-science audience.`,
+      `Your value is insight they can't get from a chart: what is genuinely notable about THIS site's numbers. Lead with the single most interesting, non-obvious finding — a trend, a record reading, a seasonal pattern, unusual stability or swinginess, or a recent shift — using the pre-computed SITE SIGNALS supplied below. Do not open with a textbook definition.`,
+      `Every quantitative claim you make about the site MUST come from the stats, signals, or readings given below — never estimate or round into new numbers, and never describe a pattern the signals don't support.`,
       `Citation rule (HARD): the ONLY external reference you may cite for "safe ranges" or "what counts as elevated" is Water Rangers (data.waterrangers.com/supported-parameters). The full WR reference for this parameter is supplied below.`,
-      `If Water Rangers does not publish a numeric range for this parameter, you MUST say so plainly (e.g. "Water Rangers does not publish a needs-review range for this parameter") and then describe the trend at this site only.`,
+      `If Water Rangers does not publish a numeric range for this parameter, say so plainly once, then talk purely about how this site behaves over time.`,
       `NEVER invent a threshold. NEVER cite CCME, Health Canada, EPA, WHO or other bodies — even if you know their numbers. Stay strictly inside what Water Rangers publishes.`,
       `NEVER mention drinking water, potability, or human consumption.`,
-      `Be concrete: name what the numbers mean for fish, insects, or plants only when WR's "Why important" / "What does it mean" content lets you.`,
+      `Be concrete about aquatic life (fish, insects, plants) only where WR's "Why important"/"What does it mean" content supports it; otherwise stay descriptive.`,
+      `Honesty about data volume: with only a handful of readings, say the pattern is preliminary rather than dressing it up. Never imply more certainty than the sample size allows.`,
+      `Use plain language. You may use **bold** for the one headline finding. No emojis, no headings, no bullet lists — flowing short paragraphs only.`,
     ].join(' ')
 
     const statsLine = stats
       ? `n=${stats.n}, mean=${stats.mean.toFixed(2)}${unitLabel}, median=${stats.median.toFixed(2)}${unitLabel}, min=${stats.min}${unitLabel}, max=${stats.max}${unitLabel}, σ=${stats.sigma.toFixed(2)}, cadence=${stats.cadence ? stats.cadence.toFixed(1) + ' days between samples' : 'unknown'}`
       : ''
+
+    // Pre-computed, real site signals (no invented numbers) so the AI can lead
+    // with what's actually notable instead of a generic definition. Only the
+    // signals that cleared their confidence bar are included.
+    const fmt = (v) => Number.isFinite(v) ? (Math.abs(v) >= 100 ? v.toFixed(0) : +v.toFixed(2)) : '?'
+    const sigParts = []
+    if (signals) {
+      if (signals.latestIsMax) sigParts.push(`the latest reading is the HIGHEST of all ${signals.n} recorded here`)
+      else if (signals.latestIsMin) sigParts.push(`the latest reading is the LOWEST of all ${signals.n} recorded here`)
+      else if (signals.latestPct != null) sigParts.push(`the latest reading sits above ${signals.latestPct}% of this site's past readings`)
+      if (signals.trend && signals.trend.strong) sigParts.push(`clear ${signals.trend.dir} trend over time (~${fmt(signals.trend.perYear)}${unitLabel}/yr, Pearson r=${signals.trend.r.toFixed(2)} over ${signals.n} samples)`)
+      else if (signals.trend) sigParts.push(`no strong linear trend (r=${signals.trend.r.toFixed(2)})`)
+      if (signals.shift && signals.shift.deltaPct != null && Math.abs(signals.shift.deltaPct) >= 15)
+        sigParts.push(`recent samples average ${fmt(signals.shift.recent)}${unitLabel} vs ${fmt(signals.shift.early)}${unitLabel} early on (${signals.shift.deltaPct > 0 ? '+' : ''}${signals.shift.deltaPct.toFixed(0)}%)`)
+      if (signals.season && signals.season.relDiff >= 0.1)
+        sigParts.push(`seasonal split — warm-month avg ${fmt(signals.season.warm)}${unitLabel} (n=${signals.season.warmN}) vs cold-month avg ${fmt(signals.season.cold)}${unitLabel} (n=${signals.season.coldN})`)
+      if (signals.cv != null) {
+        if (signals.cv < 0.1) sigParts.push(`very stable readings (coefficient of variation ${(signals.cv * 100).toFixed(0)}%)`)
+        else if (signals.cv > 0.5) sigParts.push(`highly variable readings (coefficient of variation ${(signals.cv * 100).toFixed(0)}%)`)
+      }
+      if (signals.bands) {
+        const parts = Object.entries(signals.bands).map(([t, c]) => `${c} ${t}`).join(', ')
+        if (parts) sigParts.push(`CCME-band history: ${parts}`)
+      }
+    }
+    const signalsLine = sigParts.length ? sigParts.join('; ') : 'no strong patterns detected yet (too few readings)'
+
+    // Tier the ask by how much data actually exists, so a 2-reading site gets an
+    // honest short note and a rich site gets a real analysis.
+    const depth = stats.n <= 2
+      ? `DATA IS SPARSE (only ${stats.n} reading${stats.n === 1 ? '' : 's'}). Write just 2 short paragraphs: (1) the one thing the latest value tells us, stated cautiously; (2) what this parameter is and why more samples are needed before any trend can be read. Do NOT claim a trend or pattern.`
+      : stats.n <= 5
+        ? `DATA IS LIMITED (${stats.n} readings). Write 2-3 short paragraphs led by the most notable signal, but flag that the pattern is preliminary. ~130 words.`
+        : `DATA IS RICH (${stats.n} readings). Write 3-4 short paragraphs, ~200 words: open with the single most striking site-specific finding from SITE SIGNALS (bold it), explain what likely drives it (season, watershed, runoff, cadence), then say what a volunteer should watch next. Weave in a one-line plain definition only if it helps interpret the finding.`
+
     const userMsg = `Parameter: ${paramLabel} (${unitLabel || 'no unit'})
 Site: ${siteName || 'this monitoring site'}${siteId ? ` (id ${siteId})` : ''}
 Site stats: ${statsLine}
+SITE SIGNALS (pre-computed from the real readings — use these to lead; do not recompute): ${signalsLine}
 
 WATER RANGERS REFERENCE (the only external source you are allowed to cite):
 ${wrBlock}
@@ -242,17 +380,15 @@ ${wrBlock}
 Recent readings (oldest→newest, last 12): ${JSON.stringify(recent)}
 Anomalies flagged: ${anomalies.length} reading(s)${anomalies.length ? ' — ' + anomalies.slice(0, 5).map(a => `${a.value}${unitLabel} on ${a.at ? new Date(a.at).toISOString().slice(0,10) : '?'}`).join(', ') : ''}
 
-Write 3 short paragraphs (each 2-3 sentences):
-1. What this parameter is — using Water Rangers' definition if provided, otherwise just describe the variable in neutral terms without inventing a "safe range".
-2. What this site's actual numbers say — call out the trend, the typical range AT THIS SITE, and any anomalies. Compare to the WR-published band ONLY if one exists; if WR doesn't publish a band, say so explicitly.
-3. What a community volunteer should look for next or what could be driving the pattern (seasonal, watershed, sampling cadence). Stay grounded in the numbers above. Do not invent readings.`
+${depth}
+Ground every number in the stats/signals/readings above. Do not invent readings, thresholds, or bodies other than Water Rangers.`
 
     api.post('/ai/public-chat', {
       messages: [
         { role: 'system', content: sys },
         { role: 'user', content: userMsg },
       ],
-      max_tokens: 500,
+      max_tokens: 700,
     }, { signal: ctl.signal })
       .then((r) => {
         if (cancelled) return
@@ -268,7 +404,7 @@ Write 3 short paragraphs (each 2-3 sentences):
       .finally(() => { if (!cancelled) setAiLoading(false) })
 
     return () => { cancelled = true; ctl.abort() }
-  }, [paramKey, series, meta, stats, anomalies, siteName, siteId, aiReload])
+  }, [paramKey, series, meta, stats, signals, anomalies, siteName, siteId, aiReload])
 
   // Force a fresh AI explainer (clears the cached one for this site+parameter).
   const regenerateAI = () => {
@@ -630,6 +766,11 @@ Write 3 short paragraphs (each 2-3 sentences):
             </Collapsible>
           )}
 
+          {/* Instant, zero-cost "what stands out" strip — computed in the browser
+              from the real readings (no AI call). Gives the user the headline
+              insight immediately, and still works if the AI is slow or down. */}
+          <SignalsStrip signals={signals} unit={displayUnit} />
+
           {/* AI summary — REAL call to /api/ai/public-chat with the actual readings.
               Cached per site+parameter (see top of file) so it doesn't re-charge
               on every open. Loading + error states; never canned/fake text. */}
@@ -855,6 +996,81 @@ function ReferenceRangeBar({ lo, hi, value, unit, title, caption, siteMin, siteM
       )}
       <div style={{ marginTop: 8, fontSize: 11.5, color: '#475569', lineHeight: 1.55 }}>{caption}</div>
     </div>
+  )
+}
+
+// Instant "what stands out" strip. Renders the local `signals` (trend, record,
+// seasonality, volatility, recent shift) as plain chips — computed in the
+// browser from the real readings, so it costs zero tokens and shows even when
+// the AI is slow or down. Confidence bars here MATCH the ones used to build the
+// AI prompt, so the chips and the AI narrative never contradict each other.
+function SignalsStrip({ signals, unit }) {
+  if (!signals) return null
+  const f = (v) => Number.isFinite(v) ? (Math.abs(v) >= 100 ? v.toFixed(0) : String(+v.toFixed(2))) : '—'
+  const chips = []
+
+  if (signals.latestIsMax) chips.push({ tone: 'hot', icon: '▲', title: 'Record high', sub: `Latest is the highest of all ${signals.n} readings here` })
+  else if (signals.latestIsMin) chips.push({ tone: 'cool', icon: '▼', title: 'Record low', sub: `Latest is the lowest of all ${signals.n} readings here` })
+  else if (signals.latestPct != null && (signals.latestPct >= 80 || signals.latestPct <= 20))
+    chips.push({ tone: 'neutral', icon: '◧', title: `${signals.latestPct}th percentile`, sub: `Latest sits above ${signals.latestPct}% of past readings here` })
+
+  if (signals.trend && signals.trend.strong)
+    chips.push({
+      tone: signals.trend.dir === 'rising' ? 'hot' : 'cool',
+      icon: signals.trend.dir === 'rising' ? '↗' : '↘',
+      title: signals.trend.dir === 'rising' ? 'Rising over time' : 'Falling over time',
+      sub: `≈ ${f(signals.trend.perYear)}${unit}/yr · r=${signals.trend.r.toFixed(2)} · ${signals.n} samples`,
+    })
+
+  if (signals.shift && signals.shift.deltaPct != null && Math.abs(signals.shift.deltaPct) >= 15)
+    chips.push({
+      tone: signals.shift.deltaPct > 0 ? 'hot' : 'cool',
+      icon: '⇄',
+      title: `Recent readings ${signals.shift.deltaPct > 0 ? 'up' : 'down'} ${Math.abs(signals.shift.deltaPct).toFixed(0)}%`,
+      sub: `Latest samples avg ${f(signals.shift.recent)}${unit} vs ${f(signals.shift.early)}${unit} early on`,
+    })
+
+  if (signals.season && signals.season.relDiff >= 0.1) {
+    const warmer = signals.season.warm >= signals.season.cold
+    chips.push({
+      tone: 'neutral', icon: warmer ? '☀' : '❄',
+      title: warmer ? 'Higher in warm months' : 'Higher in cold months',
+      sub: `Warm avg ${f(signals.season.warm)}${unit} (n=${signals.season.warmN}) · cold avg ${f(signals.season.cold)}${unit} (n=${signals.season.coldN})`,
+    })
+  }
+
+  if (signals.cv != null && signals.cv < 0.1)
+    chips.push({ tone: 'cool', icon: '≈', title: 'Very stable', sub: `Readings barely move (variation ${(signals.cv * 100).toFixed(0)}%)` })
+  else if (signals.cv != null && signals.cv > 0.5)
+    chips.push({ tone: 'hot', icon: '↕', title: 'Highly variable', sub: `Readings swing a lot (variation ${(signals.cv * 100).toFixed(0)}%)` })
+
+  if (!chips.length) return null
+  const TONE = {
+    hot: { bg: '#fef2f2', bd: '#fecaca', fg: '#b91c1c' },
+    cool: { bg: '#eff6ff', bd: '#bfdbfe', fg: '#1d4ed8' },
+    neutral: { bg: '#f5f3ff', bd: '#ddd6fe', fg: '#6d28d9' },
+  }
+  return (
+    <Collapsible icon="📊" title="What stands out at this site"
+      hint="Patterns detected automatically from this site's own readings — computed on the spot, no AI needed. Each one is measured straight from the real numbers above.">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(240px,1fr))', gap: 10 }}>
+        {chips.map((c, i) => {
+          const t = TONE[c.tone] || TONE.neutral
+          return (
+            <div key={i} style={{ padding: '11px 13px', borderRadius: 11, background: t.bg, border: `1px solid ${t.bd}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                <span aria-hidden style={{ fontSize: 14, color: t.fg, fontWeight: 900 }}>{c.icon}</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: t.fg }}>{c.title}</span>
+              </div>
+              <div style={{ fontSize: 11.5, lineHeight: 1.5, color: '#475569' }}>{c.sub}</div>
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ marginTop: 9, fontSize: 11, color: '#94a3b8', lineHeight: 1.5 }}>
+        These are descriptive patterns in this site's data, not safety verdicts. A trend is only shown when the readings genuinely line up (Pearson r ≥ 0.4).
+      </div>
+    </Collapsible>
   )
 }
 
