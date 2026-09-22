@@ -16,7 +16,7 @@ const AI_TTL = 24 * 60 * 60 * 1000
 const aiMemCache = new Map()
 // Bump when the explainer PROMPT changes so users stop getting the old
 // (blander) cached text and regenerate against the new insight-led prompt.
-const AI_PROMPT_VER = 'v2-insight'
+const AI_PROMPT_VER = 'v3-structured'
 function aiCacheKey(siteId, paramKey, series) {
   const last = series.length ? series[series.length - 1].value : ''
   return `ddai:${AI_PROMPT_VER}:${siteId || 'site'}:${paramKey}:${series.length}:${last}`
@@ -185,12 +185,17 @@ export default function ParameterDeepDive({ paramKey, observations, onClose, sit
     const n = vals.length
     const out = { n }
 
-    // Where the latest reading sits inside this site's own history.
-    if (n >= 4 && latest) {
+    // Perfectly flat data is itself a finding (and percentiles/records become
+    // meaningless — "above 0% of its own history" was a confusing artefact).
+    out.constant = n >= 3 && stats.max === stats.min
+
+    // Where the latest reading sits inside this site's own history — only
+    // meaningful when the readings actually spread.
+    if (n >= 4 && latest && stats.max > stats.min) {
       const below = vals.filter(v => v < latest.value).length
       out.latestPct = Math.round((below / n) * 100)
-      out.latestIsMax = latest.value >= stats.max && stats.max > stats.min
-      out.latestIsMin = latest.value <= stats.min && stats.max > stats.min
+      out.latestIsMax = latest.value >= stats.max
+      out.latestIsMin = latest.value <= stats.min
     }
 
     // Volatility, unit-free, so we can say "stable" vs "swingy" honestly.
@@ -328,8 +333,17 @@ export default function ParameterDeepDive({ paramKey, observations, onClose, sit
       `NEVER mention drinking water, potability, or human consumption.`,
       `Be concrete about aquatic life (fish, insects, plants) only where WR's "Why important"/"What does it mean" content supports it; otherwise stay descriptive.`,
       `Honesty about data volume: with only a handful of readings, say the pattern is preliminary rather than dressing it up. Never imply more certainty than the sample size allows.`,
-      `Use plain language. You may use **bold** for the one headline finding. No emojis, no headings, no bullet lists — flowing short paragraphs only.`,
-    ].join(' ')
+      `Plain language, no emojis, no bullet lists. Bold key numbers with **like this**.`,
+      `OUTPUT FORMAT — follow it EXACTLY so the app can lay it out as titled cards:`,
+      `HEADLINE: <one vivid sentence naming the single most notable thing about THIS site — a record, trend, seasonal pattern, unusual steadiness, or the latest value in context>`,
+      `### What this is`,
+      `<1-2 plain sentences: what the parameter measures and why it matters to aquatic life, using WR content where given>`,
+      `### What's happening here`,
+      `<2-4 sentences on THIS site's actual numbers and signals — the trend, typical range, records, seasonality, anomalies. Compare to the WR band only if one exists.>`,
+      `### What to watch next`,
+      `<1-2 sentences: what a volunteer should look for, or a likely driver (season, watershed, runoff, cadence)>`,
+      `Emit the HEADLINE line and all three ### headings verbatim. No extra headings, no preamble before HEADLINE.`,
+    ].join('\n')
 
     const statsLine = stats
       ? `n=${stats.n}, mean=${stats.mean.toFixed(2)}${unitLabel}, median=${stats.median.toFixed(2)}${unitLabel}, min=${stats.min}${unitLabel}, max=${stats.max}${unitLabel}, σ=${stats.sigma.toFixed(2)}, cadence=${stats.cadence ? stats.cadence.toFixed(1) + ' days between samples' : 'unknown'}`
@@ -341,16 +355,17 @@ export default function ParameterDeepDive({ paramKey, observations, onClose, sit
     const fmt = (v) => Number.isFinite(v) ? (Math.abs(v) >= 100 ? v.toFixed(0) : +v.toFixed(2)) : '?'
     const sigParts = []
     if (signals) {
-      if (signals.latestIsMax) sigParts.push(`the latest reading is the HIGHEST of all ${signals.n} recorded here`)
+      if (signals.constant) sigParts.push(`every one of the ${signals.n} readings here is identical (${fmt(latest?.value)}${unitLabel}) — the water chemistry is extremely steady`)
+      else if (signals.latestIsMax) sigParts.push(`the latest reading is the HIGHEST of all ${signals.n} recorded here`)
       else if (signals.latestIsMin) sigParts.push(`the latest reading is the LOWEST of all ${signals.n} recorded here`)
       else if (signals.latestPct != null) sigParts.push(`the latest reading sits above ${signals.latestPct}% of this site's past readings`)
       if (signals.trend && signals.trend.strong) sigParts.push(`clear ${signals.trend.dir} trend over time (~${fmt(signals.trend.perYear)}${unitLabel}/yr, Pearson r=${signals.trend.r.toFixed(2)} over ${signals.n} samples)`)
-      else if (signals.trend) sigParts.push(`no strong linear trend (r=${signals.trend.r.toFixed(2)})`)
+      else if (signals.trend && !signals.constant) sigParts.push(`no strong linear trend (r=${signals.trend.r.toFixed(2)})`)
       if (signals.shift && signals.shift.deltaPct != null && Math.abs(signals.shift.deltaPct) >= 15)
         sigParts.push(`recent samples average ${fmt(signals.shift.recent)}${unitLabel} vs ${fmt(signals.shift.early)}${unitLabel} early on (${signals.shift.deltaPct > 0 ? '+' : ''}${signals.shift.deltaPct.toFixed(0)}%)`)
       if (signals.season && signals.season.relDiff >= 0.1)
         sigParts.push(`seasonal split — warm-month avg ${fmt(signals.season.warm)}${unitLabel} (n=${signals.season.warmN}) vs cold-month avg ${fmt(signals.season.cold)}${unitLabel} (n=${signals.season.coldN})`)
-      if (signals.cv != null) {
+      if (!signals.constant && signals.cv != null) {
         if (signals.cv < 0.1) sigParts.push(`very stable readings (coefficient of variation ${(signals.cv * 100).toFixed(0)}%)`)
         else if (signals.cv > 0.5) sigParts.push(`highly variable readings (coefficient of variation ${(signals.cv * 100).toFixed(0)}%)`)
       }
@@ -361,13 +376,14 @@ export default function ParameterDeepDive({ paramKey, observations, onClose, sit
     }
     const signalsLine = sigParts.length ? sigParts.join('; ') : 'no strong patterns detected yet (too few readings)'
 
-    // Tier the ask by how much data actually exists, so a 2-reading site gets an
-    // honest short note and a rich site gets a real analysis.
+    // Tier the DEPTH (length + certainty) within the fixed 3-section format, so a
+    // 2-reading site gets an honest one-line-per-section note and a rich site
+    // gets a real read — but both stay structured and scannable.
     const depth = stats.n <= 2
-      ? `DATA IS SPARSE (only ${stats.n} reading${stats.n === 1 ? '' : 's'}). Write just 2 short paragraphs: (1) the one thing the latest value tells us, stated cautiously; (2) what this parameter is and why more samples are needed before any trend can be read. Do NOT claim a trend or pattern.`
+      ? `DATA IS SPARSE (only ${stats.n} reading${stats.n === 1 ? '' : 's'}). Keep every section to ONE cautious sentence. The HEADLINE should describe the single latest value in context, NOT a trend. In "What's happening here", say plainly it is too early to read a trend.`
       : stats.n <= 5
-        ? `DATA IS LIMITED (${stats.n} readings). Write 2-3 short paragraphs led by the most notable signal, but flag that the pattern is preliminary. ~130 words.`
-        : `DATA IS RICH (${stats.n} readings). Write 3-4 short paragraphs, ~200 words: open with the single most striking site-specific finding from SITE SIGNALS (bold it), explain what likely drives it (season, watershed, runoff, cadence), then say what a volunteer should watch next. Weave in a one-line plain definition only if it helps interpret the finding.`
+        ? `DATA IS LIMITED (${stats.n} readings). Keep it tight — about 90 words total. Lead the HEADLINE with the strongest signal but note the pattern is still preliminary.`
+        : `DATA IS RICH (${stats.n} readings). Give a genuine read — about 150 words total. The HEADLINE must name the single most striking site-specific finding drawn from SITE SIGNALS.`
 
     const userMsg = `Parameter: ${paramLabel} (${unitLabel || 'no unit'})
 Site: ${siteName || 'this monitoring site'}${siteId ? ` (id ${siteId})` : ''}
@@ -777,7 +793,7 @@ Ground every number in the stats/signals/readings above. Do not invent readings,
           <Collapsible
             icon={<Sparkles size={16} color="#a78bfa" />}
             title="AI explainer (using this site's actual data)"
-            hint="A water scientist–style summary of what these specific readings mean. Generated once and cached to keep it fast and free — hit Regenerate for a fresh take.">
+            hint="A water scientist's read of THIS site — the headline finding, what it is, what's happening, and what to watch. Generated once and cached to keep it fast and free — hit Regenerate for a fresh take.">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               {aiCached && !aiLoading && (
                 <span title="Reusing the saved summary — no new AI call" style={{ fontSize: 10, color: '#16a34a', background: 'rgba(22,163,74,.1)', border: '1px solid rgba(22,163,74,.25)', padding: '2px 8px', borderRadius: 999, fontWeight: 700 }}>
@@ -806,9 +822,7 @@ Ground every number in the stats/signals/readings above. Do not invent readings,
                 </div>
               )}
               {!aiLoading && !aiError && aiText && (
-                <div style={{ fontSize: 13, lineHeight: 1.6, color: '#1e293b' }}>
-                  <MarkdownLite text={aiText} />
-                </div>
+                <ExplainerView text={aiText} />
               )}
               {!aiLoading && !aiError && !aiText && !series.length && (
                 <div style={{ fontSize: 12, color: '#64748b' }}>
@@ -999,6 +1013,97 @@ function ReferenceRangeBar({ lo, hi, value, unit, title, caption, siteMin, siteM
   )
 }
 
+// Parse the AI explainer into a headline + titled sections so we can lay it out
+// as designed cards instead of a wall of text. Tolerant of the model drifting:
+// accepts "### Heading" or "**Heading** —" lead-ins, and if it finds no
+// structure at all it falls back to one untitled block (still renders fine).
+function parseExplainer(raw) {
+  const text = String(raw || '').replace(/【[^】]*】/g, '').trim()
+  if (!text) return null
+  let headline = null
+  let body = text
+  const hm = text.match(/^\s*(?:\*\*)?HEADLINE(?:\*\*)?\s*:\s*(.+?)(?:\n|$)/i)
+  if (hm) {
+    headline = hm[1].trim().replace(/[*"']/g, '')
+    body = text.slice(hm.index + hm[0].length)
+  }
+  const sections = []
+  const parts = body.split(/\n(?=\s*(?:#{2,4}\s|\*\*[^*\n]+\*\*\s*[—:-]))/)
+  for (const p of parts) {
+    const chunk = p.trim()
+    if (!chunk) continue
+    let m = chunk.match(/^#{2,4}\s*(.+?)\s*\n([\s\S]*)$/)
+    if (!m) m = chunk.match(/^\*\*([^*\n]+?)\*\*\s*[—:-]?\s*([\s\S]*)$/)
+    if (m) sections.push({ title: m[1].trim().replace(/[:*]+$/, ''), body: m[2].trim() })
+    else sections.push({ title: null, body: chunk })
+  }
+  if (!sections.length) sections.push({ title: null, body })
+  return { headline, sections }
+}
+
+// Pick an icon + accent colour for a section from its title (falls back to a
+// stable rotation so untitled/renamed sections still look intentional).
+function sectionStyle(title, idx) {
+  const t = (title || '').toLowerCase()
+  const ROT = [
+    { emoji: '📖', accent: '#0ea5e9' },
+    { emoji: '📊', accent: '#8b5cf6' },
+    { emoji: '🔭', accent: '#10b981' },
+  ]
+  if (/(what.*(is|means)|about|definition)/.test(t)) return ROT[0]
+  if (/(happen|data|site|show|reading|number|trend|now)/.test(t)) return ROT[1]
+  if (/(watch|next|driv|why|look|future)/.test(t)) return ROT[2]
+  return ROT[idx % 3]
+}
+
+// Styled renderer for the AI explainer: a bold headline banner + one card per
+// section (icon badge, coloured accent, plain-English body). This is what makes
+// the answer scannable and visually striking instead of a paragraph wall.
+function ExplainerView({ text }) {
+  const parsed = parseExplainer(text)
+  if (!parsed) return null
+  const { headline, sections } = parsed
+  return (
+    <div>
+      {headline && (
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+          padding: '12px 14px', borderRadius: 12, marginBottom: 12,
+          background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+          color: '#fff', boxShadow: '0 6px 18px rgba(99,102,241,0.28)',
+        }}>
+          <Sparkles size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ fontSize: 14.5, fontWeight: 800, lineHeight: 1.4 }}>
+            {String(headline).replace(/\*\*/g, '')}
+          </div>
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {sections.map((s, i) => {
+          const st = sectionStyle(s.title, i)
+          return (
+            <div key={i} style={{
+              padding: '11px 13px 11px 14px', borderRadius: 10,
+              background: '#fff', border: '1px solid #ece9f7',
+              borderLeft: `4px solid ${st.accent}`,
+            }}>
+              {s.title && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
+                  <span aria-hidden style={{ fontSize: 15 }}>{st.emoji}</span>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: st.accent, textTransform: 'uppercase', letterSpacing: 0.5 }}>{s.title}</span>
+                </div>
+              )}
+              <div style={{ fontSize: 13, lineHeight: 1.6, color: '#1e293b' }}>
+                <MarkdownLite text={s.body} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // Instant "what stands out" strip. Renders the local `signals` (trend, record,
 // seasonality, volatility, recent shift) as plain chips — computed in the
 // browser from the real readings, so it costs zero tokens and shows even when
@@ -1009,7 +1114,8 @@ function SignalsStrip({ signals, unit }) {
   const f = (v) => Number.isFinite(v) ? (Math.abs(v) >= 100 ? v.toFixed(0) : String(+v.toFixed(2))) : '—'
   const chips = []
 
-  if (signals.latestIsMax) chips.push({ tone: 'hot', icon: '▲', title: 'Record high', sub: `Latest is the highest of all ${signals.n} readings here` })
+  if (signals.constant) chips.push({ tone: 'cool', icon: '＝', title: 'Perfectly constant', sub: `All ${signals.n} readings here are identical` })
+  else if (signals.latestIsMax) chips.push({ tone: 'hot', icon: '▲', title: 'Record high', sub: `Latest is the highest of all ${signals.n} readings here` })
   else if (signals.latestIsMin) chips.push({ tone: 'cool', icon: '▼', title: 'Record low', sub: `Latest is the lowest of all ${signals.n} readings here` })
   else if (signals.latestPct != null && (signals.latestPct >= 80 || signals.latestPct <= 20))
     chips.push({ tone: 'neutral', icon: '◧', title: `${signals.latestPct}th percentile`, sub: `Latest sits above ${signals.latestPct}% of past readings here` })
@@ -1039,7 +1145,7 @@ function SignalsStrip({ signals, unit }) {
     })
   }
 
-  if (signals.cv != null && signals.cv < 0.1)
+  if (!signals.constant && signals.cv != null && signals.cv < 0.1)
     chips.push({ tone: 'cool', icon: '≈', title: 'Very stable', sub: `Readings barely move (variation ${(signals.cv * 100).toFixed(0)}%)` })
   else if (signals.cv != null && signals.cv > 0.5)
     chips.push({ tone: 'hot', icon: '↕', title: 'Highly variable', sub: `Readings swing a lot (variation ${(signals.cv * 100).toFixed(0)}%)` })
