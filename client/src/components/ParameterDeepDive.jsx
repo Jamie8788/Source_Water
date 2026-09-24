@@ -16,7 +16,7 @@ const AI_TTL = 24 * 60 * 60 * 1000
 const aiMemCache = new Map()
 // Bump when the explainer PROMPT changes so users stop getting the old
 // (blander) cached text and regenerate against the new insight-led prompt.
-const AI_PROMPT_VER = 'v3-structured'
+const AI_PROMPT_VER = 'v4-interpret'
 function aiCacheKey(siteId, paramKey, series) {
   const last = series.length ? series[series.length - 1].value : ''
   return `ddai:${AI_PROMPT_VER}:${siteId || 'site'}:${paramKey}:${series.length}:${last}`
@@ -324,24 +324,23 @@ export default function ParameterDeepDive({ paramKey, observations, onClose, sit
       : `Water Rangers does not publish a parameter entry that matches "${paramLabel}". Treat this analysis as trend-only and explicitly tell the volunteer that no Water Rangers reference range exists for this parameter.`
 
     const sys = [
-      `You are a freshwater scientist giving a sharp, specific read on ONE parameter at ONE monitoring site for a community-science audience.`,
-      `Your value is insight they can't get from a chart: what is genuinely notable about THIS site's numbers. Lead with the single most interesting, non-obvious finding — a trend, a record reading, a seasonal pattern, unusual stability or swinginess, or a recent shift — using the pre-computed SITE SIGNALS supplied below. Do not open with a textbook definition.`,
-      `Every quantitative claim you make about the site MUST come from the stats, signals, or readings given below — never estimate or round into new numbers, and never describe a pattern the signals don't support.`,
-      `Citation rule (HARD): the ONLY external reference you may cite for "safe ranges" or "what counts as elevated" is Water Rangers (data.waterrangers.com/supported-parameters). The full WR reference for this parameter is supplied below.`,
-      `If Water Rangers does not publish a numeric range for this parameter, say so plainly once, then talk purely about how this site behaves over time.`,
-      `NEVER invent a threshold. NEVER cite CCME, Health Canada, EPA, WHO or other bodies — even if you know their numbers. Stay strictly inside what Water Rangers publishes.`,
-      `NEVER mention drinking water, potability, or human consumption.`,
-      `Be concrete about aquatic life (fish, insects, plants) only where WR's "Why important"/"What does it mean" content supports it; otherwise stay descriptive.`,
-      `Honesty about data volume: with only a handful of readings, say the pattern is preliminary rather than dressing it up. Never imply more certainty than the sample size allows.`,
+      `You are a freshwater scientist giving a genuinely useful, specific read on ONE parameter at ONE monitoring site for community scientists. Teach what is happening — never hedge into a useless "not enough data to say anything".`,
+      `Lead with the single most notable, non-obvious thing about THIS site, using the SITE SIGNALS and the reading in context. Even with one reading, interpret THAT value: is it typical, high, low, or physically implausible for this parameter, and what does that level mean for fish, insects and plants.`,
+      `You MAY explain the science: what the parameter is, the range normally seen in healthy surface water, and what this site's value implies for aquatic life. You MAY reference the CCME aquatic-life guideline bands shown on this same page (that IS the coloured safety scale) and the Water Rangers reference below. Frame everything as ecological/aquatic-life science — a description of conditions, never a safety verdict or a pass/fail.`,
+      `IMPLAUSIBLE-VALUE CATCH (high value-add): if a reading is far outside what is physically possible for this parameter in freshwater — e.g. dissolved oxygen well above ~15 mg/L, pH outside 0–14, a negative concentration — say so plainly and name the likely cause (often a data-entry slip or a units mix-up, such as a percent-saturation value logged as mg/L). Flagging this is exactly the insight the user wants.`,
+      `Every number you state about the SITE must come from the stats, signals, or readings below — never invent site readings or round them into new figures. General scientific context (typical healthy ranges) is fine and encouraged, clearly framed as general, not as this site's data.`,
+      `If Water Rangers publishes no numeric band for this parameter, say so once — but still give a real scientific interpretation; do not stop at "no range exists".`,
+      `Do NOT discuss drinking water, potability, wells, or human consumption. This is a surface-water / aquatic-life platform only.`,
+      `Honesty about data volume: with few readings, call a pattern preliminary rather than overselling it — but still interpret the value itself.`,
       `Plain language, no emojis, no bullet lists. Bold key numbers with **like this**.`,
       `OUTPUT FORMAT — follow it EXACTLY so the app can lay it out as titled cards:`,
-      `HEADLINE: <one vivid sentence naming the single most notable thing about THIS site — a record, trend, seasonal pattern, unusual steadiness, or the latest value in context>`,
+      `HEADLINE: <one vivid, specific sentence — the record/trend/seasonal pattern, OR the latest value interpreted in context, OR an implausible-reading flag>`,
       `### What this is`,
-      `<1-2 plain sentences: what the parameter measures and why it matters to aquatic life, using WR content where given>`,
+      `<1-2 plain sentences: what the parameter measures, and the range normally seen in healthy freshwater, so the reader can judge the number>`,
       `### What's happening here`,
-      `<2-4 sentences on THIS site's actual numbers and signals — the trend, typical range, records, seasonality, anomalies. Compare to the WR band only if one exists.>`,
+      `<2-4 sentences interpreting THIS site's actual numbers: where the value sits versus typical/expected and versus the CCME band shown, the trend/records/seasonality if any, and any implausible-value flag. Be concrete — this is the section that must not feel empty.>`,
       `### What to watch next`,
-      `<1-2 sentences: what a volunteer should look for, or a likely driver (season, watershed, runoff, cadence)>`,
+      `<1-2 sentences: what a volunteer should record or look for, or a likely driver (season, watershed, runoff, sampling cadence, a suspected data error to re-check)>`,
       `Emit the HEADLINE line and all three ### headings verbatim. No extra headings, no preamble before HEADLINE.`,
     ].join('\n')
 
@@ -380,24 +379,40 @@ export default function ParameterDeepDive({ paramKey, observations, onClose, sit
     // 2-reading site gets an honest one-line-per-section note and a rich site
     // gets a real read — but both stay structured and scannable.
     const depth = stats.n <= 2
-      ? `DATA IS SPARSE (only ${stats.n} reading${stats.n === 1 ? '' : 's'}). Keep every section to ONE cautious sentence. The HEADLINE should describe the single latest value in context, NOT a trend. In "What's happening here", say plainly it is too early to read a trend.`
+      ? `DATA IS SPARSE (only ${stats.n} reading${stats.n === 1 ? '' : 's'}), so no trend is possible — note that in one short phrase, then MOVE ON. Spend "What's happening here" interpreting the single value itself: where it sits versus the typical/expected range and the CCME band shown, whether it is high, low, or physically implausible, and what that level means for aquatic life. ~110 words total. Do NOT let any section feel empty.`
       : stats.n <= 5
-        ? `DATA IS LIMITED (${stats.n} readings). Keep it tight — about 90 words total. Lead the HEADLINE with the strongest signal but note the pattern is still preliminary.`
-        : `DATA IS RICH (${stats.n} readings). Give a genuine read — about 150 words total. The HEADLINE must name the single most striking site-specific finding drawn from SITE SIGNALS.`
+        ? `DATA IS LIMITED (${stats.n} readings). About 110 words total. Lead the HEADLINE with the strongest signal but note the pattern is still preliminary, and still interpret where the values sit versus typical/expected.`
+        : `DATA IS RICH (${stats.n} readings). Give a genuine read — about 160 words total. The HEADLINE must name the single most striking site-specific finding drawn from SITE SIGNALS, and interpret it against typical/expected conditions.`
+
+    // Feed the CCME aquatic-life band the latest reading falls into (already
+    // shown on this page) and an implausibility flag, so the AI can interpret
+    // instead of only reciting "not enough data".
+    const bandLine = (meta && cls)
+      ? `On this page's CCME aquatic-life colour scale, the latest reading (${latest?.value}${unitLabel}) falls in the "${cls.label}" band.`
+      : ''
+    let plausLine = ''
+    if (meta && Number.isFinite(latest?.value)) {
+      const realMax = Math.max(...meta.ranges.map(r => r.max).filter(m => m < 9999))
+      const realMin = Math.min(...meta.ranges.map(r => r.min))
+      if (Number.isFinite(realMax) && latest.value > realMax * 2)
+        plausLine = `PLAUSIBILITY: ${latest.value}${unitLabel} is more than double the top of the expected scale (${realMax}${unitLabel}) for this parameter — treat it as a likely data-entry or units error and explain the plausible interpretation.`
+      else if (Number.isFinite(realMin) && latest.value < realMin - Math.abs(realMin))
+        plausLine = `PLAUSIBILITY: ${latest.value}${unitLabel} sits below the expected floor (${realMin}${unitLabel}) for this parameter — flag it as a possible data error.`
+    }
 
     const userMsg = `Parameter: ${paramLabel} (${unitLabel || 'no unit'})
 Site: ${siteName || 'this monitoring site'}${siteId ? ` (id ${siteId})` : ''}
 Site stats: ${statsLine}
 SITE SIGNALS (pre-computed from the real readings — use these to lead; do not recompute): ${signalsLine}
-
-WATER RANGERS REFERENCE (the only external source you are allowed to cite):
+${bandLine ? bandLine + '\n' : ''}${plausLine ? plausLine + '\n' : ''}
+WATER RANGERS REFERENCE (their published band, where one exists):
 ${wrBlock}
 
 Recent readings (oldest→newest, last 12): ${JSON.stringify(recent)}
 Anomalies flagged: ${anomalies.length} reading(s)${anomalies.length ? ' — ' + anomalies.slice(0, 5).map(a => `${a.value}${unitLabel} on ${a.at ? new Date(a.at).toISOString().slice(0,10) : '?'}`).join(', ') : ''}
 
 ${depth}
-Ground every number in the stats/signals/readings above. Do not invent readings, thresholds, or bodies other than Water Rangers.`
+Ground every SITE number in the stats/signals/readings above; general typical-range context is fine but label it as general. No drinking-water or potability content.`
 
     api.post('/ai/public-chat', {
       messages: [
@@ -464,6 +479,15 @@ Ground every number in the stats/signals/readings above. Do not invent readings,
   // terms with no jargon. Falls back gracefully when no reading exists.
   const plainEnglishSummary = (() => {
     if (!latest) return null
+    // Catch physically implausible readings BEFORE the band logic — otherwise a
+    // garbage value like 98 mg/L dissolved oxygen classifies into the top
+    // "safe" band and we'd falsely reassure. (DO in freshwater tops out ~15 mg/L.)
+    if (meta) {
+      const realMax = Math.max(...meta.ranges.map(r => r.max).filter(m => m < 9999))
+      if (Number.isFinite(realMax) && latest.value > realMax * 2) {
+        return `The most recent reading is ${latest.value}${displayUnit} — far above the range this parameter reaches in real surface water. A value this extreme is almost always a data-entry or units slip (for example a percent-saturation value logged as ${meta.unit?.trim() || 'mg/L'}), so treat it as a number to double-check rather than a real condition. See the AI explainer below.`
+      }
+    }
     if (!meta || !cls) {
       return `The most recent reading is ${latest.value}${displayUnit}. We don't have an aquatic-life threshold for this parameter yet, so on its own that number doesn't tell you "good" or "bad" — the AI summary below will compare it to the site's own history.`
     }
@@ -1279,14 +1303,20 @@ function RangeBar({ meta, pointerValue }) {
   // boundary instead, with headroom, and let the open band run to the
   // right edge. Extend the scale if the reading itself sits beyond it.
   const realMaxes = ranges.map(r => r.max).filter(m => m < SENTINEL)
-  let visualMax = (realMaxes.length ? Math.max(...realMaxes) : ranges[ranges.length - 1].min || 1) * 1.15
-  if (Number.isFinite(pointerValue) && pointerValue > visualMax) visualMax = pointerValue * 1.12
+  const visualMax = (realMaxes.length ? Math.max(...realMaxes) : ranges[ranges.length - 1].min || 1) * 1.15
   const span = Math.max(1e-6, visualMax - minEdge)
   const xOf = (v) => {
     const m = v >= SENTINEL ? visualMax : v
     return Math.max(0, Math.min(W, ((m - minEdge) / span) * W))
   }
-  const px = Number.isFinite(pointerValue) ? xOf(pointerValue) : null
+  // Do NOT stretch the axis to swallow an out-of-range reading — that squashes
+  // every real band into a sliver and leaves the arrow floating in empty space
+  // (the "98 mg/L off in the corner" bug). Instead keep the meaningful scale and
+  // pin an off-scale reading to the edge with a clear cue.
+  const offHigh = Number.isFinite(pointerValue) && pointerValue > visualMax
+  const offLow = Number.isFinite(pointerValue) && pointerValue < minEdge
+  const offScale = offHigh || offLow
+  const px = Number.isFinite(pointerValue) ? (offHigh ? W : offLow ? 0 : xOf(pointerValue)) : null
 
   // Boundary numbers along the bottom — only drawn when they won't collide
   // with the previous one (narrow bands would otherwise overprint).
@@ -1327,15 +1357,20 @@ function RangeBar({ meta, pointerValue }) {
 
         {px != null && (
           <g>
-            <line x1={px} x2={px} y1={top - 9} y2={top + barH + 6} stroke="#0f172a" strokeWidth="2" />
-            <polygon points={`${px - 5},${top - 11} ${px + 5},${top - 11} ${px},${top - 3}`} fill="#0f172a" />
+            <line x1={px} x2={px} y1={top - 9} y2={top + barH + 6} stroke={offScale ? '#b91c1c' : '#0f172a'} strokeWidth="2" />
+            <polygon points={`${px - 5},${top - 11} ${px + 5},${top - 11} ${px},${top - 3}`} fill={offScale ? '#b91c1c' : '#0f172a'} />
             <text x={Math.max(24, Math.min(W - 24, px))} y={top + barH + 30}
-              fontSize="11" fontWeight="700" fill="#0f172a" textAnchor="middle">
-              {pointerValue}{meta.unit}
+              fontSize="11" fontWeight="700" fill={offScale ? '#b91c1c' : '#0f172a'} textAnchor="middle">
+              {offHigh ? '▶ ' : offLow ? '◀ ' : ''}{pointerValue}{meta.unit}
             </text>
           </g>
         )}
       </svg>
+      {offScale && (
+        <div style={{ marginTop: 4, fontSize: 11.5, lineHeight: 1.5, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '7px 10px' }}>
+          <strong>{pointerValue}{meta.unit}</strong> is {offHigh ? 'above' : 'below'} the range this scale covers ({minEdge}–{realMaxes.length ? Math.max(...realMaxes) : '?'}{meta.unit}), so the arrow is pinned to the edge. A value this far outside the expected range is often a data-entry or units slip — the AI explainer below takes a closer look.
+        </div>
+      )}
     </div>
   )
 }
