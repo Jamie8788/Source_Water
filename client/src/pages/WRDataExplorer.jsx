@@ -26,10 +26,17 @@ function FitBounds({ bounds }) {
   }, [bounds, map])
   return null
 }
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RTooltip } from 'recharts'
+import { ResponsiveContainer, AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, ReferenceLine, Tooltip as RTooltip } from 'recharts'
 import { getDatasets, getAllDatasets, getOrganizations, getAllOrganizations, getAllLocations, getLocationObservations, getDatasetObservations, getDatasetLocations, QA_STATUS } from '../api/waterRangers'
 import api from '../utils/api'
 import { getPlainEnglish } from '../utils/plainEnglishParams'
+import MarkdownLite from '../components/MarkdownLite'
+
+// In-memory cache for first-turn dataset AI answers, so re-clicking a curated
+// question (or asking the same opener on a dataset) is instant instead of a
+// multi-second model round-trip. Keyed by dataset + question; only used for the
+// opening question of a thread so multi-turn context is never served stale.
+const dsAiCache = new Map()
 
 // Plain English + safety for readings
 const PARAM_INFO = {
@@ -236,6 +243,7 @@ export default function WRDataExplorer() {
   // When the user clicks "View observations" on a map pin, jump to the
   // Observations sub-tab pre-filtered to that site.
   const [obsSiteFilter, setObsSiteFilter] = useState(null)
+  const [obsConcernOnly, setObsConcernOnly] = useState(false) // Observations tab: show only visits with a concern reading
   const [aiObs, setAiObs] = useState([])
   const [aiObsLoading, setAiObsLoading] = useState(false)
   const [aiObsComplete, setAiObsComplete] = useState(false) // last page returned < 100
@@ -555,6 +563,14 @@ export default function WRDataExplorer() {
     const history = [...aiMessages, userMsg]
     setAiMessages(history)
     setAiThinking(true)
+    // Instant replay for the opening question of a thread (e.g. re-clicking a
+    // curated chip): serve the cached answer without a model call.
+    const cacheKey = `${selectedDs.id}::${q.toLowerCase()}`
+    if (history.length === 1 && dsAiCache.has(cacheKey)) {
+      setAiMessages([...history, { role: 'assistant', content: dsAiCache.get(cacheKey) }])
+      setAiThinking(false)
+      return
+    }
     // Build the per-location breakdown the AI uses to answer site-specific
     // questions. Sites with 0 loaded obs are skipped from the list (kept in
     // the count). Cap at 800 entries to keep token use sane on giant
@@ -623,17 +639,29 @@ export default function WRDataExplorer() {
     // rows, so it must not bypass the cap. Site-matched rows are listed
     // first, so a named site (which has few rows) always lands.
     const dateMatch = (e) => qDates.length > 0 && qDates.some(h => e.date.startsWith(h))
-    const siteMatched = logEntries.filter(e => qSiteIds.has(e.locId))
-    const dateMatched = logEntries.filter(e => !qSiteIds.has(e.locId) && dateMatch(e))
-    const filler      = logEntries.filter(e => !qSiteIds.has(e.locId) && !dateMatch(e))
+    // Only ship the (large) per-row observation log when the question is
+    // actually row-level — it names a site or date, or asks who/when/which-note.
+    // Aggregate questions ("summarise", "which params are unsafe", "trends",
+    // "QA status") are answered from the compact per-parameter + per-location
+    // blocks alone, so we drop the log entirely. That cuts the prompt from
+    // ~13KB to ~2KB for the common case and is the single biggest speed-up.
+    const rowLevel = qSiteIds.size > 0 || qDates.length > 0 ||
+      /\b(who|whom|contributor|by whom|note|notes|comment|measured|which site|what site|on 20\d\d)\b/.test(qLower)
     let logText = '', logIncluded = 0
-    for (const e of [...siteMatched, ...dateMatched, ...filler]) {
-      if (logText.length + e.text.length > 13000) break
-      logText += e.text + '\n'; logIncluded++
+    if (rowLevel) {
+      const siteMatched = logEntries.filter(e => qSiteIds.has(e.locId))
+      const dateMatched = logEntries.filter(e => !qSiteIds.has(e.locId) && dateMatch(e))
+      const filler      = logEntries.filter(e => !qSiteIds.has(e.locId) && !dateMatch(e))
+      for (const e of [...siteMatched, ...dateMatched, ...filler]) {
+        if (logText.length + e.text.length > 11000) break
+        logText += e.text + '\n'; logIncluded++
+      }
     }
-    const logNote = logIncluded < logEntries.length
-      ? `\n(${logIncluded} of ${logEntries.length} observations shown: rows matching the question's site/date come first, then the most-recent others. If asked about a row not shown here, say it isn't in this view rather than guessing.)`
-      : ''
+    const logNote = !rowLevel
+      ? '\n(Row-level log omitted for speed on this question. Name a specific site or date to pull the exact rows.)'
+      : logIncluded < logEntries.length
+        ? `\n(${logIncluded} of ${logEntries.length} observations shown: rows matching the question's site/date come first, then the most-recent others. If asked about a row not shown here, say it isn't in this view rather than guessing.)`
+        : ''
 
     const context = `Dataset: "${selectedDs.name}"
 Description: ${selectedDs.description || '(none)'}
@@ -667,13 +695,16 @@ Rules:
 - If "Data completeness: partial", qualify totals with "from the X observations loaded".
 - Cite real values from the context; never round wildly or invent.
 - Keep answers tight (max ~5 short paragraphs or bullets).
+- FORMATTING: your reply is rendered as Markdown, so use it well. Lead with a one-line **bold takeaway**. Use a compact Markdown table when comparing several parameters or sites (keep it to 3-4 columns so it fits), short bullet lists otherwise, and **bold** for key numbers. No headings larger than "###". Do not wrap the whole answer in a code block.
 
 ${context}` },
           ...history,
         ],
         max_tokens: 600,
       })
-      setAiMessages([...history, { role: 'assistant', content: data.reply || 'No response.' }])
+      const reply = data.reply || 'No response.'
+      if (history.length === 1 && reply && reply !== 'No response.') dsAiCache.set(cacheKey, reply)
+      setAiMessages([...history, { role: 'assistant', content: reply }])
     } catch (e) {
       setAiMessages([...history, { role: 'assistant', content: 'AI is unavailable right now. Try again in a moment.' }])
     } finally {
@@ -1127,12 +1158,13 @@ ${context}` },
                       padding: '8px 10px', borderRadius: 8, marginBottom: 5, fontSize: 11, lineHeight: 1.55,
                       background: m.role === 'user' ? 'rgba(99,102,241,.10)' : 'var(--card-bg)',
                       border: m.role === 'user' ? '1px solid rgba(99,102,241,.20)' : '1px solid var(--border)',
-                      color: 'var(--text)', whiteSpace: 'pre-wrap',
+                      color: 'var(--text)', whiteSpace: m.role === 'user' ? 'pre-wrap' : 'normal',
+                      overflowX: 'auto',
                     }}>
                       <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 3 }}>
                         {m.role === 'user' ? 'You' : 'AI'}
                       </div>
-                      {m.content}
+                      {m.role === 'user' ? m.content : <MarkdownLite text={m.content} />}
                     </div>
                   ))}
                   {aiThinking && (
@@ -1378,12 +1410,24 @@ ${context}` },
                 <>
                   <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Sampling visits per month — how actively this dataset is monitored ({timelineData.length} month{timelineData.length !== 1 ? 's' : ''})</div>
                   <ResponsiveContainer width="100%" height={280}>
-                    <LineChart data={timelineData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+                    <AreaChart data={timelineData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+                      <defs>
+                        <linearGradient id="tlFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#6366f1" stopOpacity={0.35}/>
+                          <stop offset="100%" stopColor="#6366f1" stopOpacity={0.02}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false}/>
                       <XAxis dataKey="month" tick={{ fontSize: 10 }} stroke="var(--text-muted)"/>
                       <YAxis tick={{ fontSize: 10 }} stroke="var(--text-muted)" allowDecimals={false}/>
-                      <RTooltip contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border)', fontSize: 11, borderRadius: 6 }}/>
-                      <Line type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2.5} dot={{ r: 3, fill: '#a78bfa' }} activeDot={{ r: 5 }}/>
-                    </LineChart>
+                      <RTooltip contentStyle={{ background: 'var(--card-bg)', border: '1px solid var(--border)', fontSize: 11, borderRadius: 6 }}
+                        labelFormatter={(l) => `${l}`} formatter={(v) => [`${v} visit${v === 1 ? '' : 's'}`, 'Sampling']}/>
+                      {timelineSummary && timelineSummary.months > 0 && (
+                        <ReferenceLine y={timelineSummary.total / timelineSummary.months} stroke="#94a3b8" strokeDasharray="4 4"
+                          label={{ value: `avg ${(timelineSummary.total / timelineSummary.months).toFixed(1)}/mo`, fontSize: 9, fill: '#94a3b8', position: 'insideTopRight' }}/>
+                      )}
+                      <Area type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2.5} fill="url(#tlFill)" dot={{ r: 2.5, fill: '#a78bfa' }} activeDot={{ r: 5 }}/>
+                    </AreaChart>
                   </ResponsiveContainer>
                   {timelineSummary && (
                     <div style={{ marginTop: 12, padding: '12px 14px', borderRadius: 10, background: 'rgba(99,102,241,.06)', border: '1px solid rgba(99,102,241,.18)' }}>
@@ -1418,7 +1462,29 @@ ${context}` },
           {/* ─── Observations sub-tab ─── */}
           {dsSubTab === 'observations' && (() => {
             const filterLoc = obsSiteFilter ? dsLocs.find(l => l.id === obsSiteFilter) : null
-            const shownObs = obsSiteFilter ? aiObs.filter(o => o.location_id === obsSiteFilter) : aiObs
+            const baseObs = obsSiteFilter ? aiObs.filter(o => o.location_id === obsSiteFilter) : aiObs
+            // Per-visit safety rollup (real values only, no AI) — powers the
+            // summary strip and the "concerns only" filter.
+            const visitConcern = (o) => (o.readings || []).some(r => r.value != null && r.unit && r.unit !== 'nil' && getSafetyColor(r.parameter, r.value) === '#ef4444')
+            const shownObs = obsConcernOnly ? baseObs.filter(visitConcern) : baseObs
+            let sSafe = 0, sWatch = 0, sConcern = 0, sReadings = 0
+            const siteSet = new Set()
+            let dMin = null, dMax = null
+            for (const o of baseObs) {
+              if (o.location_id) siteSet.add(o.location_id)
+              const d = (o.observed_at || '').slice(0, 10)
+              if (d) { if (!dMin || d < dMin) dMin = d; if (!dMax || d > dMax) dMax = d }
+              for (const r of (o.readings || [])) {
+                if (r.value == null || !r.unit || r.unit === 'nil') continue
+                sReadings++
+                const c = getSafetyColor(r.parameter, r.value)
+                if (c === '#ef4444') sConcern++
+                else if (c === '#f59e0b') sWatch++
+                else if (c === '#10b981') sSafe++
+              }
+            }
+            const concernVisits = baseObs.filter(visitConcern).length
+            const fmtD = (s) => s ? new Date(s).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '?'
             return (
             <div>
               {/* Site filter chip — set when the user drills in from a map pin. */}
@@ -1434,17 +1500,49 @@ ${context}` },
                   </button>
                 </div>
               )}
-              {aiObsLoading ? <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}><RefreshCw size={14} className="animate-spin"/> Loading…</div> : shownObs.length === 0 ? (
+              {aiObsLoading ? <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}><RefreshCw size={14} className="animate-spin"/> Loading…</div> : baseObs.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>No observations{filterLoc ? ' at this site' : ''}.</div>
               ) : (
                 <>
-                  {/* Legend — makes the reading colours mean something. */}
+                  {/* At-a-glance rollup across every loaded visit — real counts,
+                      no AI. Gives members the "so what" before the card wall. */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 8 }}>
+                    {[
+                      { k: 'Sampling visits', v: baseObs.length.toLocaleString(), c: '#6366f1' },
+                      { k: 'Readings', v: sReadings.toLocaleString(), c: '#a78bfa' },
+                      { k: 'Sites', v: siteSet.size.toLocaleString(), c: '#14b8a6' },
+                      { k: 'Safe readings', v: sReadings ? `${Math.round((sSafe / sReadings) * 100)}%` : '—', c: '#10b981' },
+                      { k: 'Concern readings', v: sConcern.toLocaleString(), c: sConcern ? '#ef4444' : '#94a3b8' },
+                    ].map(s => (
+                      <div key={s.k} style={{ padding: '8px 10px', borderRadius: 9, background: 'var(--card-bg)', border: '1px solid var(--border)', borderLeft: `3px solid ${s.c}` }}>
+                        <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)' }}>{s.k}</div>
+                        <div style={{ fontSize: 17, fontWeight: 800, color: s.c }}>{s.v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {(dMin || dMax) && (
+                    <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 8 }}>
+                      📅 {fmtD(dMin)} → {fmtD(dMax)}
+                    </div>
+                  )}
+                  {/* Legend + concern filter toggle. */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 8, padding: '7px 10px', borderRadius: 8, background: 'rgba(99,102,241,.05)', border: '1px solid rgba(99,102,241,.14)' }}>
                     <span>Each card is one sampling visit. Every reading is colour-coded and shows the instrument used:</span>
                     <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 8, background: '#10b981', verticalAlign: 0, marginRight: 4 }}/>safe</span>
                     <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 8, background: '#f59e0b', verticalAlign: 0, marginRight: 4 }}/>watch</span>
                     <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 8, background: '#ef4444', verticalAlign: 0, marginRight: 4 }}/>concern</span>
+                    <button onClick={() => setObsConcernOnly(v => !v)}
+                      style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, padding: '4px 9px', borderRadius: 999, cursor: 'pointer',
+                        background: obsConcernOnly ? '#ef4444' : 'rgba(239,68,68,.08)', color: obsConcernOnly ? '#fff' : '#ef4444', border: '1px solid rgba(239,68,68,.3)' }}>
+                      <AlertTriangle size={11}/> {obsConcernOnly ? 'Showing concerns' : `Concerns only (${concernVisits})`}
+                    </button>
                   </div>
+                  {shownObs.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)', fontSize: 11 }}>
+                      No visits with a concern-level reading{filterLoc ? ' at this site' : ''}. That's good news.{' '}
+                      <button onClick={() => setObsConcernOnly(false)} style={{ color: '#6366f1', background: 'transparent', border: 0, cursor: 'pointer', fontWeight: 700 }}>Show all visits</button>
+                    </div>
+                  ) : (
                   <div style={{ maxHeight: 600, overflowY: 'auto' }}>
                   {shownObs.slice(0, 50).map((o, i) => {
                     const loc = dsLocs.find(l => l.id === o.location_id)
@@ -1508,6 +1606,7 @@ ${context}` },
                   })}
                   {shownObs.length > 50 && <div style={{ textAlign: 'center', padding: 10, color: 'var(--text-muted)', fontSize: 10 }}>Showing 50 of {shownObs.length} — use the AI tab to analyse them all.</div>}
                   </div>
+                  )}
                 </>
               )}
             </div>
