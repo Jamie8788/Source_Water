@@ -145,6 +145,24 @@ function prettyVal(v) {
 // that WR's published safety bands flag as watch/concern (via getSafetyColor),
 // and otherwise says everything measured looked normal. Numbers shown are the
 // real measured values.
+// Tiny inline sparkline of a parameter's readings over time. Pure SVG, no deps.
+// Neutral colour on purpose — it shows the SHAPE of the history, not a verdict.
+function Sparkline({ data, color = '#a78bfa', width = 104, height = 26 }) {
+  if (!data || data.length < 2) return <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>—</span>
+  const min = Math.min(...data), max = Math.max(...data)
+  const span = (max - min) || 1
+  const stepX = width / (data.length - 1)
+  const yOf = (v) => height - 3 - ((v - min) / span) * (height - 6)
+  const pts = data.map((v, i) => `${(i * stepX).toFixed(1)},${yOf(v).toFixed(1)}`).join(' ')
+  const lastX = (data.length - 1) * stepX
+  return (
+    <svg width={width} height={height} style={{ display: 'block' }} aria-hidden="true">
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={lastX} cy={yOf(data[data.length - 1])} r="2.2" fill={color} />
+    </svg>
+  )
+}
+
 function describeVisit(quantR) {
   const flagged = []
   for (const r of quantR) {
@@ -427,21 +445,40 @@ export default function WRDataExplorer() {
   const paramRows = useMemo(() => {
     if (!aiObs.length) return []
     const byParam = {}
-    aiObs.forEach(o => (o.readings || []).forEach(r => {
-      const v = parseFloat(r.value); if (!isFinite(v) || !r.parameter) return
-      const k = r.parameter
-      if (!byParam[k]) byParam[k] = { values: [], unit: r.unit || '', safeCnt: 0, watchCnt: 0, concernCnt: 0 }
-      byParam[k].values.push(v)
-      const color = getSafetyColor(r.parameter, r.value)
-      if (color === '#10b981') byParam[k].safeCnt++
-      else if (color === '#f59e0b') byParam[k].watchCnt++
-      else if (color === '#ef4444') byParam[k].concernCnt++
-    }))
+    aiObs.forEach(o => {
+      const t = o.observed_at ? new Date(o.observed_at).getTime() : 0
+      ;(o.readings || []).forEach(r => {
+        const v = parseFloat(r.value); if (!isFinite(v) || !r.parameter) return
+        const k = r.parameter
+        if (!byParam[k]) byParam[k] = { pts: [], unit: r.unit || '', safeCnt: 0, watchCnt: 0, concernCnt: 0 }
+        byParam[k].pts.push({ v, t })
+        const color = getSafetyColor(r.parameter, r.value)
+        if (color === '#10b981') byParam[k].safeCnt++
+        else if (color === '#f59e0b') byParam[k].watchCnt++
+        else if (color === '#ef4444') byParam[k].concernCnt++
+      })
+    })
     return Object.entries(byParam).map(([param, d]) => {
-      const sorted = [...d.values].sort((a, b) => a - b)
+      const values = d.pts.map(p => p.v)
+      const sorted = [...values].sort((a, b) => a - b)
       const info = getParamInfo(param)
+      // Time-ordered series for the sparkline, downsampled so a 900-reading
+      // parameter still draws a legible ~48-point line.
+      const ordered = [...d.pts].sort((a, b) => a.t - b.t).map(p => p.v)
+      const step = Math.max(1, Math.ceil(ordered.length / 48))
+      const series = ordered.filter((_, i) => i % step === 0)
+      // Trend: recent third vs early third (only when there's enough history).
+      let trend = null
+      if (ordered.length >= 6) {
+        const k = Math.max(2, Math.floor(ordered.length / 3))
+        const early = ordered.slice(0, k), recent = ordered.slice(-k)
+        const em = early.reduce((a, b) => a + b, 0) / early.length
+        const rm = recent.reduce((a, b) => a + b, 0) / recent.length
+        const pct = em !== 0 ? ((rm - em) / Math.abs(em)) * 100 : 0
+        trend = { dir: pct > 5 ? 'up' : pct < -5 ? 'down' : 'flat', pct }
+      }
       return {
-        param, unit: d.unit, n: d.values.length, info,
+        param, unit: d.unit, n: values.length, info, series, trend,
         min: +sorted[0].toFixed(3),
         median: +sorted[Math.floor(sorted.length/2)].toFixed(3),
         max: +sorted[sorted.length-1].toFixed(3),
@@ -1213,7 +1250,7 @@ ${context}` },
               ) : (
                 <>
                 <div style={{ fontSize: 12, lineHeight: 1.55, color: 'var(--text-muted)', marginBottom: 10, padding: '10px 12px', borderRadius: 8, background: 'rgba(99,102,241,.05)', border: '1px solid rgba(99,102,241,.14)' }}>
-                  Every numeric reading in this dataset, grouped by parameter. <strong style={{ color: 'var(--text)' }}>Median</strong> is the typical value; the bar shows how many readings landed in the <span style={{ color: '#10b981', fontWeight: 700 }}>safe</span>, <span style={{ color: '#f59e0b', fontWeight: 700 }}>watch</span> and <span style={{ color: '#ef4444', fontWeight: 700 }}>concern</span> bands. Safe ranges come from Water Rangers — “n/a” means they don’t publish one for that parameter.
+                  Every numeric reading in this dataset, grouped by parameter. <strong style={{ color: 'var(--text)' }}>Median</strong> is the typical value; <strong style={{ color: 'var(--text)' }}>Trend</strong> compares the most recent third of readings with the earliest third; <strong style={{ color: 'var(--text)' }}>History</strong> sparklines the readings over time; and the bar shows how many landed in the <span style={{ color: '#10b981', fontWeight: 700 }}>safe</span>, <span style={{ color: '#f59e0b', fontWeight: 700 }}>watch</span> and <span style={{ color: '#ef4444', fontWeight: 700 }}>concern</span> bands. Safe ranges come from Water Rangers — “n/a” means they don’t publish one for that parameter.
                 </div>
                 <div style={{ overflowX: 'auto', background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 10 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -1224,6 +1261,8 @@ ${context}` },
                         <th style={{ textAlign: 'right', padding: '8px 10px', color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Min</th>
                         <th style={{ textAlign: 'right', padding: '8px 10px', color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Median</th>
                         <th style={{ textAlign: 'right', padding: '8px 10px', color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Max</th>
+                        <th style={{ textAlign: 'left',  padding: '8px 10px', color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Trend</th>
+                        <th style={{ textAlign: 'left',  padding: '8px 10px', color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>History</th>
                         <th style={{ textAlign: 'left',  padding: '8px 10px', color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Safe range</th>
                         <th style={{ textAlign: 'left',  padding: '8px 10px', color: 'var(--text-muted)', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Safety</th>
                       </tr>
@@ -1243,6 +1282,16 @@ ${context}` },
                             <td style={{ padding: '8px 10px', color: 'var(--text)', textAlign: 'right', verticalAlign: 'top' }}>{r.min}</td>
                             <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, verticalAlign: 'top', color: getSafetyColor(r.param, r.median) || 'var(--text)' }}>{r.median}</td>
                             <td style={{ padding: '8px 10px', color: 'var(--text)', textAlign: 'right', verticalAlign: 'top' }}>{r.max} <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>{r.unit ? r.unit.replace(/_/g, '/') : ''}</span></td>
+                            <td style={{ padding: '8px 10px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                              {r.trend ? (
+                                <span title="Average of the most recent third of readings vs the earliest third" style={{ color: '#6366f1', fontWeight: 700, fontSize: 10.5 }}>
+                                  {r.trend.dir === 'up' ? '↗' : r.trend.dir === 'down' ? '↘' : '→'} {r.trend.dir === 'flat' ? 'flat' : `${r.trend.pct > 0 ? '+' : ''}${r.trend.pct.toFixed(0)}%`}
+                                </span>
+                              ) : <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>—</span>}
+                            </td>
+                            <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
+                              <Sparkline data={r.series} />
+                            </td>
                             <td style={{ padding: '8px 10px', color: 'var(--text-muted)', verticalAlign: 'top' }}>{r.info.safe}</td>
                             <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
                               {total > 0 ? (
