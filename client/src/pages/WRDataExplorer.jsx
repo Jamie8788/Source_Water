@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Database, Eye, RefreshCw, AlertTriangle,
   ExternalLink, Camera, Building2, Download, MapPin, Search,
-  Sparkles, Send, X, ArrowLeft, BarChart3, Map as MapIcon, Calendar, TrendingUp, Users, FlaskConical,
+  Sparkles, Send, X, ArrowLeft, BarChart3, Map as MapIcon, Calendar, TrendingUp, Users, FlaskConical, Activity,
 } from 'lucide-react'
 import { MapContainer, TileLayer, CircleMarker, Popup, Tooltip, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -592,6 +592,71 @@ export default function WRDataExplorer() {
     ].filter(b => b.value > 0)
   }, [aiObs])
 
+  // ── Insights tab: exploratory pattern discovery ────────────────────────────
+  // Everything here is DESCRIPTIVE and computed from the real readings — it
+  // finds which parameters move together and which stand out. Deliberately NO
+  // health grade, trust score, or safety verdict: those would be authoritative
+  // judgments about real water or the volunteers' data, which we do not make.
+  const datasetInsights = useMemo(() => {
+    if (aiObs.length < 4 || paramRows.length < 2) return null
+    // One value per parameter per observation (for co-occurrence correlation).
+    const rows = aiObs.map(o => {
+      const m = {}
+      ;(o.readings || []).forEach(r => {
+        const v = parseFloat(r.value)
+        if (isFinite(v) && r.parameter) m[r.parameter] = v
+      })
+      return m
+    })
+    const pearson = (xs, ys) => {
+      const n = xs.length
+      const mx = xs.reduce((a, b) => a + b, 0) / n
+      const my = ys.reduce((a, b) => a + b, 0) / n
+      let sxy = 0, sxx = 0, syy = 0
+      for (let i = 0; i < n; i++) { const dx = xs[i] - mx, dy = ys[i] - my; sxy += dx * dy; sxx += dx * dx; syy += dy * dy }
+      if (sxx <= 0 || syy <= 0) return null
+      return sxy / Math.sqrt(sxx * syy)
+    }
+    const params = paramRows.map(p => p.param)
+    const label = (p) => p.replace(/_/g, ' ')
+    // Pairwise correlations across observations where BOTH params were measured.
+    const corrs = []
+    for (let i = 0; i < params.length; i++) {
+      for (let j = i + 1; j < params.length; j++) {
+        const a = params[i], b = params[j]
+        const xs = [], ys = []
+        for (const m of rows) { if (m[a] != null && m[b] != null) { xs.push(m[a]); ys.push(m[b]) } }
+        if (xs.length >= 8) {
+          const r = pearson(xs, ys)
+          if (r != null && Math.abs(r) >= 0.45) corrs.push({ a: label(a), b: label(b), r, n: xs.length })
+        }
+      }
+    }
+    corrs.sort((x, y) => Math.abs(y.r) - Math.abs(x.r))
+
+    // Descriptive per-parameter stats (mean/sd → coefficient of variation).
+    const valsBy = {}
+    for (const m of rows) for (const k in m) (valsBy[k] = valsBy[k] || []).push(m[k])
+    const varStats = Object.entries(valsBy)
+      .filter(([, vs]) => vs.length >= 5)
+      .map(([k, vs]) => {
+        const mean = vs.reduce((a, b) => a + b, 0) / vs.length
+        const sd = Math.sqrt(vs.reduce((a, v) => a + (v - mean) ** 2, 0) / vs.length)
+        return { param: label(k), cv: mean !== 0 ? Math.abs(sd / mean) : 0, n: vs.length }
+      })
+    const mostVariable = varStats.length ? varStats.reduce((a, b) => b.cv > a.cv ? b : a) : null
+    const mostStable   = varStats.length ? varStats.reduce((a, b) => b.cv < a.cv ? b : a) : null
+
+    // Strongest trend from the already-computed paramRows.trend.
+    const trended = paramRows.filter(p => p.trend && p.trend.dir !== 'flat')
+      .sort((a, b) => Math.abs(b.trend.pct) - Math.abs(a.trend.pct))
+    const strongestTrend = trended[0] || null
+
+    const mostSampled = paramRows[0] || null // paramRows is sorted by n desc
+
+    return { corrs: corrs.slice(0, 6), mostVariable, mostStable, strongestTrend, mostSampled }
+  }, [aiObs, paramRows])
+
   const askAI = useCallback(async (question) => {
     const q = (question || aiInput).trim()
     if (!q || !selectedDs || aiThinking) return
@@ -1131,6 +1196,7 @@ ${context}` },
           <div style={{ display: 'flex', gap: 2, marginBottom: 10, borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
             {[
               { id: 'ai',         label: 'AI Assistant', icon: Sparkles,    color: '#a78bfa' },
+              { id: 'insights',   label: 'Insights',     icon: Activity,     color: '#8b5cf6' },
               { id: 'parameters', label: 'Parameters',   icon: FlaskConical, color: '#14b8a6' },
               { id: 'map',        label: 'Map',          icon: MapIcon,      color: '#f59e0b' },
               { id: 'timeline',   label: 'Timeline',     icon: TrendingUp,   color: '#6366f1' },
@@ -1238,6 +1304,104 @@ ${context}` },
                     ))}
                   </div>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* ─── Insights sub-tab (exploratory pattern discovery) ─── */}
+          {dsSubTab === 'insights' && (
+            <div>
+              {aiObsLoading ? (
+                <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}><RefreshCw size={14} className="animate-spin"/> Analysing readings…</div>
+              ) : !datasetInsights ? (
+                <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>Not enough numeric readings yet to surface patterns — this fills in once the dataset has a handful of observations.</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12, lineHeight: 1.55, color: 'var(--text-muted)', marginBottom: 12, padding: '10px 12px', borderRadius: 8, background: 'rgba(139,92,246,.06)', border: '1px solid rgba(139,92,246,.18)' }}>
+                    <strong style={{ color: 'var(--text)' }}>Patterns found automatically in this dataset's own readings.</strong> These are exploratory and descriptive — they show what the numbers do, not a safety verdict. A relationship means two things tend to move together in the data; it does not prove one causes the other.
+                  </div>
+
+                  {/* Descriptive pattern cards — all factual, no grades. */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10, marginBottom: 16 }}>
+                    {datasetInsights.mostSampled && (
+                      <div style={{ padding: '11px 13px', borderRadius: 10, background: 'var(--card-bg)', border: '1px solid var(--border)', borderLeft: '3px solid #6366f1' }}>
+                        <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)' }}>Most-measured parameter</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)', textTransform: 'capitalize', marginTop: 2 }}>{datasetInsights.mostSampled.param.replace(/_/g, ' ')}</div>
+                        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>{datasetInsights.mostSampled.n.toLocaleString()} readings</div>
+                      </div>
+                    )}
+                    {datasetInsights.strongestTrend && (
+                      <div style={{ padding: '11px 13px', borderRadius: 10, background: 'var(--card-bg)', border: '1px solid var(--border)', borderLeft: '3px solid #a78bfa' }}>
+                        <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)' }}>Strongest movement over time</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)', textTransform: 'capitalize', marginTop: 2 }}>{datasetInsights.strongestTrend.param.replace(/_/g, ' ')}</div>
+                        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                          {datasetInsights.strongestTrend.trend.dir === 'up' ? '↗ rising' : '↘ falling'} {datasetInsights.strongestTrend.trend.pct > 0 ? '+' : ''}{datasetInsights.strongestTrend.trend.pct.toFixed(0)}% (recent vs early)
+                        </div>
+                      </div>
+                    )}
+                    {datasetInsights.mostVariable && (
+                      <div style={{ padding: '11px 13px', borderRadius: 10, background: 'var(--card-bg)', border: '1px solid var(--border)', borderLeft: '3px solid #f59e0b' }}>
+                        <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)' }}>Most variable</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)', textTransform: 'capitalize', marginTop: 2 }}>{datasetInsights.mostVariable.param.replace(/_/g, ' ')}</div>
+                        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>swings the most (variation {(datasetInsights.mostVariable.cv * 100).toFixed(0)}%)</div>
+                      </div>
+                    )}
+                    {datasetInsights.mostStable && (
+                      <div style={{ padding: '11px 13px', borderRadius: 10, background: 'var(--card-bg)', border: '1px solid var(--border)', borderLeft: '3px solid #10b981' }}>
+                        <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)' }}>Most stable</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)', textTransform: 'capitalize', marginTop: 2 }}>{datasetInsights.mostStable.param.replace(/_/g, ' ')}</div>
+                        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>barely moves (variation {(datasetInsights.mostStable.cv * 100).toFixed(0)}%)</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* What moves together — real Pearson correlations. */}
+                  <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                    <Activity size={15} color="#8b5cf6"/> What moves together
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
+                    Parameters whose readings rise and fall together (or in opposition) across the same sampling visits. Only relationships strong enough to stand out (|r| ≥ 0.45, from at least 8 shared samples) are shown.
+                  </div>
+                  {datasetInsights.corrs.length === 0 ? (
+                    <div style={{ padding: 14, borderRadius: 10, background: 'var(--card-bg)', border: '1px solid var(--border)', fontSize: 11.5, color: 'var(--text-muted)' }}>
+                      No strong relationships surfaced among the parameters that share enough samples. That's common when parameters are measured on different visits, or when the water here is stable.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {datasetInsights.corrs.map((c, i) => {
+                        const positive = c.r > 0
+                        const strength = Math.abs(c.r) >= 0.7 ? 'strong' : Math.abs(c.r) >= 0.55 ? 'moderate' : 'mild'
+                        const col = positive ? '#14b8a6' : '#8b5cf6'
+                        const posPct = ((c.r + 1) / 2) * 100
+                        return (
+                          <div key={i} style={{ padding: '11px 13px', borderRadius: 10, background: 'var(--card-bg)', border: '1px solid var(--border)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)', textTransform: 'capitalize' }}>
+                                {c.a} <span style={{ color: col }}>{positive ? '↕' : '⇅'}</span> {c.b}
+                              </span>
+                              <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
+                                <strong style={{ color: col }}>r = {c.r.toFixed(2)}</strong> · {c.n} shared samples
+                              </span>
+                            </div>
+                            <div style={{ position: 'relative', height: 8, background: 'rgba(127,127,127,.1)', borderRadius: 999, marginBottom: 7 }}>
+                              <div style={{ position: 'absolute', left: '50%', top: -3, bottom: -3, width: 1, background: 'var(--border)' }}/>
+                              <div style={{ position: 'absolute', top: 0, bottom: 0, borderRadius: 999, background: col, left: positive ? '50%' : `${posPct}%`, width: `${Math.abs(posPct - 50)}%` }}/>
+                              <div style={{ position: 'absolute', top: -2, left: `${posPct}%`, width: 12, height: 12, marginLeft: -6, borderRadius: '50%', background: col, border: '2px solid #fff', boxShadow: `0 0 0 1px ${col}` }}/>
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                              A <strong style={{ color: 'var(--text)' }}>{strength} {positive ? 'positive' : 'inverse'}</strong> relationship — {positive
+                                ? 'when one rises, the other tends to rise too.'
+                                : 'when one rises, the other tends to fall.'} This is a pattern in the data, not proof of cause.
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 14, fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.5, fontStyle: 'italic' }}>
+                    Exploratory analysis computed in your browser from the loaded readings — no external data, no AI, nothing inferred beyond the arithmetic. Relationships can reflect season, shared sources, or coincidence; treat them as leads to investigate, not conclusions.
+                  </div>
+                </>
               )}
             </div>
           )}
