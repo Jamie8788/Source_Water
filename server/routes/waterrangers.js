@@ -8,6 +8,7 @@ const rateLimit = require('express-rate-limit')
 const db = require('../db/connection')
 const { requireAuth } = require('../middleware/auth')
 const { logAiPrompt } = require('../utils/aiLog')
+const { loadSnapshot, saveSnapshot } = require('../utils/wrSnapshot')
 
 const WR_BASE = 'https://data.waterrangers.com'
 const API_KEY = process.env.WATERRANGERS_API_KEY || process.env.VITE_WATERRANGERS_API_KEY
@@ -158,9 +159,25 @@ const wrFetchBackground = (endpoint, query) => wrFetch(endpoint, query, { respec
 //   • Never caches an empty result (a rate-limited load must not poison the
 //     cache), and serves the last-good copy if a refresh fails.
 // This is the same shape as /locations-all, generalised.
-function makeBulkStore({ name, path, ttlMs, maxPages = 40 }) {
+function makeBulkStore({ name, path, ttlMs, maxPages = 40, persistKey }) {
   let store = { data: null, ts: 0 }
   let inFlight = null
+  let hydrating = null
+
+  // Restore the last saved copy from our DB once per process, so a deploy or
+  // restart reuses it instead of re-walking Water Rangers.
+  function hydrate() {
+    if (!persistKey) return Promise.resolve()
+    if (!hydrating) {
+      hydrating = loadSnapshot(persistKey).then(snap => {
+        if (snap && !(store.data && store.data.length)) {
+          store = snap
+          console.log(`[WR] ${name}: restored ${snap.data.length} from DB (age ${Math.round((Date.now() - snap.ts) / 60000)} min)`)
+        }
+      })
+    }
+    return hydrating
+  }
 
   async function loadAll() {
     const all = []
@@ -194,7 +211,11 @@ function makeBulkStore({ name, path, ttlMs, maxPages = 40 }) {
     if (inFlight) return inFlight
     inFlight = loadAll()
       .then(all => {
-        if (all.length) { store = { data: all, ts: Date.now() }; console.log(`[WR] ${name}: cached ${all.length}`) }
+        if (all.length) {
+          store = { data: all, ts: Date.now() }
+          console.log(`[WR] ${name}: cached ${all.length}`)
+          if (persistKey) saveSnapshot(persistKey, all, store.ts)
+        }
         else console.log(`[WR] ${name}: loaded 0 — not caching (will retry)`)
         return all
       })
@@ -204,6 +225,7 @@ function makeBulkStore({ name, path, ttlMs, maxPages = 40 }) {
   }
 
   async function get() {
+    await hydrate()
     const now = Date.now()
     const has = store.data && store.data.length > 0
     const fresh = has && (now - store.ts < ttlMs)
@@ -218,20 +240,34 @@ function makeBulkStore({ name, path, ttlMs, maxPages = 40 }) {
     return { items, cached: false, count: items.length }
   }
 
-  return { get, warm: () => { refresh() } }
+  // Warm on boot: restore from DB, and only call Water Rangers if that saved
+  // copy is missing or older than the freshness window.
+  async function warm() {
+    await hydrate()
+    const fresh = store.data && store.data.length && (Date.now() - store.ts < ttlMs)
+    if (!fresh) refresh()
+  }
+
+  return { get, warm }
 }
 
-// Datasets & organizations change rarely → a 30-minute freshness window is
-// plenty, and SWR means even that boundary is invisible to users.
-const datasetsStore     = makeBulkStore({ name: 'datasets-all',      path: '/datasets.json',      ttlMs: 30 * 60 * 1000 })
-const organizationsStore = makeBulkStore({ name: 'organizations-all', path: '/organizations.json', ttlMs: 30 * 60 * 1000 })
+// Datasets & organizations change rarely. A 6-hour window (was 30 min) plus the
+// DB copy keeps us a light API citizen; SWR means users never wait on refresh.
+const datasetsStore     = makeBulkStore({ name: 'datasets-all',      path: '/datasets.json',      ttlMs: 6 * 60 * 60 * 1000, persistKey: 'datasets' })
+const organizationsStore = makeBulkStore({ name: 'organizations-all', path: '/organizations.json', ttlMs: 6 * 60 * 60 * 1000, persistKey: 'organizations' })
 
 // Warm the caches shortly after boot so the very first real user is fast too.
 // Delayed a few seconds so it doesn't compete with app startup.
 setTimeout(() => {
   console.log('[WR] warming datasets + organizations + locations caches…')
   datasetsStore.warm(); organizationsStore.warm()
-  try { refreshLocations() } catch (e) { console.error('[WR] locations warm failed:', e.message) }
+  // Restore from DB first; only hit Water Rangers if the saved copy is missing
+  // or more than a day old. A deploy no longer triggers a full re-walk.
+  hydrateLocations().then(() => {
+    const has = allLocationsCache.data && allLocationsCache.data.length
+    const fresh = has && (Date.now() - allLocationsCache.ts < ALL_LOC_TTL)
+    if (!fresh) refreshLocations()
+  }).catch(e => console.error('[WR] locations warm failed:', e.message))
 }, 4000)
 
 // GET /api/wr/locations — single page (backwards compat)
@@ -252,9 +288,28 @@ router.get('/locations', async (req, res) => {
 // hit by N users triggers exactly ONE upstream load (dedup) that everyone
 // shares. Empty results are never cached, and the last-good copy is served if
 // a refresh fails. All in-memory — carries to Hostinger unchanged.
+//
+// API-citizenship (Oct 2026, at Water Rangers' request): the list barely changes
+// day to day, so we refresh it at most ONCE A DAY and keep the copy in our own
+// DB (utils/wrSnapshot). Previously the copy lived only in memory, expired
+// hourly and was lost on every deploy/restart, which re-walked all ~95 pages
+// ~20+ times a day (~67k calls/month). Now: ~95 calls/day, zero on deploys.
 let allLocationsCache = { data: null, ts: 0 }
-const ALL_LOC_TTL = 60 * 60 * 1000 // 1 hour freshness window
+const ALL_LOC_TTL = 24 * 60 * 60 * 1000 // refresh at most once a day
 let loadingInProgress = null       // the one in-flight load (dedup)
+let locationsHydrating = null      // one DB restore per process
+
+function hydrateLocations() {
+  if (!locationsHydrating) {
+    locationsHydrating = loadSnapshot('locations').then(snap => {
+      if (snap && !(allLocationsCache.data && allLocationsCache.data.length)) {
+        allLocationsCache = snap
+        console.log(`[WR] locations restored ${snap.data.length} from DB (age ${Math.round((Date.now() - snap.ts) / 60000)} min)`)
+      }
+    })
+  }
+  return locationsHydrating
+}
 
 // Resilient loader: skips any page that fails after retries so a single bad
 // page never zeroes the map ("rather have 9,400 than zero"), and waits out
@@ -298,7 +353,11 @@ function refreshLocations() {
   if (loadingInProgress) return loadingInProgress
   loadingInProgress = loadAllLocations()
     .then(all => {
-      if (all.length > 0) { allLocationsCache = { data: all, ts: Date.now() }; console.log(`[WR] locations cached ${all.length} for 1hr`) }
+      if (all.length > 0) {
+        allLocationsCache = { data: all, ts: Date.now() }
+        console.log(`[WR] locations cached ${all.length} for 24h`)
+        saveSnapshot('locations', all, allLocationsCache.ts)
+      }
       else console.log('[WR] locations loaded 0 — NOT caching (will retry next request)')
       return all
     })
@@ -309,6 +368,7 @@ function refreshLocations() {
 
 router.get('/locations-all', async (req, res) => {
   try {
+    await hydrateLocations() // reuse the DB copy before ever calling WR
     const now = Date.now()
     const has = allLocationsCache.data && allLocationsCache.data.length > 0
     const fresh = has && (now - allLocationsCache.ts < ALL_LOC_TTL)
@@ -491,7 +551,14 @@ router.get('/datasets/:id/form', async (req, res) => {
 // defaults to 20 per page when per_page isn't set, which caused us to ship
 // the Locations stat tile + map markers with only 20 of (for example) 78
 // real sites in County Sustainability Group. We always want every site.
+// Cached 6h per dataset (in memory) — a dataset's site list rarely changes, and
+// without this every dataset open re-paged Water Rangers.
+const dsLocCache = new Map()
+const DS_LOC_TTL = 6 * 60 * 60 * 1000
 router.get('/datasets/:id/locations', async (req, res) => {
+  const cacheKey = `${req.params.id}|${JSON.stringify(req.query)}`
+  const hit = dsLocCache.get(cacheKey)
+  if (hit && Date.now() - hit.ts < DS_LOC_TTL) return res.json({ locations: hit.data })
   try {
     const all = []
     for (let page = 1; page <= 20; page++) {
@@ -503,8 +570,13 @@ router.get('/datasets/:id/locations', async (req, res) => {
       all.push(...items)
       if (items.length < 100) break
     }
+    if (all.length) {
+      if (dsLocCache.size > 500) dsLocCache.delete(dsLocCache.keys().next().value) // bound memory
+      dsLocCache.set(cacheKey, { data: all, ts: Date.now() })
+    }
     res.json({ locations: all })
   } catch (e) {
+    if (hit) return res.json({ locations: hit.data }) // serve last-good copy on failure
     res.status(502).json({ error: e.message })
   }
 })
