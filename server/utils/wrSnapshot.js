@@ -41,9 +41,24 @@ function ensureTable() {
   return ready
 }
 
-// Returns { data, ts } or null. Never throws — a missing/broken snapshot just
-// means we fall back to fetching from Water Rangers as before.
-async function loadSnapshot(key) {
+// If the DB is down or over quota (e.g. Supabase restricted), never let the
+// snapshot lookup hold up the map: give it 3s, then fall back to Water Rangers.
+const LOAD_TIMEOUT_MS = 3000
+
+// Returns { data, ts } or null. Never throws — a missing/broken/slow snapshot
+// just means we fall back to fetching from Water Rangers as before.
+function loadSnapshot(key) {
+  let timer
+  const timeout = new Promise(resolve => {
+    timer = setTimeout(() => {
+      console.warn(`[WR] snapshot load "${key}" timed out after ${LOAD_TIMEOUT_MS}ms — DB unavailable? Falling back to Water Rangers.`)
+      resolve(null)
+    }, LOAD_TIMEOUT_MS)
+  })
+  return Promise.race([loadSnapshotInner(key), timeout]).finally(() => clearTimeout(timer))
+}
+
+async function loadSnapshotInner(key) {
   try {
     await ensureTable()
     const row = db.USE_PG
